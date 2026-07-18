@@ -12,7 +12,9 @@ const ranges = [
   { series: 'fire', labelZh: '火', ids: Array.from({ length: 8 }, (_, index) => index + 34) },
   { series: 'forest', labelZh: '林', ids: Array.from({ length: 8 }, (_, index) => index + 42) },
   { series: 'mountain', labelZh: '山', ids: Array.from({ length: 8 }, (_, index) => index + 50) },
-  { series: 'god', labelZh: '神将', ids: Array.from({ length: 8 }, (_, index) => index + 139) },
+  { series: 'yin', labelZh: '阴', ids: Array.from({ length: 8 }, (_, index) => index + 249) },
+  { series: 'thunder', labelZh: '雷', ids: Array.from({ length: 8 }, (_, index) => index + 339) },
+  { series: 'god', labelZh: '神将', ids: [...Array.from({ length: 8 }, (_, index) => index + 139), 271, 272, 347, 348] },
   { series: 'boundary', labelZh: '界限突破', ids: [...Array.from({ length: 5 }, (_, index) => index + 152), ...Array.from({ length: 16 }, (_, index) => index + 158), ...Array.from({ length: 6 }, (_, index) => index + 233)] },
 ]
 

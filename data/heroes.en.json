@@ -1511,6 +1511,460 @@
     ]
   },
   {
+    "id": "hero-249",
+    "nameEn": "Yan Yan",
+    "roleEn": "Flexible defense",
+    "difficulty": "Easy",
+    "summaryEn": "Yan Yan switches between defense and offense. In Yang mode, deter an enemy from targeting you for the rest of the turn; in Yin mode, take a card from a Slash target and stop targeting that character for the rest of the turn.",
+    "timingEn": "Choose the mode before the relevant trigger: Yang when an enemy Slashes you, and Yin when your Slash targets someone. Remember that the restriction lasts only for the current turn.",
+    "exampleEn": "In Yang mode, an enemy targets you with Slash. You choose to trigger Refuse Battle; you and that enemy each draw one card, and that enemy cannot use cards on you for the rest of the turn.",
+    "misunderstandingsEn": [
+      "Yang mode triggers when another character uses Slash on you; it does not trigger when you use Slash.",
+      "In Yin mode, you may take only one card from one Slash target.",
+      "The targeting restriction lasts until the end of the current turn."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "拒战",
+        "nameEn": "Ju Zhan",
+        "textEn": "Conversion skill. Yang: After you become the target of another character’s Slash, you may each draw one card with that character. That character cannot use cards on you for the rest of this turn. Yin: After you choose targets for a Slash, you may obtain one card from one of its targets. You cannot use cards on that character for the rest of this turn.",
+        "plainEn": "Yang protects you after an enemy Slashes you. Yin lets your Slash take a card, but then you cannot use cards on that target again this turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-250",
+    "nameEn": "Wang Ping",
+    "roleEn": "Resource control",
+    "difficulty": "Medium",
+    "summaryEn": "Wang Ping pressures characters with more cards than he has or more equipment than he has. His locked skill rewards changing the target of Flying Army and also gives an especially large first-use reward.",
+    "timingEn": "Use Flying Army during your Play Phase after checking whether the target has more hand cards or equipment than you. Vary targets when possible to trigger Military Strategy repeatedly.",
+    "exampleEn": "During your Play Phase, you discard one card and choose an enemy with more hand cards than you. That enemy gives you one hand card. If this is your first Flying Army resolution, Military Strategy makes you draw two cards.",
+    "misunderstandingsEn": [
+      "Flying Army is limited to once during your Play Phase.",
+      "The target chooses which card to give or discard; you do not choose the card.",
+      "Military Strategy is locked and checks the target against your previously chosen target."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "飞军",
+        "nameEn": "Fei Jun",
+        "textEn": "Once during your Play Phase, you may discard one card, then choose one: have a character with more hand cards than you give you one card; or have a character with more cards in their equipment area than you discard one card from their equipment area.",
+        "plainEn": "Discard one card to make a hand-rich character give you a card or an equipment-rich character discard equipment."
+      },
+      {
+        "nameZh": "兵略",
+        "nameEn": "Bing Lüe",
+        "textEn": "Locked skill. After you activate Flying Army and resolve its effect, if its target is different from every target you previously chose, or if this is the first time in the game that you have activated Flying Army and resolved its effect, you draw two cards.",
+        "plainEn": "Your first Flying Army use always draws two cards. Later, choosing a completely new target also draws two cards."
+      }
+    ]
+  },
+  {
+    "id": "hero-251",
+    "nameEn": "Lu Ji",
+    "roleEn": "Defense and support",
+    "difficulty": "Medium",
+    "summaryEn": "Lu Ji uses Orange tokens to prevent damage and improve Draw Phases. He can give an Orange to an ally, or sacrifice a token or HP to help someone, while Orange Replenishment restores a token when none remain.",
+    "timingEn": "Track who has Orange tokens before damage and Draw Phases. Use Orange Offering when an ally needs protection or cards, and preserve a token when you may need damage prevention.",
+    "exampleEn": "At game start, you gain three Orange tokens. An ally with an Orange would take damage, so Orange Embrace prevents that damage and removes one of that ally’s Orange tokens; that ally also draws one extra card during their Draw Phase.",
+    "misunderstandingsEn": [
+      "Orange Embrace prevents damage to any character who has an Orange, not only damage to you.",
+      "The extra Draw Phase card is for each character with an Orange token.",
+      "Orange Replenishment skips your Draw Phase; it does not give you both cards and an Orange."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "怀橘",
+        "nameEn": "Huai Ju",
+        "textEn": "Locked skill. At the start of the game, you gain three Orange tokens. When a character with an Orange token would take damage, prevent that damage, then remove one Orange token from that character. During the Draw Phase of a character with an Orange token, that character draws one additional card.",
+        "plainEn": "Oranges prevent one instance of damage and then disappear. Characters with Oranges also draw one extra card during their Draw Phases."
+      },
+      {
+        "nameZh": "遗礼",
+        "nameEn": "Yi Li",
+        "textEn": "At the start of your Play Phase, you may either lose 1 HP or remove one Orange token, then have another character gain one Orange token.",
+        "plainEn": "At the start of your Play Phase, pay 1 HP or one Orange to give another character an Orange."
+      },
+      {
+        "nameZh": "整论",
+        "nameEn": "Zheng Lun",
+        "textEn": "If you have no Orange tokens, you may skip your Draw Phase to gain one Orange token.",
+        "plainEn": "When you have no Oranges, you can skip drawing to recover one Orange."
+      }
+    ]
+  },
+  {
+    "id": "hero-252",
+    "nameEn": "Sun Liang",
+    "roleEn": "Control lord",
+    "difficulty": "Hard",
+    "summaryEn": "Sun Liang is restricted during his Play Phase but gains control through cards discarded during the Discard Phase. He can either support several characters with cards or damage characters whose total HP matches X. As lord, he can turn Wu allies’ Slashes into card draw.",
+    "timingEn": "Plan your Play Phase around the characters in your attack range and the number of cards you expect to use. Your Discard Phase discard count determines X for Collapse Punishment.",
+    "exampleEn": "You discard three cards during the Discard Phase. After it ends, you choose Collapse Punishment’s damage option and select characters whose total HP is three; each takes 1 damage, and because at least two characters were selected, you lose 1 HP.",
+    "misunderstandingsEn": [
+      "A character outside your attack range cannot be targeted by your cards during your Play Phase.",
+      "Collapse Punishment’s X is the number of cards discarded during this Discard Phase.",
+      "Using a card is not itself forbidden by Restrictive Government; only illegal targets are forbidden."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "溃诛",
+        "nameEn": "Kui Zhu",
+        "textEn": "After your Discard Phase ends, you may choose one: have up to X characters each draw one card; or deal 1 damage to any number of characters whose total HP is X. If you choose at least two characters for the damage option, you lose 1 HP. X is the number of cards you discarded during this phase.",
+        "plainEn": "After discarding, either distribute up to X cards of draw or deal damage to characters whose total HP is X. Choosing two or more damage targets costs 1 HP."
+      },
+      {
+        "nameZh": "掣政",
+        "nameEn": "Che Zheng",
+        "textEn": "Locked skill. During your Play Phase, a character who is not within attack range of you cannot become the target of cards you use. At the end of your Play Phase, if the number of cards you used during this phase is less than the number of such characters, you discard one card from one of them.",
+        "plainEn": "You cannot use cards on characters outside your attack range. If you used too few cards, you discard one card from one of those characters."
+      },
+      {
+        "nameZh": "立军",
+        "nameEn": "Li Jun",
+        "textEn": "Lord skill. After another Wu character’s Slash finishes resolving during that character’s Play Phase, that character may give that Slash to you. You may then have that character draw one card.",
+        "plainEn": "A Wu ally may pass a resolved Slash to you, and you may reward that ally with one card of draw. This works only when you are the lord."
+      }
+    ]
+  },
+  {
+    "id": "hero-253",
+    "nameEn": "Kuai Yue Kuai Liang",
+    "roleEn": "Control support",
+    "difficulty": "Hard",
+    "summaryEn": "The brothers gain value when targeted and can manipulate the strongest or most dangerous hand. Review the target’s cards in Yin mode before giving one away, while Yang mode can punish a character with the largest hand.",
+    "timingEn": "Use Offer Surrender when you become a card target and the lowest-hand character benefits from a card. Choose the mode of Assess the Situation according to whether you need damage or information and hand disruption.",
+    "exampleEn": "In Yang mode during your Play Phase, you give a card to the character with the most hand cards and deal that character 1 damage. If the damage kills them, you choose a character to draw until they have four hand cards.",
+    "misunderstandingsEn": [
+      "Offer Surrender draws for the character with the fewest hand cards, not necessarily an ally.",
+      "Yang Assess the Situation requires you to give a card before dealing damage.",
+      "In Yin mode, you give the inspected character one of their own cards, and the four-card draw happens only if they still have it at the end of the turn."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "荐降",
+        "nameEn": "Jian Jiang",
+        "textEn": "After you become the target of a card used by another character, you may have the character with the fewest hand cards draw one card.",
+        "plainEn": "When another character targets you with a card, the character holding the fewest cards may draw one."
+      },
+      {
+        "nameZh": "审时",
+        "nameEn": "Shen Shi",
+        "textEn": "Conversion skill. Yang: Once during your Play Phase, you may give one card to a character with the most hand cards, then deal them 1 damage. If that character dies as a result, you may have a character draw cards until they have four hand cards. Yin: Outside your turn, after a card you use or play finishes resolving, you may look at the hand of that card’s user, then give that character one card from their hand. At the end of the current turn, if that character has not lost that card, you draw cards until you have four hand cards.",
+        "plainEn": "Yang gives a card to the fullest hand and then damages its owner. Yin inspects an attacker’s hand and may turn one of their cards into a delayed reward for you."
+      }
+    ]
+  },
+  {
+    "id": "hero-254",
+    "nameEn": "Xu You",
+    "roleEn": "Deck manipulation",
+    "difficulty": "Hard",
+    "summaryEn": "Xu You manipulates the draw pile and can make cards of a chosen suit ignore distance and usage limits. His card-type cycling skill creates bursts of cards, while he always draws from the bottom of the draw pile.",
+    "timingEn": "Choose the suit you need before activating Strategic Success. During your turn, use different card types to trigger Talent; outside your turn, Talent can also set up the next judgment.",
+    "exampleEn": "In Yang mode, you draw one card and discard two hand cards. Until the end of the turn, cards matching the discarded cards’ suits have no distance or usage limits. Later, after using a card of a new type, you place it on top of the draw pile and draw one card from the bottom.",
+    "misunderstandingsEn": [
+      "The no-distance and no-usage-limit effect applies to cards matching the discarded cards’ suits, not every card.",
+      "Talent checks card types used earlier this turn, including equipment cards.",
+      "Xu You draws from the bottom whenever he draws cards, including the draw from Talent."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "成略",
+        "nameEn": "Cheng Lüe",
+        "textEn": "Conversion skill. Once during your Play Phase, Yang: you may draw one card, then discard two hand cards. Yin: you may draw two cards, then discard one hand card. If you do, until the end of this turn, cards you use that have the same suits as the discarded cards have no distance or usage limits.",
+        "plainEn": "Draw and discard according to your current mode. Cards matching the discarded suits can then ignore distance and usage limits this turn."
+      },
+      {
+        "nameZh": "恃才",
+        "nameEn": "Shi Cai",
+        "textEn": "After a card you use finishes resolving, if its card type is different from every card type you have used this turn, including equipment cards, you may place that card on top of the draw pile, then draw one card.",
+        "plainEn": "The first card type you use this turn can be recycled to the top of the draw pile for one new card."
+      },
+      {
+        "nameZh": "寸目",
+        "nameEn": "Cun Mu",
+        "textEn": "Locked skill. Whenever you draw cards, draw them from the bottom of the draw pile instead.",
+        "plainEn": "All your card draws come from the bottom of the draw pile."
+      }
+    ]
+  },
+  {
+    "id": "hero-255",
+    "nameEn": "Lu Zhi",
+    "roleEn": "Damage support",
+    "difficulty": "Hard",
+    "summaryEn": "Lu Zhi stores a card as Ren and uses it to shape both damage and support. In Yang mode, he pays cards matching Ren’s color to damage a target; in Yin mode, matching card types support a character outside his turn.",
+    "timingEn": "Replace Ren in the Finish Phase when you anticipate a different color or card type. Yang’s cost is the HP difference, with a minimum of one card.",
+    "exampleEn": "At game start, you draw one card and place one hand card as Ren. During your Play Phase in Yang mode, an enemy is two HP above you, so you discard two cards matching Ren’s color to deal that enemy 1 damage.",
+    "misunderstandingsEn": [
+      "Ren is placed at game start and can be replaced only during your Finish Phase.",
+      "Yang’s X is the absolute HP difference and is at least 1.",
+      "Yin works outside your turn after your used or played card finishes resolving, and the card type must match Ren."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "明任",
+        "nameEn": "Ming Ren",
+        "textEn": "At the start of the game, draw one card, then place one card from your hand on your general card as Ren. During your Finish Phase, you may replace Ren with a card from your hand.",
+        "plainEn": "Store one card as Ren at game start. You may swap it for a hand card during your Finish Phase."
+      },
+      {
+        "nameZh": "贞良",
+        "nameEn": "Zhen Liang",
+        "textEn": "Conversion skill. Yang: Once during your Play Phase, you may choose another character within your attack range and discard X cards whose colors match Ren to deal that character 1 damage. X is the difference between your HP and that character’s HP, and is at least 1. Yin: Outside your turn, after a card you use or play finishes resolving, if its card type is the same as Ren, you may have a character draw one card.",
+        "plainEn": "Yang converts cards matching Ren’s color into damage based on the HP difference. Yin rewards matching card types with one card of draw for a chosen character."
+      }
+    ]
+  },
+  {
+    "id": "hero-256",
+    "nameEn": "Liu Qi",
+    "roleEn": "Card advantage",
+    "difficulty": "Easy",
+    "summaryEn": "Liu Qi asks another character for a card and then makes cards with that name unanswerable for the turn. If he avoids targeting other characters during his Play Phase, he draws based on the number of factions in play.",
+    "timingEn": "Use Consult Strategy before your important card. To trigger River Encampment, avoid choosing another character as a target throughout your Play Phase and do not skip that phase.",
+    "exampleEn": "At the start of your Play Phase, you ask an ally for a Duel. You use a Duel during the same turn, and other characters cannot respond to that Duel. At the end of the turn, because you targeted no other character during the Play Phase, you draw one card for each faction in play.",
+    "misunderstandingsEn": [
+      "Consult Strategy asks for one card; the other character chooses the card.",
+      "Only cards with the same name as the received card cannot be responded to this turn.",
+      "River Encampment counts factions in play, not the number of characters."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "问计",
+        "nameEn": "Wen Ji",
+        "textEn": "At the start of your Play Phase, you may have another character give you one card. During this turn, cards you use with the same name as that card cannot be responded to by other characters.",
+        "plainEn": "Ask another character for a card, then use cards with that name without allowing responses this turn."
+      },
+      {
+        "nameZh": "屯江",
+        "nameEn": "Tun Jiang",
+        "textEn": "During your Finish Phase, if you did not skip your Play Phase this turn and did not use a card to choose another character as a target during your Play Phase, you may draw X cards. X is the number of factions currently in play.",
+        "plainEn": "If you used no card to target another character, draw cards equal to the number of factions in play."
+      }
+    ]
+  },
+  {
+    "id": "hero-339",
+    "nameEn": "Guan Qiu Jian",
+    "roleEn": "Hand disruption",
+    "difficulty": "Medium",
+    "summaryEn": "Guanqiu Jian repeatedly steals random cards into Rong and awakens after accumulating three Rong while someone has died. Awakening converts the stored cards into hand-card adjustment and grants Clear the Side.",
+    "timingEn": "Track the number of cards you use during your Play Phase: every second card used on other characters triggers Glory. Protect Rong until a death occurs and you reach three or more.",
+    "exampleEn": "After you have used your second card on another character during your Play Phase, Glory triggers. You choose another character, and one of that character’s cards is randomly placed on your general card as Rong. Later, at a preparation phase with at least three Rong and a dead character, you awaken.",
+    "misunderstandingsEn": [
+      "Glory triggers after every cumulative even number of cards used during your Play Phase, not only after the second card in the game.",
+      "The stolen card is random and comes from the chosen character.",
+      "Great Elevation requires both at least three Rong and a character who has died."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "征荣",
+        "nameEn": "Zheng Rong",
+        "textEn": "Locked skill. Whenever you have used an even cumulative number of cards on other characters during your Play Phase, choose another character and randomly place one of that character’s cards on your general card as Rong.",
+        "plainEn": "Every second card you use on other characters lets you randomly take one card from a chosen character and store it as Rong."
+      },
+      {
+        "nameZh": "鸿举",
+        "nameEn": "Hong Ju",
+        "textEn": "Awakening skill. During the preparation phase, if you have at least three Rong and a character is dead, draw a number of cards equal to your Rong, then replace an equal number of Rong with any number of hand cards. Afterward, reduce your maximum HP by 1 and gain Clear the Side※.",
+        "plainEn": "With three Rong and a death on the field, draw and exchange cards with Rong, lose 1 maximum HP, and gain Clear the Side※."
+      }
+    ]
+  },
+  {
+    "id": "hero-340",
+    "nameEn": "Chen Dao",
+    "roleEn": "Unanswerable offense",
+    "difficulty": "Easy",
+    "summaryEn": "Chen Dao can make one important card impossible to respond to, but doing so ends his card use for the phase. His first card each Play Phase ignores distance, allowing him to pressure distant enemies.",
+    "timingEn": "Decide whether the first card should be a distant target or the key unanswerable card. Once you make a card unanswerable, you cannot use more cards during that Play Phase.",
+    "exampleEn": "During your Play Phase, you use Duel on a distant enemy; because it is your first card this phase, distance is ignored. You make Duel unrespondable, so the phase ends for your card use and you cannot use another card this phase.",
+    "misunderstandingsEn": [
+      "The first card ignores distance even if you do not make it unrespondable.",
+      "Making a card unrespondable prevents you from using cards for the rest of that Play Phase.",
+      "The skill applies to a card used during the Play Phase, not only Slash."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "往烈",
+        "nameEn": "Wang Lie",
+        "textEn": "During your Play Phase, the first card you use has no distance limitation. Whenever you use a card during your Play Phase, you may make that card unrespondable. If you do, you cannot use cards for the rest of this phase.",
+        "plainEn": "Your first card ignores distance. You may make any card unrespondable, but then you cannot use more cards this phase."
+      }
+    ]
+  },
+  {
+    "id": "hero-341",
+    "nameEn": "Zhu Ge Zhan",
+    "roleEn": "Flexible control",
+    "difficulty": "Medium",
+    "summaryEn": "Zhuge Zhan scores up to three cards at the Finish Phase based on what he accomplished during the turn. If he scores none, he and another character lose HP. His locked skill can nullify the first Slash or Duel targeting him when his hand is no larger than the user’s.",
+    "timingEn": "During your turn, try to deal damage, avoid discarding, and keep the smallest hand to earn more cards. Choose whether to preserve the top cards or accept HP loss based on the board state.",
+    "exampleEn": "During your turn, you deal damage and discard no cards, while having the fewest hand cards. At the Finish Phase, you look at the top three cards and keep one for each of those three conditions, then put the rest back in any order.",
+    "misunderstandingsEn": [
+      "Each condition can preserve only one card.",
+      "Father’s Shade applies only to your first Slash or Duel target each turn.",
+      "The protection requires your hand size to be no greater than the card user’s hand size."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "罪论",
+        "nameEn": "Zui Lun",
+        "textEn": "During your Finish Phase, you may look at the top three cards of the draw pile. For each of the following conditions you satisfy, keep one card, then return the remaining cards in any order: 1. You dealt damage during this turn; 2. You did not discard cards during this turn; 3. You have the fewest hand cards in play. If you satisfy none of the conditions, you and one other character each lose 1 HP.",
+        "plainEn": "Check three achievements to keep up to three top cards. If you achieved none, you and another character lose 1 HP."
+      },
+      {
+        "nameZh": "父荫",
+        "nameEn": "Fu Yin",
+        "textEn": "Locked skill. The first time each turn you become the target of Slash or Duel, if your hand-card count is no greater than that card’s user’s hand-card count, that card has no effect on you.",
+        "plainEn": "Once each turn, a Slash or Duel can miss you when the user has at least as many hand cards as you."
+      }
+    ]
+  },
+  {
+    "id": "hero-342",
+    "nameEn": "Zhou Fei",
+    "roleEn": "Hand-size control",
+    "difficulty": "Medium",
+    "summaryEn": "Consort Zhou creates hand-size advantages whenever cards move to or from general cards. She can store any number of cards and later use stored equipment while taking back the rest.",
+    "timingEn": "Keep your own hand size in mind because both parts of Good Marriage compare other characters with you. Store cards during preparation when you want to trigger the draw effect, then recover unused cards at the Finish Phase.",
+    "exampleEn": "During your preparation phase, you place an equipment card and another card on your general card. Good Marriage lets a character with more hand cards than you draw one. During your Finish Phase, you use the stored equipment and obtain the other stored card.",
+    "misunderstandingsEn": [
+      "Good Marriage compares hand-card counts at the moment its trigger occurs.",
+      "Stored equipment is used during the Finish Phase; it is not automatically equipped earlier.",
+      "When a character obtains a card from a general card, the discard effect targets a character with fewer hand cards than you."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "良姻",
+        "nameEn": "Liang Yin",
+        "textEn": "Whenever a card is placed on a general card, you may have a character with more hand cards than you draw one card. Whenever any character obtains a card from a character’s general card, you may have a character with fewer hand cards than you discard one card.",
+        "plainEn": "Cards placed on general cards can make a fuller hand draw. Cards taken from general cards can make a smaller hand discard."
+      },
+      {
+        "nameZh": "箜声",
+        "nameEn": "Kong Sheng",
+        "textEn": "During the preparation phase, you may place any number of cards on your general card. During the Finish Phase, you use the equipment cards among them and obtain the remaining cards.",
+        "plainEn": "Store any number of cards early, then use stored equipment and take back everything else at the end of your turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-343",
+    "nameEn": "Lu Kang",
+    "roleEn": "Equipment conversion",
+    "difficulty": "Hard",
+    "summaryEn": "Lu Kang is protected from several control effects and can sacrifice equipment zones for powerful temporary benefits. When all zones are gone or his HP reaches one, he awakens and replaces his former skill with Reconcile.",
+    "timingEn": "Choose the equipment zone to abolish based on your immediate need: more Slash uses, cards and hand capacity, or unrestricted distance. Reforge equipment you cannot use after abolishing a zone.",
+    "exampleEn": "Once during your Play Phase, you abolish your weapon zone and may use three additional Slashes this phase. After all equipment zones are abolished, you awaken during a preparation phase, lose 1 maximum HP, fill your hand to your maximum HP, lose Break the Dike, and gain Reconcile※.",
+    "misunderstandingsEn": [
+      "Humility prevents chained status and delayed Trick Card targets, as well as point-comparison targets; it does not prevent all card targeting.",
+      "Abolishing a zone is permanent unless another effect restores it.",
+      "Breakthrough triggers when all equipment zones are abolished or your HP is 1."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "谦节",
+        "nameEn": "Qian Jie",
+        "textEn": "Locked skill. You cannot become chained, and you cannot become the target of delayed Trick Cards or point comparisons initiated by other characters.",
+        "plainEn": "You cannot be chained or targeted by delayed Tricks or point comparisons from other characters."
+      },
+      {
+        "nameZh": "决堰",
+        "nameEn": "Jue Yan",
+        "textEn": "Once during your Play Phase, you may abolish one type of equipment zone you have, then perform the corresponding effect: Weapon zone: you may use three additional Slashes during this Play Phase; Armor zone: draw three cards and increase your hand limit by 3 until the end of this turn; Mount zone: cards you use have no distance limitation during this phase.",
+        "plainEn": "Abolish one equipment zone for extra Slashes, three cards plus hand capacity, or unrestricted distance."
+      },
+      {
+        "nameZh": "破势",
+        "nameEn": "Po Shi",
+        "textEn": "Awakening skill. During the preparation phase, if all your equipment zones have been abolished or your HP is 1, reduce your maximum HP by 1, draw cards until your hand equals your maximum HP, lose Break the Dike, and gain Reconcile※.",
+        "plainEn": "When your equipment is gone or your HP reaches one, awaken, refill your hand, lose 1 maximum HP, and replace Break the Dike with Reconcile※."
+      }
+    ]
+  },
+  {
+    "id": "hero-344",
+    "nameEn": "Zhang Xiu",
+    "roleEn": "Burst control",
+    "difficulty": "Medium",
+    "summaryEn": "Zhang Xiu can abolish his judgment and equipment areas to completely lock down one enemy and attack them freely. He also trades a card to an ally who shares a multi-target Trick Card and draws in return.",
+    "timingEn": "Use Chaotic Valor when one target must die or must be unable to respond. Use Follow Advice only when you are one of multiple Trick Card targets and preferably give equipment for two cards of draw.",
+    "exampleEn": "During your Play Phase, you abolish your judgment and equipment areas and target an enemy with Chaotic Valor. Until the turn ends, your cards have no distance or usage limits against that enemy, and they cannot use or play hand cards.",
+    "misunderstandingsEn": [
+      "Chaotic Valor is once per game, not once per turn.",
+      "The target cannot use or play hand cards, but the skill does not say they lose equipment or other non-hand cards.",
+      "Follow Advice requires the Trick Card to have more than one target, including you."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "雄乱",
+        "nameEn": "Xiong Luan",
+        "textEn": "Limited skill. During your Play Phase, you may abolish your judgment area and equipment area, then choose another character. Until the end of this turn, cards you use on that character have no distance or usage limits, and that character cannot use or play hand cards.",
+        "plainEn": "Abolish your judgment and equipment areas to lock one character out of hand cards while you attack them without distance or usage limits for the turn."
+      },
+      {
+        "nameZh": "从谏",
+        "nameEn": "Cong Jian",
+        "textEn": "When you become a target of a Trick Card, if that card has more than one target, you may give one card to another target of that card, then draw one card. If the card you give is an equipment card, draw two cards instead.",
+        "plainEn": "When you share a multi-target Trick Card, give an equipment card to another target to draw two, or give another card to draw one."
+      }
+    ]
+  },
+  {
+    "id": "hero-345",
+    "nameEn": "Hao Zhao",
+    "roleEn": "Hand-size support",
+    "difficulty": "Easy",
+    "summaryEn": "Hao Zhao adjusts another character’s hand to match his own hand size at two later checkpoints. He can support an ally with a large hand or reduce an enemy’s hand when his own hand is small.",
+    "timingEn": "Choose the target after checking your current hand size. The target is adjusted both after your turn ends and after that character’s next turn ends, with drawing capped at five cards.",
+    "exampleEn": "At your Finish Phase, you have four hand cards and choose an ally with one. After your turn ends, that ally draws until they have four; after their next turn ends, they are again adjusted to four.",
+    "misunderstandingsEn": [
+      "The target may draw or discard to match your hand size; drawing is capped at five cards.",
+      "The adjustment happens after both your turn and the target’s next turn.",
+      "The target is another character, never yourself."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "镇骨",
+        "nameEn": "Zhen Gu",
+        "textEn": "During your Finish Phase, you may choose another character. After your turn ends and after that character’s next turn ends, that character draws cards until, or discards cards until, their hand-card count equals yours, with drawing capped at five cards.",
+        "plainEn": "Choose another character; after two later turn endings, their hand is adjusted to your hand size, but they can draw no more than five cards."
+      }
+    ]
+  },
+  {
+    "id": "hero-346",
+    "nameEn": "Zhong Di Yuan Shu",
+    "roleEn": "Card engine lord",
+    "difficulty": "Medium",
+    "summaryEn": "Yuan Shu draws based on the number of surviving factions and adjusts his hand based on damage dealt. As lord, he can distribute Discard Phase cards to other Qun allies.",
+    "timingEn": "Use several cards when you need early resources or damage, but avoid dealing more than one damage if you need a normal hand limit. As lord, plan Discard Phase cards around Qun allies who need them.",
+    "exampleEn": "There are three surviving factions, so during your Draw Phase you draw three cards. You deal no damage during your Play Phase; when it ends, you draw until your hand equals your current HP.",
+    "misunderstandingsEn": [
+      "The Draw Phase count is surviving factions, not living characters.",
+      "Dealing more than one damage changes your hand limit to lost HP for the turn.",
+      "False Emperor can give discarded cards to different Qun characters, at most one card to each."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "庸肆",
+        "nameEn": "Yong Si",
+        "textEn": "Locked skill. During your Draw Phase, draw X cards instead, where X is the number of surviving factions. At the end of your Play Phase, if you dealt no damage during that phase, draw cards until your hand equals your current HP. If you dealt more than 1 total damage during that phase, your hand limit for this turn becomes your lost HP.",
+        "plainEn": "Draw by surviving factions, then either refill your hand to current HP if you dealt no damage or suffer a low hand limit after dealing more than one damage."
+      },
+      {
+        "nameZh": "伪帝",
+        "nameEn": "Wei Di",
+        "textEn": "Lord skill. During your Discard Phase, cards you discard may be given to any number of other Qun characters, with at most one card given to each.",
+        "plainEn": "As lord, you may pass your discarded cards to Qun allies, one card per ally."
+      }
+    ]
+  },
+  {
     "id": "hero-139",
     "nameEn": "Shen Guan Yu",
     "roleEn": "Retaliation",
@@ -1755,6 +2209,124 @@
         "nameEn": "Lian Po",
         "textEn": "After you kill any character, you may gain an additional turn after this turn ends.",
         "plainEn": "A kill can give you another full turn after the current one."
+      }
+    ]
+  },
+  {
+    "id": "hero-271",
+    "nameEn": "Shen Liu Bei",
+    "roleEn": "Elemental offense",
+    "difficulty": "Hard",
+    "summaryEn": "God Liu Bei converts red hand cards or Trick Cards into elemental Slashes, while his HP and maximum HP gradually decline. He remains chained, spreads chaining, and gives chained characters extra hand capacity.",
+    "timingEn": "Use Yang Long Nu for distant targets and Yin for a burst of Thunder Slashes. Finish the fight quickly because each activation permanently or temporarily weakens you.",
+    "exampleEn": "At the start of your Play Phase in Yang mode, you lose 1 HP and draw one card. Until the turn ends, your red hand cards are Fire Slashes with no distance limitation. At the Finish Phase, you chain another character.",
+    "misunderstandingsEn": [
+      "Yang loses 1 HP; Yin reduces maximum HP by 1.",
+      "Yang affects red hand cards, while Yin affects Trick Cards.",
+      "Jie Ying makes you permanently chained and ignores effects that would remove your chain."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "龙怒",
+        "nameEn": "Long Nu",
+        "textEn": "Conversion skill, locked skill. At the start of your Play Phase, Yang: lose 1 HP and draw one card; red hand cards you have during this turn are treated as Fire Slashes with no distance limitation. Yin: reduce your maximum HP by 1 and draw one card; Trick Cards you have during this turn are treated as Thunder Slashes with no usage limit.",
+        "plainEn": "At the start of each Play Phase, lose HP or maximum HP, draw one, and convert a category of cards into elemental Slashes for the turn."
+      },
+      {
+        "nameZh": "结营",
+        "nameEn": "Jie Ying",
+        "textEn": "Locked skill. At the start of the game, you become chained. Iron Chain’s effect that removes chaining has no effect on you, and effects from other skills or cards that would remove your chain have no effect on you. After you finish resolving elemental damage, you become chained immediately. A chained character has a hand limit increased by 2. During your Finish Phase, have another character become chained.",
+        "plainEn": "You stay chained and can spread chaining. Every chained character gets +2 hand limit."
+      }
+    ]
+  },
+  {
+    "id": "hero-272",
+    "nameEn": "Shen Lu Xun",
+    "roleEn": "Chain damage",
+    "difficulty": "Hard",
+    "summaryEn": "God Lu Xun builds Military Strategy marks whenever he deals or takes damage. Odd and even mark counts provide different control effects, while eight or more marks can create a mass damage burst and Zhan Huo can devastate chained characters.",
+    "timingEn": "Use Cui Ke according to whether your mark count is odd or even, and consider saving marks for Zhan Huo. Create enough chained targets before using the limited skill.",
+    "exampleEn": "You have three Military Strategy marks, so at the start of your Play Phase you may deal 1 damage to a character. After reaching eight marks, you remove all marks and deal 1 damage to every other character.",
+    "misunderstandingsEn": [
+      "Military Strategy gains one mark for each point of damage you deal or receive.",
+      "The odd and even effects of Cui Ke are alternatives based on the current mark count.",
+      "Zhan Huo can affect only chained characters, up to the number of removed marks."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "军略",
+        "nameEn": "Jun Lüe",
+        "textEn": "Locked skill. After you receive or deal 1 damage, gain one Military Strategy mark.",
+        "plainEn": "Every point of damage you deal or take gives you one mark."
+      },
+      {
+        "nameZh": "摧克",
+        "nameEn": "Cui Ke",
+        "textEn": "At the start of your Play Phase, if your Military Strategy mark count is odd, you may deal 1 damage to a character. If the count is even, you may have a character become chained and discard one card from their area. If you have more than seven marks, you may remove all Military Strategy marks and deal 1 damage to every other character.",
+        "plainEn": "Odd marks deal damage; even marks chain a character and remove one of their cards. With more than seven marks, you may clear them for mass damage."
+      },
+      {
+        "nameZh": "绽火",
+        "nameEn": "Zhan Huo",
+        "textEn": "Limited skill. During your Play Phase, you may remove all Military Strategy marks, then have up to that many chained characters discard all cards in their equipment areas, and deal 1 Fire damage to one of those characters.",
+        "plainEn": "Remove all marks to strip equipment from chained characters and deal 1 Fire damage to one of them."
+      }
+    ]
+  },
+  {
+    "id": "hero-347",
+    "nameEn": "Shen Zhang Liao",
+    "roleEn": "Skill theft",
+    "difficulty": "Hard",
+    "summaryEn": "God Zhang Liao disables and temporarily steals a damaged enemy’s skill after dealing damage to them. Injured characters in his attack range have reduced hand limits, and successful point comparisons or Duels can restore abolished equipment zones.",
+    "timingEn": "Target important enemy skills with Seize the Edge, especially skills used during their Play Phase. Keep injured enemies within attack range so Stop the Cry can restrict them and restore your equipment zones.",
+    "exampleEn": "During your Play Phase, you deal damage to an enemy, abolish your weapon zone, and choose one of that enemy’s non-limited, non-awakening skills. That skill is invalid until the end of their next turn, and you gain it until that turn ends or they die.",
+    "misunderstandingsEn": [
+      "Seize the Edge does not work on limited, awakening, mission, lord, or certain rule-conflict skills.",
+      "You must abolish one equipment zone to use Seize the Edge.",
+      "Stop the Cry reduces the hand limit of injured characters in your attack range, not all damaged characters."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "夺锐",
+        "nameEn": "Duo Rui",
+        "textEn": "After you deal damage to another character during your Play Phase, you may abolish one equipment zone—weapon, armor, +1 mount, or -1 mount—then choose one skill on that character’s general card, except a limited, awakening, mission, lord, or certain rule-conflict skill. That skill is invalid until the end of that character’s next turn. You gain the chosen skill until the end of that character’s next turn or until that character dies, and you cannot activate Seize the Edge while you have it.",
+        "plainEn": "After damaging someone, sacrifice an equipment zone to disable one eligible skill and borrow it temporarily."
+      },
+      {
+        "nameZh": "止啼",
+        "nameEn": "Zhi Ti",
+        "textEn": "Locked skill. The hand limit of each injured character within your attack range is reduced by 1. Whenever you win a point comparison or Duel against one of those characters, restore one equipment zone. After you take damage, if the source is within your attack range and injured, restore one equipment zone.",
+        "plainEn": "Injured characters near you hold one fewer card. Winning certain contests or taking damage from a nearby injured source restores an equipment zone."
+      }
+    ]
+  },
+  {
+    "id": "hero-348",
+    "nameEn": "Shen Gan Ning",
+    "roleEn": "Hand disruption",
+    "difficulty": "Hard",
+    "summaryEn": "God Gan Ning inspects an enemy’s hand and can trade cards of different suits for effects ranging from HP loss to card draw. He can mark a character as Camp, granting benefits before taking all of that character’s hand cards after their turn.",
+    "timingEn": "Keep cards of different suits for Soul Raid, and choose the effect based on how many of your cards are discarded. Use Raid the Camp on a character who benefits from the temporary bonuses only when taking their hand afterward is worthwhile.",
+    "exampleEn": "You inspect an enemy’s hand and discard four cards total from both hands, with all four suits different. Because four of your cards were discarded, you draw four cards. Later, you place Camp on another character; they draw one extra card, may use one extra Slash, and gain +1 hand limit, then you take their hand after their turn ends.",
+    "misunderstandingsEn": [
+      "Soul Raid requires exactly four discarded cards with four different suits.",
+      "The effects depend on the number of your cards discarded, not the total number discarded.",
+      "Camp is removed after the other marked character’s turn ends, and then you obtain all of that character’s hand cards."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "魄袭",
+        "nameEn": "Po Xi",
+        "textEn": "Once during your Play Phase, you may look at another character’s hand, then you may discard four cards from your hand and that character’s hand. Exactly four cards must be discarded, and their suits must all be different. Resolve the following effect based on the number of cards you discarded from your hand: zero, reduce your maximum HP by 1; one, end your Play Phase and reduce your hand limit by 1 for this turn; three, recover 1 HP; four, draw four cards.",
+        "plainEn": "Inspect a hand, then optionally discard exactly four differently suited cards from both hands. Your own discarded-card count determines the reward or penalty."
+      },
+      {
+        "nameZh": "劫营",
+        "nameEn": "Jie Ying",
+        "textEn": "At the start of your turn, if no character has a Camp token, gain one Camp token. During your Finish Phase, you may place Camp beside another character’s general card. A character with Camp draws one additional card during their Draw Phase, may use one additional Slash during their Play Phase, and has a hand limit increased by 1. After another character with Camp finishes their turn, remove Camp, then obtain all of that character’s hand cards.",
+        "plainEn": "Mark one character as Camp to improve their turn, then take their entire hand after their turn ends."
       }
     ]
   },

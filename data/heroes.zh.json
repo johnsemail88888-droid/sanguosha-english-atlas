@@ -1426,6 +1426,426 @@
     ]
   },
   {
+    "id": "hero-249",
+    "kind": "general",
+    "officialId": 249,
+    "nameZh": "严颜",
+    "kingdom": "蜀",
+    "series": "yin",
+    "seriesLabelZh": "阴",
+    "image": "/images/generals/hero-249.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/41600.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-249.html",
+    "introZh": "严颜，东汉末年武将，初为刘璋部下，担任巴郡太守。建安十九年，刘备进攻江州，严颜战败被俘，张飞对严颜说：“大军至，何以不降而敢拒战？”，严颜回答说：“卿等无状，侵夺我州，我州但有断头将军，无降将军也！”，张飞生气，命左右将严颜牵去砍头，严颜表情不变地说：“砍头便砍头，何为怒邪！”张飞敬佩严颜的勇气，遂释放严颜并以严颜为宾客。",
+    "featureZh": "可以在进攻与防御中切换，并且可以借此获得牌。",
+    "keyCardsZh": "杀、闪",
+    "playZh": "1.拒战阳可以避免能够连续出杀或是有很强的爆发能力的敌人对自己造成过多伤害 2.拒战阴可以在攻击脆弱的敌人时破坏其手牌或装备，但要注意本回合之后不能对他用牌的限制 3.根据局势判断使用拒战以便于在需要的时机处于拒战为合适的状态",
+    "skillsZh": [
+      {
+        "name": "拒战",
+        "text": "转换技，阳：当你成为其他角色使用【杀】的目标后，你可以与其各摸一张牌，然后其本回合不能再对你使用牌。 阴：当你使用【杀】指定目标后，你可以获得其中一名目标的一张牌，然后你本回合不能再对其使用牌。"
+      }
+    ]
+  },
+  {
+    "id": "hero-250",
+    "kind": "general",
+    "officialId": 250,
+    "nameZh": "王平",
+    "kingdom": "蜀",
+    "series": "yin",
+    "seriesLabelZh": "阴",
+    "image": "/images/generals/hero-250.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/41700.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-250.html",
+    "introZh": "三国时蜀汉后期大将。原属曹操，曹操与刘备争汉中，得以投降刘备。诸葛亮第一次北伐时与马谡一同守街亭，之后深受诸葛亮的器重，率领蜀汉的王牌军队无当飞军，多次随诸葛亮北伐。诸葛亮死后，拜前监军、镇北大将军，镇守汉中，曹爽率领十万大军攻汉中时，被王平所击退，累封安汉侯。",
+    "featureZh": "可以给敌人强力的限制，为技能选择新的目标可以摸牌。",
+    "keyCardsZh": "装备牌",
+    "playZh": "1.飞军可以控牌、获取队友牌以及限制敌人的装备。虽然功能和用法多样，但因为选择由目标进行，所以要根据实际情况分析，或者在用牌和装备的时候预先做好准备让敌人只能选择一项 2.兵略扩大了飞军的收益，所以在使用飞军的时候可以多选择新的目标，或是在需要牌的时候选择新目标",
+    "skillsZh": [
+      {
+        "name": "飞军",
+        "text": "出牌阶段限一次，你可以弃置一张牌，然后选择一项：令一名手牌数大于你的角色交给你一张牌；或令一名装备区里牌数大于你的角色弃置一张装备区里的牌。"
+      },
+      {
+        "name": "兵略",
+        "text": "锁定技，当你发动“飞军”执行效果后，若目标与你之前指定的目标均不相同，或此次为你本局游戏中第一次发动“飞军”执行效果，则你摸两张牌。"
+      }
+    ]
+  },
+  {
+    "id": "hero-251",
+    "kind": "general",
+    "officialId": 251,
+    "nameZh": "陆绩",
+    "kingdom": "吴",
+    "series": "yin",
+    "seriesLabelZh": "阴",
+    "image": "/images/generals/hero-251.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/41800.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-251.html",
+    "introZh": "陆绩成年后，博学多识，通晓天文历法，星历算数无不涉览。孙权授予奏曹掾，常以直道见惮，出为郁林太守，加偏将军。虽在军中，不废著作，曾作《浑天图》，注《易经》，撰《太玄经注》。",
+    "featureZh": "具有出色的防御能力和摸牌能力，并且可以分享这种效果。",
+    "keyCardsZh": "桃",
+    "playZh": "1.怀橘可以保证抵挡伤害和额外摸牌效果，比较强大，根据自己剩余橘数量和队友的需要来决定与其他技能的联动是否发动 2.遗礼可以给队友橘，应该选择生存压力大或者需要牌的队友，至于发动与否和以何种方式发动需要根据局势来定 3.整论可以为自己回复一个橘，保证中后期仍有发挥，需要根据局势来发动，避免橘被敌人打掉之后也没有手牌的情况",
+    "skillsZh": [
+      {
+        "name": "怀橘",
+        "text": "锁定技，游戏开始时，你获得3个“橘”标记。（有“橘”的角色受到伤害时，你防止此伤害，然后移去一个“橘”；你令有“橘”的角色摸牌阶段额外摸一张牌）"
+      },
+      {
+        "name": "遗礼",
+        "text": "出牌阶段开始时，你可以失去1点体力或移去一个“橘”，然后令一名其他角色获得一个“橘”。"
+      },
+      {
+        "name": "整论",
+        "text": "若你没有“橘”，你可以跳过摸牌阶段然后获得一个“橘”。"
+      }
+    ]
+  },
+  {
+    "id": "hero-252",
+    "kind": "general",
+    "officialId": 252,
+    "nameZh": "孙亮",
+    "kingdom": "吴",
+    "series": "yin",
+    "seriesLabelZh": "阴",
+    "image": "/images/generals/hero-252.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/41900.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-252.html",
+    "introZh": "三国时期吴国的第二位皇帝，公元252－258年在位。吴大帝孙权第七子，母潘皇后。史称吴少帝、吴废帝、会稽王。",
+    "featureZh": "出牌受到一定限制，但可以通过弃牌阶段进行控场；做主公时团队都可以保证输出能力。",
+    "keyCardsZh": "桃、闪、无懈可击",
+    "playZh": "1.掣政是虽然可以弃置别人的牌，但限制了孙亮的出牌。在出牌阶段应该考虑哪些牌能用，并决定是否触发掣政弃牌的效果 2.溃诛保证应掣政限制而用不出牌时自己也有一定的作用，出牌和留牌时需要根据目前体力来计算能够选择的目标。 3当主公时立军可以保证吴势力队友出杀就有收益，而且可以增加自己溃诛的能力。",
+    "skillsZh": [
+      {
+        "name": "溃诛",
+        "text": "弃牌阶段结束后，你可以选择一项：令至多X名角色各摸一张牌；对任意名体力值之和为X的角色造成一点伤害，若不少于2名角色，你失去一点体力（X为你此阶段弃置的牌数）。"
+      },
+      {
+        "name": "掣政",
+        "text": "锁定技，你的出牌阶段内，攻击范围内不包含你的角色不能成为你使用牌的目标。出牌阶段结束时，若你本阶段内使用的牌数小于这些角色数，你弃置其中一名角色一张牌。"
+      },
+      {
+        "name": "立军",
+        "text": "主公技，其他吴势力角色于其出牌阶段使用【杀】结算结束后，其可以将此【杀】交给你，然后你可以令其摸一张牌。"
+      }
+    ]
+  },
+  {
+    "id": "hero-253",
+    "kind": "general",
+    "officialId": 253,
+    "nameZh": "蒯越蒯良",
+    "kingdom": "魏",
+    "series": "yin",
+    "seriesLabelZh": "阴",
+    "image": "/images/generals/hero-253.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/42000.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-253.html",
+    "introZh": "蒯（kuǎi）良，字子柔，南郡中庐人。归刘表。蒯良为刘表定下安抚荆楚的政治方向，佐其成业，被刘表誉为“雍季之论”。之后，蒯良就被刘表擢升为主簿（bù）。其后蒯良的生平，就不得而知了，《三国志》亦没有记载其卒年。 蒯越（？－214年），字异度，襄阳中庐（今湖北襄阳西南）人。东汉末期人物，演义中为蒯良之弟。原本是荆州牧刘表的部下，曾经在刘表初上任时帮助刘表铲除荆州一带的宗贼（以宗族、乡里关系组成的武装集团）。刘表病逝后与刘琮一同投降曹操，后来官至光禄勋。",
+    "featureZh": "在符合条件时可以控场，并具有强大的补牌能力。",
+    "keyCardsZh": "闪、装备牌",
+    "playZh": "1.荐降可以威慑敌人对自己的干扰和攻击 2.审时阳可以配合恢复能力强或是依靠主动受伤发动技能的队友，如果用来打击敌人，应该能够致命以更好的辅助队友和避免让敌人获得收益 3.审时阴可以配合队友的南蛮入侵和万箭齐发让自己补充牌，而在对敌人发动的时候需要观看牌后找出他不能或不便使用的牌以触发效果 4根据局势判断使用审时以便于在需要的时机处于拒战为合适的状态",
+    "skillsZh": [
+      {
+        "name": "荐降",
+        "text": "当你成为其他角色使用牌的目标后，你可令手牌数最少的一名角色摸一张牌。"
+      },
+      {
+        "name": "审时",
+        "text": "转换技，阳：出牌阶段限一次，你可以将一张牌交给一名手牌数最多的角色，然后对其造成1点伤害。若该角色因此死亡，则你可以令一名角色将手牌摸至四张。 阴：其他角色对你造成伤害后，你可以观看该角色的手牌，然后交给其一张牌，当前回合结束时，若该角色未失去此牌，你将手牌摸至四张。"
+      }
+    ]
+  },
+  {
+    "id": "hero-254",
+    "kind": "general",
+    "officialId": 254,
+    "nameZh": "许攸",
+    "kingdom": "群",
+    "series": "yin",
+    "seriesLabelZh": "阴",
+    "image": "/images/generals/hero-254.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/42100.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-254.html",
+    "introZh": "本为袁绍帐下谋士，官渡之战时其家人因犯法而被收捕，许攸因此背袁投曹，并为曹操设下偷袭袁绍军屯粮之所乌巢的计策，袁绍因此而大败于官渡。后许攸随曹操平定冀州，因自恃其功而屡屡口出狂言，终因触怒曹操而被杀。",
+    "featureZh": "能够控制牌堆，使用牌可以无视距离次数限制，拥有多样化的能力。",
+    "keyCardsZh": "杀、锦囊牌",
+    "playZh": "1.成略可以让自己在摸牌和用牌无限制两方面都收益，根据自己需要用的花色来弃牌2.恃才在回合内可以爆发，回合外则保证防御和威慑力，此外还可以更改牌堆顶的牌来改变下一个判定的花色3.寸目保证摸牌不会受自己或其他人干扰牌库顶技能的影响，但会受牌库底影响，需要注意。",
+    "skillsZh": [
+      {
+        "name": "成略",
+        "text": "转换技，出牌阶段限一次，阳：你可以摸一张牌，然后弃置两张手牌。 阴：你可以摸两张牌，然后弃置一张手牌。 若如此做，直到本回合结束，你使用与弃置牌相同花色的牌无距离和次数限制。"
+      },
+      {
+        "name": "恃才",
+        "text": "当你使用一张牌结算结束后，若此牌与你本回合使用的牌类型均不同（包括装备牌），你可以将此牌置于牌堆顶，然后摸一张牌。"
+      },
+      {
+        "name": "寸目",
+        "text": "锁定技，当你摸牌时，改为从牌堆底摸牌。"
+      }
+    ]
+  },
+  {
+    "id": "hero-255",
+    "kind": "general",
+    "officialId": 255,
+    "nameZh": "卢植",
+    "kingdom": "群",
+    "series": "yin",
+    "seriesLabelZh": "阴",
+    "image": "/images/generals/hero-255.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/42200.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-255.html",
+    "introZh": "卢植性格刚毅，师从太尉陈球、大儒马融等，为郑玄、管宁、华歆的同门师兄。曾先后担任九江、庐江太守，平定蛮族叛乱。后与马日磾、蔡邕等一起在东观校勘儒学经典书籍，并参与续写《汉记》。黄巾起义时为北中郎将，率军与张角交战，后被诬陷下狱。皇甫嵩平定黄巾后，力救卢植，于是复任为尚书。又因上谏激怒董卓被免官，隐居在上谷军都山，被袁绍请为军师。",
+    "featureZh": "通过技能调整手牌，兼有输出和辅助能力。",
+    "keyCardsZh": "基本牌、无懈可击",
+    "playZh": "1.明任让自己开始多一张牌可以选择，之后每回合可以将可能要用的牌存起来或者把关键牌藏起来，此外还能够影响贞良发动的难度，需要注意 2.贞良阳可以直接打击敌人，应该选择体力值相差不大的敌人。自己生存好时可以打击防御力强的敌人，自己脆弱时则应该争取击杀敌人 3.贞良阴在用牌以后可以让友方一个角色摸牌，应该选择需要牌的队友或自己 4根据局势判断使用贞良以便于在需要的时机处于拒战为合适的状态",
+    "skillsZh": [
+      {
+        "name": "明任",
+        "text": "游戏开始时，你摸一张牌，然后将你的一张手牌置于你的武将牌上，称为“任”。结束阶段，你可以用手牌替换“任”。"
+      },
+      {
+        "name": "贞良",
+        "text": "转换技，阳：出牌阶段限一次，你可以选择一名攻击范围内的其他角色并弃置x张与“任”颜色相同的牌对其造成1点伤害（x为你与其体力值之差且至少为1） 阴：你的回合外，当你使用或打出的牌结算结束后，若此牌与“任”类别相同，则你可令一名角色摸一张牌。"
+      }
+    ]
+  },
+  {
+    "id": "hero-256",
+    "kind": "general",
+    "officialId": 256,
+    "nameZh": "刘琦",
+    "kingdom": "群",
+    "series": "yin",
+    "seriesLabelZh": "阴",
+    "image": "/images/generals/hero-256.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/42300.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-256.html",
+    "introZh": "刘表长子。因刘表宠幸蔡氏，刘琦有杀身之祸，后求助诸葛亮，听从其建议离开荆州，去守江夏，躲过一劫。被后世称为“鲁恭王”。",
+    "featureZh": "可以获得大量的手牌，具有一定的防御能力，同时可以选择进行控场。",
+    "keyCardsZh": "杀、锦囊牌",
+    "playZh": "1.问计得到的牌其他角色不能响应，可以让队友给自己发挥关键作用的牌，也可以仅用来抢夺敌人的牌 2.适当保持低调以触发屯江，保证回合外防御力并积蓄下回合爆发用的牌",
+    "skillsZh": [
+      {
+        "name": "问计",
+        "text": "出牌阶段开始时，你可以令一名其他角色交给你一张牌。你于本回合内使用与该牌同名的牌不能被其他角色响应。"
+      },
+      {
+        "name": "屯江",
+        "text": "结束阶段，若你未跳过本回合的出牌阶段，且你于本回合出牌阶段内未使用牌指定过其他角色为目标，则你可以摸X张牌（X为全场势力数）。"
+      }
+    ]
+  },
+  {
+    "id": "hero-339",
+    "kind": "general",
+    "officialId": 339,
+    "nameZh": "毌丘俭",
+    "kingdom": "魏",
+    "series": "thunder",
+    "seriesLabelZh": "雷",
+    "image": "/images/generals/hero-339.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/45600.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-339.html",
+    "introZh": "毌[guàn]丘俭（？—255年），复姓毌丘，字仲恭，河东闻喜（今山西闻喜县）人。三国时期曹魏大将、重臣、文学家、外交官。",
+    "featureZh": "使用牌可以干扰敌人；觉醒前后都具有控场能力。",
+    "keyCardsZh": "装备牌、杀",
+    "playZh": "1.注意使用牌的次数发动征荣夺走敌人的关键牌 2.通过鸿举进行爆发和手牌调整 3.觉醒后利用征荣和清测的联动破坏敌人的手牌和装备",
+    "skillsZh": [
+      {
+        "name": "征荣",
+        "text": "锁定技，每当你于你的出牌阶段对其他角色使用累计偶数张牌后，你选择一名其他角色，随机将其一张牌置于你的武将牌上，称为“荣”。"
+      },
+      {
+        "name": "鸿举",
+        "text": "觉醒技，准备阶段，若“荣”的数量不小于3且场上有角色死亡，则你摸等于“荣”数量的牌，然后以任意张手牌替换等量的“荣”，之后你扣减1点体力上限并获得技能“清侧※”。"
+      }
+    ]
+  },
+  {
+    "id": "hero-340",
+    "kind": "general",
+    "officialId": 340,
+    "nameZh": "陈到",
+    "kingdom": "蜀",
+    "series": "thunder",
+    "seriesLabelZh": "雷",
+    "image": "/images/generals/hero-340.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/45700.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-340.html",
+    "introZh": "陈到（？－247年左右），字叔至，豫州汝南（今河南驻马店平舆县）人。三国时期蜀汉将领，刘备帐下白毦兵统领，名位常亚于赵云，以忠勇著称。蜀汉建兴年间，任征西将军、永安都督，封亭侯。在任期间去世。",
+    "featureZh": "可以让自己关键杀或锦囊无法抵消的输出武将。",
+    "keyCardsZh": "杀、南蛮入侵、万箭齐发、决斗",
+    "playZh": "1.打击远位敌人第一张牌直接选择其为目标以触发往烈 2.使用关键的牌时发动往烈确保达成目标 3.在使用牌的规划和目标不能响应中做出取舍",
+    "skillsZh": [
+      {
+        "name": "往烈",
+        "text": "出牌阶段，你使用的第一张牌无距离限制。当你于出牌阶段使用一张牌时，你可令此牌不能被响应，若如此做，则此阶段你不能再使用牌。"
+      }
+    ]
+  },
+  {
+    "id": "hero-341",
+    "kind": "general",
+    "officialId": 341,
+    "nameZh": "诸葛瞻",
+    "kingdom": "蜀",
+    "series": "thunder",
+    "seriesLabelZh": "雷",
+    "image": "/images/generals/hero-341.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/45800.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-341.html",
+    "introZh": "诸葛瞻（227年－263年），字思远，琅琊郡阳都县（今山东沂南）人。三国时期蜀汉大臣，丞相诸葛亮之子。",
+    "featureZh": "在回合内完成目标获得大量的牌，或者扣减体力以伤害敌人；具有一定的防御能力。",
+    "keyCardsZh": "能造成伤害的牌、桃",
+    "playZh": "1.回合内尽量保证多用牌以达成更多目标发动罪论 2.有特定打击的目标可以利用罪论令其失去体力 3.凭借父荫避免状态好的敌人对自己造成伤害 4.根据局势进行发挥，选择罪论获得更多牌还是控制牌堆顶",
+    "skillsZh": [
+      {
+        "name": "罪论",
+        "text": "结束阶段，你可以观看牌堆顶三张牌，你每满足以下一项便保留一张，然后以任意顺序放回其余的牌：1.你于此回合内造成过伤害；2.你于此回合内未弃置过牌；3手牌数为全场最少。若均不满足，你与一名其他角色失去1点体力。"
+      },
+      {
+        "name": "父荫",
+        "text": "锁定技，你每回合第一次成为【杀】或【决斗】的目标后，若你的手牌数小于等于此牌的使用者，则此牌对你无效"
+      }
+    ]
+  },
+  {
+    "id": "hero-342",
+    "kind": "general",
+    "officialId": 342,
+    "nameZh": "周妃",
+    "kingdom": "吴",
+    "series": "thunder",
+    "seriesLabelZh": "雷",
+    "image": "/images/generals/hero-342.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/45900.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-342.html",
+    "introZh": "周妃（210年或之前—？），一说本名周彻。周妃出身庐江周氏，周瑜独女，相传其生母为东吴美女小乔，因嫁孙登为太子妃，故称周妃。",
+    "featureZh": "可以产生较大的牌差；与可以移出卡牌的武将有不错的配合。",
+    "keyCardsZh": "装备牌",
+    "playZh": "1.利用良姻令状态好的队友摸牌，控制手牌数少的敌人 2.发动箜声触发良姻，或是保证回合外手牌数 3.注意自己手牌数以便良姻选择得到理想目标",
+    "skillsZh": [
+      {
+        "name": "良姻",
+        "text": "当有牌被置于武将牌上时，你可以令手牌数大于你的一名角色摸一张牌；当任意角色获得一名角色武将牌上的牌时，你可以令手牌数小于你的一名角色弃置一张牌。"
+      },
+      {
+        "name": "箜声",
+        "text": "准备阶段，你可以将任意张牌置于武将牌上。结束阶段，你使用其中的装备牌，并获得剩余的牌。"
+      }
+    ]
+  },
+  {
+    "id": "hero-343",
+    "kind": "general",
+    "officialId": 343,
+    "nameZh": "陆抗",
+    "kingdom": "吴",
+    "series": "thunder",
+    "seriesLabelZh": "雷",
+    "image": "/images/generals/hero-343.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/46300.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-343.html",
+    "introZh": "陆抗（226年-274年），字幼节，吴郡吴县（今江苏苏州）人。三国时期吴国名将，吴国丞相陆逊次子。",
+    "featureZh": "对控制具有出色的防御能力，可以以牺牲装备区换取多种收益，绝境时可以觉醒。",
+    "keyCardsZh": "杀",
+    "playZh": "1.谦节保证自己不受延时锦囊、连环或拼点的影响 2.根据需要发动决堰以不同的方式进行爆发 3.尽量通过废除所有装备栏的方式触发破势 4.通过怀柔重铸不用或因废除栏位而不能使用的装备牌",
+    "skillsZh": [
+      {
+        "name": "谦节",
+        "text": "锁定技，你不能进入连环状态，且不能成为延时类锦囊牌或其他角色拼点的目标。"
+      },
+      {
+        "name": "决堰",
+        "text": "出牌阶段限一次，你可以废除你装备区里的一种装备栏，然后执行对应的一项：武器栏，此出牌阶段内你可以多使用三张【杀】；防具栏，摸三张牌，本回合手牌上限+3；坐骑栏，此阶段内你使用牌无距离限制。"
+      },
+      {
+        "name": "破势",
+        "text": "觉醒技，准备阶段，若你所有装备栏均被废除或体力值为1，则你扣减1点体力上限，然后将手牌补至体力上限，失去“决堰”并获得技能“怀柔※”。"
+      }
+    ]
+  },
+  {
+    "id": "hero-344",
+    "kind": "general",
+    "officialId": 344,
+    "nameZh": "张绣",
+    "kingdom": "群",
+    "series": "thunder",
+    "seriesLabelZh": "雷",
+    "image": "/images/generals/hero-344.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/46500.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-344.html",
+    "introZh": "张绣（？—207年），武威郡祖厉（今甘肃靖远县）人也。骠骑将军张济的从子。东汉末年割据宛城的军阀，汉末群雄之一。曹魏时期，与段煨、贾诩、明元郭氏皇后是同乡，也是凉州豪族集团的代表人物。",
+    "featureZh": "在多目标锦囊下具有辅助能力的武将，可以废除区域换来极限的爆发。",
+    "keyCardsZh": "杀、决斗",
+    "playZh": "1.对要击杀的目标发动雄乱令其陷入绝境，争取一击毙命 2.特定情况下发动雄乱限制敌人的出牌，保证出牌计划能够达成 3.与队友都成为锦囊的目标时发动从谏辅助队友",
+    "skillsZh": [
+      {
+        "name": "雄乱",
+        "text": "限定技，出牌阶段，你可以废除你的判定区和装备区，然后指定一名其他角色，直到回合结束，你对其使用牌无距离和次数限制，其不能使用和打出手牌。"
+      },
+      {
+        "name": "从谏",
+        "text": "当你成为锦囊牌的目标时，若此牌的目标数大于1，则你可以交给一名其他目标角色一张牌，然后摸一张牌。若你给出的牌是装备牌，改为摸两张牌。"
+      }
+    ]
+  },
+  {
+    "id": "hero-345",
+    "kind": "general",
+    "officialId": 345,
+    "nameZh": "郝昭",
+    "kingdom": "魏",
+    "series": "thunder",
+    "seriesLabelZh": "雷",
+    "image": "/images/generals/hero-345.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/46600.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-345.html",
+    "introZh": "郝昭，字伯道，太原人，中国东汉末年至曹魏初年著名将领。郝昭少年从军，屡立战功，逐渐晋升为杂号将军，后受曹真的推荐镇守陈仓，防御蜀汉。太和二年（228年），诸葛亮率军北伐，为郝昭所阻，劝降不成，昼夜相攻二十余日后被迫退军。魏明帝因此封其为关内侯。不久因染疾而病死。",
+    "featureZh": "优势时可以辅助队友，状态较差时削弱敌方的武将。",
+    "keyCardsZh": "装备牌、闪、桃",
+    "playZh": "1.根据自己的手牌数和状态决定镇骨的发动目标：手牌数多时对队友发动，少则可以限制敌人",
+    "skillsZh": [
+      {
+        "name": "镇骨",
+        "text": "结束阶段，你可以选择一名其他角色，你的回合结束后和该角色的下个回合结束后，其将手牌摸至或弃至与你手牌数相同（最多摸至五张）"
+      }
+    ]
+  },
+  {
+    "id": "hero-346",
+    "kind": "general",
+    "officialId": 346,
+    "nameZh": "仲帝袁术",
+    "kingdom": "群",
+    "series": "thunder",
+    "seriesLabelZh": "雷",
+    "image": "/images/generals/hero-346.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/46700.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-346.html",
+    "introZh": "字公路，汝南汝阳人，袁绍之弟。初为虎贲[bēn]中郎将。董卓进京后以袁术为后将军，袁术因畏祸而出奔南阳。初平元年与袁绍、曹操等同时起兵，共讨董卓。后与袁绍对立，被袁绍、曹操击败，率馀[yú]众奔九江，割据扬州。建安二年称帝，建号仲氏。",
+    "featureZh": "可以获得大量的卡牌，回合外手牌数受到自己输出效果的限制；作为主公时可以辅助队友。",
+    "keyCardsZh": "造成伤害的牌、装备牌",
+    "playZh": "1.通过多用牌来通过庸肆保证前期获得牌或后期能存牌 2.做主公时通过伪帝把弃置牌交给需要的群雄队友",
+    "skillsZh": [
+      {
+        "name": "庸肆",
+        "text": "锁定技，摸牌阶段，你改为摸X张牌（X为存活势力数）；出牌阶段结束时，若你此阶段：1.没有造成伤害，将手牌摸至当前体力值；2.造成伤害数超过1点，本回合手牌上限改为已损失体力值。"
+      },
+      {
+        "name": "伪帝",
+        "text": "主公技，你于弃牌阶段弃置的牌可以交给任意名其他群雄角色各一张。"
+      }
+    ]
+  },
+  {
     "id": "hero-139",
     "kind": "general",
     "officialId": 139,
@@ -1646,6 +2066,114 @@
       {
         "name": "连破",
         "text": "当你杀死任意角色后，你可于此回合结束后获得一个额外回合。"
+      }
+    ]
+  },
+  {
+    "id": "hero-271",
+    "kind": "general",
+    "officialId": 271,
+    "nameZh": "神刘备",
+    "kingdom": "神",
+    "series": "god",
+    "seriesLabelZh": "神将",
+    "image": "/images/generals/hero-271.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/43900.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-271.html",
+    "introZh": "先主姓刘，讳备，字玄德，涿[zhuō]郡涿县人，汉景帝子中山靖王胜之后也。以仁德治天下。",
+    "featureZh": "将不同的牌转化为属性杀并解除一些限制；一直处于连环状态并可以让人进入连环状态，能使连环状态角色获得额外手牌上限",
+    "keyCardsZh": "红色牌、锦囊牌",
+    "playZh": "1.龙怒会让自己的状态逐步变弱，所以尽量快速结束战斗 2.龙怒阳时打击远位敌人，龙怒阴时爆发击杀敌人 3.结营可以让手牌上限增加，但更多还是选择敌人进入连环状态 4.因为体力值较高，可以牺牲自己传导伤害击杀更多敌人",
+    "skillsZh": [
+      {
+        "name": "龙怒",
+        "text": "转换技，锁定技，出牌阶段开始时，阳：你失去1点体力并摸一张牌，然后本回合你的红色手牌均视为火【杀】且无距离限制； 阴：你减1点体力上限并摸一张牌，然后本回合你的锦囊牌均视为雷【杀】且无次数限制。"
+      },
+      {
+        "name": "结营",
+        "text": "锁定技，游戏开始时，你处于连环状态，【铁索连环】解除连环的效果对你无效，其他武将技能或卡牌令你解除连环状态的效果失效，当你受到属性伤害结算后立即进入连环状态；已处于连环状态的角色手牌上限+2；结束阶段，你让一名其他角色进入连环状态。"
+      }
+    ]
+  },
+  {
+    "id": "hero-272",
+    "kind": "general",
+    "officialId": 272,
+    "nameZh": "神陆逊",
+    "kingdom": "神",
+    "series": "god",
+    "seriesLabelZh": "神将",
+    "image": "/images/generals/hero-272.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/44000.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-272.html",
+    "introZh": "本名陆议，字伯言，吴郡吴县人。历任东吴大都督、丞相。吴大帝孙权兄孙策之婿，世代为江东大族。以谦逊之书麻痹关羽，夺取荆州，又有火烧连营大破蜀军。",
+    "featureZh": "能够以各种方式造成大量伤害，并以此持续输出",
+    "keyCardsZh": "铁索连环、可造成伤害的牌",
+    "playZh": "1.尽量通过造成伤害触发军略，以此循环进行爆发 2.根据标记数量发动摧克对敌人造成伤害或限制敌人并为绽火做准备 3.当足够多的敌人处于连环状态时，发动绽火破坏其装备并造成传导伤害",
+    "skillsZh": [
+      {
+        "name": "军略",
+        "text": "锁定技，当你受到或造成1点伤害后，你获得一个“军略”标记。"
+      },
+      {
+        "name": "摧克",
+        "text": "出牌阶段开始时，若“军略”数量为奇数，你可以对一名角色造成1点伤害；若“军略”数量为偶数，你可以让一名角色进入连环状态并弃置其区域里的一张牌。若“军略”数量超过7个，你可以移去全部“军略”标记并对所有其他角色造成1点伤害。"
+      },
+      {
+        "name": "绽火",
+        "text": "限定技，出牌阶段，你可以移去全部“军略”标记，令至多等量的处于连环状态的角色弃置所有装备区里的牌，然后对其中1名角色造成1点火焰伤害。"
+      }
+    ]
+  },
+  {
+    "id": "hero-347",
+    "kind": "general",
+    "officialId": 347,
+    "nameZh": "神张辽",
+    "kingdom": "神",
+    "series": "god",
+    "seriesLabelZh": "神将",
+    "image": "/images/generals/hero-347.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/46800.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-347.html",
+    "introZh": "字文远，魏雁门马邑[yì]人。官至前将军、征东将军、晋阳侯。武功高强，又谋略过人，多次建立奇功，以800人突袭孙权十万大军，皆望风披靡[mǐ] 。",
+    "featureZh": "能够废除区域以夺取他人的技能，可以限制受伤的角色并通过攻击他们恢复装备栏",
+    "keyCardsZh": "点数大的牌、决斗",
+    "playZh": "1.尝试对技能强的敌人核心造成伤害，以发动夺锐削弱敌人 2.夺取出牌阶段发动的技能以增强自己的发挥 3.以止啼限制受伤敌人，并攻击他们恢复装备区，增加自己防御力和发动夺锐的机会",
+    "skillsZh": [
+      {
+        "name": "夺锐",
+        "text": "当你于出牌阶段内对一名其他角色造成伤害后，你可以废除你的一个装备栏（武器栏、防具栏、+1坐骑栏、-1坐骑栏之一），然后选择该角色的武将牌上的一个技能（限定技、觉醒技、使命技、主公技、部分规则冲突技能除外），则其下回合结束之前，其被你选择的技能无效，然后你于其下回合结束或其死亡之前获得所选技能且不能发动【夺锐】"
+      },
+      {
+        "name": "止啼",
+        "text": "锁定技，你攻击范围内已受伤的角色手牌上限-1；当你和这些角色拼点或【决斗】你赢时，你恢复一个装备栏。当你受到伤害后，若来源在你的攻击范围内且已受伤，你恢复一个装备栏。"
+      }
+    ]
+  },
+  {
+    "id": "hero-348",
+    "kind": "general",
+    "officialId": 348,
+    "nameZh": "神甘宁",
+    "kingdom": "神",
+    "series": "god",
+    "seriesLabelZh": "神将",
+    "image": "/images/generals/hero-348.jpg",
+    "sourceImageUrl": "https://www.sanguosha.cn/storage/uploads/images/skins/46900.jpg",
+    "sourceUrl": "https://www.sanguosha.cn/pc/hero-detail-348.html",
+    "introZh": "字兴霸，巴郡临江人，祖籍荆州南阳郡。为人勇猛刚强，忠心耿耿，勇往无前。曾带兵百人于二更奇袭曹营，大挫其锐气。",
+    "featureZh": "能够观看其他角色的手牌并通过弃置自己和对方的牌触发不同效果，可以让其他角色获得增益但回合结束后被自己获得全部手牌",
+    "keyCardsZh": "桃、装备牌",
+    "playZh": "1.发动魄袭观看敌人的牌，并根据需要弃置牌触发需要的效果2.尽量存留各类花色的牌以方便自由发动魄袭3.利用劫营夺取敌人的存牌，但要注意会为敌人带来一定的增益4.特殊情况下可以利用劫营辅助队友进行输出",
+    "skillsZh": [
+      {
+        "name": "魄袭",
+        "text": "出牌阶段限一次，你可以观看一名其他角色的手牌，然后你可以弃置你与其手里的四张牌（必须为四张且花色各不相同）。若如此做，根据此次弃置你的牌数量执行以下效果：没有，体力上限减1；一张，结束出牌阶段且本回合手牌上限-1；三张，回复1点体力；四张，摸四张牌。"
+      },
+      {
+        "name": "劫营",
+        "text": "回合开始时，若全场没有有“营”的角色，你获得一个“营”标记；结束阶段，你可以将“营”放到一名其他角色武将旁；有“营”的角色摸牌阶段多摸一张牌、出牌阶段可多使用一张【杀】、手牌上限+1。有“营”的其他角色回合结束后，移去“营”，然后你获得其所有手牌。"
       }
     ]
   },

@@ -12,8 +12,8 @@ type General = (typeof heroesZh)[number] & { kind: 'general'; nameEn: string; ro
 type GameCard = (typeof gameCards)[number] & { kind: 'game-card' }
 type Item = General | GameCard
 
-const seriesOrder = ['standard', 'boundary', 'wind', 'fire', 'forest', 'mountain', 'god']
-const seriesLabels: Record<string, string> = { standard:'标将', boundary:'界武将', wind:'风', fire:'火', forest:'林', mountain:'山', god:'经典神将' }
+const seriesOrder = ['standard', 'boundary', 'wind', 'fire', 'forest', 'mountain', 'yin', 'thunder', 'god']
+const seriesLabels: Record<string, string> = { standard:'标将', boundary:'界武将', wind:'风', fire:'火', forest:'林', mountain:'山', yin:'阴', thunder:'雷', god:'经典神将' }
 const categoryLabels: Record<string, string> = { basic:'基本牌', trick:'锦囊牌', equipment:'装备牌' }
 const kingdomLabels: Record<string, string> = { 魏:'魏', 蜀:'蜀', 吴:'吴', 群:'群', 神:'神' }
 
@@ -52,7 +52,7 @@ function App() {
 
     <main>
       <section className="hero-intro">
-        <div><span className="eyebrow">MOBILE EDITION · CLASSIC COLLECTION</span><h1>看中文牌，<em>马上会用英文。</em></h1><p>为标将、界武将、风林火山与经典神将制作。认图点开，直接看准确英文效果、大白话打法、时机、例子和误区。</p></div>
+        <div><span className="eyebrow">MOBILE EDITION · CLASSIC COLLECTION</span><h1>看中文牌，<em>马上会用英文。</em></h1><p>为标将、界武将、风火林山阴雷与经典神将制作。认图点开，直接看准确英文效果、大白话打法、时机、例子和误区。</p></div>
         <div className="hero-stat"><span>{all.length}</span><small>张可识别牌图</small><div>不含谋将、势将等超标扩展</div></div>
       </section>
 
