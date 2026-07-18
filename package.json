@@ -1,0 +1,69 @@
+{
+  "name": "sanguosha-atlas",
+  "private": true,
+  "version": "1.0.0",
+  "description": "三国杀移动版经典卡池中英对照图鉴",
+  "author": "John Jiang",
+  "main": "electron/main.mjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "electron": "npm run build && electron .",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "validate:data": "node scripts/validate-data.mjs",
+    "pack:mac": "npm run build && electron-builder --mac dir --arm64",
+    "dist:mac": "npm run build && electron-builder --mac dmg --arm64",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "lucide-react": "^1.25.0",
+    "pinyin-pro": "^3.28.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "jsdom": "^29.1.1",
+    "oxlint": "^1.71.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1",
+    "vitest": "^4.1.10"
+  },
+  "build": {
+    "appId": "com.johnjiang.sanguoshaenglishatlas",
+    "productName": "三国杀英文图鉴",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "mac": {
+      "category": "public.app-category.reference",
+      "target": [
+        "dir",
+        "dmg"
+      ],
+      "icon": "build/icon.png"
+    },
+    "dmg": {
+      "title": "三国杀英文图鉴",
+      "artifactName": "三国杀英文图鉴-${version}-${arch}.${ext}"
+    }
+  }
+}

@@ -1,0 +1,776 @@
+[
+  {
+    "id": "card-slash",
+    "slug": "slash",
+    "nameZh": "杀",
+    "nameEn": "Slash",
+    "category": "basic",
+    "pack": "standard",
+    "image": "/images/cards/slash.png",
+    "rulesEn": "During your Play Phase, use this on one other character within your attack range. That character may play one Jink; if they do not, they suffer 1 normal damage. By default, you may use only one Slash per Play Phase. Slash has no judgment, and its range is determined by your weapon and distance modifiers, including horses.",
+    "plainEn": "Slash is your main attack card. Use it to deal damage when the target is close enough and may be unable to provide Jink.",
+    "timingEn": "Use it after removing the target’s Jink or when the target is already under pressure. Save a Slash for defense against Duel or Savage Assault when necessary.",
+    "exampleEn": "You have attack range 1 and an enemy is at distance 1. You play Slash; they play Jink, so the Slash causes no damage.",
+    "misunderstandingsEn": [
+      "Slash does not automatically hit; the target may respond with Jink.",
+      "A Slash cannot normally target someone outside your attack range.",
+      "The once-per-Play-Phase limit is the default card limit, not a limit on all Slash responses."
+    ]
+  },
+  {
+    "id": "card-fire_slash",
+    "slug": "fire_slash",
+    "nameZh": "火杀",
+    "nameEn": "Fire Slash",
+    "category": "basic",
+    "pack": "maneuvering",
+    "image": "/images/cards/fire_slash.png",
+    "rulesEn": "During your Play Phase, use this like Slash on one other character within your attack range. The target may play one Jink; otherwise they suffer 1 fire damage. By default, you may use only one Slash per Play Phase. It has no judgment; its range uses your attack range, weapon, and distance modifiers.",
+    "plainEn": "Fire Slash is an attack that deals fire rather than normal damage, which can interact with fire-related effects.",
+    "timingEn": "Use it when fire damage is valuable, especially against targets vulnerable to elemental damage or near flammable effects. Do not waste it when a normal Slash is safer or more useful.",
+    "exampleEn": "You play Fire Slash on an enemy within range. They have no Jink, so they suffer 1 fire damage.",
+    "misunderstandingsEn": [
+      "Fire Slash is still a Slash and can be avoided by Jink.",
+      "Its damage is fire damage, not an additional point of damage.",
+      "It still obeys the normal Slash usage limit unless a skill or effect changes that limit."
+    ]
+  },
+  {
+    "id": "card-thunder_slash",
+    "slug": "thunder_slash",
+    "nameZh": "雷杀",
+    "nameEn": "Thunder Slash",
+    "category": "basic",
+    "pack": "maneuvering",
+    "image": "/images/cards/thunder_slash.png",
+    "rulesEn": "During your Play Phase, use this like Slash on one other character within your attack range. The target may play one Jink; otherwise they suffer 1 thunder damage. By default, you may use only one Slash per Play Phase. It has no judgment; its range uses your attack range, weapon, and distance modifiers.",
+    "plainEn": "Thunder Slash is an elemental attack. It follows the normal Slash procedure but deals thunder damage on a hit.",
+    "timingEn": "Use it when thunder damage matters for a skill or situation, or when the target is unlikely to have Jink. Keep ordinary Slash cards available when you need flexible attacks or responses.",
+    "exampleEn": "You use Thunder Slash against a character in range. They cannot play Jink and take 1 thunder damage.",
+    "misunderstandingsEn": [
+      "Thunder Slash can be dodged by Jink just like ordinary Slash.",
+      "Thunder damage is not normal damage.",
+      "It does not ignore attack range or the normal Slash usage limit."
+    ]
+  },
+  {
+    "id": "card-jink",
+    "slug": "jink",
+    "nameZh": "闪",
+    "nameEn": "Jink",
+    "category": "basic",
+    "pack": "standard",
+    "image": "/images/cards/jink.png",
+    "rulesEn": "When another character uses Slash on you, you may play one Jink to avoid that Slash. It has no target, range, usage limit, judgment, or damage of its own.",
+    "plainEn": "Jink is the standard defense against Slash. Play it only when a Slash is actually targeting you.",
+    "timingEn": "Use Jink for damaging attacks, especially when your HP is low or the attacker has damage-enhancing effects. Sometimes taking 1 damage is better than spending your last Jink.",
+    "exampleEn": "An opponent plays Slash on you. You play Jink, so that Slash is canceled and you take no damage from it.",
+    "misunderstandingsEn": [
+      "Jink does not cancel every attack or trick; it responds to Slash.",
+      "You do not play Jink before Slash is used on you.",
+      "One Jink normally avoids one Slash, not an entire multi-attack effect."
+    ]
+  },
+  {
+    "id": "card-peach",
+    "slug": "peach",
+    "nameZh": "桃",
+    "nameEn": "Peach",
+    "category": "basic",
+    "pack": "standard",
+    "image": "/images/cards/peach.png",
+    "rulesEn": "During your Play Phase, use this on yourself or another wounded character to recover 1 HP. During a Dying state, you may use it on a dying character to recover 1 HP. It has no range, judgment, or damage.",
+    "plainEn": "Peach restores one lost HP. It can heal you during your turn or save a character who is dying.",
+    "timingEn": "Keep Peach for Dying states when possible, but use it during your Play Phase when healing prevents a likely defeat or enables an important HP-based skill.",
+    "exampleEn": "You have 2 HP out of 3 and play Peach on yourself, recovering 1 HP and returning to 3 HP.",
+    "misunderstandingsEn": [
+      "Peach cannot raise a character above their maximum HP.",
+      "Peach is not restricted to healing only its user; during Dying, it can save another character.",
+      "You cannot normally use Peach merely to prepare for future damage when you are at full HP."
+    ]
+  },
+  {
+    "id": "card-analeptic",
+    "slug": "analeptic",
+    "nameZh": "酒",
+    "nameEn": "Analeptic",
+    "category": "basic",
+    "pack": "maneuvering",
+    "image": "/images/cards/analeptic.png",
+    "rulesEn": "During your Play Phase, use this on yourself to make your next Slash this turn deal 1 additional damage; you may normally use only one Analeptic in a Play Phase. When you are in the Dying state, you may use Analeptic on yourself to recover 1 HP. The damage bonus applies only to the next Slash and keeps that Slash’s damage type.",
+    "plainEn": "Drink it before one important Slash for +1 damage. If you are dying, you may drink it yourself to recover 1 HP instead.",
+    "timingEn": "Use it before a Slash when the extra damage can secure a defeat or trigger a useful effect. Preserve it as a rescue card if an ally may enter Dying.",
+    "exampleEn": "You use Analeptic, then play Fire Slash. If the target fails to play Jink, the Slash deals 2 fire damage.",
+    "misunderstandingsEn": [
+      "The Dying use is only for yourself; unlike Peach, you cannot use Analeptic to save another character.",
+      "It boosts only your next Slash that turn, not every Slash.",
+      "The boosted Slash can still be answered with Jink."
+    ]
+  },
+  {
+    "id": "card-duel",
+    "slug": "duel",
+    "nameZh": "决斗",
+    "nameEn": "Duel",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/duel.png",
+    "rulesEn": "Use this on one other character. That character must play a Slash, then you must play a Slash, and the two players continue alternating until one cannot play Slash; that player suffers 1 normal damage. Slash responses to Duel are not restricted by attack range. Duel has no judgment and no weapon-range requirement.",
+    "plainEn": "Duel is a contest of Slash cards. It is strongest against a player with few Slashes or when you can force them to spend defenses first.",
+    "timingEn": "Use it when you have more Slash cards than the target, or when the target’s hand is constrained. Avoid starting it against a player likely to outlast you.",
+    "exampleEn": "You play Duel on an opponent. They play Slash, you play Slash, and they cannot play another Slash; they take 1 normal damage.",
+    "misunderstandingsEn": [
+      "The target responds first; the user does not get a free damage point.",
+      "Jink cannot answer Duel; only Slash can continue the exchange.",
+      "Attack range does not limit Slash cards played in response to Duel."
+    ]
+  },
+  {
+    "id": "card-dismantlement",
+    "slug": "dismantlement",
+    "nameZh": "过河拆桥",
+    "nameEn": "Dismantlement",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/dismantlement.png",
+    "rulesEn": "Use this on one other character who has at least one card in hand, equipment, or their judging area. Choose one of that character’s cards and discard it. It has no range, judgment, or damage.",
+    "plainEn": "Dismantlement removes a useful card from an opponent’s hand, equipment area, or judging area.",
+    "timingEn": "Prefer removing a key equipment card, a dangerous hand card when known, or a delayed trick before it takes effect. It is often best used when the target has few cards.",
+    "exampleEn": "You use Dismantlement on an enemy with a weapon and two hand cards, choose the weapon, and discard it.",
+    "misunderstandingsEn": [
+      "Dismantlement does not let you take the chosen card; it discards it.",
+      "It can remove cards from the judging area as well as hand and equipment.",
+      "A character with no eligible card cannot be a legal target."
+    ]
+  },
+  {
+    "id": "card-snatch",
+    "slug": "snatch",
+    "nameZh": "顺手牵羊",
+    "nameEn": "Snatch",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/snatch.png",
+    "rulesEn": "Use this on one other character within distance 1. Choose one card from that character’s hand, equipment, or judging area and gain it. It has no judgment or damage; its distance requirement uses normal distance modifiers, including horses.",
+    "plainEn": "Snatch steals a useful card instead of discarding it, but it requires the target to be very close.",
+    "timingEn": "Use it to take an important equipment card, a known hand card, or a delayed trick. Check distance after all horse and other modifiers.",
+    "exampleEn": "An opponent is at distance 1 and has a weapon. You play Snatch, take the weapon, and place it in your hand.",
+    "misunderstandingsEn": [
+      "Snatch has distance 1; it is not unlimited range.",
+      "Snatch gains the card, while Dismantlement discards it.",
+      "You cannot Snatch from a character with no card in hand, equipment, or judging area."
+    ]
+  },
+  {
+    "id": "card-ex_nihilo",
+    "slug": "ex_nihilo",
+    "nameZh": "无中生有",
+    "nameEn": "Ex Nihilo",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/ex_nihilo.png",
+    "rulesEn": "During your Play Phase, use this with no target to draw 2 cards. It has no range, judgment, damage, or special response window.",
+    "plainEn": "Ex Nihilo simply gives you two more cards, improving both your options and defenses.",
+    "timingEn": "Play it early in your Play Phase so you can use the new cards. Nullification may still affect it as a non-delayed trick.",
+    "exampleEn": "At the start of your Play Phase, you play Ex Nihilo and draw two cards before deciding how to attack.",
+    "misunderstandingsEn": [
+      "Ex Nihilo does not allow you to choose specific cards.",
+      "It draws two cards, not one.",
+      "It has no target and cannot be used to draw cards for another player."
+    ]
+  },
+  {
+    "id": "card-collateral",
+    "slug": "collateral",
+    "nameZh": "借刀杀人",
+    "nameEn": "Collateral",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/collateral.png",
+    "rulesEn": "Choose a first target who has an equipped weapon and a second target who is within the first target’s attack range. The first target must use a Slash on the second target. If they do not, they must give you one of their equipped weapons. The Slash’s normal range is satisfied by the chosen second target; Collateral itself has no judgment or damage.",
+    "plainEn": "Collateral turns an opponent’s weapon into pressure: they must attack someone in range or surrender the weapon.",
+    "timingEn": "Use it when the weapon holder has a legal target they do not want to attack, or when taking the weapon is more valuable than the forced Slash.",
+    "exampleEn": "An enemy with a weapon can reach another enemy. You play Collateral on them and that second enemy; the weapon holder declines to Slash and gives you the weapon.",
+    "misunderstandingsEn": [
+      "The first target must have an equipped weapon when Collateral is used.",
+      "The second target must be within the first target’s attack range, not necessarily yours.",
+      "If the first target fails to use Slash, the consequence is giving you an equipped weapon, not taking damage."
+    ]
+  },
+  {
+    "id": "card-nullification",
+    "slug": "nullification",
+    "nameZh": "无懈可击",
+    "nameEn": "Nullification",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/nullification.png",
+    "rulesEn": "When a trick card takes effect, play this to cancel that trick card. Nullification can also cancel another Nullification, creating an alternating chain; the last applicable Nullification determines whether the original trick takes effect. It has no range, judgment, or damage of its own.",
+    "plainEn": "Nullification is a response that stops a trick card, or reverses another Nullification.",
+    "timingEn": "Use it on effects that would cause major damage, remove essential resources, or save an important target. Do not spend it on a minor effect unless the chain or timing makes it worthwhile.",
+    "exampleEn": "An opponent plays Duel on you. You play Nullification, so the Duel is canceled unless another player plays a Nullification to cancel yours.",
+    "misunderstandingsEn": [
+      "Nullification responds to trick cards; it does not cancel Slash directly.",
+      "It can be answered by another Nullification, so the first Nullification is not always final.",
+      "It does not permanently protect a player from all future tricks."
+    ]
+  },
+  {
+    "id": "card-amazing_grace",
+    "slug": "amazing_grace",
+    "nameZh": "五谷丰登",
+    "nameEn": "Amazing Grace",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/amazing_grace.png",
+    "rulesEn": "Reveal cards from the draw pile equal to the number of players. Starting with you and proceeding in turn order, each player chooses one revealed card; discard any cards left after all players choose. It has no target, range, judgment, or damage.",
+    "plainEn": "Amazing Grace creates a temporary face-up market from which every player takes one card.",
+    "timingEn": "Play it when several revealed choices are likely to help you, or when you can benefit from choosing first. Consider the value you are giving opponents.",
+    "exampleEn": "With four players, reveal four cards. You choose one, then the next three players each choose one; no cards remain to discard.",
+    "misunderstandingsEn": [
+      "Players choose in turn order, not simultaneously.",
+      "The number of revealed cards equals the number of players, not the number of wounded players.",
+      "Players take the chosen cards; only unchosen revealed cards are discarded."
+    ]
+  },
+  {
+    "id": "card-god_salvation",
+    "slug": "god_salvation",
+    "nameZh": "桃园结义",
+    "nameEn": "God Salvation",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/god_salvation.png",
+    "rulesEn": "Use this with no target. Every wounded character recovers 1 HP; characters at maximum HP recover nothing. It has no range, judgment, or damage.",
+    "plainEn": "God Salvation is a global heal that affects all wounded characters, including opponents.",
+    "timingEn": "Use it when your side has more wounded characters than the opposing side, or when several allies need immediate healing. Avoid helping an opponent more than yourself.",
+    "exampleEn": "You and two allies are wounded while one enemy is wounded. You play God Salvation; all four recover 1 HP.",
+    "misunderstandingsEn": [
+      "You cannot choose which characters are healed; every wounded character is affected.",
+      "Characters at maximum HP do not gain extra HP.",
+      "It heals 1 HP; it does not fully restore everyone."
+    ]
+  },
+  {
+    "id": "card-savage_assault",
+    "slug": "savage_assault",
+    "nameZh": "南蛮入侵",
+    "nameEn": "Savage Assault",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/savage_assault.png",
+    "rulesEn": "Use this with no target. Each other character, in turn order, must play one Slash or suffer 1 normal damage. Slash responses are not restricted by attack range. It has no judgment and no weapon-range requirement.",
+    "plainEn": "Savage Assault is a mass attack that tests every other player’s supply of Slash cards.",
+    "timingEn": "Use it when opponents are likely to lack Slash, especially after they have spent cards. Be careful if allies have few Slash cards or if opponents can benefit from taking damage.",
+    "exampleEn": "You play Savage Assault. The next player plays Slash, the following player cannot and takes 1 normal damage, and the remaining players resolve in order.",
+    "misunderstandingsEn": [
+      "Jink cannot answer Savage Assault; the required response is Slash.",
+      "The effect includes allies as well as enemies because it affects every other character.",
+      "Attack range does not matter for the Slash responses."
+    ]
+  },
+  {
+    "id": "card-archery_attack",
+    "slug": "archery_attack",
+    "nameZh": "万箭齐发",
+    "nameEn": "Archery Attack",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/archery_attack.png",
+    "rulesEn": "Target every other character. Each target must play a Slash or take 1 normal damage. It ignores distance; resolve targets separately.",
+    "plainEn": "Use it to pressure several enemies at once. Each enemy gets a chance to answer with Slash.",
+    "timingEn": "Best when several enemies lack Slash or when damage can finish one. Avoid it when allies would also be forced to respond.",
+    "exampleEn": "You use Archery Attack on three opponents. One plays Slash, one has no Slash and takes 1 damage, and one plays Slash.",
+    "misunderstandingsEn": [
+      "The response is Slash, not Jink.",
+      "It does not automatically damage everyone.",
+      "It does not affect you."
+    ]
+  },
+  {
+    "id": "card-indulgence",
+    "slug": "indulgence",
+    "nameZh": "乐不思蜀",
+    "nameEn": "Indulgence",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/indulgence.png",
+    "rulesEn": "Use on any character and place it in that character's judgment area; they cannot already have Indulgence there. At their next judgment phase, reveal a judgment card: Heart passes; any other suit makes them skip their draw phase. Then discard both cards.",
+    "plainEn": "It may make an opponent miss their next draw phase.",
+    "timingEn": "Use it before a key opponent's turn, especially one dependent on drawing cards. A Heart judgment makes it fail.",
+    "exampleEn": "You place Indulgence on an enemy. They reveal a Spade 7 during judgment and skip their draw phase.",
+    "misunderstandingsEn": [
+      "It skips only the draw phase, not the whole turn.",
+      "Heart passes; it is not the failure suit.",
+      "It resolves during the target's judgment phase, not immediately."
+    ]
+  },
+  {
+    "id": "card-lightning",
+    "slug": "lightning",
+    "nameZh": "闪电",
+    "nameEn": "Lightning",
+    "category": "trick",
+    "pack": "standard",
+    "image": "/images/cards/lightning.png",
+    "rulesEn": "Place it in your own judgment area; it then moves in turn order and cannot be aimed directly at a chosen character. During its holder's judgment phase, reveal a judgment card: Spade 2-9 causes 3 thunder damage to that holder; otherwise move Lightning to the next character. A character cannot have another Lightning in their judgment area.",
+    "plainEn": "Lightning travels around the table until a Spade 2-9 judgment makes it strike.",
+    "timingEn": "Play it when a favorable judgment is likely or when you can tolerate it returning to you. Remember that it may strike an ally.",
+    "exampleEn": "You play Lightning and reveal Heart 5, so it moves to the next character. That character later reveals Spade 8 and takes 3 thunder damage.",
+    "misunderstandingsEn": [
+      "It starts with you; you do not choose an enemy when playing it.",
+      "Only Spade 2-9 causes the strike.",
+      "The damage is thunder damage, not normal damage."
+    ]
+  },
+  {
+    "id": "card-supply_shortage",
+    "slug": "supply_shortage",
+    "nameZh": "兵粮寸断",
+    "nameEn": "Supply Shortage",
+    "category": "trick",
+    "pack": "maneuvering",
+    "image": "/images/cards/supply_shortage.png",
+    "rulesEn": "Use on a character at distance 1 and place it in that character's judgment area; they cannot already have Supply Shortage there. At their next judgment phase, reveal a judgment card: Club 2-9 makes them skip their draw phase; otherwise discard Supply Shortage without effect. Discard the judgment card as usual.",
+    "plainEn": "It is a delayed trick that may make an opponent miss their next draw phase.",
+    "timingEn": "Use it before a key opponent's turn, especially when they need cards. Its Club 2-9 judgment is not guaranteed.",
+    "exampleEn": "You place Supply Shortage on an enemy at distance 1. They reveal Club 6 and skip their draw phase.",
+    "misunderstandingsEn": [
+      "It skips only the draw phase.",
+      "Only Club 2-9 succeeds.",
+      "It does not remove cards immediately."
+    ]
+  },
+  {
+    "id": "card-fire_attack",
+    "slug": "fire_attack",
+    "nameZh": "火攻",
+    "nameEn": "Fire Attack",
+    "category": "trick",
+    "pack": "maneuvering",
+    "image": "/images/cards/fire_attack.png",
+    "rulesEn": "Target one character who has at least 1 hand card; it has no distance limit. The target reveals one hand card. You may discard one card from your hand with the same suit; if you do, deal 1 fire damage to the target. The revealed card is not discarded by this effect.",
+    "plainEn": "Make an opponent reveal a hand card, then match its suit to deal 1 fire damage.",
+    "timingEn": "Use it when you can match a likely or revealed suit. It still provides information when you cannot pay for the damage.",
+    "exampleEn": "You use Fire Attack. The target reveals a Spade 9, so you discard a Spade card and deal 1 fire damage.",
+    "misunderstandingsEn": [
+      "The matching card is discarded from your hand, not played as Slash.",
+      "The revealed card stays in the target's hand unless another effect removes it.",
+      "The damage is fire damage."
+    ]
+  },
+  {
+    "id": "card-iron_chain",
+    "slug": "iron_chain",
+    "nameZh": "铁索连环",
+    "nameEn": "Iron Chain",
+    "category": "trick",
+    "pack": "maneuvering",
+    "image": "/images/cards/iron_chain.png",
+    "rulesEn": "Choose one or two characters; Iron Chain has no distance limit. For each chosen character, either chain them if unchained or unchain them if chained. You may also recast it by discarding it and drawing 1 card instead of targeting characters. It does not itself deal damage.",
+    "plainEn": "Toggle chained status to set up shared elemental damage or remove that status.",
+    "timingEn": "Chain enemies before fire or thunder damage when the splash is favorable. Unchain allies before they would share damage. Recast it when neither option is safe.",
+    "exampleEn": "You chain two enemies, then deal fire damage to one. The other also takes the same fire damage.",
+    "misunderstandingsEn": [
+      "Iron Chain deals no damage by itself.",
+      "Chained characters share elemental damage, not normal damage.",
+      "Using it on a chained character unchains them."
+    ]
+  },
+  {
+    "id": "card-crossbow",
+    "slug": "crossbow",
+    "nameZh": "诸葛连弩",
+    "nameEn": "Crossbow",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/crossbow.png",
+    "rulesEn": "Weapon range 1. While equipped, you may use any number of Slash during your Play phase instead of the normal limit of one Slash per phase. Each Slash still needs a legal target and follows normal distance and response rules.",
+    "plainEn": "Crossbow lets you attack repeatedly in one turn.",
+    "timingEn": "Equip it before using several Slash cards. Distance still matters unless another effect changes it.",
+    "exampleEn": "You equip Crossbow and use Slash three times during the same Play phase against legal targets.",
+    "misunderstandingsEn": [
+      "It does not remove distance limits.",
+      "It allows unlimited Slash, not unlimited uses of every card.",
+      "Each Slash can still be answered by Jink."
+    ]
+  },
+  {
+    "id": "card-double_sword",
+    "slug": "double_sword",
+    "nameZh": "雌雄双股剑",
+    "nameEn": "Double Sword",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/double_sword.png",
+    "rulesEn": "Weapon range 2. When your Slash targets an opposing-gender character, you may make that target choose: discard 1 hand card, or let you draw 1 card. This effect applies once to that Slash target and does not add damage.",
+    "plainEn": "It gives Slash extra reach and makes an opposing-gender target discard or let you draw.",
+    "timingEn": "Use it against targets with important hand cards, or when drawing is more valuable than forcing a discard.",
+    "exampleEn": "You Slash an opposing-gender enemy. You trigger Double Sword, and they discard one hand card instead of letting you draw.",
+    "misunderstandingsEn": [
+      "The target chooses the option.",
+      "It triggers only against an opposing-gender target.",
+      "It does not make Slash unavoidable."
+    ]
+  },
+  {
+    "id": "card-qinggang_sword",
+    "slug": "qinggang_sword",
+    "nameZh": "青釭剑",
+    "nameEn": "Qinggang Sword",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/qinggang_sword.png",
+    "rulesEn": "Weapon range 2. When you use Slash, the target's armor has no effect for that Slash, including armor-based defenses. Other equipment and unrelated skills are not automatically canceled.",
+    "plainEn": "Qinggang Sword lets your Slash ignore the target's armor.",
+    "timingEn": "Use it against an armored target, especially one relying on Eight Trigrams or Vine.",
+    "exampleEn": "You Slash a character wearing Eight Trigrams. Eight Trigrams has no effect for that Slash, so they must use Jink normally.",
+    "misunderstandingsEn": [
+      "It ignores armor only for that Slash.",
+      "It does not disable every skill or equipment effect.",
+      "Its weapon range is 2."
+    ]
+  },
+  {
+    "id": "card-blade",
+    "slug": "blade",
+    "nameZh": "青龙偃月刀",
+    "nameEn": "Green Dragon Blade",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/blade.png",
+    "rulesEn": "Weapon range 3. After your Slash is dodged, if the same target remains within your attack range, you may discard 1 card to use another Slash against that target. The new Slash follows normal response rules.",
+    "plainEn": "After a target dodges, Blade lets you pay one card to attack that target again.",
+    "timingEn": "Use it when a second Slash may finish the target or when you can afford the discard.",
+    "exampleEn": "Your Slash is dodged. You discard one card and use another Slash against the same target, who must answer again.",
+    "misunderstandingsEn": [
+      "The follow-up costs one discarded card.",
+      "The target may Jink the second Slash.",
+      "You cannot follow up if the target is out of range."
+    ]
+  },
+  {
+    "id": "card-ice_sword",
+    "slug": "ice_sword",
+    "nameZh": "寒冰剑",
+    "nameEn": "Ice Sword",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/ice_sword.png",
+    "rulesEn": "Weapon range 2. When your Slash would deal damage to one target, you may prevent all of that damage and discard up to two cards from that target's hand or equipment area. You cannot both deal the damage and use this discard effect.",
+    "plainEn": "Ice Sword trades Slash damage for removing up to two cards from the target.",
+    "timingEn": "Use it against an enemy with dangerous equipment or important cards. Do not use it when the damage is needed for a finish.",
+    "exampleEn": "Your Slash hits an enemy with armor and a hand card. You use Ice Sword, prevent the damage, and discard both cards.",
+    "misunderstandingsEn": [
+      "It prevents all damage from that Slash.",
+      "It does not let you deal damage and discard cards simultaneously.",
+      "The cards may come from the target's hand or equipment area."
+    ]
+  },
+  {
+    "id": "card-spear",
+    "slug": "spear",
+    "nameZh": "丈八蛇矛",
+    "nameEn": "Spear",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/spear.png",
+    "rulesEn": "Weapon range 3. During your Play phase, you may discard any two cards as one Slash. The Slash still follows the normal one-per-phase limit, target restrictions, distance rules, and Jink response unless another effect changes them.",
+    "plainEn": "Spear converts any two cards into a Slash.",
+    "timingEn": "Use it when you have spare cards but no Slash, or when an attack is strategically important.",
+    "exampleEn": "You discard a Peach and an Equipment card as Spear's cost and use the result as Slash against a legal target.",
+    "misunderstandingsEn": [
+      "The two cards are discarded as cost.",
+      "Spear does not remove the one-Slash-per-phase limit by itself.",
+      "The created Slash can still be answered by Jink."
+    ]
+  },
+  {
+    "id": "card-axe",
+    "slug": "axe",
+    "nameZh": "贯石斧",
+    "nameEn": "Axe",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/axe.png",
+    "rulesEn": "Weapon range 3. After your Slash is dodged, you may discard any two cards from your hand or equipment area to make that Slash deal its damage anyway. This does not create another Slash.",
+    "plainEn": "Axe lets you pay two cards to force damage through after Jink.",
+    "timingEn": "Use it when the damage is lethal or strategically important and two cards are worth the cost.",
+    "exampleEn": "Your Slash is dodged while the target has 1 HP. You discard two cards, so the target still takes 1 normal damage.",
+    "misunderstandingsEn": [
+      "It works after Jink; it does not prevent the Jink from being played.",
+      "The cost is exactly two cards.",
+      "It forces that Slash's damage rather than launching another Slash."
+    ]
+  },
+  {
+    "id": "card-halberd",
+    "slug": "halberd",
+    "nameZh": "方天画戟",
+    "nameEn": "Halberd",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/halberd.png",
+    "rulesEn": "Weapon range 4. When the Slash you use is your last hand card, you may choose up to two additional legal targets for it, for up to three targets total. Each target responds separately. The normal Slash-use limit still applies unless another effect changes it.",
+    "plainEn": "If you spend your final hand card as Slash, that Slash can attack as many as three legal targets.",
+    "timingEn": "Use it after emptying your hand when several enemies are within range. Keep cards if you need them for defense.",
+    "exampleEn": "With no hand cards, you use Slash on three enemies within range. Each must play Jink or take 1 normal damage.",
+    "misunderstandingsEn": [
+      "The Slash must be your last hand card; merely having a low hand is not enough.",
+      "You get up to three total targets, not three additional targets.",
+      "Every chosen target must still be a legal target for that Slash."
+    ]
+  },
+  {
+    "id": "card-kylin_bow",
+    "slug": "kylin_bow",
+    "nameZh": "麒麟弓",
+    "nameEn": "Kylin Bow",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/kylin_bow.png",
+    "rulesEn": "Weapon range 5. After your Slash deals damage to a target, you may discard one horse equipped by that target: either their +1 defensive horse or their -1 offensive horse. If they have both, choose which one to discard.",
+    "plainEn": "Kylin Bow lets a damaging Slash remove one of the target's horses.",
+    "timingEn": "Use it against a target protected by a +1 horse, or remove a -1 horse if that horse is keeping them in your attack range.",
+    "exampleEn": "Your Slash deals 1 damage to an enemy wearing both horses. You discard their +1 horse, reducing the distance others need to reach them by 1.",
+    "misunderstandingsEn": [
+      "It triggers only after Slash deals damage, not after Jink.",
+      "It discards only one horse per triggering Slash.",
+      "A +1 horse increases the distance others need to reach its wearer; a -1 horse reduces the wearer's distance to others by 1."
+    ]
+  },
+  {
+    "id": "card-fan",
+    "slug": "fan",
+    "nameZh": "朱雀羽扇",
+    "nameEn": "Fan",
+    "category": "equipment",
+    "pack": "maneuvering",
+    "image": "/images/cards/fan.png",
+    "rulesEn": "Weapon, attack range 4. You may use an ordinary Slash as a Fire Slash, or change a card being used as a Slash through a view-as effect into a Fire Slash. This has no once-per-turn limit and is chosen when the Slash is used. The resulting damage is fire damage. It does not change a Thunder Slash into a Fire Slash.",
+    "plainEn": "Fan lets an ordinary Slash burn through defenses that are vulnerable to fire.",
+    "timingEn": "Use it when fire damage is especially valuable, such as against Vine, or when you need fire for a chain or skill interaction.",
+    "exampleEn": "You equip Fan and use an ordinary Slash on an enemy. You declare it as a Fire Slash; the enemy must respond with Jink normally, and failure causes 1 fire damage.",
+    "misunderstandingsEn": [
+      "Fan does not increase attack range beyond 4.",
+      "It does not let you freely change every Slash type into Fire Slash; its printed conversions apply to an ordinary Slash or a view-as Slash.",
+      "The card still follows normal Slash timing, targeting, and response rules."
+    ]
+  },
+  {
+    "id": "card-guding_blade",
+    "slug": "guding_blade",
+    "nameZh": "古锭刀",
+    "nameEn": "Guding Blade",
+    "category": "equipment",
+    "pack": "maneuvering",
+    "image": "/images/cards/guding_blade.png",
+    "rulesEn": "Weapon, attack range 2. Whenever your Slash deals damage to a target who has no hand cards at that moment, that damage is increased by 1. The trigger is checked when damage is dealt and has no once-per-turn limit. It affects any damage type caused by that Slash; it does not itself change normal, Fire, or Thunder damage.",
+    "plainEn": "Guding Blade punishes a target whose hand is empty when your Slash gets through.",
+    "timingEn": "Attack targets with few or no hand cards, especially after they have spent or discarded their last hand card.",
+    "exampleEn": "An enemy has no hand cards. You use a normal Slash, and they cannot play Jink. The Slash deals 2 damage instead of 1.",
+    "misunderstandingsEn": [
+      "Having no equipment is not enough; the target must have no hand cards.",
+      "The target may still have equipment cards and qualify.",
+      "The bonus is checked when damage is dealt, not when the Slash is first used."
+    ]
+  },
+  {
+    "id": "card-eight_diagram",
+    "slug": "eight_diagram",
+    "nameZh": "八卦阵",
+    "nameEn": "Eight Trigrams",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/eight_diagram.png",
+    "rulesEn": "Armor. Whenever you need to use or play a Jink, you may perform a judgment instead. Reveal the top card of the draw pile: if it is red, the judgment succeeds and you are regarded as having used or played Jink; if it is black, it fails and you may still use or play a Jink from hand normally. The judgment has no suit or number requirement; only color matters. This is checked during the relevant response window and has no once-per-turn limit.",
+    "plainEn": "Eight Trigrams can create Jink responses from lucky red judgments, saving cards in hand.",
+    "timingEn": "Keep it equipped when you expect many attacks or other effects requiring Jink. It is strongest when your hand is short on Jink cards.",
+    "exampleEn": "You are targeted by Slash and need Jink. You choose Eight Trigrams, reveal a red 7 of Clubs? That cannot happen because Clubs are black; a red card such as a 7 of Hearts succeeds, so the Slash is dodged without spending a hand card.",
+    "misunderstandingsEn": [
+      "A red judgment succeeds regardless of suit or number.",
+      "A black judgment does not prevent you from playing a real Jink from hand.",
+      "The judgment is not itself a card from your hand and does not count as playing a physical Jink card."
+    ]
+  },
+  {
+    "id": "card-renwang_shield",
+    "slug": "renwang_shield",
+    "nameZh": "仁王盾",
+    "nameEn": "Renwang Shield",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/renwang_shield.png",
+    "rulesEn": "Armor. Black Slash is ineffective against you, including a black ordinary, Fire, or Thunder Slash. This is a locked effect checked when a Slash is used against you; you do not respond with Jink because that Slash has no effect. Red Slash is unaffected and follows normal response and damage rules. It has no range, judgment, suit, number, or once-per-turn limit.",
+    "plainEn": "Renwang Shield completely stops black Slashes, but red Slashes still work.",
+    "timingEn": "Equip it when opponents hold many black Slashes or when avoiding black attacks matters more than blocking other card types.",
+    "exampleEn": "An opponent uses a black Thunder Slash on you. Renwang Shield makes that Slash ineffective, so you do not need to play Jink and take no damage from it.",
+    "misunderstandingsEn": [
+      "It does not block red Slashes.",
+      "It blocks black Slash cards, not every black card or every source of damage.",
+      "A black Slash made ineffective by the shield does not merely deal reduced damage; it has no effect on you."
+    ]
+  },
+  {
+    "id": "card-vine",
+    "slug": "vine",
+    "nameZh": "藤甲",
+    "nameEn": "Vine",
+    "category": "equipment",
+    "pack": "maneuvering",
+    "image": "/images/cards/vine.png",
+    "rulesEn": "Armor. Ordinary Slash, Savage Assault, and Archery Attack are ineffective against you. Fire damage you would receive is increased by 1; this is locked and applies when the fire damage is dealt, including fire damage from a Fire Slash or another source. Thunder damage is not increased. It has no range, judgment, suit, number, or once-per-turn limit.",
+    "plainEn": "Vine stops several common attacks and mass attacks, but makes fire especially dangerous.",
+    "timingEn": "Use it when opponents rely on ordinary Slashes, Savage Assaults, or Archery Attacks and have little access to fire.",
+    "exampleEn": "An opponent uses Fire Slash on you. Vine does not stop it; if it deals 1 fire damage, you receive 2 fire damage instead.",
+    "misunderstandingsEn": [
+      "Vine does not stop Fire Slash or Thunder Slash; only ordinary Slash is listed.",
+      "It does not increase Thunder damage.",
+      "Savage Assault and Archery Attack are ineffective against you even when they would normally require a response."
+    ]
+  },
+  {
+    "id": "card-silver_lion",
+    "slug": "silver_lion",
+    "nameZh": "白银狮子",
+    "nameEn": "Silver Lion",
+    "category": "equipment",
+    "pack": "maneuvering",
+    "image": "/images/cards/silver_lion.png",
+    "rulesEn": "Armor. Whenever you would receive more than 1 damage, the damage is changed to exactly 1. This locked effect applies to any damage type and is checked during damage resolution. Whenever Silver Lion leaves your equipment area, you recover 1 HP; this recovery occurs when you lose the equipment, even if it leaves because it is discarded, replaced, or taken. It has no range, judgment, suit, number, or once-per-turn limit.",
+    "plainEn": "Silver Lion caps each damage event at 1 and heals you when you lose the armor.",
+    "timingEn": "Equip it before a large hit or when you are vulnerable to multi-point damage. Losing it can be useful when you are below maximum HP.",
+    "exampleEn": "You would take 3 Thunder damage while wearing Silver Lion. The damage becomes 1. Later, the armor is discarded from your equipment area, so you recover 1 HP.",
+    "misunderstandingsEn": [
+      "It caps each damage event, not necessarily all damage in an entire turn.",
+      "It does not prevent damage; 1 damage is still taken.",
+      "Its recovery triggers when Silver Lion leaves your equipment area, not merely when it is targeted."
+    ]
+  },
+  {
+    "id": "card-chitu",
+    "slug": "chitu",
+    "nameZh": "赤兔",
+    "nameEn": "Chitu",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/chitu.png",
+    "rulesEn": "Offensive horse. Your distance to every other character is reduced by 1 (-1 distance), which improves your attack range and the range of cards you use. This is a continuous equipment effect with no judgment, response, suit, number, damage-type, or once-per-turn limit. It does not increase weapon attack range itself.",
+    "plainEn": "Chitu makes everyone seem one seat closer when you attack or use cards.",
+    "timingEn": "Equip it when your targets are just outside range, especially when combined with a weapon or another distance effect.",
+    "exampleEn": "Your normal distance to an enemy is 2. With Chitu, it becomes 1, so a weapon with attack range 1 can reach that enemy.",
+    "misunderstandingsEn": [
+      "Chitu gives -1 distance; it is not a +1 defensive horse.",
+      "It changes distance, not the printed range of your weapon.",
+      "The reduction applies to all other characters, not just one chosen target."
+    ]
+  },
+  {
+    "id": "card-dayuan",
+    "slug": "dayuan",
+    "nameZh": "大宛",
+    "nameEn": "Dayuan",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/dayuan.png",
+    "rulesEn": "Offensive horse. Your distance to every other character is reduced by 1 (-1 distance), improving the range of your attacks and other cards. This is continuous, with no judgment, response, suit, number, damage-type, or once-per-turn limit. It does not directly add to weapon attack range.",
+    "plainEn": "Dayuan is an offensive horse that lets you reach enemies more easily.",
+    "timingEn": "Equip it when a key enemy is one distance too far away or when your weapon's range is otherwise barely insufficient.",
+    "exampleEn": "A target is at distance 2 from you. After equipping Dayuan, that target is at distance 1 and can be reached by a range-1 weapon.",
+    "misunderstandingsEn": [
+      "Dayuan is -1 distance, not +1 distance.",
+      "It does not make you harder for enemies to reach.",
+      "It changes calculated distance rather than changing the weapon's printed range."
+    ]
+  },
+  {
+    "id": "card-zixing",
+    "slug": "zixing",
+    "nameZh": "紫骍",
+    "nameEn": "Zixing",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/zixing.png",
+    "rulesEn": "Offensive horse. Your distance to every other character is reduced by 1 (-1 distance), improving the range of your Slashes and other cards. It is continuous and has no judgment, response, suit, number, damage-type, or once-per-turn limit. It does not itself increase weapon attack range.",
+    "plainEn": "Zixing helps you attack farther around the table by reducing distance by 1.",
+    "timingEn": "Use it when reaching an important target is more valuable than receiving extra defensive distance.",
+    "exampleEn": "You are two seats away from an opponent. With Zixing equipped, the game counts the distance as 1, allowing your range-1 Slash to target them.",
+    "misunderstandingsEn": [
+      "Zixing gives -1 distance, not +1 distance.",
+      "It helps your reach but does not reduce damage or guarantee that a Slash hits.",
+      "Distance is recalculated with other horses, weapons, and effects."
+    ]
+  },
+  {
+    "id": "card-jueying",
+    "slug": "jueying",
+    "nameZh": "绝影",
+    "nameEn": "Jueying",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/jueying.png",
+    "rulesEn": "Defensive horse. The distance from every other character to you is increased by 1 (+1 distance), making you harder to reach with their attacks and cards. This is continuous, with no judgment, response, suit, number, damage-type, or once-per-turn limit. It does not change your own attack range.",
+    "plainEn": "Jueying makes you one distance farther away from everyone else.",
+    "timingEn": "Equip it when you need protection from nearby attackers or want range-1 weapons and cards to miss their distance requirement.",
+    "exampleEn": "An enemy normally has distance 1 to you. With Jueying equipped, that distance becomes 2, so their range-1 Slash cannot target you.",
+    "misunderstandingsEn": [
+      "Jueying gives +1 distance; it is not an offensive -1 horse.",
+      "It does not make your own targets closer.",
+      "It changes calculated distance and does not cancel a weapon's range bonus."
+    ]
+  },
+  {
+    "id": "card-dilu",
+    "slug": "dilu",
+    "nameZh": "的卢",
+    "nameEn": "Dilu",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/dilu.png",
+    "rulesEn": "Defensive horse. The distance from every other character to you is increased by 1 (+1 distance), making you harder for them to reach. The effect is continuous and has no judgment, response, suit, number, damage-type, or once-per-turn limit. It does not increase your own weapon attack range.",
+    "plainEn": "Dilu keeps opponents one distance farther away from you.",
+    "timingEn": "Equip it when surviving attacks from adjacent characters is important or when you want to force enemies to use longer-range weapons.",
+    "exampleEn": "An opponent is at distance 1 from you. Dilu changes that to distance 2, so a range-1 Slash cannot be used on you.",
+    "misunderstandingsEn": [
+      "Dilu is a +1 defensive horse, not a -1 offensive horse.",
+      "It does not affect the distance from you to your targets.",
+      "It cannot stop an attack that already legally targeted you before the horse was equipped."
+    ]
+  },
+  {
+    "id": "card-zhuahuangfeidian",
+    "slug": "zhuahuangfeidian",
+    "nameZh": "爪黄飞电",
+    "nameEn": "Zhuahuang Feidian",
+    "category": "equipment",
+    "pack": "standard",
+    "image": "/images/cards/zhuahuangfeidian.png",
+    "rulesEn": "Defensive horse. The distance from every other character to you is increased by 1 (+1 distance), making you harder to target with range-limited cards. This is continuous, with no judgment, response, suit, number, damage-type, or once-per-turn limit. It does not increase your own attack range.",
+    "plainEn": "Zhuahuang Feidian gives you extra defensive distance from all opponents.",
+    "timingEn": "Equip it when enemies are close and you expect repeated Slashes or other cards whose targets must be within range.",
+    "exampleEn": "An enemy with a range-1 weapon is normally adjacent to you. After you equip Zhuahuang Feidian, the distance is 2 and that enemy cannot Slash you without more range.",
+    "misunderstandingsEn": [
+      "Its modifier is +1 distance to you, not -1.",
+      "It does not grant a Jink or prevent attacks that have no distance restriction.",
+      "It does not add range to your weapon."
+    ]
+  },
+  {
+    "id": "card-hualiu",
+    "slug": "hualiu",
+    "nameZh": "骅骝",
+    "nameEn": "Hualiu",
+    "category": "equipment",
+    "pack": "maneuvering",
+    "image": "/images/cards/hualiu.png",
+    "rulesEn": "Defensive horse. The distance from every other character to you is increased by 1 (+1 distance), making you harder for them to reach with attacks and other cards. The effect is continuous and has no judgment, response, suit, number, damage-type, or once-per-turn limit. It does not alter your own attack range.",
+    "plainEn": "Hualiu is a defensive horse that puts one extra distance between you and everyone else.",
+    "timingEn": "Equip it before an enemy's turn when increasing the distance to you may stop their range-limited attacks.",
+    "exampleEn": "A nearby enemy has distance 1 to you and a range-1 weapon. Hualiu makes the distance 2, so that enemy cannot target you with a normal Slash.",
+    "misunderstandingsEn": [
+      "Hualiu is +1 distance, not -1 distance.",
+      "The bonus is defensive: it affects others reaching you, not you reaching them.",
+      "It does not increase damage, change card color, or replace a response such as Jink."
+    ]
+  }
+]

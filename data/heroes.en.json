@@ -1,0 +1,2505 @@
+[
+  {
+    "id": "hero-1",
+    "nameEn": "Liu Bei",
+    "roleEn": "Support / Lord",
+    "difficulty": "Easy",
+    "summaryEn": "Give useful hand cards to allies and recover 1 HP when you give your second Ren De card in the Play Phase. As lord, use allied Shu characters to help you use or play Slash. Save defensive cards for allies who are close to being defeated.",
+    "timingEn": "Use Ren De during your Play Phase, especially for your second card given that phase. As lord, ask Shu allies for Slash only when you need to use or play one.",
+    "exampleEn": "During your Play Phase, give an ally a Jink, then give another card to that ally; because this is your second Ren De card given this phase, recover 1 HP. If you are the lord and need to play Slash, activate Huo Ji and let a Shu ally choose whether to play one for you.",
+    "misunderstandingsEn": [
+      "Ren De gives 1 HP only when you give your second Ren De card during that Play Phase.",
+      "Huo Ji works only when Liu Bei is the lord.",
+      "The Shu ally’s Slash is treated as used or played by you."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "仁德",
+        "nameEn": "Ren De",
+        "textEn": "During your Play Phase, you may give any number of hand cards to another character. Then, if you have given your second Ren De card during this phase, you recover 1 HP.",
+        "plainEn": "Give hand cards to another character. Your second card given this way during the phase also heals you for 1 HP."
+      },
+      {
+        "nameZh": "激将",
+        "nameEn": "Ji Jiang",
+        "textEn": "Lord skill. When you need to use or play Slash, you may ask each other Shu character to choose whether to play one Slash, treated as being used or played by you.",
+        "plainEn": "As lord, you can ask Shu allies to provide a Slash for you. Their Slash counts as your Slash."
+      }
+    ]
+  },
+  {
+    "id": "hero-2",
+    "nameEn": "Guan Yu",
+    "roleEn": "Burst damage",
+    "difficulty": "Easy",
+    "summaryEn": "Wu Sheng lets you turn any red card into Slash for use or play. Keep some red cards for defense while building a burst, and use offensive weapons or a -1 distance horse to reach more enemies.",
+    "timingEn": "Preserve enough red cards to defend yourself, then convert surplus red cards into Slash when you have a strong attack window.",
+    "exampleEn": "You have a red equipment card and no Slash. During your Play Phase, use that red card as Slash against an enemy. Later, when another effect requires you to play Slash, use another red card as Slash.",
+    "misunderstandingsEn": [
+      "The converted card is Slash only for that use or play.",
+      "Wu Sheng can be used both to use Slash and to play Slash in response.",
+      "Any red card qualifies, including red equipment."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "武圣",
+        "nameEn": "Wu Sheng",
+        "textEn": "You may use or play one red card as Slash.",
+        "plainEn": "Red cards can become Slash whenever you need to use or play Slash."
+      }
+    ]
+  },
+  {
+    "id": "hero-3",
+    "nameEn": "Zhang Fei",
+    "roleEn": "Burst damage",
+    "difficulty": "Easy",
+    "summaryEn": "Screech removes the normal limit on how many Slashes you may use. Save Slashes and combine them with offensive range to attack a vulnerable enemy repeatedly.",
+    "timingEn": "Build a hand of Slashes before your Play Phase when possible, then use them repeatedly against a weak target.",
+    "exampleEn": "During your Play Phase, use Slash against an enemy, then use a second and third Slash against the same or other legal targets. You are not limited by the normal number-of-Slashes rule.",
+    "misunderstandingsEn": [
+      "Screech is locked and mandatory; it does not need to be activated.",
+      "You still need legal targets and range for each Slash.",
+      "The skill removes only the usage-count limit, not other Slash rules."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "咆哮",
+        "nameEn": "Pao Xiao",
+        "textEn": "Locked skill. You have no limit on the number of Slashes you may use.",
+        "plainEn": "You may use any number of Slashes in your turn. Normal target and range rules still apply."
+      }
+    ]
+  },
+  {
+    "id": "hero-4",
+    "nameEn": "Zhu Ge Liang",
+    "roleEn": "Control / Defense",
+    "difficulty": "Hard",
+    "summaryEn": "Observe the top cards and arrange them to improve your next draw, judgment, or the next player’s cards. Empty City protects you from Slash and Duel when you have no hand cards, but reaching zero cards recklessly can be dangerous.",
+    "timingEn": "Use Stargazing in the preparation phase to plan the top and bottom of the draw pile. Empty City applies only while your hand is completely empty.",
+    "exampleEn": "At the start of your turn with four players, look at the top four cards. Put a useful card on top and the others on the bottom, then draw the planned card in your Draw Phase. If you later have no hand cards, opponents cannot choose you as a target of Slash or Duel.",
+    "misunderstandingsEn": [
+      "Stargazing looks at up to five cards, with X equal to the number of characters in play.",
+      "Empty City checks only hand cards; equipment does not count as a hand card.",
+      "Empty City prevents being chosen as a target; it does not cancel a Slash or Duel already targeting you."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "观星",
+        "nameEn": "Guan Xing",
+        "textEn": "During the preparation phase, you may look at the top X cards of the draw pile, where X is the number of characters in play, up to 5. Then place any number of those cards on top of the draw pile and place the remaining cards on the bottom of the draw pile.",
+        "plainEn": "Inspect the top cards and reorder them between the top and bottom of the draw pile. This can control future draws and judgments."
+      },
+      {
+        "nameZh": "空城",
+        "nameEn": "Kong Cheng",
+        "textEn": "Locked skill. If you have no hand cards, you cannot be chosen as a target of Slash or Duel.",
+        "plainEn": "With no hand cards, Slash and Duel cannot choose you as their target."
+      }
+    ]
+  },
+  {
+    "id": "hero-5",
+    "nameEn": "Zhao Yun",
+    "roleEn": "Flexible offense / Defense",
+    "difficulty": "Easy",
+    "summaryEn": "Dragon Courage lets you convert Slash and Jink into each other. Keep both cards when possible so you can attack reliably and still defend yourself.",
+    "timingEn": "Before discarding, decide whether each Slash or Jink is more valuable for the threats you expect. Convert only when you need the other card.",
+    "exampleEn": "An enemy uses Slash against you, but you have only a Slash. Play that Slash as Jink. During your Play Phase, if you have a Jink but no Slash, use the Jink as Slash.",
+    "misunderstandingsEn": [
+      "Dragon Courage works both when using and when playing a card.",
+      "A converted Slash or Jink still follows the normal rules of the resulting card.",
+      "The original card is spent as the converted card; it does not remain in hand."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "龙胆",
+        "nameEn": "Long Dan",
+        "textEn": "You may use or play one Slash as Jink, or one Jink as Slash.",
+        "plainEn": "Slash can defend you, and Jink can attack for you. This gives you flexible use of both cards."
+      }
+    ]
+  },
+  {
+    "id": "hero-6",
+    "nameEn": "Ma Chao",
+    "roleEn": "Forced-hit offense",
+    "difficulty": "Medium",
+    "summaryEn": "Horseman reduces your calculated distance to every other character, letting you attack distant enemies. Iron Cavalry can make a Slash unavoidable when its judgment is red.",
+    "timingEn": "Use Iron Cavalry after choosing a Slash target, especially against enemies likely to hold Jink or when a hit is decisive.",
+    "exampleEn": "Because Horseman reduces your distance by 1, an enemy farther away is within your Slash range. After targeting that enemy with Slash, activate Iron Cavalry and reveal a judgment card; if it is red, that enemy cannot play Jink in response.",
+    "misunderstandingsEn": [
+      "Horseman changes distance calculation; it does not increase your printed attack range.",
+      "Iron Cavalry is optional and requires a judgment.",
+      "Only a red judgment prevents Jink for that Slash."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "马术",
+        "nameEn": "Ma Shu",
+        "textEn": "Locked skill. When calculating your distance to other characters, reduce it by 1.",
+        "plainEn": "All other characters are effectively 1 distance closer to you."
+      },
+      {
+        "nameZh": "铁骑",
+        "nameEn": "Tie Qi",
+        "textEn": "After you use Slash to choose a target, you may perform a judgment. If the result is red, that character cannot use Jink to respond to this Slash.",
+        "plainEn": "A red judgment makes your Slash impossible to dodge. A non-red judgment leaves Jink available."
+      }
+    ]
+  },
+  {
+    "id": "hero-7",
+    "nameEn": "Huang Yue Ying",
+    "roleEn": "Card advantage / Control",
+    "difficulty": "Medium",
+    "summaryEn": "Wisdom lets you draw a card whenever you use a normal Trick card, while Wonder ignores distance when you use Trick cards. Build a hand of Tricks for card advantage and use the extra cards for attacks or defense.",
+    "timingEn": "Use normal Trick cards when their effects matter and when you can safely exploit the extra draw. Remember that Wonder removes distance restrictions for every Trick card you use.",
+    "exampleEn": "Use Snatch on a distant enemy; Wonder ignores the distance restriction. Because Snatch is a normal Trick card, activate Wisdom to draw one card.",
+    "misunderstandingsEn": [
+      "Wisdom triggers only when you use a normal Trick card, not every type of card.",
+      "Wonder is locked and has no distance restriction for Trick cards you use.",
+      "Wonder does not remove other targeting or usage requirements."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "集智",
+        "nameEn": "Ji Zhi",
+        "textEn": "When you use one normal Trick card, you may draw one card.",
+        "plainEn": "Normal Trick cards replace themselves with an extra draw. The draw is optional."
+      },
+      {
+        "nameZh": "奇才",
+        "nameEn": "Qi Cai",
+        "textEn": "Locked skill. You have no distance limit when using Trick cards.",
+        "plainEn": "You can use Trick cards on legal targets regardless of distance."
+      }
+    ]
+  },
+  {
+    "id": "hero-8",
+    "nameEn": "Sun Quan",
+    "roleEn": "Card selection / Lord",
+    "difficulty": "Easy",
+    "summaryEn": "Exchange lets you replace unwanted cards with the same number of new cards once per Play Phase. As lord, Rescue improves Peach healing from other Wu characters.",
+    "timingEn": "Use Exchange when several cards are genuinely poor or redundant, while keeping key defense and recovery cards. Rescue matters only when Sun Quan is the lord.",
+    "exampleEn": "During your Play Phase, discard two unwanted cards and draw two cards. If you are the lord and another Wu character uses Peach on you, you recover 1 additional HP from that Peach.",
+    "misunderstandingsEn": [
+      "Exchange is limited to once per Play Phase.",
+      "The number of cards drawn equals the number discarded.",
+      "Rescue is a lord skill and works only when Sun Quan is the lord."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "制衡",
+        "nameEn": "Zhi Heng",
+        "textEn": "Once during your Play Phase, you may discard any number of cards, then draw the same number of cards.",
+        "plainEn": "Trade unwanted cards for the same number of new cards once each Play Phase."
+      },
+      {
+        "nameZh": "救援",
+        "nameEn": "Jiu Yuan",
+        "textEn": "Lord skill. Locked skill. When another Wu character uses Peach on you, you recover 1 additional HP.",
+        "plainEn": "As lord, Peach from a Wu ally heals you for one extra HP."
+      }
+    ]
+  },
+  {
+    "id": "hero-9",
+    "nameEn": "Gan Ning",
+    "roleEn": "Hand disruption",
+    "difficulty": "Easy",
+    "summaryEn": "Raid turns any black card into Snatch and lets you strip cards from enemy hands or equipment. Disrupt important defenses, then use Slash to finish weakened enemies.",
+    "timingEn": "Use black cards as Snatch when removing a key hand or equipment card matters more than ordinary attack pressure.",
+    "exampleEn": "Use a black card as Snatch to discard an enemy’s Jink. Then use Slash against that enemy while their defense is reduced.",
+    "misunderstandingsEn": [
+      "Raid converts a black card into Snatch; it does not draw the targeted card.",
+      "The converted card follows Snatch’s normal target rules.",
+      "You can choose a black equipment card as the card used for the conversion."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "奇袭",
+        "nameEn": "Qi Xi",
+        "textEn": "You may use one black card as Snatch.",
+        "plainEn": "Black cards can become Snatch to remove an opponent’s card."
+      }
+    ]
+  },
+  {
+    "id": "hero-10",
+    "nameEn": "Lü Meng",
+    "roleEn": "Hand accumulation",
+    "difficulty": "Medium",
+    "summaryEn": "Discipline lets you skip the Discard Phase if you did not use or play Slash during your Play Phase. Store cards for a later burst or support allies, while using other cards to disrupt enemies.",
+    "timingEn": "Avoid using or playing Slash if you want to skip the Discard Phase. Decide before using Slash whether preserving Discipline is worth more.",
+    "exampleEn": "During your Play Phase, use Duel but do not use or play Slash. At the end of the turn, activate Discipline to skip your Discard Phase and keep your large hand.",
+    "misunderstandingsEn": [
+      "Playing Slash also prevents Discipline; it is not limited to using Slash.",
+      "Discipline skips only the Discard Phase, not the entire Finish Phase.",
+      "If you used or played Slash during the Play Phase, you cannot use Discipline that turn."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "克己",
+        "nameEn": "Ke Ji",
+        "textEn": "If you did not use or play Slash during your Play Phase, you may skip your Discard Phase.",
+        "plainEn": "Do not use or play Slash, and you may keep your hand by skipping discards."
+      }
+    ]
+  },
+  {
+    "id": "hero-11",
+    "nameEn": "Huang Gai",
+    "roleEn": "Risk-reward draw",
+    "difficulty": "Medium",
+    "summaryEn": "Self-Torture trades 1 HP for two cards during your Play Phase. Use it for a burst or to find recovery and attack cards, but do not spend too much HP chasing cards.",
+    "timingEn": "Use Self-Torture only when the two-card gain is worth the lost HP and you have a way to survive or recover.",
+    "exampleEn": "During your Play Phase, activate Self-Torture, lose 1 HP, and draw two cards. If one is Peach, keep it for recovery or use it according to Peach’s normal rules.",
+    "misunderstandingsEn": [
+      "Self-Torture costs 1 HP; it is not damage.",
+      "You draw exactly two cards after losing the HP.",
+      "The skill is usable during the Play Phase, not whenever you want."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "苦肉",
+        "nameEn": "Ku Rou",
+        "textEn": "During your Play Phase, you may lose 1 HP, then draw two cards.",
+        "plainEn": "Pay 1 HP to draw two cards. You may use this repeatedly if the phase and game rules allow."
+      }
+    ]
+  },
+  {
+    "id": "hero-12",
+    "nameEn": "Zhou Yu",
+    "roleEn": "Card advantage / Damage",
+    "difficulty": "Medium",
+    "summaryEn": "Dashing Hero draws one extra card during the Draw Phase. Treachery can deal direct damage by making an opponent guess a suit, but the opponent receives the card you reveal.",
+    "timingEn": "Use Treachery when the target is unlikely to guess the card’s suit, and avoid risking an especially valuable hand card unless the damage is important.",
+    "exampleEn": "Once during your Play Phase, choose an enemy. They choose hearts, then receive one of your hand cards and reveal it; if it is not hearts, deal 1 damage to them.",
+    "misunderstandingsEn": [
+      "Treachery is limited to once per Play Phase.",
+      "The target chooses the suit before receiving and revealing your card.",
+      "The target always gains the chosen hand card, even if the suit matches."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "英姿",
+        "nameEn": "Ying Zi",
+        "textEn": "During your Draw Phase, you may draw one additional card.",
+        "plainEn": "Draw one extra card during your Draw Phase. The extra draw is optional."
+      },
+      {
+        "nameZh": "反间",
+        "nameEn": "Fan Jian",
+        "textEn": "Once during your Play Phase, you may choose another character. That character chooses a suit, then gains one of your hand cards and reveals it. If the card’s suit differs from the suit chosen, you deal 1 damage to that character.",
+        "plainEn": "Make an opponent guess a suit before giving them a card. A wrong guess deals 1 damage, but they keep the card."
+      }
+    ]
+  },
+  {
+    "id": "hero-13",
+    "nameEn": "Da Qiao",
+    "roleEn": "Control / Redirection",
+    "difficulty": "Medium",
+    "summaryEn": "National Beauty turns diamond cards into Delayed Trick: Indulgence to restrict enemies. Flowing Grace can redirect a Slash targeting you to another character in your attack range by discarding a card.",
+    "timingEn": "Use National Beauty on explosive or stockpiling enemies. Save a discard for Flowing Grace, and maintain attack range so you have legal redirection targets.",
+    "exampleEn": "Use a diamond card as Indulgence on an enemy. Later, when another character uses Slash on you, discard one card and redirect that Slash to a different character within your attack range.",
+    "misunderstandingsEn": [
+      "Flowing Grace requires discarding one card.",
+      "The new target must be another character within your attack range.",
+      "Flowing Grace redirects the Slash; it does not cancel it."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "国色",
+        "nameEn": "Guo Se",
+        "textEn": "You may use one diamond card as Indulgence.",
+        "plainEn": "Diamond cards can become Indulgence to restrict an enemy."
+      },
+      {
+        "nameZh": "流离",
+        "nameEn": "Liu Li",
+        "textEn": "When you become the target of Slash, you may discard one card and choose another character within your attack range. Transfer that Slash to the chosen character.",
+        "plainEn": "Discard a card to send a Slash targeting you to another legal character in your range."
+      }
+    ]
+  },
+  {
+    "id": "hero-14",
+    "nameEn": "Lu Xun",
+    "roleEn": "Defense / Card advantage",
+    "difficulty": "Medium",
+    "summaryEn": "Humility protects you from Snatch and Indulgence. Chain lets you draw whenever you lose your last hand card, giving you a steady supply while preserving useful cards.",
+    "timingEn": "Use Chain when your hand reaches zero, and discard carefully so the replacement draw improves your position without sacrificing all defense.",
+    "exampleEn": "An enemy cannot choose you as the target of Snatch or Indulgence because of Humility. If you discard your last hand card, activate Chain to draw one card.",
+    "misunderstandingsEn": [
+      "Humility is locked and prevents targeting; it does not cancel a card already affecting you.",
+      "Chain triggers when you lose your last hand card, not merely when you discard any card.",
+      "Equipment is not a hand card, so having equipment does not stop Chain from triggering."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "谦逊",
+        "nameEn": "Qian Xun",
+        "textEn": "Locked skill. You cannot be chosen as a target of Snatch or Indulgence.",
+        "plainEn": "Snatch and Indulgence cannot choose you as their target."
+      },
+      {
+        "nameZh": "连营",
+        "nameEn": "Lian Ying",
+        "textEn": "When you lose your last hand card, you may draw one card.",
+        "plainEn": "Whenever your hand becomes empty because you lost its last card, you may draw one."
+      }
+    ]
+  },
+  {
+    "id": "hero-15",
+    "nameEn": "Cao Cao",
+    "roleEn": "Damage scaling / Lord",
+    "difficulty": "Medium",
+    "summaryEn": "奸雄 lets you take the card that caused damage to you, turning enemy attacks into future resources. As lord, Protect the Ruler can ask Wei allies to provide Jink for you.",
+    "timingEn": "Accept damage only when the card gained is worth it and you can survive. As lord, use Protect the Ruler when you need Jink and Wei allies can respond.",
+    "exampleEn": "An enemy uses Slash and damages you; activate奸雄 to gain that Slash. If you are the lord and need to play Jink, activate Protect the Ruler and let a Wei character choose whether to play one for you.",
+    "misunderstandingsEn": [
+      "奸雄 gains the card that caused the damage, not a random card from the source.",
+      "Protect the Ruler works only when Cao Cao is the lord.",
+      "A Wei ally’s Jink is treated as used or played by Cao Cao."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "奸雄",
+        "nameEn": "Jian Xiong",
+        "textEn": "After you suffer damage, you may gain the card that caused that damage.",
+        "plainEn": "When a card hurts you, you may take that card afterward."
+      },
+      {
+        "nameZh": "护驾",
+        "nameEn": "Hu Jia",
+        "textEn": "Lord skill. When you need to use or play Jink, you may ask each other Wei character to choose whether to play one Jink, treated as being used or played by you.",
+        "plainEn": "As lord, you can ask Wei allies to provide a Jink for you. Their Jink counts as yours."
+      }
+    ]
+  },
+  {
+    "id": "hero-16",
+    "nameEn": "Si Ma Yi",
+    "roleEn": "Control / Retaliation",
+    "difficulty": "Hard",
+    "summaryEn": "Feedback lets you take a card from the source after suffering damage. Ghostly Talent replaces a judgment card with one of your hand cards, allowing you to control delayed effects and Lightning.",
+    "timingEn": "Keep suitable hand cards for Ghostly Talent before judgments take effect. Use Feedback after damage when the source has an important card.",
+    "exampleEn": "After an enemy damages you, activate Feedback to gain one card from that enemy. Before a character’s judgment takes effect, play a hand card to replace the judgment card.",
+    "misunderstandingsEn": [
+      "Feedback takes a card from the damage source, not necessarily the card that caused the damage.",
+      "Ghostly Talent must be used before the judgment card takes effect.",
+      "The replacement card is played from your hand and replaces the judgment card."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "反馈",
+        "nameEn": "Fan Kui",
+        "textEn": "After you suffer damage, you may gain one card from the source of that damage.",
+        "plainEn": "After being damaged, take one card from the character who caused it."
+      },
+      {
+        "nameZh": "鬼才",
+        "nameEn": "Gui Cai",
+        "textEn": "Before a character’s judgment card takes effect, you may play one hand card to replace it.",
+        "plainEn": "Replace a judgment card with a hand card before the judgment resolves."
+      }
+    ]
+  },
+  {
+    "id": "hero-17",
+    "nameEn": "Xia Hou Dun",
+    "roleEn": "Retaliation",
+    "difficulty": "Easy",
+    "summaryEn": "Fierce Assault punishes a character who damages you if your judgment is not hearts. The source must either discard two hand cards or suffer 1 damage from you.",
+    "timingEn": "Use Fierce Assault after meaningful damage, especially when the source has few hand cards or low HP. Remember that the judgment can fail on hearts.",
+    "exampleEn": "After an enemy deals damage to you, activate Fierce Assault and perform a judgment. If the result is not hearts, that enemy chooses either to discard two hand cards or suffer 1 damage from you.",
+    "misunderstandingsEn": [
+      "A hearts judgment means nothing happens.",
+      "The damage source chooses between the two options.",
+      "The discard option requires two hand cards."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "刚烈",
+        "nameEn": "Gang Lie",
+        "textEn": "After you suffer damage, you may perform a judgment. If the result is not hearts, the source of the damage chooses one: 1. Discard two hand cards; or 2. Suffer 1 damage dealt by you.",
+        "plainEn": "After damage, a non-hearts judgment forces the source to discard two hand cards or take 1 damage."
+      }
+    ]
+  },
+  {
+    "id": "hero-18",
+    "nameEn": "Zhang Liao",
+    "roleEn": "Hand disruption",
+    "difficulty": "Medium",
+    "summaryEn": "Raid lets you replace your normal Draw Phase draw with one hand card from up to two characters. Choose enemies with valuable cards or those relying on a small defensive hand.",
+    "timingEn": "During the Draw Phase, replace drawing only when stealing specific enemy cards is better than drawing two cards normally.",
+    "exampleEn": "During your Draw Phase, choose two enemies and take one random hand card from each instead of drawing your normal cards.",
+    "misunderstandingsEn": [
+      "You may choose up to two characters, taking one hand card from each.",
+      "Raid replaces the normal Draw Phase draw.",
+      "The skill takes hand cards, not equipment or other cards."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "突袭",
+        "nameEn": "Tu Xi",
+        "textEn": "During your Draw Phase, you may instead gain one hand card from each of up to two characters.",
+        "plainEn": "Give up your normal draw to take up to two enemy hand cards, one from each of up to two characters."
+      }
+    ]
+  },
+  {
+    "id": "hero-19",
+    "nameEn": "Xu Chu",
+    "roleEn": "Burst damage",
+    "difficulty": "Medium",
+    "summaryEn": "Unarmed reduces your Draw Phase draw by one to increase damage from your Slash and Duel during that turn by 1. Prepare attack cards and use it when a vulnerable enemy can be finished.",
+    "timingEn": "Activate Unarmed only when the extra damage is likely to matter, since you permanently draw one fewer card for that Draw Phase.",
+    "exampleEn": "During your Draw Phase, draw one fewer card through Unarmed. Later that turn, your Slash deals damage; increase that damage by 1. A Duel you use that turn also benefits.",
+    "misunderstandingsEn": [
+      "The reduced draw is one card during that Draw Phase.",
+      "The bonus applies to damage caused by your Slash or Duel during that turn.",
+      "The bonus does not apply to every source of damage."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "裸衣",
+        "nameEn": "Luo Yi",
+        "textEn": "During your Draw Phase, you may draw one fewer card. If you do, damage you deal with Slash or Duel this turn is increased by 1.",
+        "plainEn": "Draw one fewer card to make your Slash and Duel deal 1 extra damage this turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-20",
+    "nameEn": "Guo Jia",
+    "roleEn": "Support / Judgment",
+    "difficulty": "Medium",
+    "summaryEn": "Heavenly Gift lets you gain your judgment card after it takes effect. Last Words gives two top cards to any characters after you suffer 1 damage, supporting yourself or allies.",
+    "timingEn": "Keep yourself alive while accepting useful damage for Last Words. Use the two cards where they matter most, and save judgment-control cards for dangerous delayed effects.",
+    "exampleEn": "After suffering 1 damage, activate Last Words, look at the top two cards, and give one to yourself and one to an ally. After your judgment card takes effect, activate Heavenly Gift to gain it.",
+    "misunderstandingsEn": [
+      "Last Words triggers after exactly 1 damage; it does not require the damage to come from a particular card.",
+      "You may give the two cards to any characters, including yourself.",
+      "Heavenly Gift happens after the judgment card takes effect."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "天妒",
+        "nameEn": "Tian Du",
+        "textEn": "After your judgment card takes effect, you may gain that card.",
+        "plainEn": "Once your judgment resolves, you may take the judgment card."
+      },
+      {
+        "nameZh": "遗计",
+        "nameEn": "Yi Ji",
+        "textEn": "After you suffer 1 damage, you may look at the top two cards of the draw pile, then give those cards to any characters.",
+        "plainEn": "After taking 1 damage, inspect two cards and distribute them among any characters."
+      }
+    ]
+  },
+  {
+    "id": "hero-21",
+    "nameEn": "Zhen Ji",
+    "roleEn": "Card advantage / Defense",
+    "difficulty": "Medium",
+    "summaryEn": "Goddess Luo repeatedly judges during the preparation phase, gaining each black judgment card and continuing after black results. All black hand cards can become Jink through Allure, giving strong defense and flexible card use.",
+    "timingEn": "Keep black cards for Allure when defense is needed, but use Goddess Luo in the preparation phase to build a hand before your turn.",
+    "exampleEn": "During your preparation phase, perform a judgment. If it is black, gain it and perform another judgment; stop when the result is red or you choose not to continue. Later, use a black hand card as Jink against Slash.",
+    "misunderstandingsEn": [
+      "Goddess Luo repeats only after a black judgment result.",
+      "You may choose whether to perform the initial judgment and whether to repeat after black.",
+      "Allure uses black hand cards, not black equipment outside your hand."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "洛神",
+        "nameEn": "Luo Shen",
+        "textEn": "During the preparation phase, you may perform a judgment. After a black judgment card takes effect, you gain it. If the result is black, you may repeat this process.",
+        "plainEn": "Judge repeatedly to collect black cards. You may stop after a black result, and a red result ends the process."
+      },
+      {
+        "nameZh": "倾国",
+        "nameEn": "Qing Guo",
+        "textEn": "You may use or play one black hand card as Jink.",
+        "plainEn": "Any black card in your hand can defend you as Jink."
+      }
+    ]
+  },
+  {
+    "id": "hero-22",
+    "nameEn": "Hua Tuo",
+    "roleEn": "Healing / Support",
+    "difficulty": "Easy",
+    "summaryEn": "Emergency Care turns red cards into Peach outside your turn, making you a strong rescuer. Green Sachet discards one hand card once per Play Phase to heal any wounded character.",
+    "timingEn": "Keep red cards for emergencies outside your turn, and use Green Sachet once per Play Phase on the ally who most needs 1 HP.",
+    "exampleEn": "Outside your turn, a dying ally needs Peach; use a red card as Peach to help them. During your Play Phase, discard one hand card and heal a wounded character for 1 HP.",
+    "misunderstandingsEn": [
+      "Emergency Care can be used only outside your turn.",
+      "Green Sachet requires discarding one hand card and is limited to once per Play Phase.",
+      "Green Sachet can target any wounded character, including yourself."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "急救",
+        "nameEn": "Ji Jiu",
+        "textEn": "Outside your turn, you may use one red card as Peach.",
+        "plainEn": "When it is not your turn, red cards can become Peach to save or heal a character."
+      },
+      {
+        "nameZh": "青囊",
+        "nameEn": "Qing Nang",
+        "textEn": "Once during your Play Phase, you may discard one hand card, then choose one wounded character to recover 1 HP.",
+        "plainEn": "Discard a hand card to heal a wounded character for 1 HP once each Play Phase."
+      }
+    ]
+  },
+  {
+    "id": "hero-23",
+    "nameEn": "Lü Bu",
+    "roleEn": "Forced-hit offense",
+    "difficulty": "Easy",
+    "summaryEn": "Unmatched makes every Slash you use require two Jinks to cancel. In Duel, each opponent must play two Slashes each time they respond, making your attacks difficult to answer.",
+    "timingEn": "Use Slash and Duel when the target is low on cards or HP, and save attack resources for a decisive burst.",
+    "exampleEn": "Use Slash against an enemy; that enemy must play two Jinks to cancel it. Use Duel against another character; each time that character responds, they must play two Slashes.",
+    "misunderstandingsEn": [
+      "The two-Jink requirement applies to Slashes you use, not every Slash in the game.",
+      "In Duel, the opposing character needs two Slashes for each response.",
+      "Unmatched is locked and mandatory."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "无双",
+        "nameEn": "Wu Shuang",
+        "textEn": "Locked skill. A Slash you use requires two Jinks to be canceled. A character in a Duel with you must play two Slashes each time they respond.",
+        "plainEn": "Your Slash needs two Jinks to stop, and your Duel opponent needs two Slashes for every response."
+      }
+    ]
+  },
+  {
+    "id": "hero-24",
+    "nameEn": "Diao Chan",
+    "roleEn": "Control / Support",
+    "difficulty": "Medium",
+    "summaryEn": "Use Lijian to make two male characters fight each other, usually choosing a target who wants to deal damage to start the Duel. Closed Moon gives you an extra card at the end of your turn, helping your defense.",
+    "timingEn": "Use Lijian once during your Play Phase. Choose the Duelist and target carefully; Closed Moon is used at the start of your Finish Phase.",
+    "exampleEn": "During your Play Phase, discard one card and choose two other male characters. Choose one of them to be treated as using Duel against the other. At the start of your Finish Phase, draw one card with Closed Moon.",
+    "misunderstandingsEn": [
+      "Lijian can only be used once during your Play Phase.",
+      "Both selected characters must be other male characters.",
+      "The Duel is treated as being used by one selected male character against the other; you do not use the Duel yourself."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "闭月",
+        "nameEn": "Bi Yue",
+        "textEn": "At the start of your Finish Phase, you may draw one card.",
+        "plainEn": "You may draw an extra card at the end of your turn."
+      },
+      {
+        "nameZh": "离间",
+        "nameEn": "Li Jian",
+        "textEn": "Once during your Play Phase, you may discard one card and choose two other male characters. Then, you choose one of those male characters to be treated as using Duel against the other.",
+        "plainEn": "Discard one card to make two other male characters Duel each other. You decide which one is treated as using the Duel."
+      }
+    ]
+  },
+  {
+    "id": "hero-25",
+    "nameEn": "Sun Shang Xiang",
+    "roleEn": "Healing / Card draw",
+    "difficulty": "Medium",
+    "summaryEn": "Use equipment cards as flexible resources: losing equipment lets you draw two cards through Warrior Princess. Use Marriage to heal yourself and an injured male ally.",
+    "timingEn": "Warrior Princess triggers whenever you lose an equipment-area card. Marriage can be used once during your Play Phase and requires an injured male target.",
+    "exampleEn": "During your Play Phase, discard two hand cards and choose an injured male character. You and that character each recover 1 HP. Later, when you lose an equipment-area card, draw two cards.",
+    "misunderstandingsEn": [
+      "Warrior Princess is optional when you lose an equipment-area card.",
+      "Marriage requires two hand cards and an injured male character.",
+      "Marriage heals both you and the chosen character by 1 HP; it cannot target a female character."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "枭姬",
+        "nameEn": "Xiao Ji",
+        "textEn": "Whenever you lose a card from your equipment area, you may draw two cards.",
+        "plainEn": "Losing equipment can give you two cards."
+      },
+      {
+        "nameZh": "结姻",
+        "nameEn": "Jie Yin",
+        "textEn": "Once during your Play Phase, you may discard two hand cards and choose one injured male character. You and that character each recover 1 HP.",
+        "plainEn": "Discard two cards to heal yourself and an injured male character by 1 HP each."
+      }
+    ]
+  },
+  {
+    "id": "hero-26",
+    "nameEn": "Huang Zhong",
+    "roleEn": "Burst damage",
+    "difficulty": "Easy",
+    "summaryEn": "Use Fierce Archery to force a Slash through against targets with many hand cards or targets within your attack range. Manage your HP and hand size so the condition is available when you need it.",
+    "timingEn": "Fierce Archery is checked after you target someone with Slash during your Play Phase, before they respond with Jink.",
+    "exampleEn": "During your Play Phase, use Slash on a character. If that character has at least as many hand cards as your HP, or has hand cards no greater than your attack range, you may make that character unable to use Jink for this Slash.",
+    "misunderstandingsEn": [
+      "Fierce Archery is optional, not mandatory.",
+      "At least one of the two hand-card conditions must be true.",
+      "The restriction applies to Jink responding to that Slash, not to all Jink use."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "烈弓",
+        "nameEn": "Lie Gong",
+        "textEn": "After you use Slash to choose a target during your Play Phase, if that character's number of hand cards is at least your HP or is no greater than your attack range, you may make that character unable to use Jink in response to that Slash.",
+        "plainEn": "Against the right target, your Slash cannot be dodged with Jink."
+      }
+    ]
+  },
+  {
+    "id": "hero-27",
+    "nameEn": "Wei Yan",
+    "roleEn": "Sustain / Damage",
+    "difficulty": "Easy",
+    "summaryEn": "Stay close to enemies and deal damage to recover HP with Savage Assault. A -1 Mount expands the range in which the skill works.",
+    "timingEn": "Savage Assault checks the distance before the target loses HP from the damage. The damage must be exactly 1 HP damage to trigger the recovery.",
+    "exampleEn": "You deal 1 damage to a character who is at distance 1 from you. Before that damage reduces their HP, the distance is no greater than 1, so Savage Assault makes you recover 1 HP.",
+    "misunderstandingsEn": [
+      "Savage Assault is locked and cannot be declined.",
+      "The distance is checked before the damage reduces the target's HP.",
+      "The skill requires 1 damage to a character within distance 1; it does not trigger from every amount or source of damage."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "狂骨",
+        "nameEn": "Kuang Gu",
+        "textEn": "Locked Skill. After you deal 1 damage to a character whose distance from you is no greater than 1, if the distance between you and that character is no greater than 1 before their HP is reduced by this damage, you recover 1 HP.",
+        "plainEn": "When you deal 1 damage at close range, you recover 1 HP."
+      }
+    ]
+  },
+  {
+    "id": "hero-28",
+    "nameEn": "Xia Hou Yuan",
+    "roleEn": "Multi-attack",
+    "difficulty": "Medium",
+    "summaryEn": "Use Swift Strike to trade parts of your turn for unlimited-range Slashes. Equipment enables the second option, while skipping the Judgment and Draw Phases can also bypass delayed tricks affecting you.",
+    "timingEn": "Choose either option during the relevant turn; each chosen option creates one unlimited-range Slash. Skipping phases means you do not perform those phases.",
+    "exampleEn": "Choose option 1 to skip your Judgment Phase and Draw Phase, then treat that choice as using one Slash with no range limit. Alternatively, choose option 2, discard an equipment card, skip your Play Phase, and use another unlimited-range Slash.",
+    "misunderstandingsEn": [
+      "Each selected option produces one Slash.",
+      "Option 2 requires discarding an equipment card.",
+      "The Slashes have no range limit, but they are still Slashes and can be responded to normally."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "神速",
+        "nameEn": "Shen Su",
+        "textEn": "You may choose from the following options: 1. Skip your Judgment Phase and Draw Phase. 2. Skip your Play Phase and discard one equipment card. For each option you choose, you are treated as using one Slash with no range limit.",
+        "plainEn": "You can skip phases to make unlimited-range Slashes. The second option costs an equipment card."
+      }
+    ]
+  },
+  {
+    "id": "hero-29",
+    "nameEn": "Cao Ren",
+    "roleEn": "Defense / Stockpile",
+    "difficulty": "Easy",
+    "summaryEn": "Guard gives you three cards at the start of your Finish Phase, but flips your general card afterward. Use it when storing resources is more valuable than taking your next normal turn.",
+    "timingEn": "Choose Guard at the start of your Finish Phase. Flipping your general card causes you to skip your next turn under the normal flip rules.",
+    "exampleEn": "At the start of your Finish Phase, choose Guard and draw three cards. Then flip your general card, preparing to skip your next turn.",
+    "misunderstandingsEn": [
+      "Guard is optional.",
+      "You flip your general card only if you choose to draw the three cards.",
+      "Guard does not draw three cards immediately at the beginning of your turn; it happens at the start of the Finish Phase."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "据守",
+        "nameEn": "Ju Shou",
+        "textEn": "At the start of your Finish Phase, you may draw three cards. If you do, flip your general card.",
+        "plainEn": "Draw three cards now, but flip your general card and skip your next turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-30",
+    "nameEn": "Xiao Qiao",
+    "roleEn": "Damage redirection",
+    "difficulty": "Medium",
+    "summaryEn": "Use Heavenly Fragrance to redirect incoming damage by discarding a Heart hand card. The new target draws cards equal to their lost HP, so redirect damage to an enemy for pressure or an ally when necessary.",
+    "timingEn": "Heavenly Fragrance triggers when you take damage. Scarlet Beauty makes Spade cards count as Hearts for the listed uses and for judgment cards.",
+    "exampleEn": "When you would take damage, discard one Heart hand card and choose another character. Transfer that damage to them; they then draw cards equal to their lost HP.",
+    "misunderstandingsEn": [
+      "Heavenly Fragrance is optional and requires a Heart hand card.",
+      "The damage is transferred to the chosen character, not canceled.",
+      "The target draws based on HP already lost, and Scarlet Beauty does not make Spade cards count as Hearts for every possible purpose."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "天香",
+        "nameEn": "Tian Xiang",
+        "textEn": "When you take damage, you may discard one Heart hand card and choose another character. If you do, transfer that damage to the chosen character, then that character draws X cards, where X is the amount of HP that character has lost.",
+        "plainEn": "Discard a Heart to send incoming damage to someone else. That character then draws cards based on their lost HP."
+      },
+      {
+        "nameZh": "红颜",
+        "nameEn": "Hong Yan",
+        "textEn": "Locked Skill. Your Spade hand cards can only be used, played, discarded, or given to another character as though they were Heart cards. Your Spade judgment cards can only be treated as Heart judgment cards.",
+        "plainEn": "Your Spade cards count as Hearts for the listed hand-card actions and for judgment cards."
+      }
+    ]
+  },
+  {
+    "id": "hero-31",
+    "nameEn": "Zhou Tai",
+    "roleEn": "Survival",
+    "difficulty": "Hard",
+    "summaryEn": "Unyielding lets you survive lethal HP loss if the revealed card ranks remain different. Once Unyielding is active, keep disrupting enemies and use Peach immediately when needed.",
+    "timingEn": "Unyielding triggers whenever your HP is reduced to 0 or less, and each lost HP causes a separate reveal. The reveal occurs during your dying state.",
+    "exampleEn": "Your HP is reduced to 0. Reveal the top card and place it on your general card. If its rank differs from every card already there, you may avoid dying. If another HP is lost, reveal another card and check its rank again.",
+    "misunderstandingsEn": [
+      "Unyielding does not guarantee survival; a repeated rank fails the condition.",
+      "The revealed cards stay on your general card and their ranks matter for later checks.",
+      "The reveal happens in the dying state, so normal dying-state responses still matter."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "不屈",
+        "nameEn": "Bu Qu",
+        "textEn": "At any time, when your HP is reduced to 0 or less, for each 1 HP lost, reveal one card from the draw pile and place it on your general card. If its rank differs from every card already on your general card, you may avoid dying. The moment this card is revealed is your dying state.",
+        "plainEn": "At lethal HP, reveal cards one at a time. You may survive as long as each revealed card has a rank not already on your general card."
+      }
+    ]
+  },
+  {
+    "id": "hero-32",
+    "nameEn": "Zhang Jiao",
+    "roleEn": "Judgment control",
+    "difficulty": "Hard",
+    "summaryEn": "Use Lightning Strike whenever you use or play Jink to threaten 2 Thunder damage. Ghost Path lets you replace judgment cards with black cards, while Yellow Sky supplies Jink and Lightning when you are the lord.",
+    "timingEn": "Lightning Strike triggers after each Jink you use or play. Ghost Path must be used before a judgment card takes effect, and Yellow Sky is available once per contributing Qun character's Play Phase.",
+    "exampleEn": "Use Jink, then choose a character for Lightning Strike's judgment. If the judgment is Spade, deal that character 2 Thunder damage. Before another character's judgment resolves, play a black card to replace its judgment card.",
+    "misunderstandingsEn": [
+      "Lightning Strike is optional and can target any character.",
+      "Ghost Path replaces a judgment card before it takes effect; it does not simply change the result after resolution.",
+      "Yellow Sky works only when you are the lord and only for other Qun characters."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "雷击",
+        "nameEn": "Lei Ji",
+        "textEn": "Whenever you use or play a Jink, you may have any character perform a judgment. If the result is Spade, you deal that character 2 Thunder damage.",
+        "plainEn": "Each Jink you use or play can start a judgment that may deal 2 Thunder damage."
+      },
+      {
+        "nameZh": "鬼道",
+        "nameEn": "Gui Dao",
+        "textEn": "Before a judgment card takes effect, you may play a black card to replace it.",
+        "plainEn": "Replace a judgment card with a black card before it resolves."
+      },
+      {
+        "nameZh": "黄天",
+        "nameEn": "Huang Tian",
+        "textEn": "Lord Skill. Once during the Play Phase of another Qun character, that character may give you one Jink or Lightning.",
+        "plainEn": "When you are the lord, other Qun characters may give you Jink or Lightning once during their Play Phase."
+      }
+    ]
+  },
+  {
+    "id": "hero-33",
+    "nameEn": "Yu Ji",
+    "roleEn": "Bluff / Control",
+    "difficulty": "Hard",
+    "summaryEn": "Use Bewitchment to bluff Basic or ordinary Trick cards from your hand. Hearts are safer because a true Heart card remains usable even when challenged, while false or otherwise challenged cards are discarded and canceled.",
+    "timingEn": "Bewitchment is used when you need to use or play a Basic or ordinary Trick card. Decide whether the card's value is worth risking a challenge.",
+    "exampleEn": "You need a Basic card, so place a hand card face down and declare that it is that card. If nobody challenges, use it as declared. If someone challenges and it is true but not a Heart, the challenger loses 1 HP and the card is canceled; if it is a true Heart, it remains usable.",
+    "misunderstandingsEn": [
+      "Bewitchment can declare only a Basic card or an ordinary Trick card.",
+      "If nobody challenges, the card is used as declared without being revealed.",
+      "When challenged, a false card makes each challenger draw one card, while a true non-Heart card is canceled; only a true Heart card remains usable."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "蛊惑",
+        "nameEn": "Gu Huo",
+        "textEn": "When you need to use or play a Basic card or ordinary Trick card, you may declare a card and place one hand card face down. If nobody challenges the declaration, use that card as the card you declared. If someone challenges, reveal the card to verify it: if the declaration is true, each challenger loses 1 HP; if it is false, each challenger draws one card. Unless the challenged card is a Heart and the declaration is true, the card is canceled and discarded regardless of whether the declaration is true or false. A true Heart card may still be used.",
+        "plainEn": "Place a hand card face down and bluff its identity. A challenge punishes the challenger if you are truthful, but usually cancels the card; a true Heart card is the exception."
+      }
+    ]
+  },
+  {
+    "id": "hero-34",
+    "nameEn": "Dian Wei",
+    "roleEn": "Burst damage",
+    "difficulty": "Easy",
+    "summaryEn": "Use Assault once per Play Phase to deal an extra 1 damage to a nearby enemy. You can pay with 1 HP or discard a weapon, and weapons also increase your attack range.",
+    "timingEn": "Use Assault during your Play Phase, once only, after choosing a target within your attack range.",
+    "exampleEn": "During your Play Phase, choose another character within your attack range. Either lose 1 HP or discard a weapon card, then deal that character 1 damage.",
+    "misunderstandingsEn": [
+      "Assault can be used only once during your Play Phase.",
+      "You must choose exactly one cost: lose 1 HP or discard a weapon card.",
+      "The target must be another character within your attack range."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "强袭",
+        "nameEn": "Qiang Xi",
+        "textEn": "Once during your Play Phase, you may either lose 1 HP or discard one weapon card to deal 1 damage to another character within your attack range.",
+        "plainEn": "Pay 1 HP or discard a weapon to deal 1 damage at attack range."
+      }
+    ]
+  },
+  {
+    "id": "hero-35",
+    "nameEn": "Xun Yu",
+    "roleEn": "Support / Control",
+    "difficulty": "Hard",
+    "summaryEn": "Use Drive the Tiger to make a stronger character deal damage, either to a target within that character's attack range or to you if you lose the point duel. Sacrificial Gift turns damage you take into cards for a chosen character.",
+    "timingEn": "Drive the Tiger is once during your Play Phase and requires a character with higher HP. Sacrificial Gift triggers after each 1 damage you take.",
+    "exampleEn": "During your Play Phase, point duel a character with higher HP. If you win, choose a character within that character's attack range for them to damage; if you lose, that character deals 1 damage to you. After taking 1 damage, use Sacrificial Gift to make a character draw up to their HP limit, capped at 5.",
+    "misunderstandingsEn": [
+      "Drive the Tiger does not require the other character to be an enemy.",
+      "If you lose the point duel, the chosen character damages you.",
+      "Sacrificial Gift draws only enough cards to reach the target's HP maximum, and never more than 5 cards total in hand."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "驱虎",
+        "nameEn": "Qu Hu",
+        "textEn": "Once during your Play Phase, you may point duel a character with higher HP than yours. If you win, that character deals 1 damage to a character within their attack range whom you choose. If you do not win, that character deals 1 damage to you.",
+        "plainEn": "Challenge a higher-HP character to a point duel. Winning makes them damage someone in their range; losing makes them damage you."
+      },
+      {
+        "nameZh": "节命",
+        "nameEn": "Jie Ming",
+        "textEn": "After you take 1 damage, you may choose a character to draw cards until they have X hand cards, where X is their maximum HP, with X capped at 5.",
+        "plainEn": "After taking damage, refill one character's hand up to their HP maximum, but never above five cards."
+      }
+    ]
+  },
+  {
+    "id": "hero-36",
+    "nameEn": "Pang Tong",
+    "roleEn": "Control / Revival",
+    "difficulty": "Hard",
+    "summaryEn": "Use Chain to control chained status or reshape your hand with Club cards. Nirvana is a one-time revival that restores you to 3 HP and replaces all cards in your areas with three new cards.",
+    "timingEn": "Chain can be used whenever you can use Iron Chain or whenever you choose to recast it. Nirvana can be used only while dying and only once per game.",
+    "exampleEn": "Use a Club hand card as Iron Chain, or recast it to draw a replacement card. Later, while dying, discard every card in your areas, restore your general card, draw three cards, and recover to 3 HP.",
+    "misunderstandingsEn": [
+      "Chain can either use a Club hand card as Iron Chain or recast one; it is not limited to one use per turn.",
+      "Nirvana discards all cards in your areas, not only hand cards.",
+      "Nirvana is a Limited Skill and can be used only while you are in the dying state."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "连环",
+        "nameEn": "Lian Huan",
+        "textEn": "You may use one Club hand card as Iron Chain, or recast one Club hand card.",
+        "plainEn": "Club hand cards can become Iron Chain or be recast for a new card."
+      },
+      {
+        "nameZh": "涅槃",
+        "nameEn": "Nie Pan",
+        "textEn": "Nirvana. Limited Skill. When you are in the dying state, you may discard all cards in your areas, restore your general card, draw three cards, and recover HP to 3.",
+        "plainEn": "Once, while dying, discard all your cards and return to 3 HP with three new cards."
+      }
+    ]
+  },
+  {
+    "id": "hero-37",
+    "nameEn": "Wo Long Zhu Ge",
+    "roleEn": "Defense / Trick conversion",
+    "difficulty": "Medium",
+    "summaryEn": "Eight Formation gives you Eight Trigrams whenever you have no armor equipped. Turn red hand cards into Fire Attack and black hand cards into Negate to support allies or disrupt enemies.",
+    "timingEn": "Eight Formation is always active while your armor slot is empty. Use Fire Scheme or See Through whenever the converted card is legally playable.",
+    "exampleEn": "With no armor equipped, you are treated as having Eight Trigrams. During a turn, use a red hand card as Fire Attack, then use a black hand card as Negate when a Trick card needs to be canceled.",
+    "misunderstandingsEn": [
+      "Eight Formation is locked and cannot be turned off while you have no armor.",
+      "Fire Scheme requires a red hand card; See Through requires a black hand card.",
+      "The converted cards are used as Fire Attack or Negate, not as their original cards."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "八阵",
+        "nameEn": "Ba Zhen",
+        "textEn": "Locked Skill. When you have no armor equipped, you are always treated as having Eight Trigrams equipped.",
+        "plainEn": "If your armor area is empty, you count as having Eight Trigrams."
+      },
+      {
+        "nameZh": "火计",
+        "nameEn": "Huo Ji",
+        "textEn": "You may use one red hand card as Fire Attack.",
+        "plainEn": "A red hand card can become Fire Attack."
+      },
+      {
+        "nameZh": "看破",
+        "nameEn": "Kan Po",
+        "textEn": "You may use one black hand card as Negate.",
+        "plainEn": "A black hand card can become Negate."
+      }
+    ]
+  },
+  {
+    "id": "hero-38",
+    "nameEn": "Tai Shi Ci",
+    "roleEn": "Multi-target damage",
+    "difficulty": "Hard",
+    "summaryEn": "Use Heavenly Justice to win a point duel and unlock an additional Slash, unlimited range, and one extra target for the rest of the turn. Keep high-numbered cards and consider using a Slash before the duel when success is uncertain.",
+    "timingEn": "Heavenly Justice is once during your Play Phase. Its success or failure affects all Slash use for the rest of that turn.",
+    "exampleEn": "During your Play Phase, point duel a character. If you win, use one additional Slash this turn, ignore range for your Slashes, and choose one extra target with a Slash. If you lose, you cannot use Slash this turn.",
+    "misunderstandingsEn": [
+      "Winning grants one additional Slash, not unlimited extra Slashes.",
+      "The unlimited range and extra-target permission last only until the end of the turn.",
+      "Losing prevents all Slash use for the current turn, including Slashes you might otherwise use later."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "天义",
+        "nameEn": "Tian Yi",
+        "textEn": "Once during your Play Phase, you may point duel a character. If you win, until the end of the turn, you may use one additional Slash, your Slash has no range limit, and one Slash may choose one additional target. If you do not win, you cannot use Slash this turn.",
+        "plainEn": "Win the point duel to gain an extra, unlimited-range Slash and an extra target. Lose and you cannot use Slash for the turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-39",
+    "nameEn": "Pang De",
+    "roleEn": "Range / Disruption",
+    "difficulty": "Easy",
+    "summaryEn": "Horsemanship reduces your distance to every other character, letting you reach distant enemies. When a target uses Jink to cancel your Slash, Press Forward can strip away one of their cards.",
+    "timingEn": "Press Forward triggers only after your Slash is canceled by the target's Jink. Horsemanship is always active for distance calculation.",
+    "exampleEn": "Use Slash on a distant character, made reachable by Horsemanship. If that character uses Jink and cancels the Slash, you may discard one of their cards.",
+    "misunderstandingsEn": [
+      "Horsemanship reduces your calculated distance by 1; it does not directly increase your attack range.",
+      "Press Forward works only when the Slash is canceled by the target's Jink.",
+      "The discarded card may be from the target's hand or equipment area, as allowed by the game."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "马术",
+        "nameEn": "Ma Shu",
+        "textEn": "Locked Skill. When calculating your distance to other characters, reduce that distance by 1.",
+        "plainEn": "You are effectively 1 distance closer to every other character."
+      },
+      {
+        "nameZh": "猛进",
+        "nameEn": "Meng Jin",
+        "textEn": "When a Slash you use is canceled by the target character's Jink, you may discard one card from that character.",
+        "plainEn": "If your Slash is dodged, you may still discard one of the target's cards."
+      }
+    ]
+  },
+  {
+    "id": "hero-40",
+    "nameEn": "Yan Liang Wen Chou",
+    "roleEn": "Duel pressure",
+    "difficulty": "Medium",
+    "summaryEn": "Replace your Draw Phase with a judgment to gain a card and make differently colored hand cards into Duels for the turn. Keep cards of both colors so the conversion remains reliable.",
+    "timingEn": "Choose the replacement at the start of your Draw Phase. The color comparison uses the judgment result, and the Duel conversion lasts until the end of that turn.",
+    "exampleEn": "During your Draw Phase, replace drawing with a judgment and take the judgment card after it resolves. If the result is red, you may use black hand cards as Duel for the rest of the turn.",
+    "misunderstandingsEn": [
+      "The judgment replaces the normal Draw Phase; you do not draw normally as well.",
+      "You gain the judgment card after it takes effect.",
+      "Only hand cards of the opposite color from the judgment result can become Duel."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "双雄",
+        "nameEn": "Shuang Xiong",
+        "textEn": "During your Draw Phase, you may instead perform a judgment. You gain the judgment card after it takes effect, and during this turn you may use one hand card whose color differs from the judgment result as Duel.",
+        "plainEn": "Skip normal drawing for a judgment card, then use cards of the opposite color as Duel this turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-41",
+    "nameEn": "Yuan Shao",
+    "roleEn": "Mass damage",
+    "difficulty": "Medium",
+    "summaryEn": "Use Arrow Barrage by converting two same-suit hand cards into Archery Attack to pressure the whole table. As lord, Bloodline increases your hand limit based on the number of other Qun characters.",
+    "timingEn": "Arrow Barrage can be used whenever you can use Archery Attack. Bloodline is always active only while you are the lord.",
+    "exampleEn": "Combine two hand cards of the same suit and use them as Archery Attack, making every other character respond. If you are lord and three other Qun characters are present, your hand limit increases by six.",
+    "misunderstandingsEn": [
+      "The two cards must have the same suit, not merely the same color.",
+      "Bloodline works only when you are the lord.",
+      "Bloodline adds twice the number of other Qun characters to your hand limit."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "乱击",
+        "nameEn": "Luan Ji",
+        "textEn": "You may use two hand cards of the same suit as Archery Attack.",
+        "plainEn": "Two same-suit hand cards can become an attack against the whole table."
+      },
+      {
+        "nameZh": "血裔",
+        "nameEn": "Xue Yi",
+        "textEn": "Lord Skill. Locked Skill. Your hand limit is increased by X, where X is twice the number of other Qun characters.",
+        "plainEn": "As lord, your hand limit increases by two for each other Qun character."
+      }
+    ]
+  },
+  {
+    "id": "hero-42",
+    "nameEn": "Xu Huang",
+    "roleEn": "Hand control",
+    "difficulty": "Medium",
+    "summaryEn": "Use Supply Shortage to restrict enemies with small or important hands, and use black Basic or equipment cards as its source. Your special range lets Supply Shortage reach characters at distance 2.",
+    "timingEn": "Use Grain Severance when you can use Supply Shortage. The distance-2 permission applies specifically to Supply Shortage, not to all cards.",
+    "exampleEn": "Use a black Basic card as Supply Shortage on a character at distance 2, even though another character could not normally reach that far with the card.",
+    "misunderstandingsEn": [
+      "Only black Basic cards and black equipment cards can be converted.",
+      "The distance extension applies to Supply Shortage only.",
+      "This skill converts cards into Supply Shortage; it does not directly remove hand cards."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "断粮",
+        "nameEn": "Duan Liang",
+        "textEn": "You may use one black Basic card or black equipment card as Supply Shortage. You may use Supply Shortage on a character at distance 2.",
+        "plainEn": "Black Basic and equipment cards can become Supply Shortage, which you can use at distance 2."
+      }
+    ]
+  },
+  {
+    "id": "hero-43",
+    "nameEn": "Cao Pi",
+    "roleEn": "Control / Support",
+    "difficulty": "Medium",
+    "summaryEn": "Use Exile after taking damage to flip a key enemy and make them draw based on your lost HP. Take Mourning's cards when another character dies, and as lord use Prestige to draw from black judgments by Wei allies.",
+    "timingEn": "Exile triggers after you take damage. Exile's target is flipped immediately, while Mourning triggers when another character dies and Prestige triggers after a qualifying judgment resolves.",
+    "exampleEn": "After taking 2 damage, choose another character for Exile; flip them and have them draw two cards. When another character later dies, gain all cards in that character's areas.",
+    "misunderstandingsEn": [
+      "Exile's target is another character and is flipped; the skill does not simply skip their next phase by text alone.",
+      "Mourning gains all cards from the dead character's areas, not only their hand.",
+      "Prestige works only while you are lord and only after another Wei character's black judgment card takes effect."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "行殇",
+        "nameEn": "Xing Shang",
+        "textEn": "Mourning. When another character dies, you may gain all cards in that character's areas.",
+        "plainEn": "When another character dies, you may take all cards they had in their areas."
+      },
+      {
+        "nameZh": "放逐",
+        "nameEn": "Fang Zhu",
+        "textEn": "After you take damage, you may choose another character to flip. Then that character draws X cards, where X is the amount of HP you have lost.",
+        "plainEn": "After taking damage, flip another character and make them draw based on your lost HP."
+      },
+      {
+        "nameZh": "颂威",
+        "nameEn": "Song Wei",
+        "textEn": "Lord Skill. After a black judgment card of another Wei character takes effect, that character may have you draw one card.",
+        "plainEn": "As lord, a Wei ally may let you draw one card after their black judgment resolves."
+      }
+    ]
+  },
+  {
+    "id": "hero-44",
+    "nameEn": "Sun Jian",
+    "roleEn": "Support / Control",
+    "difficulty": "Medium",
+    "summaryEn": "Use Heroic Soul while injured to either give a character extra cards and one discard or one card and many discards. The amount depends on your lost HP, so lower HP makes the skill stronger but riskier.",
+    "timingEn": "Heroic Soul is used during your Preparation Phase and requires you to be injured. Choose the draw/discard mode based on whether the target is an ally or enemy.",
+    "exampleEn": "At your Preparation Phase with 2 HP lost, choose another character and option 1: they draw two cards, then discard one. Alternatively, choose option 2: they draw one card, then discard two.",
+    "misunderstandingsEn": [
+      "Heroic Soul can be used only if you are injured.",
+      "The chosen character is another character, not yourself.",
+      "X is your lost HP, and the two options have different draw and discard amounts."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "英魂",
+        "nameEn": "Ying Hun",
+        "textEn": "During your Preparation Phase, if you are injured, you may choose another character and choose one option: 1. That character draws X cards, then discards one card. 2. That character draws one card, then discards X cards. X is the amount of HP you have lost.",
+        "plainEn": "While injured, give someone either many cards and one discard or one card and many discards. The amount equals your lost HP."
+      }
+    ]
+  },
+  {
+    "id": "hero-45",
+    "nameEn": "Dong Zhuo",
+    "roleEn": "High-HP damage",
+    "difficulty": "Hard",
+    "summaryEn": "Use black Spade hand cards as Wine to increase damage or survive. Meat Grinder makes Slashes involving female characters require two Jinks, while Collapse steadily reduces your HP or HP maximum over time.",
+    "timingEn": "Collapse happens at the start of your Finish Phase whenever you are not tied for the lowest HP. Use Wine before damage or when dying if appropriate, and remember Meat Grinder affects both directions of Slash use.",
+    "exampleEn": "Use a Spade hand card as Wine. When you use Slash on a female character, she needs two Jinks to cancel it. At your Finish Phase, if you are not the character with the lowest HP, lose 1 HP or reduce your HP maximum by 1.",
+    "misunderstandingsEn": [
+      "Meat Grinder applies both to your Slashes against female characters and to female characters' Slashes against you.",
+      "Collapse is locked and you must choose either losing 1 HP or reducing your HP maximum by 1 when it triggers.",
+      "Violence is a lord skill and can trigger only from damage dealt by another Qun character."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "酒池",
+        "nameEn": "Jiu Chi",
+        "textEn": "You may use one Spade hand card as Wine.",
+        "plainEn": "A Spade hand card can become Wine."
+      },
+      {
+        "nameZh": "肉林",
+        "nameEn": "Rou Lin",
+        "textEn": "Locked Skill. Slashes you use against female characters and Slashes female characters use against you each require two Jinks to be canceled.",
+        "plainEn": "Slashes in either direction between you and a female character require two Jinks."
+      },
+      {
+        "nameZh": "崩坏",
+        "nameEn": "Beng Huai",
+        "textEn": "Locked Skill. At the start of your Finish Phase, if you are not a character with the lowest HP, you lose 1 HP or reduce your HP maximum by 1.",
+        "plainEn": "If you are not at the lowest HP, you must lose 1 HP or 1 maximum HP at the end of your turn."
+      },
+      {
+        "nameZh": "暴虐",
+        "nameEn": "Bao Nüe",
+        "textEn": "Lord Skill. After another Qun character deals damage, that character may perform a judgment. If the result is Spade, you recover 1 HP.",
+        "plainEn": "As lord, a Qun ally who deals damage may make a Spade judgment to heal you by 1 HP."
+      }
+    ]
+  },
+  {
+    "id": "hero-46",
+    "nameEn": "Zhu Rong",
+    "roleEn": "Card theft / Recovery",
+    "difficulty": "Medium",
+    "summaryEn": "Elephant makes you immune to Barbarian Assault and lets you recover those cards after they resolve. Use Fiery Blade after a damaging Slash to win a point duel and take a card from the target.",
+    "timingEn": "Elephant triggers after another character's Barbarian Assault finishes resolving. Fiery Blade triggers after your Slash deals damage, before moving on from that damage event.",
+    "exampleEn": "Another character uses Barbarian Assault; it has no effect on you, and after it finishes you gain the card. Later, your Slash deals damage to a target, so you point duel them; if you win, gain one of their cards.",
+    "misunderstandingsEn": [
+      "Elephant makes Barbarian Assault ineffective against you, but you gain it only after the card finishes resolving.",
+      "Fiery Blade requires your Slash to actually deal damage.",
+      "Winning Fiery Blade's point duel gives you one card from the target; it does not take all of their cards."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "巨象",
+        "nameEn": "Ju Xiang",
+        "textEn": "Locked Skill. Barbarian Assault has no effect on you. After another character's Barbarian Assault finishes resolving, you gain that card.",
+        "plainEn": "Barbarian Assault cannot affect you, and you recover it after it resolves."
+      },
+      {
+        "nameZh": "烈刃",
+        "nameEn": "Lie Ren",
+        "textEn": "After you use Slash to deal damage to a target character, you may point duel that character. If you win, you gain one card from that character.",
+        "plainEn": "After a damaging Slash, win a point duel to take one card from the target."
+      }
+    ]
+  },
+  {
+    "id": "hero-47",
+    "nameEn": "Meng Huo",
+    "roleEn": "Sustain",
+    "difficulty": "Easy",
+    "summaryEn": "Meng Huo is the natural source of Southern Invasion and can ignore its effects. Rebirth trades normal draws for cards and healing, becoming stronger when you are more wounded.",
+    "timingEn": "Use Rebirth in the Draw Phase when you are wounded; do not take damage just to increase its value.",
+    "exampleEn": "You have lost 2 HP. In your Draw Phase, you choose Rebirth and reveal the top 2 cards: one Hearts card and one Club card. You recover 1 HP from the Hearts card and gain the Club card.",
+    "misunderstandingsEn": [
+      "Lord of Disaster makes Southern Invasion ineffective for you; it does not prevent all damage.",
+      "When another character uses Southern Invasion, you become the source of its damage; the other character still used the card."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "祸首",
+        "nameEn": "Huo Shou",
+        "textEn": "Locked skill: Southern Invasion has no effect on you. When another character uses Southern Invasion and chooses targets, you become the source of the damage dealt by that card instead.",
+        "plainEn": "Southern Invasion cannot affect you. If someone else uses it, you count as the damage source instead."
+      },
+      {
+        "nameZh": "再起",
+        "nameEn": "Zai Qi",
+        "textEn": "During your Draw Phase, if you have lost HP, you may reveal the top X cards of the draw pile instead, where X is the amount of HP you have lost. Then you recover HP equal to the number of Hearts cards among them and gain the remaining cards.",
+        "plainEn": "You can replace your draw with a reveal. Hearts heal you; all other revealed cards go to your hand."
+      }
+    ]
+  },
+  {
+    "id": "hero-48",
+    "nameEn": "Jia Xu",
+    "roleEn": "Control",
+    "difficulty": "Hard",
+    "summaryEn": "Jia Xu resists black trick cards and can make every other character attack the nearest available character or lose HP. During your turn, No Escape prevents other characters from rescuing a dying character with Peach.",
+    "timingEn": "Use Chaotic War only when the nearest-target attacks are favorable and your allies can survive them.",
+    "exampleEn": "During your Play Phase, you use Chaotic War. Each other character must use Slash on a character at minimum distance from them or lose 1 HP. During the same turn, a non-dying character cannot use Peach to save a dying character.",
+    "misunderstandingsEn": [
+      "No Escape applies during your turn only.",
+      "Curtain prevents you from being chosen as a target of black trick cards; it does not prevent red tricks or untargeted effects.",
+      "Chaotic War does not let you choose the targets of the Slashes."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "完杀",
+        "nameEn": "Wan Sha",
+        "textEn": "Locked skill: During your turn, other characters who are not in the dying state cannot use Peach.",
+        "plainEn": "On your turn, only characters already in the dying state can use Peach."
+      },
+      {
+        "nameZh": "乱武",
+        "nameEn": "Luan Wu",
+        "textEn": "Limited skill: During your Play Phase, you may make every other character either use a Slash on another character at minimum distance from them or lose 1 HP.",
+        "plainEn": "Everyone else must attack someone nearby with Slash or lose 1 HP."
+      },
+      {
+        "nameZh": "帷幕",
+        "nameEn": "Wei Mu",
+        "textEn": "Locked skill: You cannot be chosen as a target of a black trick card.",
+        "plainEn": "Black trick cards cannot target you."
+      }
+    ]
+  },
+  {
+    "id": "hero-49",
+    "nameEn": "Lu Su",
+    "roleEn": "Support",
+    "difficulty": "Medium",
+    "summaryEn": "Lu Su generates many hand cards and can give a large share to the character with the fewest cards. Alliance can equalize two other characters' hands, helping a weak ally and disrupting a prepared enemy.",
+    "timingEn": "Before using Benevolence, compare hand sizes; before using Alliance, check that the two selected hands are worth exchanging.",
+    "exampleEn": "You have 4 hand cards and choose Benevolence to draw 2 more, reaching 6. You give 3 cards to the other character with the fewest hand cards. In your Play Phase, you later discard the difference between two other characters' hand sizes and make them exchange hands.",
+    "misunderstandingsEn": [
+      "Benevolence gives half of your hand rounded down only if your hand exceeds 5.",
+      "Alliance requires you to discard the difference in the two selected hand sizes.",
+      "Alliance is limited to once per Play Phase."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "好施",
+        "nameEn": "Hao Shi",
+        "textEn": "During your Draw Phase, you may draw two additional cards. Then, if you have more than 5 hand cards, you give half of your hand cards, rounded down, to one other character with the fewest hand cards.",
+        "plainEn": "Draw two extra cards, then possibly give half your hand to the character with the smallest hand."
+      },
+      {
+        "nameZh": "缔盟",
+        "nameEn": "Di Meng",
+        "textEn": "Once during your Play Phase, you may choose two other characters and discard X cards, where X is the difference between their hand-card counts. Then make those two characters exchange hands.",
+        "plainEn": "Pay the hand-size difference to swap two other characters' hands."
+      }
+    ]
+  },
+  {
+    "id": "hero-50",
+    "nameEn": "Zhang He",
+    "roleEn": "Control",
+    "difficulty": "Medium",
+    "summaryEn": "Zhang He can skip a phase by discarding a hand card. Skipping Draw Phase can steal cards, while skipping Play Phase can move equipment or delayed trick cards to disrupt enemies or protect allies.",
+    "timingEn": "Skip only when the special benefit is better than the phase itself; plan which card you will discard first.",
+    "exampleEn": "You discard a hand card to skip Draw Phase and take one hand card from each of two characters. On another turn, you discard a hand card to skip Play Phase and move an equipment card from one character's field to another character's corresponding area.",
+    "misunderstandingsEn": [
+      "You must discard a hand card to skip the phase.",
+      "The extra effect depends on which phase you skip.",
+      "Moving a card places it in the corresponding area; it is not discarded."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "巧变",
+        "nameEn": "Qiao Bian",
+        "textEn": "You may discard one hand card to skip a phase. If you skip Draw Phase this way, you may gain one hand card from each of up to two characters. If you skip Play Phase this way, you may move one card on a character's field to the corresponding area of another character.",
+        "plainEn": "Discard a card to skip a phase. Skipping Draw Phase can steal up to two cards, while skipping Play Phase can move equipment or delayed tricks."
+      }
+    ]
+  },
+  {
+    "id": "hero-51",
+    "nameEn": "Deng Ai",
+    "roleEn": "Range engine",
+    "difficulty": "Medium",
+    "summaryEn": "Deng Ai builds Fields when he loses cards outside his turn, gaining distance and eventually converting Fields into Steal. Coordinate with others to trigger Fields quickly, then use the extra range and defense to pressure enemies.",
+    "timingEn": "Track your Field count and distance before acting; awakening requires at least 3 Fields at the start of your Preparation Phase.",
+    "exampleEn": "Outside your turn, you lose a card and perform judgment. The effective judgment card is not Hearts, so you place it on your general card as a Field and your distance to others is reduced by 1. At 3 Fields, your Preparation Phase awakening lowers your maximum HP by 1 and grants Raid.",
+    "misunderstandingsEn": [
+      "Fields are gained from judgments after losing a card outside your turn.",
+      "Only a non-Hearts effective judgment card becomes a Field.",
+      "The distance reduction is X, the number of Fields, not the number of cards you currently hold."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "屯田",
+        "nameEn": "Tun Tian",
+        "textEn": "When you lose a card outside your turn, you may perform a judgment. After the judgment takes effect, place the effective judgment card on your general card if it is not Hearts; it is called a Field. Your distance to other characters is calculated as X less, where X is the number of Fields you have.",
+        "plainEn": "Losing cards outside your turn can create Fields through judgment. Each Field increases your effective reach by 1."
+      },
+      {
+        "nameZh": "凿险",
+        "nameEn": "Zao Xian",
+        "textEn": "Awakening skill: At the start of your Preparation Phase, if you have at least 3 Fields, you reduce your maximum HP by 1 and gain Raid: You may use one Field as Steal.",
+        "plainEn": "At 3 Fields, awaken and turn Fields into Steal cards."
+      }
+    ]
+  },
+  {
+    "id": "hero-52",
+    "nameEn": "Jiang Wei",
+    "roleEn": "Disruption",
+    "difficulty": "Hard",
+    "summaryEn": "Jiang Wei provokes enemies into using Slash or losing a card, both disrupting their plans and helping him awaken. After awakening, Stargazing controls the top of the draw pile for future judgments and draws.",
+    "timingEn": "Use Provocation when the chosen enemy has Slash or when discarding one of their cards is especially valuable; do not rush the dangerous awakening condition.",
+    "exampleEn": "During your Play Phase, you choose an enemy within whose attack range you are. Unless that enemy uses Slash on you, you discard one of their cards. If you later begin a Preparation Phase with no hand cards, you recover 1 HP or draw 2 cards, lose 1 maximum HP, and gain Stargazing.",
+    "misunderstandingsEn": [
+      "The chosen character must have you within their attack range.",
+      "The enemy chooses whether to use Slash; otherwise you discard one of their cards.",
+      "Stargazing looks at up to 5 cards, based on the number of characters."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "挑衅",
+        "nameEn": "Tiao Xin",
+        "textEn": "Once during your Play Phase, you may choose a character whose attack range includes you. Unless that character uses a Slash on you, you discard one card from that character.",
+        "plainEn": "Challenge an enemy to Slash you; if they do not, discard one of their cards."
+      },
+      {
+        "nameZh": "志继",
+        "nameEn": "Zhi Ji",
+        "textEn": "Awakening skill: At the start of your Preparation Phase, if you have no hand cards, you recover 1 HP or draw 2 cards, then reduce your maximum HP by 1 and gain Stargazing: At the start of your Preparation Phase, you may look at the top X cards of the draw pile, where X is the number of characters, up to 5. You may place any number of them on top of the draw pile and place the rest on the bottom.",
+        "plainEn": "With no hand cards, awaken and gain a choice of healing or drawing. Stargazing then rearranges the next few cards."
+      }
+    ]
+  },
+  {
+    "id": "hero-53",
+    "nameEn": "Liu Chan",
+    "roleEn": "Support",
+    "difficulty": "Medium",
+    "summaryEn": "Liu Shan makes attacking him costly and can give an ally a full extra turn by skipping his Play Phase. As lord, his awakening improves survival and grants Shu allies a way to provide Slash.",
+    "timingEn": "Save hand cards for Defense and Peach before using Abdication; give the extra turn to an ally who can make strong use of a full turn.",
+    "exampleEn": "An enemy targets you with Slash. Unless they discard a basic card, the Slash has no effect. You skip your Play Phase, then at the end of the turn discard a hand card to give an ally an extra turn. As lord, if you are at the lowest HP during Preparation Phase, awaken, gain 1 maximum HP, recover 1 HP, and gain Rally.",
+    "misunderstandingsEn": [
+      "The attacker discards a basic card, not any card.",
+      "Abdication requires skipping your Play Phase and then discarding a hand card at turn end.",
+      "Rally is a lord skill and works only when Liu Shan is the lord."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "享乐",
+        "nameEn": "Xiang Le",
+        "textEn": "Locked skill: When you become the target of a character's Slash, unless that character discards one basic card, that Slash has no effect on you.",
+        "plainEn": "A Slash targeting you is canceled unless its user discards a basic card."
+      },
+      {
+        "nameZh": "放权",
+        "nameEn": "Fang Quan",
+        "textEn": "You may skip your Play Phase. At the end of this turn, you may discard one hand card to make one other character gain an additional turn.",
+        "plainEn": "Skip your Play Phase to give an ally a full extra turn, if you discard a card at turn end."
+      },
+      {
+        "nameZh": "若愚",
+        "nameEn": "Ruo Yu",
+        "textEn": "Lord, awakening skill: At the start of your Preparation Phase, if you are the character with the lowest HP, you gain 1 maximum HP, recover 1 HP, and gain Rally: Lord skill—when you need to use or play a Slash, you may ask other Shu characters to choose whether to play one Slash, treated as used or played by you.",
+        "plainEn": "As lord, awaken when you have the lowest HP. You become tougher and can ask Shu allies to provide Slash for you."
+      }
+    ]
+  },
+  {
+    "id": "hero-54",
+    "nameEn": "Sun Ce",
+    "roleEn": "Burst support",
+    "difficulty": "Hard",
+    "summaryEn": "Sun Ce gains cards from Duels and red Slashes, then can awaken at 1 HP into a powerful draw and support engine. As lord, Wu allies can initiate point comparisons with him, though awakening lets him refuse them.",
+    "timingEn": "Protect yourself while approaching the 1-HP awakening condition, and save different-suit cards for the powerful post-awakening effects.",
+    "exampleEn": "You use a red Slash and draw 1 card from Fierce Resolve. You later begin a Preparation Phase at 1 HP, reduce maximum HP by 1, and gain Graceful Bearing and Heroic Soul. If wounded, Heroic Soul can make an ally draw X cards and discard 1, where X is your lost HP.",
+    "misunderstandingsEn": [
+      "Fierce Resolve triggers both when you use and when you become the target of the listed cards.",
+      "Heroic Soul is usable at the start of Preparation Phase only if you are wounded.",
+      "Dominate is a lord skill and works only when Sun Ce is the lord."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "激昂",
+        "nameEn": "Ji Ang",
+        "textEn": "When you use a Duel or red Slash and choose targets, or become the target of a Duel or red Slash, you may draw one card.",
+        "plainEn": "Using or being targeted by a Duel or red Slash lets you draw a card."
+      },
+      {
+        "nameZh": "魂姿",
+        "nameEn": "Hun Zi",
+        "textEn": "Awakening skill: At the start of your Preparation Phase, if your HP is 1, reduce your maximum HP by 1 and gain Graceful Bearing and Heroic Soul. Graceful Bearing: During your Draw Phase, you may draw one additional card. Heroic Soul: At the start of your Preparation Phase, if you are wounded, you may choose one: 1. One other character draws X cards, then discards one card; 2. One other character draws one card, then discards X cards. X is your lost HP.",
+        "plainEn": "At 1 HP, awaken and gain extra draws plus a choice that helps or burdens another character based on your lost HP."
+      },
+      {
+        "nameZh": "制霸",
+        "nameEn": "Zhi Ba",
+        "textEn": "Lord skill: Once during another Wu character's Play Phase, that character may initiate a point comparison with you. If you have awakened, you may refuse this comparison. If that character does not win, you may gain both cards used in the point comparison.",
+        "plainEn": "Wu allies may compare cards with you and, if they lose, you may take both cards. After awakening, you may refuse."
+      }
+    ]
+  },
+  {
+    "id": "hero-55",
+    "nameEn": "Zhang Zhao Zhang Hong",
+    "roleEn": "Support",
+    "difficulty": "Easy",
+    "summaryEn": "Zhang Zhao and Zhang Hong distribute equipment to allies while drawing replacement cards. Government helps recover cards discarded by other characters, making their discard phases a source of support.",
+    "timingEn": "Give equipment where it changes reach or defense most, and use Government after an ally or enemy has discarded several useful hand cards.",
+    "exampleEn": "During your Play Phase, you place an equipment card from your hand into an ally's equipment area and draw 1 card. After another character's Discard Phase, you return one hand card discarded that phase to them and gain the remaining cards.",
+    "misunderstandingsEn": [
+      "Direct Admonition places an equipment card directly into another character's equipment area.",
+      "Government triggers after the other character's Discard Phase ends.",
+      "You may return only one of that phase's discarded hand cards to its owner."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "直谏",
+        "nameEn": "Zhi Jian",
+        "textEn": "During your Play Phase, you may place one equipment card from your hand into the equipment area of one other character, then draw one card.",
+        "plainEn": "Give an equipment card directly to another character, then draw a card."
+      },
+      {
+        "nameZh": "固政",
+        "nameEn": "Gu Zheng",
+        "textEn": "At the end of another character's Discard Phase, you may give that character one hand card they discarded during this phase, then you may gain the other cards discarded during this phase.",
+        "plainEn": "Return one discarded hand card to its owner, then optionally take the rest."
+      }
+    ]
+  },
+  {
+    "id": "hero-56",
+    "nameEn": "Zuo Ci",
+    "roleEn": "Versatile",
+    "difficulty": "Hard",
+    "summaryEn": "Zuo Ci changes his identity by revealing different avatar general cards and borrowing one of their skills. He can adapt each turn, while taking damage creates more avatar choices.",
+    "timingEn": "Choose proactive skills for your own turn and defensive or damage-triggered skills outside it; switching is available at turn start or after turn end.",
+    "exampleEn": "At game start, you randomly receive two avatar cards and reveal one, gaining one of its skills and treating your gender and kingdom as matching it. After taking 1 damage, you gain a new avatar card, which you can later reveal at the start or end of a turn.",
+    "misunderstandingsEn": [
+      "You gain only one skill from the revealed avatar card.",
+      "Your gender and kingdom follow the revealed avatar card.",
+      "New Life gives a new avatar card after 1 damage; it does not automatically reveal it."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "化身",
+        "nameEn": "Hua Shen",
+        "textEn": "At the start of the game, you randomly gain two general cards as avatar cards, then reveal one. You gain one skill of the revealed avatar card, and your gender and kingdom are treated as matching that avatar card. At the start or after the end of your turn, you may change the revealed avatar card.",
+        "plainEn": "Borrow one skill and the gender and kingdom of a revealed general. You can switch avatars around your turns."
+      },
+      {
+        "nameZh": "新生",
+        "nameEn": "Xin Sheng",
+        "textEn": "When you take 1 damage, you gain one new avatar card.",
+        "plainEn": "Each time you take 1 damage, add another avatar option."
+      }
+    ]
+  },
+  {
+    "id": "hero-57",
+    "nameEn": "Cai Wen Ji",
+    "roleEn": "Defense support",
+    "difficulty": "Medium",
+    "summaryEn": "Cai Wenji supports anyone hit by Slash with a strong suit-based judgment. If she dies, her killer loses all general skills, so enemies must think carefully before finishing her.",
+    "timingEn": "Keep a card available for Lament after important Slash damage, and avoid dying to an enemy whose skills are valuable to your team.",
+    "exampleEn": "An ally takes damage from Slash. You discard a card and make them judge. A Hearts result heals them 1 HP; a Diamonds result makes them draw 2; Clubs makes the source discard 2; Spades turns the source face down.",
+    "misunderstandingsEn": [
+      "Lament requires you to discard one card.",
+      "The result affects different characters by suit; it is not always healing.",
+      "Broken Promise removes all general skills from the character who kills Cai Wenji."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "悲歌",
+        "nameEn": "Bei Ge",
+        "textEn": "After a character takes damage caused by Slash, you may discard one card, then make that character perform a judgment. If the result is Hearts, they recover 1 HP; Diamonds, they draw 2 cards; Clubs, the damage source discards 2 cards; Spades, the damage source turns face down.",
+        "plainEn": "After Slash damage, pay a card for a judgment whose suit can heal, draw, punish the source, or turn the source face down."
+      },
+      {
+        "nameZh": "断肠",
+        "nameEn": "Duan Chang",
+        "textEn": "Locked skill: When you die, the character who killed you loses all general skills.",
+        "plainEn": "Your killer loses every general skill when you die."
+      }
+    ]
+  },
+  {
+    "id": "hero-139",
+    "nameEn": "Shen Guan Yu",
+    "roleEn": "Retaliation",
+    "difficulty": "Medium",
+    "summaryEn": "Divine Guan Yu turns Hearts in hand into unlimited-range Slash and accumulates Nightmare marks on damage sources. When he dies, the character with the most marks may die from a judgment.",
+    "timingEn": "Use Hearts to pressure distant enemies, and decide whether accepting damage is worthwhile for building Nightmare marks.",
+    "exampleEn": "You use a Hearts hand card as Slash against a distant enemy, ignoring distance. The enemy deals you 1 damage, so they gain 1 Nightmare mark. If you later die and they have the most marks, they judge; unless the result is Peach or Peach Garden Oath, they die.",
+    "misunderstandingsEn": [
+      "Only Hearts hand cards are treated as Slash by Martial God.",
+      "The unlimited range applies to Hearts Slash you use.",
+      "The death effect checks the character with the most Nightmare marks, not necessarily every damage source."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "武神",
+        "nameEn": "Wu Shen",
+        "textEn": "Locked skill: Your Hearts hand cards can only be treated as Slash. Your Hearts Slash has no range limit when you use it.",
+        "plainEn": "Hearts cards in hand become Slash, and Hearts Slash can reach anyone."
+      },
+      {
+        "nameZh": "武魂",
+        "nameEn": "Wu Hun",
+        "textEn": "Locked skill: After you take 1 damage, make the damage source gain one Nightmare mark. When you die, make one other character with the most Nightmare marks perform a judgment. If the result is neither Peach nor Peach Garden Oath, that character dies.",
+        "plainEn": "Damage sources collect marks. When you die, the most-marked character may die unless their judgment shows Peach or Peach Garden Oath."
+      }
+    ]
+  },
+  {
+    "id": "hero-140",
+    "nameEn": "Shen Lü Meng",
+    "roleEn": "Hand control",
+    "difficulty": "Medium",
+    "summaryEn": "Divine Lu Meng can replace his normal draw with one card of each suit among five revealed cards. He can also inspect an enemy's hand and discard or stack a Hearts card.",
+    "timingEn": "Choose Hunting only when the five-card reveal offers enough useful suits; use Mind Probe to remove a key Hearts card or control the next draw.",
+    "exampleEn": "In your Draw Phase, you reveal five cards and gain one card of each suit represented. During your Play Phase, you inspect an enemy's hand, reveal a Hearts card, and place it on top of the draw pile instead of discarding it.",
+    "misunderstandingsEn": [
+      "Hunting reveals five cards and takes at most one card of each suit.",
+      "Mind Probe can choose only a Hearts card for its final choice.",
+      "Mind Probe is limited to once during your Play Phase."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "涉猎",
+        "nameEn": "She Lie",
+        "textEn": "During your Draw Phase, you may instead reveal the top five cards of the draw pile, then gain one card of each suit represented among them.",
+        "plainEn": "Reveal five cards and take one of every suit that appears."
+      },
+      {
+        "nameZh": "攻心",
+        "nameEn": "Gong Xin",
+        "textEn": "Once during your Play Phase, you may look at one other character's hand. Then you may reveal one Hearts card from that hand and choose one: 1. Discard that card; 2. Place that card on top of the draw pile.",
+        "plainEn": "Inspect a hand, then optionally discard or stack one Hearts card."
+      }
+    ]
+  },
+  {
+    "id": "hero-141",
+    "nameEn": "Shen Zhou Yu",
+    "roleEn": "Area damage",
+    "difficulty": "Hard",
+    "summaryEn": "Divine Zhou Yu can make everyone recover or lose 1 HP after discarding at least two hand cards. Inferno is a one-use burst that distributes up to 3 fire damage, with a costly option for dealing 2 or more to one character.",
+    "timingEn": "Discard at least two hand cards only when the global healing or damage is favorable, and prepare four different suits before concentrating Inferno damage.",
+    "exampleEn": "You discard two hand cards during your Discard Phase and choose Music: every character recovers 1 HP. Later in your Play Phase, you use Inferno for 3 fire damage on one enemy, first discarding four different-suit hand cards and losing 3 HP.",
+    "misunderstandingsEn": [
+      "Music triggers only after the Discard Phase ends and only if at least two hand cards were discarded that phase.",
+      "Inferno can affect up to three characters, but total fire damage is at most 3.",
+      "Dealing 2 or more Inferno damage to one character requires four different-suit hand cards and costs 3 HP."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "琴音",
+        "nameEn": "Qin Yin",
+        "textEn": "At the end of your Discard Phase, if you discarded at least two of your hand cards during that phase, you may choose one: 1. All characters each recover 1 HP; 2. All characters each lose 1 HP.",
+        "plainEn": "After discarding two or more hand cards, choose global healing or global HP loss."
+      },
+      {
+        "nameZh": "业炎",
+        "nameEn": "Ye Yan",
+        "textEn": "Limited skill: During your Play Phase, you may choose up to three characters and deal them a total of up to 3 fire damage. If you assign 2 or more fire damage to one character, you must first discard four hand cards of different suits and lose 3 HP.",
+        "plainEn": "Once, deal up to 3 fire damage split among three characters. Concentrating 2 or more damage on one target costs four suits and 3 HP."
+      }
+    ]
+  },
+  {
+    "id": "hero-142",
+    "nameEn": "Shen Zhu Ge Liang",
+    "roleEn": "Support control",
+    "difficulty": "Hard",
+    "summaryEn": "Divine Zhuge Liang rearranges his starting and drawn cards using seven Stars. He can amplify fire damage on one target or prevent non-lightning damage to selected allies, but his Stars run out over time.",
+    "timingEn": "Choose Star replacements carefully at game start and after drawing; reserve Stars for the most important fire attack or defensive window.",
+    "exampleEn": "At game start, you place seven cards as Stars and exchange some with hand cards. At the end of your turn, you remove one Star to mark an enemy; until your next turn begins, that enemy takes 1 extra fire damage.",
+    "misunderstandingsEn": [
+      "Stars are placed on your general card, not kept as ordinary hand cards.",
+      "Hurricane lasts only until your next turn begins.",
+      "Heavy Fog prevents non-lightning damage, but does not prevent lightning damage."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "七星",
+        "nameEn": "Qi Xing",
+        "textEn": "At the start of the game, place the top seven cards of the draw pile face down on your general card; these are Stars. You may replace any number of Stars with the same number of hand cards. At the end of your Draw Phase, you may likewise replace any number of Stars with the same number of hand cards.",
+        "plainEn": "Keep seven hidden reserve cards as Stars and exchange them with hand cards at the start and after drawing."
+      },
+      {
+        "nameZh": "狂风",
+        "nameEn": "Kuang Feng",
+        "textEn": "During your Finish Phase, you may remove one Star and choose one character. Until the start of your next turn, whenever that character takes fire damage, that damage is increased by 1.",
+        "plainEn": "Spend one Star to make one character take extra fire damage until your next turn."
+      },
+      {
+        "nameZh": "大雾",
+        "nameEn": "Da Wu",
+        "textEn": "During your Finish Phase, you may remove any number of Stars and choose the same number of characters. Until the start of your next turn, whenever those characters would take non-lightning damage, prevent that damage.",
+        "plainEn": "Spend one Star per protected character to prevent their non-lightning damage until your next turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-143",
+    "nameEn": "Shen Cao Cao",
+    "roleEn": "Defense",
+    "difficulty": "Easy",
+    "summaryEn": "Divine Cao Cao is harder to reach and can take one card from every other character after suffering damage. Turning face down is the price for this powerful collection effect.",
+    "timingEn": "Accept damage only when the cards you can gain are worth losing your next turn's normal position.",
+    "exampleEn": "You take 1 damage and choose Return to the Heart. You gain one card from the area of each other character, then turn face down. Other characters also count their distance to you as 1 greater.",
+    "misunderstandingsEn": [
+      "Return to the Heart is optional after each 1 damage.",
+      "You gain one card from each other character's areas, not their entire hands.",
+      "Distance to you is increased for other characters, not for you calculating distance to them."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "归心",
+        "nameEn": "Gui Xin",
+        "textEn": "After you take 1 damage, you may gain one card from the area of each other character, then turn face down.",
+        "plainEn": "After damage, take one card from every other character, then turn face down."
+      },
+      {
+        "nameZh": "飞影",
+        "nameEn": "Fei Ying",
+        "textEn": "Locked skill: Other characters calculate their distance to you as 1 greater.",
+        "plainEn": "Everyone else is effectively one distance farther from you."
+      }
+    ]
+  },
+  {
+    "id": "hero-144",
+    "nameEn": "Shen Lü Bu",
+    "roleEn": "Area burst",
+    "difficulty": "Hard",
+    "summaryEn": "Divine Lü Bu builds Rage marks by dealing and taking damage, but ordinary trick cards cost Rage or HP. Spend Rage to disable armor, gain Unrivaled, or unleash a devastating whole-field attack.",
+    "timingEn": "Balance the cost of ordinary tricks against their value, and save six Rage marks for Wrath of the Gods when the mass discard will matter.",
+    "exampleEn": "You start with 2 Rage marks, then deal 1 damage and gain another. During your Play Phase, you spend 2 Rage to gain Unrivaled and disable an enemy's armor. With 6 Rage, you can spend them to deal every other character 1 damage, make them discard all equipment and four hand cards, then turn face down.",
+    "misunderstandingsEn": [
+      "Frenzy gives 2 Rage at game start and 1 after each point of damage dealt or received.",
+      "Ordinary trick cards cost either 1 Rage or 1 HP under No Strategy.",
+      "Wrath of the Gods also turns you face down after its damage and discards resolve."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "狂暴",
+        "nameEn": "Kuang Bao",
+        "textEn": "Locked skill: At the start of the game, you gain 2 Rage marks. After you deal or take 1 damage, you gain 1 Rage mark.",
+        "plainEn": "Start with two Rage and gain one whenever you deal or take damage."
+      },
+      {
+        "nameZh": "无谋",
+        "nameEn": "Wu Mou",
+        "textEn": "Locked skill: When you use an ordinary trick card, you discard one Rage mark or lose 1 HP.",
+        "plainEn": "Every ordinary trick costs one Rage or 1 HP."
+      },
+      {
+        "nameZh": "无前",
+        "nameEn": "Wu Qian",
+        "textEn": "During your Play Phase, you may discard 2 Rage marks and choose one other character. Until the end of this turn, you gain Unrivaled, and that character's armor is ineffective.",
+        "plainEn": "Spend two Rage to ignore one enemy's armor and gain Unrivaled for the turn."
+      },
+      {
+        "nameZh": "神愤",
+        "nameEn": "Shen Fen",
+        "textEn": "Once during your Play Phase, you may discard 6 Rage marks, then deal 1 damage to each other character. Those characters first discard all cards in their equipment areas, then discard four hand cards, and finally you turn face down.",
+        "plainEn": "Spend six Rage to damage everyone else, destroy their equipment and four hand cards, then turn face down."
+      }
+    ]
+  },
+  {
+    "id": "hero-145",
+    "nameEn": "Shen Zhao Yun",
+    "roleEn": "Versatile defense",
+    "difficulty": "Medium",
+    "summaryEn": "Divine Zhao Yun has a larger hand limit and gains a card when entering or leaving the dying state. Dragon Soul converts up to two cards of one suit into key basic cards and can strengthen red effects or discard an enemy card with black cards.",
+    "timingEn": "Preserve matching suits for the stronger two-card conversions, while using your large hand limit to maintain both offense and defense.",
+    "exampleEn": "You enter the dying state and draw 1 card from Last Stand. You use two Hearts cards as Peach, increasing its recovery by 1. Alternatively, two Spades can be used as Negate and then discard one card from the current-turn character.",
+    "misunderstandingsEn": [
+      "Last Stand triggers both when you enter and when you leave the dying state.",
+      "Dragon Soul uses up to two cards of the same suit, not necessarily exactly two.",
+      "The red bonus applies when two red cards are used; the black bonus applies when two black cards are used."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "绝境",
+        "nameEn": "Jue Jing",
+        "textEn": "Locked skill: Your hand-card limit is increased by 2. When you enter or leave the dying state, you draw one card.",
+        "plainEn": "Hold two extra cards and draw whenever you enter or leave the dying state."
+      },
+      {
+        "nameZh": "龙魂",
+        "nameEn": "Long Hun",
+        "textEn": "You may use or play up to two cards of the same suit according to these rules: Hearts as Peach; Diamonds as Fire Slash; Clubs as Jink; Spades as Negate. If you use two red cards this way, increase this card's recovery value or damage value by 1. If you use two black cards this way, discard one card from the current-turn character.",
+        "plainEn": "Convert matching-suit cards into Peach, Fire Slash, Jink, or Negate. Two red cards strengthen the effect; two black cards discard a card from the active character."
+      }
+    ]
+  },
+  {
+    "id": "hero-146",
+    "nameEn": "Shen Si Ma Yi",
+    "roleEn": "Combo control",
+    "difficulty": "Hard",
+    "summaryEn": "Divine Sima Yi stores Restraint marks from damage and discards, then awakens to spend them on a toolkit of borrowed skills. Killing a character can grant an extra turn, letting him snowball one target at a time.",
+    "timingEn": "Build four Restraint marks safely, spend Extreme Strategy only when its specific effect is needed, and weaken several enemies so Chain Break can continue your turn after a kill.",
+    "exampleEn": "You take 2 damage and gain 2 Restraint marks. After discarding 2 hand cards in Discard Phase, you gain 2 more and awaken at the next Preparation Phase, losing 1 maximum HP and gaining Extreme Strategy. You later kill a character and take an extra turn after the current turn ends.",
+    "misunderstandingsEn": [
+      "Restraint gains marks from both damage and hand cards discarded during Discard Phase.",
+      "Awakening requires at least 4 Restraint marks at the start of Preparation Phase.",
+      "Chain Break grants the extra turn after the current turn ends, not immediately."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "忍戒",
+        "nameEn": "Ren Jie",
+        "textEn": "Locked skill: After you take damage, or discard hand cards during your Discard Phase, you gain X Restraint marks, where X is the damage amount or number of hand cards discarded.",
+        "plainEn": "Damage and discarded hand cards become Restraint marks."
+      },
+      {
+        "nameZh": "拜印",
+        "nameEn": "Bai Yin",
+        "textEn": "Awakening skill: At the start of your Preparation Phase, if you have at least 4 Restraint marks, reduce your maximum HP by 1 and gain Extreme Strategy: You may discard 1 Restraint mark to activate one of these skills: Rebellion, Exile, Ingenuity, Purification, or No Escape.",
+        "plainEn": "At four marks, awaken and spend marks to access five different skills."
+      },
+      {
+        "nameZh": "连破",
+        "nameEn": "Lian Po",
+        "textEn": "After you kill any character, you may gain an additional turn after this turn ends.",
+        "plainEn": "A kill can give you another full turn after the current one."
+      }
+    ]
+  },
+  {
+    "id": "hero-152",
+    "nameEn": "Jie · Liu Bei",
+    "roleEn": "Support",
+    "difficulty": "Easy",
+    "summaryEn": "Reimagined Liu Bei gives hand cards to allies and can treat his second gift to one ally in the phase as a basic card. As lord, he can ask Shu allies to provide Slash through Inspire.",
+    "timingEn": "Give allies the cards they need, especially defense, and remember that the second card given to one recipient unlocks the basic-card conversion.",
+    "exampleEn": "During your Play Phase, you give one card to an ally, then give them a second card. You may now treat a card as a basic card. As lord, when you need Slash, you may ask other Shu characters whether they will play one for you.",
+    "misunderstandingsEn": [
+      "Each recipient can receive Ren Virtue cards only if they have not received one earlier in that Play Phase.",
+      "The basic-card option occurs when you give the second Ren Virtue card during the phase.",
+      "Inspire is a lord skill and works only when Liu Bei is the lord."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "仁德",
+        "nameEn": "Ren De",
+        "textEn": "During your Play Phase, you may give any number of hand cards to one other character who has not received a Ren Virtue card during this phase. When you give that character your second Ren Virtue card during this phase, you may treat a card as using a basic card.",
+        "plainEn": "Give cards to an ally who has not received one this phase. The second card you give that ally lets you treat a card as a basic card."
+      },
+      {
+        "nameZh": "激将",
+        "nameEn": "Ji Jiang",
+        "textEn": "Lord skill: When you need to use or play a Slash, you may ask other Shu characters to choose whether to play one Slash, treated as used or played by you.",
+        "plainEn": "As lord, ask Shu allies to provide Slash for you."
+      }
+    ]
+  },
+  {
+    "id": "hero-153",
+    "nameEn": "Jie · Guan Yu",
+    "roleEn": "Burst control",
+    "difficulty": "Medium",
+    "summaryEn": "Reimagined Guan Yu turns any red card into Slash and Diamonds Slash ignores range. Justice can either disable an enemy's skills and hand cards or take a red card and heal that character.",
+    "timingEn": "Keep red cards for defense and conversion, and use Justice according to whether disabling an enemy or healing an ally is more valuable.",
+    "exampleEn": "During your Play Phase, you discard a card to use Justice on an enemy. They reveal a black hand card, so their non-locked skills fail for the turn, they cannot use or play hand cards, and your Hearts Slash deals 1 extra damage to them.",
+    "misunderstandingsEn": [
+      "Martial Saint converts any red card, not only a red basic card.",
+      "Only Diamonds Slash has unlimited range.",
+      "Justice's black-card effect lasts for the current turn only and does not disable locked skills."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "武圣",
+        "nameEn": "Wu Sheng",
+        "textEn": "You may use or play one red card as Slash. Diamonds Slash has no range limit when you use it.",
+        "plainEn": "Any red card becomes Slash, and Diamonds Slash can reach anyone."
+      },
+      {
+        "nameZh": "义绝",
+        "nameEn": "Yi Jue",
+        "textEn": "Once during your Play Phase, you may discard one card, then make one other character reveal one hand card. If it is black, that character's non-locked skills are ineffective for this turn, and they cannot use or play hand cards; damage dealt to them by your Hearts Slash is increased by 1. If it is red, you gain it, then you may make that character recover 1 HP.",
+        "plainEn": "A black reveal shuts down non-locked skills, hand cards, and makes your Hearts Slash stronger. A red reveal gives you the card and may heal its owner."
+      }
+    ]
+  },
+  {
+    "id": "hero-154",
+    "nameEn": "Jie · Zhang Fei",
+    "roleEn": "Aggro",
+    "difficulty": "Easy",
+    "summaryEn": "Reimagined Zhang Fei can use unlimited Slash, and after the first Slash in his Play Phase his later Slash ignores distance. Substitute stores Slashes that target him without dealing damage.",
+    "timingEn": "Use one Slash early to unlock unlimited range for the rest of the Play Phase, and preserve defense so Substitute can collect failed attacks.",
+    "exampleEn": "You use Slash once during your Play Phase, so all later Slash you use this phase ignores distance. At the end of the phase, you activate Substitute, discard all your trick and mount cards, and until your next turn begins gain every Slash that targets you without dealing damage.",
+    "misunderstandingsEn": [
+      "Unlimited Slash is a locked skill and does not require a weapon.",
+      "Distance is ignored only after you have used Slash during the current Play Phase.",
+      "Substitute discards all trick and mount cards before storing qualifying Slashes."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "咆哮",
+        "nameEn": "Pao Xiao",
+        "textEn": "Locked skill: You may use Slash without limit. During your Play Phase, if you have used Slash during the current phase, Slash you use during this phase has no range limit.",
+        "plainEn": "Use as many Slash as you want. After your first Slash, your later Slash this phase ignores distance."
+      },
+      {
+        "nameZh": "替身",
+        "nameEn": "Ti Shen",
+        "textEn": "At the end of your Play Phase, you may activate this skill. Discard all trick cards and mount cards you have. Then, until the start of your next turn, gain every Slash that chooses you as a target and does not deal damage to you.",
+        "plainEn": "Clear away your tricks and mounts, then collect Slashes that fail to damage you until your next turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-155",
+    "nameEn": "Jie · Zhao Yun",
+    "roleEn": "Flexible defense",
+    "difficulty": "Easy",
+    "summaryEn": "Reimagined Zhao Yun swaps Slash and Jink to maintain both offense and defense. Outside your turn, using or playing a hand card can reveal a top card for any character, with a discard cost if the categories differ.",
+    "timingEn": "Use Dragon Courage to answer whichever basic card is needed, and trigger Cliff Edge outside your turn only when the revealed card's recipient is worth the possible discard.",
+    "exampleEn": "Outside your turn, you play a hand card. Cliff Edge reveals the top card and gives it to an ally. If the revealed card's category differs from the card you played, you discard a card.",
+    "misunderstandingsEn": [
+      "Dragon Courage converts Slash to Jink and Jink to Slash; it does not convert other cards.",
+      "Cliff Edge triggers outside your turn only.",
+      "The revealed card may be given to any character, but differing categories make you discard one card."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "龙胆",
+        "nameEn": "Long Dan",
+        "textEn": "You may use or play one Slash as Jink, or one Jink as Slash.",
+        "plainEn": "Swap Slash and Jink whenever you need the other card."
+      },
+      {
+        "nameZh": "涯角",
+        "nameEn": "Ya Jiao",
+        "textEn": "When you use or play a hand card outside your turn, you may reveal the top card of the draw pile and give it to any character. If the two cards have different categories, you discard one card.",
+        "plainEn": "Outside your turn, reveal and give away the top card; pay one card if its category differs from the card you used."
+      }
+    ]
+  },
+  {
+    "id": "hero-156",
+    "nameEn": "Jie · Ma Chao",
+    "roleEn": "Aggressive control",
+    "difficulty": "Easy",
+    "summaryEn": "Ma Chao attacks from farther away and can make his Slash very difficult to answer. Use Iron Cavalry against enemies who rely on non-locked defensive or damage-triggered skills.",
+    "timingEn": "Use Iron Cavalry immediately after choosing a Slash target; its skill suppression lasts until the end of the current turn.",
+    "exampleEn": "You use Slash on an enemy. You activate Iron Cavalry, making that enemy's non-locked skills ineffective for the turn, then perform judgment. If the result is spades and the enemy does not discard a spade card, the enemy cannot use Jink for this Slash.",
+    "misunderstandingsEn": [
+      "Horse does not increase your attack range; it reduces your distance to other characters by 1.",
+      "Iron Cavalry is optional, but if activated, the target must discard a card matching the judgment suit or cannot use Jink for that Slash.",
+      "Iron Cavalry disables non-locked skills only; locked skills still work."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "马术",
+        "nameEn": "Ma Shu",
+        "textEn": "Locked skill: When you calculate your distance to other characters, reduce it by 1.",
+        "plainEn": "You can reach other characters from one distance farther away. This does not increase your attack range."
+      },
+      {
+        "nameZh": "铁骑",
+        "nameEn": "Tie Qi",
+        "textEn": "When you use Slash to choose a target, you may make that target's non-locked skills ineffective until the end of this turn. Then you perform judgment. Unless that character discards a card whose suit matches the judgment result, that character cannot use Jink to respond to this Slash.",
+        "plainEn": "You can temporarily shut off the target's non-locked skills. The target must also discard a card of the judgment suit or cannot play Jink against this Slash."
+      }
+    ]
+  },
+  {
+    "id": "hero-158",
+    "nameEn": "Jie · Gan Ning",
+    "roleEn": "Hand disruption",
+    "difficulty": "Easy",
+    "summaryEn": "Gan Ning converts black cards into Sabotage to destroy enemy hand cards and equipment. His once-per-game skill can protect several characters from a multi-target trick or deny enemies its benefit.",
+    "timingEn": "Use Raid when a black card can remove an important card. Save Ferocious Assault for the most impactful multi-target trick.",
+    "exampleEn": "You use a black card as Sabotage on an enemy's equipment. Later, an enemy uses Barbarians on three characters; you activate Ferocious Assault to make Barbarians ineffective for two of those targets.",
+    "misunderstandingsEn": [
+      "Raid converts any black card, not only a black basic card.",
+      "Ferocious Assault is limited to once per game.",
+      "Ferocious Assault can make the trick ineffective for any number of its targets, including allies or enemies."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "奇袭",
+        "nameEn": "Qi Xi",
+        "textEn": "You may use a black card as Sabotage.",
+        "plainEn": "Any black card can become Sabotage. This lets you remove hand cards or equipment without needing an actual Sabotage."
+      },
+      {
+        "nameZh": "奋威",
+        "nameEn": "Fen Wei",
+        "textEn": "Limited skill: After a trick card chooses two or more targets, you may make that card ineffective for any number of those target characters.",
+        "plainEn": "Once per game, you can protect selected targets from a multi-target trick. The trick still affects targets you do not choose."
+      }
+    ]
+  },
+  {
+    "id": "hero-159",
+    "nameEn": "Jie · Lü Meng",
+    "roleEn": "Build-up burst",
+    "difficulty": "Hard",
+    "summaryEn": "Lu Meng stores a large hand by avoiding Slash during his Play Phase, then awakens when his hand greatly exceeds his HP. After awakening, Mind's Eye lets him inspect and manipulate an enemy's heart cards.",
+    "timingEn": "Decide before using Slash whether skipping your Discard Phase is more valuable than attacking. Awakening checks at the start of your preparation phase.",
+    "exampleEn": "During your Play Phase, you use no Slash. At the end of the turn, you skip your Discard Phase. At a later preparation phase, with 7 hand cards and 4 HP, you meet the threshold and awaken, losing 1 maximum HP and gaining Mind's Eye.",
+    "misunderstandingsEn": [
+      "You may skip the Discard Phase only if you did not use or play Slash during that Play Phase.",
+      "The awakening threshold is hand cards at least 3 higher than HP, or at least 2 higher in games with 7 or more players.",
+      "Mind's Eye can reveal only another character's hand and can affect only a revealed Heart card."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "克己",
+        "nameEn": "Ke Ji",
+        "textEn": "If you have not used or played Slash during your Play Phase, you may skip your Discard Phase.",
+        "plainEn": "Avoid Slash during your Play Phase to keep all your cards without discarding down to your hand limit."
+      },
+      {
+        "nameZh": "勤学",
+        "nameEn": "Qin Xue",
+        "textEn": "Awakening skill: During your preparation phase, if your number of hand cards is at least 3 greater than your HP (or at least 2 greater in a game with 7 or more players), you lose 1 maximum HP and gain Mind's Eye. Once during your Play Phase, you may view another character's hand, then you may reveal one Heart card from it and choose one: 1. discard that card; or 2. place that card on top of the draw pile.",
+        "plainEn": "Build a large hand to awaken. Afterward, once each Play Phase, you can inspect an enemy's hand and discard or stack a revealed Heart card."
+      }
+    ]
+  },
+  {
+    "id": "hero-160",
+    "nameEn": "Jie · Huang Gai",
+    "roleEn": "Burst damage",
+    "difficulty": "Medium",
+    "summaryEn": "Huang Gai loses HP to draw cards, then gains powerful red Slashes during his Play Phase. Use this to prepare a burst with extra Slash capacity and Slashes that cannot be answered by Jink.",
+    "timingEn": "Use Bitter Resolve before your key attacks when losing 1 HP will trigger Surrender and improve your damage output.",
+    "exampleEn": "During your Play Phase, you discard a card with Bitter Resolve and lose 1 HP. Surrender makes you draw three cards; because this is your Play Phase, your red Slashes ignore distance, cannot be answered by Jink, and you may use one additional Slash until the turn ends.",
+    "misunderstandingsEn": [
+      "Bitter Resolve can be used only once during your Play Phase and requires discarding a card.",
+      "Surrender is mandatory after you lose 1 HP: you draw three cards.",
+      "The enhanced red Slash effects last only until the end of the current turn and apply when you are the user."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "苦肉",
+        "nameEn": "Ku Rou",
+        "textEn": "Once during your Play Phase, you may discard one card, then lose 1 HP.",
+        "plainEn": "Trade one card and 1 HP for the chance to trigger Surrender. The HP loss is not damage."
+      },
+      {
+        "nameZh": "诈降",
+        "nameEn": "Zha Xiang",
+        "textEn": "Locked skill: After you lose 1 HP, you draw three cards. If you are currently in your Play Phase, then until the end of the turn, your red Slashes have no distance restriction, cannot be responded to with Jink, and you may use one additional Slash.",
+        "plainEn": "Every 1 HP lost gives you three cards. Losing HP during your Play Phase also supercharges your red Slashes for that turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-161",
+    "nameEn": "Jie · Zhou Yu",
+    "roleEn": "Hand pressure",
+    "difficulty": "Medium",
+    "summaryEn": "Zhou Yu draws extra cards and keeps a hand limit equal to his maximum HP. His Interrogation forces another character to choose between revealing and losing cards of one suit or losing HP.",
+    "timingEn": "Use Interrogation when the target is likely to hold several cards of the handed card's suit or cannot afford to lose 1 HP.",
+    "exampleEn": "During your Play Phase, you give an enemy a face-up red card. The enemy chooses to reveal all hand cards and discard all cards matching that card's suit instead of losing 1 HP.",
+    "misunderstandingsEn": [
+      "Eloquent Hero gives one extra card during the Draw Phase, not during every draw.",
+      "Your hand limit is your maximum HP, not your current HP.",
+      "The target chooses the Interrogation outcome after receiving the face-up card."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "英姿",
+        "nameEn": "Ying Zi",
+        "textEn": "Locked skill: During your Draw Phase, you draw one additional card. Your hand limit equals X, where X is your maximum HP.",
+        "plainEn": "You draw one extra card every Draw Phase. Your maximum hand size is based on maximum HP."
+      },
+      {
+        "nameZh": "反间",
+        "nameEn": "Fan Jian",
+        "textEn": "Once during your Play Phase, you may give one hand card face up to another character. That character chooses one: 1. reveal all hand cards, then discard all cards whose suit matches the given card; or 2. lose 1 HP.",
+        "plainEn": "Give an enemy a card and make them choose between exposing and losing cards of that suit or losing HP."
+      }
+    ]
+  },
+  {
+    "id": "hero-162",
+    "nameEn": "Jie · Da Qiao",
+    "roleEn": "Control and redirection",
+    "difficulty": "Medium",
+    "summaryEn": "Da Qiao uses Diamond cards to apply or remove Indulgence and draws a card afterward. She can also redirect Slash away from herself to another character in her attack range.",
+    "timingEn": "Use National Beauty either before an enemy's important turn or to remove an ally's Indulgence. Keep a discardable card ready when you expect to be targeted by Slash.",
+    "exampleEn": "During your Play Phase, you use a Diamond card as Indulgence on an enemy and draw a card. Later, another character uses Slash on you; you discard a card and transfer that Slash to an enemy within your attack range.",
+    "misunderstandingsEn": [
+      "National Beauty is limited to once during your Play Phase, but its two options are choices of the same activation.",
+      "The second option removes an Indulgence already on the field; it does not cancel any delayed trick.",
+      "Flowing Away requires a discard and a different character within your attack range."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "国色",
+        "nameEn": "Guo Se",
+        "textEn": "Once during your Play Phase, choose one: 1. use a Diamond card as Indulgence; or 2. discard a Diamond card and discard one Indulgence on the field. After completing your choice, draw one card.",
+        "plainEn": "Diamond cards can place Indulgence or remove one already in play. Either option lets you draw a card."
+      },
+      {
+        "nameZh": "流离",
+        "nameEn": "Liu Li",
+        "textEn": "When you become the target of Slash, you may discard one card and choose another character within your attack range. Transfer this Slash to that character.",
+        "plainEn": "You can discard a card to redirect Slash to someone you can attack. The new target must be another character."
+      }
+    ]
+  },
+  {
+    "id": "hero-163",
+    "nameEn": "Jie · Lu Xun",
+    "roleEn": "Card engine",
+    "difficulty": "Hard",
+    "summaryEn": "Lu Xun can hide his entire hand from a single-target delayed trick or ordinary trick, then recover it at turn end. Emptying his hand can also let several characters draw through Connected Camp.",
+    "timingEn": "Use Humility only when protecting the whole hand is worth losing access to it until the turn ends. Plan how many cards to discard so Connected Camp can benefit the right allies.",
+    "exampleEn": "An enemy uses a single-target Sabotage on you. You activate Humility and place all your hand cards on your general card; at the end of the turn, you take them back. If you later lose three hand cards and have none left, Connected Camp can make up to three characters draw one card each.",
+    "misunderstandingsEn": [
+      "Humility works only when the delayed trick or another character's ordinary trick has you as its sole target.",
+      "Cards placed by Humility return at the end of the current turn, not immediately.",
+      "Connected Camp may affect at most as many characters as the number of hand cards lost in that event."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "谦逊",
+        "nameEn": "Qian Xun",
+        "textEn": "When a delayed trick or an ordinary trick used by another character takes effect on you, if you are the only target of that card, you may place all your hand cards face down on your general card. At the end of this turn, you gain those cards.",
+        "plainEn": "You can hide your entire hand from a single-target trick and retrieve it at the end of the turn."
+      },
+      {
+        "nameZh": "连营",
+        "nameEn": "Lian Ying",
+        "textEn": "When you lose hand cards, if you have no hand cards afterward, you may choose up to X characters to each draw one card, where X is the number of hand cards lost in this event.",
+        "plainEn": "If losing cards empties your hand, you can let several characters draw. The number of possible targets equals the number of cards you lost."
+      }
+    ]
+  },
+  {
+    "id": "hero-164",
+    "nameEn": "Jie · Cao Cao",
+    "roleEn": "Damage value",
+    "difficulty": "Easy",
+    "summaryEn": "Cao Cao turns damage into cards and can reclaim the damaging card for later use. As lord, he can ask other Wei characters to provide Jink for him.",
+    "timingEn": "Accept damage only when the cards gained are worth it and you can survive. As lord, use Imperial Protection when you need Jink and Wei allies can respond.",
+    "exampleEn": "An enemy uses Barbarians to deal you damage. After the damage, you use Treacherous Hero to gain Barbarians and draw one card. If you are the lord and later need Jink, you may ask other Wei characters to choose whether to play Jink for you.",
+    "misunderstandingsEn": [
+      "Treacherous Hero is optional; you do not automatically gain every damaging card.",
+      "You gain the card that caused the damage, not necessarily a card from the damage source's hand.",
+      "Imperial Protection works only when you are the lord and you need to use or play Jink."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "奸雄",
+        "nameEn": "Jian Xiong",
+        "textEn": "After you take damage, you may gain the card that caused the damage and draw one card.",
+        "plainEn": "When damage hits you, you can take the damaging card and draw one more card."
+      },
+      {
+        "nameZh": "护驾",
+        "nameEn": "Hu Jia",
+        "textEn": "Lord skill: When you need to use or play Jink, you may ask other Wei characters to choose whether to play one Jink, treated as being used or played by you.",
+        "plainEn": "As lord, you can ask Wei allies to defend you with their Jink. Each ally chooses whether to help."
+      }
+    ]
+  },
+  {
+    "id": "hero-165",
+    "nameEn": "Jie · Si Ma Yi",
+    "roleEn": "Reactive control",
+    "difficulty": "Medium",
+    "summaryEn": "Sima Yi can steal a card from a source that damages him and can replace judgment cards before they take effect. Save suitable cards to prevent harmful judgments or force Lightning toward an enemy.",
+    "timingEn": "Keep a replacement card available before important judgments resolve. Use Feedback after damage when the source has a valuable card.",
+    "exampleEn": "You take 1 damage from an enemy and activate Feedback to gain one card from that enemy. Before an ally's Indulgence judgment takes effect, you play a different card to replace its judgment card.",
+    "misunderstandingsEn": [
+      "Feedback is optional and triggers after 1 damage is dealt to you.",
+      "Feedback gains one card from the damage source's area; it does not necessarily take a hand card.",
+      "Ghostly Wisdom replaces the judgment card before it takes effect, not after the result is applied."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "反馈",
+        "nameEn": "Fan Kui",
+        "textEn": "After you take 1 damage, you may gain one card from the damage source's area.",
+        "plainEn": "When someone damages you, you can take one of that character's cards."
+      },
+      {
+        "nameZh": "鬼才",
+        "nameEn": "Gui Cai",
+        "textEn": "Before a character's judgment card takes effect, you may play one card to replace it.",
+        "plainEn": "You can change a judgment result before it resolves by playing a replacement card."
+      }
+    ]
+  },
+  {
+    "id": "hero-166",
+    "nameEn": "Jie · Xia Hou Dun",
+    "roleEn": "Retaliation support",
+    "difficulty": "Medium",
+    "summaryEn": "Xiahou Dun punishes damage with either damage or card removal through Ferocious Assault. He can store cards gained outside the Draw Phase and give them to other characters after a turn ends.",
+    "timingEn": "Use Ferocious Assault after damage when the judgment color gives the better punishment. Store cards with Frugality when an ally will need them after the current turn.",
+    "exampleEn": "You take 1 damage and activate Ferocious Assault. The judgment is black, so you discard one card from the damage source. Later, you gain cards outside your Draw Phase, store some with Frugality, and after a character's turn ends give them to an ally.",
+    "misunderstandingsEn": [
+      "Ferocious Assault's red result damages the source; its black result discards one of the source's cards.",
+      "Frugality triggers only for cards gained outside the Draw Phase.",
+      "Stored cards are given after a character's turn ends, not immediately when they are stored."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "刚烈",
+        "nameEn": "Gang Lie",
+        "textEn": "After you take 1 damage, you may perform judgment. If the result is red, you deal 1 damage to the damage source; if it is black, you discard one card from that character.",
+        "plainEn": "After damage, a red judgment hurts the source and a black judgment removes one of the source's cards."
+      },
+      {
+        "nameZh": "清俭",
+        "nameEn": "Qing Jian",
+        "textEn": "After you gain cards outside your Draw Phase, you may place any number of those cards face down on your general card. After a character's turn ends, you give those cards to other characters.",
+        "plainEn": "You can save cards gained outside your Draw Phase. After a turn ends, you give the saved cards to other characters."
+      }
+    ]
+  },
+  {
+    "id": "hero-167",
+    "nameEn": "Jie · Zhang Liao",
+    "roleEn": "Hand theft",
+    "difficulty": "Easy",
+    "summaryEn": "Zhang Liao gives up some Draw Phase cards to take the same number of hand cards from other characters. Target enemies with valuable cards or weak hands that contain only survival cards.",
+    "timingEn": "At the start of your Draw Phase, decide how many cards to forgo and which characters are worth targeting.",
+    "exampleEn": "During your Draw Phase, you choose to draw one fewer card. You then take one hand card from each of two other characters.",
+    "misunderstandingsEn": [
+      "You may take at most one card from each chosen other character.",
+      "You must give up the same number of cards you would otherwise draw.",
+      "Raid is optional; you may simply draw normally."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "突袭",
+        "nameEn": "Tu Xi",
+        "textEn": "During your Draw Phase, you may draw any number of cards fewer than normal and gain one hand card from each of the same number of other characters.",
+        "plainEn": "Skip some of your normal draws to steal one hand card from each of that many other characters."
+      }
+    ]
+  },
+  {
+    "id": "hero-168",
+    "nameEn": "Jie · Xu Chu",
+    "roleEn": "Burst damage",
+    "difficulty": "Medium",
+    "summaryEn": "Xu Chu reveals the top three cards to obtain basic cards, weapons, and Duel, trading away his normal Draw Phase. If he does, his Slash and Duel damage increases until his next turn begins.",
+    "timingEn": "Use Bare-Chested when the revealed cards improve your attack and you can exploit the temporary damage bonus.",
+    "exampleEn": "At the start of your Draw Phase, you reveal three cards and gain the basic cards, weapon cards, and Duel among them. You skip drawing for the phase, and your Slash and Duel damage as the source are increased by 1 until your next turn begins.",
+    "misunderstandingsEn": [
+      "Bare-Chested does not automatically give you all three revealed cards; it gives only basic cards, weapon cards, and Duel.",
+      "If you choose to gain those cards, you skip the Draw Phase.",
+      "The damage bonus lasts until your next turn starts, not merely until the end of the current turn."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "裸衣",
+        "nameEn": "Luo Yi",
+        "textEn": "At the start of your Draw Phase, reveal the top three cards of the draw pile. You may gain the basic cards, weapon cards, and Duel among them. If you do, you skip your Draw Phase, and until the start of your next turn, Slash and Duel for which you are the source deal 1 additional damage.",
+        "plainEn": "Reveal three cards and take the useful attack cards, but give up your normal draw. In exchange, your Slash and Duel deal +1 damage until your next turn."
+      }
+    ]
+  },
+  {
+    "id": "hero-169",
+    "nameEn": "Jie · Guo Jia",
+    "roleEn": "Damage support",
+    "difficulty": "Easy",
+    "summaryEn": "Guo Jia gains cards after taking damage and can distribute up to two of them to allies. He can also reclaim judgment cards after they resolve, turning judgment manipulation into card advantage.",
+    "timingEn": "Stay alive while accepting worthwhile damage, then use Last Words to place key cards with the characters who need them.",
+    "exampleEn": "You take 1 damage and activate Last Words, drawing two cards. You give one card to an ally and keep the other. Later, after your judgment card takes effect, Heaven's Insight lets you gain that judgment card.",
+    "misunderstandingsEn": [
+      "Last Words lets you give up to two cards, not necessarily all the cards you draw.",
+      "The recipients must be one or two other characters.",
+      "Heaven's Insight triggers after your judgment card takes effect."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "天妒",
+        "nameEn": "Tian Du",
+        "textEn": "After your judgment card takes effect, you may gain that card.",
+        "plainEn": "You can take your own resolved judgment card into your hand."
+      },
+      {
+        "nameZh": "遗计",
+        "nameEn": "Yi Ji",
+        "textEn": "After you take 1 damage, you may draw two cards. Then you may give up to two hand cards to one or two other characters.",
+        "plainEn": "Damage lets you draw two cards and optionally pass up to two cards to allies."
+      }
+    ]
+  },
+  {
+    "id": "hero-170",
+    "nameEn": "Li Dian",
+    "roleEn": "Card selection",
+    "difficulty": "Easy",
+    "summaryEn": "Li Dian rearranges the top four cards to choose the best two for his next draws. Mutual drawing after damage helps him maintain resources and compensates characters affected by damage.",
+    "timingEn": "Use Observant Scholar at the start of the Draw Phase to keep cards suited to the current situation. Trigger Mutual Exertion after damage when both characters benefit from a card.",
+    "exampleEn": "At the start of your Draw Phase, you view the top four cards, place two on top in your chosen order, and place the other two on the bottom. You then draw from the arranged top cards.",
+    "misunderstandingsEn": [
+      "Observant Scholar does not draw the viewed cards immediately; it only arranges them.",
+      "You must place exactly two of the four cards on top and the rest on the bottom.",
+      "Mutual Exertion triggers after either dealing 1 damage to another character or taking 1 damage from another character."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "恂恂",
+        "nameEn": "Xun Xun",
+        "textEn": "At the start of your Draw Phase, you may view the top four cards of the draw pile. Then place two of them on top of the draw pile and the remaining cards on the bottom of the draw pile.",
+        "plainEn": "Look at the next four cards and choose which two you will draw first. The other two go to the bottom."
+      },
+      {
+        "nameZh": "忘隙",
+        "nameEn": "Wang Xi",
+        "textEn": "After you deal 1 damage to another character, or after you take 1 damage dealt by another character, you may have you and that character each draw one card.",
+        "plainEn": "After damage between you and another character, both of you may draw one card."
+      }
+    ]
+  },
+  {
+    "id": "hero-171",
+    "nameEn": "Jie · Hua Tuo",
+    "roleEn": "Healing support",
+    "difficulty": "Easy",
+    "summaryEn": "Hua Tuo turns red cards into Peaches outside his turn and can heal several different characters during his Play Phase. Red discards let Green Pouch continue, but each repeated use must choose a character not previously chosen that turn.",
+    "timingEn": "Save red cards for emergency Peaches outside your turn, and use Green Pouch repeatedly only when different characters need healing.",
+    "exampleEn": "Outside your turn, you use a red card as Peach on a dying ally. During your Play Phase, you discard a red card to heal one character, then activate Green Pouch again to discard another card and heal a different character.",
+    "misunderstandingsEn": [
+      "Emergency Aid works only outside your turn.",
+      "Green Pouch is initially once per Play Phase, but a red discarded card allows another activation.",
+      "Repeated Green Pouch activations cannot choose a character already chosen by this skill during the current turn."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "急救",
+        "nameEn": "Ji Jiu",
+        "textEn": "Outside your turn, you may use a red card as Peach.",
+        "plainEn": "On other characters' turns, any red card can become Peach. This can save a dying character."
+      },
+      {
+        "nameZh": "青囊",
+        "nameEn": "Qing Nang",
+        "textEn": "Once during your Play Phase, you may discard one hand card to have one character recover 1 HP. If the discarded card is red, you may activate this skill again, but you cannot choose a character chosen by this skill earlier this turn.",
+        "plainEn": "Discard a hand card to heal someone. Red discards let you heal again, but each use must target a different character."
+      }
+    ]
+  },
+  {
+    "id": "hero-172",
+    "nameEn": "Jie · Lü Bu",
+    "roleEn": "Pressure and control",
+    "difficulty": "Medium",
+    "summaryEn": "Lu Bu's Slash requires two Jinks and his Duels demand two Slashes per response, making his attacks difficult to answer. After a damaging Slash, he can take a card and either draw or force another Duel.",
+    "timingEn": "Use Slash against characters with limited defense, and choose the equipment option of Mastery of Arms only when the resulting Duel is advantageous.",
+    "exampleEn": "Your Slash deals damage to another character. You gain one card from that character's area. If it is not equipment, you draw one card; if it is equipment, you are treated as using Duel against another character chosen by that character.",
+    "misunderstandingsEn": [
+      "A target needs two Jinks to cancel Lu Bu's Slash, not one.",
+      "During a Duel with Lu Bu, each response requires two Slashes.",
+      "Mastery of Arms can take a card from any of the target's areas, not only the hand."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "无双",
+        "nameEn": "Wu Shuang",
+        "textEn": "Locked skill: Each Slash you use requires two Jinks to be canceled. A character in a Duel with you must play two Slashes each time they respond.",
+        "plainEn": "Your Slash needs two Jinks to stop. Opponents in your Duels must play two Slashes for every response."
+      },
+      {
+        "nameZh": "利驭",
+        "nameEn": "Li Yu",
+        "textEn": "After your Slash deals damage to another character, you may gain one card from that character's area. If the card gained is not equipment, that character draws one card; if it is equipment, you are treated as using Duel against another character chosen by that character.",
+        "plainEn": "A damaging Slash lets you take one card. Non-equipment gives the target a replacement draw; equipment makes you use Duel against a character the target chooses."
+      }
+    ]
+  },
+  {
+    "id": "hero-173",
+    "nameEn": "Gong Sun Zan",
+    "roleEn": "Range control",
+    "difficulty": "Medium",
+    "summaryEn": "Gongsun Zan's distance changes with his HP, giving him reach when healthy and protection when wounded. Black Slashes can remove enemy equipment and let him claim a discarded mount.",
+    "timingEn": "Use Black Slash against equipped enemies. Manage your HP carefully because it switches between offensive and defensive distance benefits.",
+    "exampleEn": "You use a black Slash to deal damage to an enemy, then activate Fierce Valor to discard an equipment card from that enemy. When that card enters the discard pile and is a mount, you gain it.",
+    "misunderstandingsEn": [
+      "Fierce Valor first discards the equipment; you gain it only if it enters the discard pile and is a mount.",
+      "When you have more than 2 HP, your distance to others is reduced by 1.",
+      "When you have 2 HP or less, other characters' distance to you increases by 1; this does not reduce your distance to them."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "趫猛",
+        "nameEn": "Qiao Meng",
+        "textEn": "After a black Slash you use deals damage to a character, you may discard one card from that character's equipment area. Then, when that card is placed into the discard pile, if it is a mount card, you gain it.",
+        "plainEn": "A damaging black Slash can destroy enemy equipment. If the discarded equipment is a mount, you take it after it reaches the discard pile."
+      },
+      {
+        "nameZh": "义从",
+        "nameEn": "Yi Cong",
+        "textEn": "Locked skill: If your HP is greater than 2, reduce your distance to other characters by 1. If your HP is no greater than 2, increase other characters' distance to you by 1.",
+        "plainEn": "Above 2 HP, you can reach farther. At 2 HP or less, others have more difficulty reaching you."
+      }
+    ]
+  },
+  {
+    "id": "hero-233",
+    "nameEn": "Jie · Huang Yue Ying",
+    "roleEn": "Trick card engine",
+    "difficulty": "Medium",
+    "summaryEn": "Huang Yueying draws from using ordinary tricks and can convert basic cards into temporary hand-limit increases. Her locked skill removes distance restrictions from tricks and protects her defensive equipment and treasures from being discarded by others.",
+    "timingEn": "Chain ordinary tricks to build cards and hand capacity, while keeping basic cards available for the temporary hand-limit increase.",
+    "exampleEn": "You use an ordinary trick and activate Wisdom, drawing a card. The drawn card is a basic card, so you discard it and increase your hand limit by 1 for the turn. Your trick ignores distance, and another character cannot discard your armor or treasure.",
+    "misunderstandingsEn": [
+      "Wisdom triggers when you use an ordinary trick, not every trick card.",
+      "The extra hand-limit effect requires the drawn card to be basic and lasts only this turn.",
+      "Ingenuity protects armor and treasure from other characters discarding them; it does not protect every equipment card."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "集智",
+        "nameEn": "Ji Zhi",
+        "textEn": "When you use an ordinary trick card, you may draw one card. If that card is a basic card, you may discard it to increase your hand limit by 1 until the end of this turn.",
+        "plainEn": "Using an ordinary trick can draw a card. If the drawn card is basic, you may discard it for +1 hand limit this turn."
+      },
+      {
+        "nameZh": "奇才",
+        "nameEn": "Qi Cai",
+        "textEn": "Locked skill: The trick cards you use have no distance restriction. Other characters cannot discard armor or treasure cards from your equipment area.",
+        "plainEn": "Your trick cards can reach any legal target regardless of distance. Others cannot discard your armor or treasure."
+      }
+    ]
+  },
+  {
+    "id": "hero-234",
+    "nameEn": "Jie · Zhu Ge Liang",
+    "roleEn": "Deck control",
+    "difficulty": "Hard",
+    "summaryEn": "Zhuge Liang controls the top of the draw pile to improve his own draws and influence judgments. Emptying his hand makes him an invalid target for Slash and Duel, but do not discard recklessly just to activate that defense.",
+    "timingEn": "Use Star Gazing during preparation to set up your next cards and judgments. Put all viewed cards on the bottom only when a second Star Gazing in the Finish Phase is worthwhile.",
+    "exampleEn": "During your preparation phase, you view the top five cards, place two on top in a chosen order, and put three on the bottom. Later, if you have no hand cards, Locked Fort cannot be targeted by Slash or Duel.",
+    "misunderstandingsEn": [
+      "Star Gazing views five cards, or three when fewer than four players are alive.",
+      "The extra Finish Phase Star Gazing is available only if all viewed cards were placed on the bottom.",
+      "Locked Fort prevents being chosen as a target; it does not cancel a Slash or Duel that already targeted you."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "观星",
+        "nameEn": "Guan Xing",
+        "textEn": "During your preparation phase, you may view the top five cards of the draw pile, or three cards if fewer than four players are alive. Then place them back on top or bottom of the draw pile in any order. If you place all of those cards on the bottom, you may perform Star Gazing again during your Finish Phase.",
+        "plainEn": "Arrange the top cards to set up future draws and judgments. Sending all of them to the bottom lets you look again at the end of the turn."
+      },
+      {
+        "nameZh": "空城",
+        "nameEn": "Kong Cheng",
+        "textEn": "Locked skill: If you have no hand cards, you cannot be chosen as a target of Slash or Duel.",
+        "plainEn": "With an empty hand, Slash and Duel cannot target you. This does not protect you from other effects."
+      }
+    ]
+  },
+  {
+    "id": "hero-235",
+    "nameEn": "Jie · Sun Quan",
+    "roleEn": "Flexible support",
+    "difficulty": "Easy",
+    "summaryEn": "Sun Quan exchanges unwanted cards for new ones and gains an extra card when he completely empties his hand. As lord, healthy Wu allies can turn their Peaches into healing for him and draw afterward.",
+    "timingEn": "Use Balance to seek needed cards without throwing away too many useful ones. As lord, rely on healthy Wu allies when your HP is low.",
+    "exampleEn": "During your Play Phase, you discard all three hand cards with Balance and draw four cards. As lord, a Wu ally with higher HP uses Peach on themself, changes it to heal you for 1 HP, and then draws a card.",
+    "misunderstandingsEn": [
+      "Balance is limited to once during your Play Phase.",
+      "The extra card requires discarding all your hand cards, not merely some of them.",
+      "Rescue works only when Sun Quan is lord and the Wu character has higher HP than him."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "制衡",
+        "nameEn": "Zhi Heng",
+        "textEn": "Once during your Play Phase, you may discard any number of cards, then draw the same number of cards. If you discarded all your hand cards this way, draw one additional card.",
+        "plainEn": "Exchange any number of cards for the same number of new cards. Emptying your hand gives one extra draw."
+      },
+      {
+        "nameZh": "救援",
+        "nameEn": "Jiu Yuan",
+        "textEn": "Lord skill: When another Wu character uses Peach on themself, if that character's HP is greater than yours, they may instead make you recover 1 HP, then they draw one card.",
+        "plainEn": "As lord, a healthier Wu ally can redirect their Peach to heal you and draw a card."
+      }
+    ]
+  },
+  {
+    "id": "hero-236",
+    "nameEn": "Jie · Sun Shang Xiang",
+    "roleEn": "Healing support",
+    "difficulty": "Medium",
+    "summaryEn": "Sun Shangxiang heals herself or a male character while rewarding the healthier of the two with a card. Losing equipment lets her draw two cards, so equipment changes can fuel her hand.",
+    "timingEn": "Use Marriage when either you or a male ally needs healing, and plan equipment replacement to trigger Phoenix Spirit.",
+    "exampleEn": "During your Play Phase, you choose a male ally and discard a hand card. You have lower HP, so you recover 1 HP, while the ally has higher HP and draws one card. Later, when you lose an equipment card, Phoenix Spirit lets you draw two cards.",
+    "misunderstandingsEn": [
+      "Marriage can choose only a male character.",
+      "You must either discard one hand card or place an equipment card into that character's equipment area.",
+      "The higher-HP character draws; the lower-HP character recovers 1 HP."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "结姻",
+        "nameEn": "Jie Yin",
+        "textEn": "Once during your Play Phase, choose one male character and either discard one hand card or place one equipment card into that character's equipment area. The character among you and that character with higher HP draws one card; the character with lower HP recovers 1 HP.",
+        "plainEn": "Choose a male character and pay a card. The healthier of you draws, while the one with lower HP heals."
+      },
+      {
+        "nameZh": "枭姬",
+        "nameEn": "Xiao Ji",
+        "textEn": "When you lose one card from your equipment area, you may draw two cards.",
+        "plainEn": "Losing equipment can draw two cards. This includes equipment leaving your equipment area."
+      }
+    ]
+  },
+  {
+    "id": "hero-237",
+    "nameEn": "Jie · Zhen Ji",
+    "roleEn": "Defense and burst",
+    "difficulty": "Medium",
+    "summaryEn": "Zhen Ji repeatedly judges for black cards and keeps the cards gained this way outside the current hand limit. She can also turn any black hand card into Jink.",
+    "timingEn": "Use Goddess Luo at preparation when you want extra cards for the turn, and preserve black cards so Allure can provide defense.",
+    "exampleEn": "During your preparation phase, you judge black and gain the judgment card, then judge again and gain another black card. Those gained cards do not count toward your hand limit this turn; you can also use a black hand card as Jink later.",
+    "misunderstandingsEn": [
+      "Goddess Luo stops when a judgment is not black.",
+      "Cards gained by Goddess Luo are not counted against your hand limit for the current turn only.",
+      "Allure converts black hand cards into Jink for both using and playing Jink."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "洛神",
+        "nameEn": "Luo Shen",
+        "textEn": "During your preparation phase, you may perform judgment. If the result is black, you gain that card and may repeat this process. Cards gained this way do not count toward your hand limit this turn.",
+        "plainEn": "Keep judging while the result is black, taking each black judgment card. These cards are exempt from your hand limit for this turn."
+      },
+      {
+        "nameZh": "倾国",
+        "nameEn": "Qing Guo",
+        "textEn": "You may use or play a black hand card as Jink.",
+        "plainEn": "Any black card in your hand can become Jink when you need to use or play one."
+      }
+    ]
+  },
+  {
+    "id": "hero-238",
+    "nameEn": "Jie · Diao Chan",
+    "roleEn": "Male control",
+    "difficulty": "Easy",
+    "summaryEn": "Diao Chan makes two other male characters fight each other with Duel. Her Finish Phase draw becomes two cards when she has no hand cards, helping her maintain defense.",
+    "timingEn": "Use Lure when the chosen male characters have mismatched Slash resources, and use it to make an enemy attack another enemy or an ally finish an enemy.",
+    "exampleEn": "During your Play Phase, you discard a card and choose two male enemies. You make one of them be treated as using Duel on the other. At the end of your turn, because you have no hand cards, Closed Moon lets you draw two cards.",
+    "misunderstandingsEn": [
+      "Lure is limited to once during your Play Phase and requires a discard.",
+      "Both chosen characters must be other male characters.",
+      "Closed Moon draws two cards only when you have no hand cards at the moment it resolves."
+    ],
+    "skillsEn": [
+      {
+        "nameZh": "离间",
+        "nameEn": "Li Jian",
+        "textEn": "Once during your Play Phase, you may discard one card and choose two other male characters. One of those male characters is treated as using Duel on the other.",
+        "plainEn": "Discard a card to make two other male characters Duel. You choose which one starts the Duel."
+      },
+      {
+        "nameZh": "闭月",
+        "nameEn": "Bi Yue",
+        "textEn": "During your Finish Phase, you may draw one card. If you have no hand cards, draw two cards instead.",
+        "plainEn": "Draw at the end of your turn. Having no hand cards doubles this draw."
+      }
+    ]
+  }
+]
