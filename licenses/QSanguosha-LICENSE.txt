@@ -1,0 +1,20 @@
+QSanguosha - Open Source Sanguosha written in Qt
+
+Copyright (C) 2015-2016 Mogara
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+General Public License (GPLv3) for more details.
+
+In addition, we have another restriction to this software:
+this software should not be used for commercial purpose.
+See the Mogara Commercial Forbidden Restriction (MCFR) for details.
+
+Upstream: https://github.com/Mogara/QSanguosha-v2
+GPLv3: https://www.gnu.org/licenses/gpl-3.0.html

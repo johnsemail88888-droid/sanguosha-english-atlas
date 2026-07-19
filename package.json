@@ -4,6 +4,7 @@
   "version": "1.1.0",
   "description": "三国杀移动版经典卡池中英对照图鉴",
   "author": "John Jiang",
+  "license": "SEE LICENSE IN LICENSE.md",
   "main": "electron/main.mjs",
   "type": "module",
   "scripts": {
@@ -15,6 +16,7 @@
     "validate:data": "node scripts/validate-data.mjs",
     "pack:mac": "npm run build && electron-builder --mac dir --arm64",
     "dist:mac": "npm run build && electron-builder --mac dmg --arm64",
+    "deploy:web": "npm run build && gh-pages -d dist",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -34,6 +36,7 @@
     "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "eslint-plugin-jsx-a11y": "^6.10.2",
+    "gh-pages": "^6.3.0",
     "jsdom": "^29.1.1",
     "oxlint": "^1.71.0",
     "typescript": "~6.0.2",

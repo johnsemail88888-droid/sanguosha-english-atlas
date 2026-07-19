@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, BookOpen, ChevronRight, Search, Shield, Sparkles, Swords, X } from 'lucide-react'
+import { ArrowLeft, BookOpen, ChevronRight, Download, Search, Shield, Sparkles, Swords, X } from 'lucide-react'
 import heroesZh from '../data/heroes.zh.json'
 import heroesEn from '../data/heroes.en.json'
 import gameCards from '../data/game-cards.json'
+import { resolveAssetUrl } from './asset-url'
 import './App.css'
 
 type SkillZh = { name: string; text: string }
@@ -16,6 +17,7 @@ const seriesOrder = ['standard', 'boundary', 'wind', 'fire', 'forest', 'mountain
 const seriesLabels: Record<string, string> = { standard:'标将', boundary:'界武将', wind:'风', fire:'火', forest:'林', mountain:'山', yin:'阴', thunder:'雷', god:'经典神将' }
 const categoryLabels: Record<string, string> = { basic:'基本牌', trick:'锦囊牌', equipment:'装备牌' }
 const kingdomLabels: Record<string, string> = { 魏:'魏', 蜀:'蜀', 吴:'吴', 群:'群', 神:'神' }
+const desktopDownloadUrl = 'https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest'
 
 function App() {
   const [query, setQuery] = useState('')
@@ -47,6 +49,7 @@ function App() {
         <span className="seal">译</span><span><b>三国杀英文图鉴</b><small>CHINESE CARD · ENGLISH GUIDE</small></span>
       </button>
       <label className="search"><Search size={18}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜中文牌名、英文名或技能…" />{query&&<button onClick={()=>setQuery('')} aria-label="清空"><X size={16}/></button>}</label>
+      <a className="download" href={desktopDownloadUrl} target="_blank" rel="noreferrer"><Download size={16}/> 下载 macOS App</a>
       <span className="count">{generals.length} 武将 · {cards.length} 游戏牌</span>
     </header>
 
@@ -76,14 +79,14 @@ function Shelf({title,kicker,note,items,onSelect}:{title:string;kicker:string;no
 
 function CardTile({item,onClick}:{item:Item;onClick:()=>void}) {
   const sub = item.kind==='general' ? `${kingdomLabels[item.kingdom]||item.kingdom} · ${item.roleEn}` : categoryLabels[item.category]
-  return <button className={`tile ${item.kind}`} onClick={onClick}><div className="art"><img src={item.image} alt={`${item.nameZh}牌图`} loading="lazy"/><span className="badge">{item.kind==='general' ? seriesLabels[item.series] : categoryLabels[item.category]}</span><span className="peek"><BookOpen size={17}/> 查看英文详解</span></div><div className="tile-copy"><strong>{item.nameZh}</strong><span>{item.nameEn}</span><small>{sub}</small></div></button>
+  return <button className={`tile ${item.kind}`} onClick={onClick}><div className="art"><img src={resolveAssetUrl(item.image)} alt={`${item.nameZh}牌图`} loading="lazy"/><span className="badge">{item.kind==='general' ? seriesLabels[item.series] : categoryLabels[item.category]}</span><span className="peek"><BookOpen size={17}/> 查看英文详解</span></div><div className="tile-copy"><strong>{item.nameZh}</strong><span>{item.nameEn}</span><small>{sub}</small></div></button>
 }
 
 function Detail({item,onClose}:{item:Item;onClose:()=>void}) {
   const isGeneral = item.kind==='general'
   return <div className="overlay" role="dialog" aria-modal="true"><button className="scrim" onClick={onClose} aria-label="关闭详情"/><article className="detail">
     <button className="close" onClick={onClose}><ArrowLeft size={18}/> 回到图鉴</button>
-    <div className="detail-grid"><aside><img src={item.image} alt={`${item.nameZh}牌图`}/><div className="source-note"><Shield size={15}/><span>按左侧中文牌图认牌<br/>右侧为英文教学说明</span></div></aside>
+    <div className="detail-grid"><aside><img src={resolveAssetUrl(item.image)} alt={`${item.nameZh}牌图`}/><div className="source-note"><Shield size={15}/><span>按左侧中文牌图认牌<br/>右侧为英文教学说明</span></div></aside>
       <div className="detail-copy"><div className="detail-head"><div className="meta">{isGeneral ? `${seriesLabels[item.series]} · ${item.kingdom}势力` : `${categoryLabels[item.category]} · ${item.pack==='standard'?'标准版':'军争篇'}`}</div><h1>{item.nameZh}</h1><h2>{item.nameEn}</h2>{isGeneral&&<div className="chips"><span>{item.roleEn}</span><span>{item.difficulty}</span></div>}</div>
         {isGeneral ? <GeneralGuide item={item}/> : <CardGuide item={item}/>} 
       </div>
