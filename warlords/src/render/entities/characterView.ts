@@ -1,5 +1,10 @@
 // Visual for a hero / troop / NPC ViewEntity: procedural rig + animation,
 // status tints, auras, stealth, mounts and nameplates.
+//
+// Visibility: heroes are NEVER distance-culled (at most 8; a sniper must see
+// what can shoot it on every quality preset) — far heroes only drop to a
+// cheaper animation rate. Troops / NPCs are hidden beyond the preset's
+// characterDistance.
 import * as THREE from 'three';
 import { lerpAngle } from '../../core/math';
 import type { RoleId, ViewEntity } from '../../core/types';
@@ -18,15 +23,14 @@ import {
   VF_STEALTH,
 } from '../../core/types';
 import { HERO_BY_ID, ROLE_BY_ID, TROOP_BY_ID } from '../../data';
-import { CharacterRig } from '../models/character';
-import { heroSpec, mountCoat, troopLook } from '../models';
+import { CharacterRig, type RigUpdate } from '../models/character';
+import { heroMountCoat, heroSpec, troopLook, troopMountCoat } from '../models';
 import { kingdomColor } from '../palette';
 import { AuraSet } from './auras';
-import { Nameplate, TroopBadge } from './nameplate';
+import { Nameplate, type PlateData } from './nameplate';
 import type { EntityCtx } from './context';
 
 const _v = new THREE.Vector3();
-const _head = new THREE.Vector3();
 const EMISSIVE = {
   invuln: new THREE.Color(0.55, 0.42, 0.1),
   frozen: new THREE.Color(0.12, 0.25, 0.4),
@@ -40,6 +44,26 @@ const EMISSIVE = {
 const WHITE = new THREE.Color(1, 1, 1);
 const ICE = new THREE.Color(0.72, 0.88, 1.25);
 
+/** Beyond this distance (m) a non-local hero animates at a third of the frame rate. */
+export const HERO_ANIM_LOD_DIST = 120;
+/** Heroes cast shadows within this distance (m) of the camera. */
+export const HERO_SHADOW_DIST = 60;
+/** Troops / NPCs cast shadows within this distance (m) of the camera. */
+export const TROOP_SHADOW_DIST = 25;
+/** Hero nameplates fade out beyond this distance (m). */
+const PLATE_MAX_DIST = 140;
+
+const kingdomColors = new Map<string, THREE.Color>();
+function kingdomColorLinear(k: ViewEntity['kingdom']): THREE.Color {
+  const key = k ?? '';
+  let c = kingdomColors.get(key);
+  if (!c) {
+    c = new THREE.Color(kingdomColor(k));
+    kingdomColors.set(key, c);
+  }
+  return c;
+}
+
 export class CharacterView {
   readonly id: number;
   readonly kind: ViewEntity['kind'];
@@ -47,22 +71,41 @@ export class CharacterView {
   readonly rig: CharacterRig;
   readonly root = new THREE.Group();
   private plate: Nameplate | null = null;
-  private badge: TroopBadge | null = null;
   private readonly auras = new AuraSet();
   private readonly lastPos = new THREE.Vector3();
   private readonly vel = new THREE.Vector3();
+  private readonly headPos = new THREE.Vector3();
   private yaw = 0;
   private initialised = false;
   private hitFlash = 0;
   private occlusion = 1;
   private occluded = false;
   private bubble: { text: string; until: number } | null = null;
-  private readonly troopMount: string | null;
   private readonly defaultWeapon: string | null;
   private deadFor = 0;
+  /** dt accumulated while a far hero skips animation frames */
+  private animDt = 0;
+  // per-frame scratch (no allocations in update)
+  private readonly rigIn: RigUpdate = { speed: 0, moveX: 0, moveZ: 0, pitch: 0, flags: 0 };
+  private readonly plateData: PlateData = {
+    heroName: '',
+    playerName: '',
+    hp: 0,
+    maxHp: 1,
+    shield: 0,
+    lord: false,
+    downed: false,
+    kingdom: undefined,
+    friendly: false,
+  };
+  private claimKey = '';
+  private claimLabel: string | undefined;
   /** true while this view is a corpse kept after the entity left the view */
   corpse = false;
   corpseTime = 0;
+  /** reusable copy of the last ViewEntity for corpse updates (owned by the EntityManager) */
+  corpseEnt: ViewEntity | null = null;
+  corpseBaseY: number | undefined;
   last: ViewEntity;
 
   constructor(e: ViewEntity) {
@@ -73,15 +116,14 @@ export class CharacterView {
     if (e.kind === 'hero') {
       this.rig = new CharacterRig(heroSpec(e.sub, e.kingdom));
       this.rig.tryGlbOverride(e.sub);
-      this.troopMount = null;
       this.defaultWeapon = HERO_BY_ID[e.sub]?.signatureWeapon ?? null;
     } else {
       const look = troopLook(e.sub, e.kingdom);
       const tdef = TROOP_BY_ID[e.sub];
       this.defaultWeapon = tdef?.weapon ?? (e.kind === 'turret' ? 'turret_smg' : 'troop_rifle');
       this.rig = new CharacterRig(look.spec);
-      this.troopMount = look.mount;
-      if (look.mount) this.rig.setMount(look.mount, look.mount === 'elephant' ? '#8a8580' : '#5a3f2a', look.spec.kingdom, '#d8ac4c');
+      this.rig.root.scale.setScalar(look.rootScale);
+      if (look.mount) this.rig.setMount(look.mount, troopMountCoat(look.mount), look.spec.kingdom, '#d8ac4c');
     }
     this.root.add(this.rig.root);
     this.root.add(this.auras.group);
@@ -90,11 +132,8 @@ export class CharacterView {
 
   /** Height of the head top above the feet (for plates / auras). */
   headHeight(): number {
-    const base = this.rig.spec.body === 'huge' ? 1.98 : 1.84;
-    if (this.rig.mount?.kind === 'elephant') return base + 2.4;
-    if (this.rig.mount) return base + 0.75;
-    if (this.last.flags & (VF_DOWNED | VF_DEAD)) return 0.7;
-    return base;
+    if (this.last.flags & (VF_DOWNED | VF_DEAD)) return 0.7 * this.rig.root.scale.y;
+    return this.rig.headHeight();
   }
 
   onShot(): void {
@@ -128,6 +167,7 @@ export class CharacterView {
     this.last = e;
     const dt = ctx.dt;
     const isLocal = e.id === ctx.localId;
+    const isHero = this.kind === 'hero';
     const pos = _v.set(e.x, e.y, e.z);
     if (!this.initialised) {
       this.lastPos.copy(pos);
@@ -145,37 +185,48 @@ export class CharacterView {
     this.yaw = isLocal ? e.yaw : lerpAngle(this.yaw, e.yaw, 1 - Math.exp(-dt * 18));
     this.root.rotation.y = this.yaw;
     const dist = ctx.camPos.distanceTo(pos);
-    const visible = dist < ctx.characterDistance || isLocal;
+    // heroes are never distance-culled (fairness: every quality sees every hero in weapon range)
+    const visible = isHero || isLocal || dist < ctx.characterDistance;
     this.root.visible = visible;
     if (!visible) return;
 
-    // mounts: heroes ride when flagged (or carrying a mount item)
-    if (this.kind === 'hero') {
-      const mounted = (e.flags & VF_MOUNTED) !== 0;
-      if (mounted) this.rig.setMount('horse', mountCoat(e.mount), kingdomColor(e.kingdom), '#d8ac4c');
+    // mounts: heroes ride when the sim flags them (mount item) or their visual is always mounted (马超 / 吕布)
+    const fallen = (e.flags & (VF_DOWNED | VF_DEAD)) !== 0;
+    if (isHero) {
+      const coat = fallen ? null : heroMountCoat(e.sub, e.mount, (e.flags & VF_MOUNTED) !== 0);
+      if (coat) this.rig.setMount('horse', coat, kingdomColor(e.kingdom), '#d8ac4c');
       else this.rig.setMount(null);
     }
     this.rig.setWeapon(e.weapon ?? this.defaultWeapon);
 
-    // movement direction in the character frame
-    const sp = Math.hypot(this.vel.x, this.vel.z);
-    let mx = 0;
-    let mz = 0;
-    if (sp > 0.3) {
-      // forward(yaw) = (−sin, −cos), right(yaw) = (cos, −sin) — see core/math
-      const sy = Math.sin(this.yaw);
-      const cy = Math.cos(this.yaw);
-      mx = (this.vel.x * cy - this.vel.z * sy) / sp;
-      mz = (-this.vel.x * sy - this.vel.z * cy) / sp;
+    // animation (far heroes: every third frame with the accumulated dt)
+    this.animDt += dt;
+    const animNow = isLocal || dist < HERO_ANIM_LOD_DIST || (ctx.frame + this.id) % 3 === 0;
+    if (animNow) {
+      // movement direction in the character frame
+      const sp = Math.hypot(this.vel.x, this.vel.z);
+      const u = this.rigIn;
+      u.moveX = 0;
+      u.moveZ = 0;
+      if (sp > 0.3) {
+        // forward(yaw) = (−sin, −cos), right(yaw) = (cos, −sin) — see core/math
+        const sy = Math.sin(this.yaw);
+        const cy = Math.cos(this.yaw);
+        u.moveX = (this.vel.x * cy - this.vel.z * sy) / sp;
+        u.moveZ = (-this.vel.x * sy - this.vel.z * cy) / sp;
+      }
+      u.speed = e.speed > 0 ? e.speed : sp;
+      u.pitch = e.pitch;
+      u.flags = e.flags;
+      this.rig.update(Math.min(0.2, this.animDt), ctx.time, u);
+      this.animDt = 0;
     }
-    const speed = e.speed > 0 ? e.speed : sp;
-    this.rig.update(dt, ctx.time, { speed, moveX: mx, moveZ: mz, pitch: e.pitch, flags: e.flags });
 
     // stealth: only you / your squad receive stealthed entities → translucent shimmer
     this.rig.setStealth((e.flags & VF_STEALTH) !== 0);
     // revealed (观星 / 狼顾 / 鬼谋): red silhouette through walls
     this.rig.setXray((e.flags & VF_EXPOSED) !== 0 && !isLocal && (e.flags & VF_DEAD) === 0);
-    this.rig.setShadows(ctx.shadows && dist < 60);
+    this.rig.setShadows(ctx.shadows && dist < (isHero ? HERO_SHADOW_DIST : TROOP_SHADOW_DIST));
     this.applyTint(e.flags, dt, ctx.time);
 
     // death bookkeeping (plates fade a few seconds after death)
@@ -189,52 +240,56 @@ export class CharacterView {
     this.auras.update(auraFlags, head, pos, dt, ctx.time, ctx.fx, ctx.fovDeg, dist, true);
 
     // overhead UI
-    _head.set(pos.x, pos.y + head + 0.3, pos.z);
-    if (this.kind === 'hero') {
+    if (isHero) {
       if (isLocal) {
+        if (this.plate) this.plate.sprite.visible = false;
+      } else if (dist > PLATE_MAX_DIST) {
         if (this.plate) this.plate.sprite.visible = false;
       } else {
         if (!this.plate) {
           this.plate = new Nameplate();
           this.root.add(this.plate.sprite);
         }
-        this.updateOcclusion(ctx, _head, dist);
+        this.headPos.set(pos.x, pos.y + head + 0.3, pos.z);
+        this.updateOcclusion(ctx, this.headPos, dist);
         const def = HERO_BY_ID[e.sub];
-        const heroName = def ? (ctx.lang === 'en' ? def.nameEn : def.nameZh) : e.sub;
-        const claimDef = e.claim ? ROLE_BY_ID[e.claim] : undefined;
+        const d = this.plateData;
+        d.heroName = def ? (ctx.lang === 'en' ? def.nameEn : def.nameZh) : e.sub;
+        d.playerName = e.name ?? '';
+        d.hp = e.hp;
+        d.maxHp = e.maxHp;
+        d.shield = e.shield;
+        d.lord = (e.flags & VF_LORD) !== 0;
+        d.role = e.role as RoleId | undefined;
+        d.claim = e.claim;
+        d.claimLabel = this.claimLabelFor(e.claim, ctx.lang);
+        d.downed = (e.flags & VF_DOWNED) !== 0;
+        d.kingdom = e.kingdom;
+        d.friendly = inSquad;
+        d.bubble = this.bubble && this.bubble.until > ctx.time ? this.bubble.text : undefined;
+        this.plate.set(d);
         const fadeDead = e.flags & VF_DEAD ? Math.max(0, 1 - (this.deadFor - 4) / 2) : 1;
-        const maxDist = 140;
-        const distFade = Math.max(0, Math.min(1, (maxDist - dist) / 20));
-        this.plate.set({
-          heroName,
-          playerName: e.name ?? '',
-          hp: e.hp,
-          maxHp: e.maxHp,
-          shield: e.shield,
-          lord: (e.flags & VF_LORD) !== 0,
-          role: e.role as RoleId | undefined,
-          claim: e.claim,
-          claimLabel: claimDef ? (ctx.lang === 'en' ? `Claims ${claimDef.nameEn}` : `自称${claimDef.nameZh}`) : undefined,
-          downed: (e.flags & VF_DOWNED) !== 0,
-          kingdom: e.kingdom,
-          friendly: inSquad,
-          bubble: this.bubble && this.bubble.until > ctx.time ? this.bubble.text : undefined,
-        });
+        const distFade = Math.max(0, Math.min(1, (PLATE_MAX_DIST - dist) / 20));
         this.plate.opacity = this.occlusion * fadeDead * distFade;
         this.plate.sprite.position.set(0, head + 0.3, 0);
         this.plate.layout(ctx.fovDeg, dist);
       }
-    } else {
-      if (!this.badge) {
-        this.badge = new TroopBadge();
-        this.root.add(this.badge.group);
-      }
-      const dead = (e.flags & VF_DEAD) !== 0;
-      const damaged = e.hp < e.maxHp - 0.5;
-      this.badge.group.visible = !dead && dist < 70;
-      this.badge.group.position.set(0, head + 0.2, 0);
-      this.badge.set(kingdomColor(e.kingdom), inSquad, e.hp / Math.max(1, e.maxHp), damaged && dist < 45, ctx.fovDeg, dist);
+    } else if ((e.flags & VF_DEAD) === 0 && dist < 70) {
+      // troops / NPCs: one instance each in the shared badge batch
+      const showBar = e.hp < e.maxHp - 0.5 && dist < 45;
+      ctx.badges.add(pos.x, pos.y + head + 0.2, pos.z, kingdomColorLinear(e.kingdom), inSquad, e.hp / Math.max(1, e.maxHp), showBar, dist);
     }
+  }
+
+  private claimLabelFor(claim: RoleId | undefined, lang: string): string | undefined {
+    if (!claim) return undefined;
+    const key = claim + lang;
+    if (key !== this.claimKey) {
+      this.claimKey = key;
+      const c = ROLE_BY_ID[claim];
+      this.claimLabel = c ? (lang === 'en' ? `Claims ${c.nameEn}` : `自称${c.nameZh}`) : undefined;
+    }
+    return this.claimLabel;
   }
 
   private updateOcclusion(ctx: EntityCtx, head: THREE.Vector3, dist: number): void {
@@ -278,7 +333,6 @@ export class CharacterView {
     this.root.removeFromParent();
     this.rig.dispose();
     this.plate?.dispose();
-    this.badge?.dispose();
     this.auras.dispose();
   }
 }

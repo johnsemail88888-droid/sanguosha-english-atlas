@@ -9,6 +9,6 @@ export { mountHeroTurntable } from './turntable';
 export type { TurntableHandle } from './turntable';
 export { mountGameView } from './mountGame';
 export type { GameViewHandle, MountGameOptions } from './mountGame';
-export { createHeroModel, createTroopModel, createWeaponModel, disposeModel } from './models';
-export { QUALITY_PRESETS, qualityPreset } from './quality';
+export { createHeroModel, createTroopModel, createWeaponModel, disposeModel, registerHeroGlb } from './models';
+export { HERO_VIEW_RANGE, QUALITY_PRESETS, qualityPreset } from './quality';
 export type { ViewSource } from './view';

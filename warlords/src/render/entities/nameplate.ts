@@ -33,7 +33,23 @@ export class Nameplate {
   readonly sprite: THREE.Sprite;
   private readonly tex: THREE.CanvasTexture | null;
   private readonly ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-  private key = '';
+  /** what the texture currently shows (quantised; compared field by field, no per-frame strings) */
+  private readonly shown = {
+    valid: false,
+    heroName: '',
+    playerName: '',
+    hpQ: 0,
+    shQ: 0,
+    maxHp: 0,
+    lord: false,
+    role: undefined as RoleId | undefined,
+    claim: undefined as RoleId | undefined,
+    claimLabel: undefined as string | undefined,
+    downed: false,
+    kingdom: undefined as Kingdom | undefined,
+    friendly: false,
+    bubble: undefined as string | undefined,
+  };
   opacity = 1;
 
   constructor() {
@@ -58,13 +74,43 @@ export class Nameplate {
     this.sprite.name = 'nameplate';
   }
 
-  /** Redraw if the content changed. */
+  /** Redraw if the (quantised) content changed. */
   set(d: PlateData): void {
+    if (!this.ctx || !this.tex) return;
     const hpQ = Math.round((d.hp / Math.max(1, d.maxHp)) * 60);
     const shQ = Math.round(d.shield / 5);
-    const key = `${d.heroName}|${d.playerName}|${hpQ}|${shQ}|${d.maxHp}|${d.lord}|${d.role ?? ''}|${d.claim ?? ''}|${d.downed}|${d.friendly}|${d.bubble ?? ''}`;
-    if (key === this.key || !this.ctx || !this.tex) return;
-    this.key = key;
+    const s = this.shown;
+    if (
+      s.valid &&
+      s.heroName === d.heroName &&
+      s.playerName === d.playerName &&
+      s.hpQ === hpQ &&
+      s.shQ === shQ &&
+      s.maxHp === d.maxHp &&
+      s.lord === d.lord &&
+      s.role === d.role &&
+      s.claim === d.claim &&
+      s.claimLabel === d.claimLabel &&
+      s.downed === d.downed &&
+      s.kingdom === d.kingdom &&
+      s.friendly === d.friendly &&
+      s.bubble === d.bubble
+    )
+      return;
+    s.valid = true;
+    s.heroName = d.heroName;
+    s.playerName = d.playerName;
+    s.hpQ = hpQ;
+    s.shQ = shQ;
+    s.maxHp = d.maxHp;
+    s.lord = d.lord;
+    s.role = d.role;
+    s.claim = d.claim;
+    s.claimLabel = d.claimLabel;
+    s.downed = d.downed;
+    s.kingdom = d.kingdom;
+    s.friendly = d.friendly;
+    s.bubble = d.bubble;
     draw(this.ctx, d);
     this.tex.needsUpdate = true;
   }
@@ -226,115 +272,202 @@ function lighten(hex: string): string {
 }
 
 // ── troop badges ────────────────────────────────────────────────────────────
-const pennantMats = new Map<string, THREE.SpriteMaterial>();
-let barBgMat: THREE.SpriteMaterial | null = null;
-const barFillMats = new Map<string, THREE.SpriteMaterial>();
+// Every troop / NPC marker (kingdom pennant or green squad chevron, plus a
+// tiny HP bar while damaged) is one instance of a screen-aligned quad batch:
+// ONE draw call for all of them, whatever the troop count. Sizes are fractions
+// of the screen height (constant on-screen size, like sizeAttenuation=false
+// sprites), anchored above each unit's head.
 
-function pennantMaterial(color: string, chevron: boolean): THREE.SpriteMaterial {
-  const key = `${color}|${chevron}`;
-  let m = pennantMats.get(key);
-  if (m) return m;
-  const c = makeCanvas(64, 64);
-  let tex: THREE.Texture | null = null;
-  if (c) {
-    const g = c.ctx;
-    if (chevron) {
-      g.fillStyle = color;
-      g.strokeStyle = '#0c1a0c';
-      g.lineWidth = 4;
-      g.beginPath();
-      g.moveTo(8, 14);
-      g.lineTo(32, 40);
-      g.lineTo(56, 14);
-      g.lineTo(56, 28);
-      g.lineTo(32, 54);
-      g.lineTo(8, 28);
-      g.closePath();
-      g.stroke();
-      g.fill();
-    } else {
-      g.fillStyle = '#3a2a1a';
-      g.fillRect(14, 6, 5, 54);
-      g.fillStyle = color;
-      g.strokeStyle = '#1a1208';
-      g.lineWidth = 3;
-      g.beginPath();
-      g.moveTo(19, 8);
-      g.lineTo(58, 20);
-      g.lineTo(19, 34);
-      g.closePath();
-      g.fill();
-      g.stroke();
-    }
-    tex = new THREE.CanvasTexture(c.canvas as HTMLCanvasElement);
-    tex.colorSpace = THREE.SRGBColorSpace;
+const BADGE_VERT = /* glsl */ `
+attribute vec3 aAnchor;
+attribute vec4 aRect;   // offX, offY, width, height (fractions of the screen height)
+attribute vec4 aColor;  // linear rgb + alpha
+attribute float aKind;  // 0 solid, 1 pennant, 2 chevron
+varying vec2 vUv;
+varying vec4 vColor;
+varying float vKind;
+void main() {
+  vUv = uv;
+  vColor = aColor;
+  vKind = aKind;
+  vec4 clip = projectionMatrix * viewMatrix * vec4(aAnchor, 1.0);
+  float aspect = projectionMatrix[1][1] / projectionMatrix[0][0];
+  // quad: x in [-0.5, 0.5], y in [0, 1] (bottom-anchored)
+  vec2 off = vec2(aRect.x + position.x * aRect.z, aRect.y + position.y * aRect.w) * 2.0;
+  clip.xy += vec2(off.x / aspect, off.y) * clip.w;
+  gl_Position = clip;
+}`;
+
+const BADGE_FRAG = /* glsl */ `
+uniform sampler2D uAtlas;
+varying vec2 vUv;
+varying vec4 vColor;
+varying float vKind;
+void main() {
+  vec4 c = vColor;
+  if (vKind > 0.5) {
+    vec4 t = texture2D(uAtlas, vec2((vUv.x + (vKind > 1.5 ? 1.0 : 0.0)) * 0.5, vUv.y));
+    // white texels take the kingdom / squad tint; outlines and the pole keep their colour
+    float tint = step(0.88, min(t.r, min(t.g, t.b)));
+    c = vec4(mix(t.rgb, t.rgb * vColor.rgb, tint), t.a * vColor.a);
   }
-  m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false });
-  pennantMats.set(key, m);
-  return m;
+  if (c.a < 0.02) discard;
+  gl_FragColor = c;
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+
+/** Atlas: [pennant | chevron], 64x64 each, white where the tint goes. */
+function badgeAtlas(): THREE.Texture | null {
+  const c = makeCanvas(128, 64);
+  if (!c) return null;
+  const g = c.ctx;
+  // pennant on a pole
+  g.fillStyle = '#3a2a1a';
+  g.fillRect(14, 6, 5, 54);
+  g.fillStyle = '#ffffff';
+  g.strokeStyle = '#1a1208';
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(19, 8);
+  g.lineTo(58, 20);
+  g.lineTo(19, 34);
+  g.closePath();
+  g.fill();
+  g.stroke();
+  // squad chevron
+  g.fillStyle = '#ffffff';
+  g.strokeStyle = '#0c1a0c';
+  g.lineWidth = 4;
+  g.beginPath();
+  g.moveTo(64 + 8, 14);
+  g.lineTo(64 + 32, 40);
+  g.lineTo(64 + 56, 14);
+  g.lineTo(64 + 56, 28);
+  g.lineTo(64 + 32, 54);
+  g.lineTo(64 + 8, 28);
+  g.closePath();
+  g.stroke();
+  g.fill();
+  const tex = new THREE.CanvasTexture(c.canvas as HTMLCanvasElement);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = true;
+  return tex;
 }
 
-function barMaterials(color: string): { bg: THREE.SpriteMaterial; fill: THREE.SpriteMaterial } {
-  if (!barBgMat) barBgMat = new THREE.SpriteMaterial({ color: '#140c08', transparent: true, opacity: 0.85, depthTest: false, depthWrite: false, sizeAttenuation: false });
-  let f = barFillMats.get(color);
-  if (!f) {
-    f = new THREE.SpriteMaterial({ color, depthTest: false, depthWrite: false, sizeAttenuation: false });
-    barFillMats.set(color, f);
+const SQUAD_GREEN = new THREE.Color('#5ad07a');
+const BAR_BG = new THREE.Color('#140c08');
+const BAR_HIGH = new THREE.Color('#4fc25a');
+const BAR_MID = new THREE.Color('#e0b030');
+const BAR_LOW = new THREE.Color('#e04a3a');
+
+/** Batched overhead markers for every troop / NPC (one draw call). */
+export class TroopBadgeLayer {
+  readonly mesh: THREE.Mesh;
+  private readonly geo: THREE.InstancedBufferGeometry;
+  private readonly anchor: THREE.InstancedBufferAttribute;
+  private readonly rect: THREE.InstancedBufferAttribute;
+  private readonly color: THREE.InstancedBufferAttribute;
+  private readonly kind: THREE.InstancedBufferAttribute;
+  private readonly tex: THREE.Texture | null;
+  private readonly capacity: number;
+  private n = 0;
+
+  constructor(maxUnits = 256) {
+    this.capacity = maxUnits * 3;
+    const quad = new THREE.PlaneGeometry(1, 1);
+    quad.translate(0, 0.5, 0);
+    this.geo = new THREE.InstancedBufferGeometry();
+    this.geo.index = quad.index;
+    this.geo.setAttribute('position', quad.getAttribute('position'));
+    this.geo.setAttribute('uv', quad.getAttribute('uv'));
+    const mk = (size: number): THREE.InstancedBufferAttribute => {
+      const a = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * size), size);
+      a.setUsage(THREE.DynamicDrawUsage);
+      return a;
+    };
+    this.anchor = mk(3);
+    this.rect = mk(4);
+    this.color = mk(4);
+    this.kind = mk(1);
+    this.geo.setAttribute('aAnchor', this.anchor);
+    this.geo.setAttribute('aRect', this.rect);
+    this.geo.setAttribute('aColor', this.color);
+    this.geo.setAttribute('aKind', this.kind);
+    this.geo.instanceCount = 0;
+    this.tex = badgeAtlas();
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: BADGE_VERT,
+      fragmentShader: BADGE_FRAG,
+      uniforms: { uAtlas: { value: this.tex } },
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.mesh = new THREE.Mesh(this.geo, mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 49;
+    this.mesh.name = 'troop_badges';
   }
-  return { bg: barBgMat, fill: f };
-}
 
-/** Small overhead marker for troops / NPCs: kingdom pennant (or green squad chevron) + HP bar when damaged. */
-export class TroopBadge {
-  readonly group = new THREE.Group();
-  private readonly pennant: THREE.Sprite;
-  private readonly bg: THREE.Sprite;
-  private readonly fill: THREE.Sprite;
-  private color = '';
-  private squad = false;
-
-  constructor() {
-    this.pennant = new THREE.Sprite(pennantMaterial('#888888', false));
-    this.pennant.center.set(0.5, 0);
-    this.bg = new THREE.Sprite(barMaterials('#4fc25a').bg);
-    this.fill = new THREE.Sprite(barMaterials('#4fc25a').fill);
-    this.bg.center.set(0.5, 0.5);
-    for (const s of [this.pennant, this.bg, this.fill]) {
-      s.renderOrder = 49;
-      this.group.add(s);
-    }
-    this.fill.renderOrder = 50;
+  /** Number of quads queued this frame. */
+  get count(): number {
+    return this.n;
   }
 
-  set(kingdomColor: string, squad: boolean, hpFrac: number, showBar: boolean, fovDeg: number, dist: number): void {
-    if (kingdomColor !== this.color || squad !== this.squad) {
-      this.color = kingdomColor;
-      this.squad = squad;
-      this.pennant.material = pennantMaterial(squad ? '#5ad07a' : kingdomColor, squad);
-    }
-    const unit = 2 * Math.tan(((fovDeg * Math.PI) / 180) / 2);
+  begin(): void {
+    this.n = 0;
+  }
+
+  private quad(x: number, y: number, z: number, offX: number, offY: number, w: number, h: number, c: THREE.Color, a: number, kind: number): void {
+    if (this.n >= this.capacity) return;
+    const i = this.n++;
+    this.anchor.setXYZ(i, x, y, z);
+    this.rect.setXYZW(i, offX, offY, w, h);
+    this.color.setXYZW(i, c.r, c.g, c.b, a);
+    this.kind.setX(i, kind);
+  }
+
+  /**
+   * Queue one unit's pennant (or green squad chevron) anchored at the head-top
+   * point (x, y, z), plus its HP bar when `showBar`. Allocation-free.
+   */
+  add(x: number, y: number, z: number, kingdom: THREE.Color, squad: boolean, hpFrac: number, showBar: boolean, dist: number): void {
     const k = Math.max(0.6, Math.min(1, 1 - (dist - 10) / 80));
-    const ps = 0.028 * unit * k;
-    this.pennant.scale.set(ps, ps, 1);
-    this.pennant.position.set(0, 0, 0);
-    this.bg.visible = this.fill.visible = showBar;
-    if (showBar) {
-      const bw = 0.05 * unit * k;
-      const bh = 0.0065 * unit * k;
-      // bars sit just above the pennant: offset in world units scales with distance (sizeAttenuation off)
-      this.bg.scale.set(bw * 1.06, bh * 1.8, 1);
-      const f = Math.max(0.02, Math.min(1, hpFrac));
-      const col = f > 0.6 ? '#4fc25a' : f > 0.3 ? '#e0b030' : '#e04a3a';
-      this.fill.material = barMaterials(squad ? '#5ad07a' : col).fill;
-      this.fill.scale.set(bw * f, bh, 1);
-      this.fill.center.set(0.5 / f, 0.5);
-      const lift = dist * ps * 1.15;
-      this.bg.position.set(0, lift, 0);
-      this.fill.position.set(0, lift, 0);
+    const ps = 0.028 * k;
+    this.quad(x, y, z, 0, 0, ps, ps, squad ? SQUAD_GREEN : kingdom, 1, squad ? 2 : 1);
+    if (!showBar) return;
+    const bw = 0.05 * k;
+    const bh = 0.0065 * k;
+    const lift = ps * 1.15;
+    const f = Math.max(0.02, Math.min(1, hpFrac));
+    this.quad(x, y, z, 0, lift - bh * 0.9, bw * 1.06, bh * 1.8, BAR_BG, 0.85, 0);
+    const col = squad ? SQUAD_GREEN : f > 0.6 ? BAR_HIGH : f > 0.3 ? BAR_MID : BAR_LOW;
+    this.quad(x, y, z, -bw / 2 + (bw * f) / 2, lift - bh * 0.5, bw * f, bh, col, 1, 0);
+  }
+
+  /** Upload this frame's quads. */
+  end(): void {
+    const n = this.n;
+    this.geo.instanceCount = n;
+    this.mesh.visible = n > 0;
+    if (n === 0) return;
+    for (const [attr, size] of [
+      [this.anchor, 3],
+      [this.rect, 4],
+      [this.color, 4],
+      [this.kind, 1],
+    ] as const) {
+      attr.clearUpdateRanges();
+      attr.addUpdateRange(0, n * size);
+      attr.needsUpdate = true;
     }
   }
 
   dispose(): void {
-    /* shared materials are kept for reuse */
+    this.geo.dispose();
+    (this.mesh.material as THREE.Material).dispose();
+    this.tex?.dispose();
+    this.mesh.removeFromParent();
   }
 }

@@ -95,6 +95,9 @@ export function foliageMaterial(): THREE.MeshStandardMaterial {
 }
 
 /** A per-character material (tintable: freeze, glow, stealth) sharing the same shader program. */
+/** Maximum fog factor applied to characters (0 = no fog, 1 = full fog). */
+export const CHARACTER_FOG_MAX = 0.6;
+
 export function characterMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -103,6 +106,9 @@ export function characterMaterial(): THREE.MeshStandardMaterial {
     metalness: 0.05,
   });
   m.name = 'character';
+  // fog never hides a character completely (scene/skyfog.ts): heroes beyond the
+  // preset's fog range must stay readable silhouettes
+  m.defines = { FOG_MAX: CHARACTER_FOG_MAX.toFixed(2) };
   return m;
 }
 

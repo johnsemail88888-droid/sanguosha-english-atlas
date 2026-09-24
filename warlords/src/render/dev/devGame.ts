@@ -4,6 +4,7 @@
 //   ?quality=low|medium|high
 //   ?map=showcase   hand-made showcase map (default: the real generated map)
 //   ?at=x,z         lineup origin override
+//   ?far=<m>        a hero standing <m> metres straight ahead (hero visibility at range)
 import { generateMap } from '../../sim/map/generate';
 import type { MapData } from '../../core/map';
 import { terrainHeight } from '../../core/map';
@@ -67,7 +68,7 @@ export function startDevGame(canvas: HTMLCanvasElement, params: URLSearchParams)
   const map = showcase ? buildShowcaseMap() : generateMap(Number(params.get('seed') ?? 20260924));
   const at = params.get('at')?.split(',').map(Number);
   const origin = at && at.length === 2 ? { x: at[0], z: at[1] } : showcase ? { x: 0, z: 25 } : findOpenArea(map, { x: 0, z: 60 });
-  const view = new DevView({ heroId: params.get('hero') ?? 'guanyu', map, origin });
+  const view = new DevView({ heroId: params.get('hero') ?? 'guanyu', map, origin, farHeroDist: Number(params.get('far') ?? 0) });
   const renderer = new GameRenderer(canvas, view, { quality });
   const tBuild = performance.now() - t0;
   // debug: ?hide=zone,terrain_skirt,water,... hides scene objects by name prefix

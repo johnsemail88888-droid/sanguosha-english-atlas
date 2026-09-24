@@ -73,8 +73,35 @@ const MOVE_KEYS: Readonly<Record<string, [number, number]>> = {
   ArrowRight: [1, 0],
 };
 
-/** Keys whose default browser behaviour must be suppressed while playing. */
-const PREVENT = new Set(['Tab', 'Space', 'AltLeft', 'AltRight', 'ControlLeft', 'ControlRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyF', 'Slash']);
+/** Game keys outside KEY_MAP / MOVE_KEYS whose browser default must not fire while playing. */
+const EXTRA_GAME_KEYS = new Set(['ShiftLeft', 'ShiftRight', 'Slash', 'Quote', 'Backquote']);
+
+export interface KeyMods {
+  ctrlKey: boolean;
+  altKey: boolean;
+  metaKey: boolean;
+}
+
+/**
+ * Must the browser's default action for this key event be suppressed while
+ * playing? Every bound game key (KEY_MAP, movement, sprint) and every chord
+ * with Ctrl / Alt / Meta held: Ctrl and Alt are the dodge keys, so dodge +
+ * reload (Ctrl+R) must not reload the page, Ctrl+F not open find, Ctrl+E /
+ * Ctrl+G not move focus, Alt+D / Alt+F not open browser UI, Ctrl+4..7 not
+ * switch tabs. (Ctrl+W / T / N cannot be blocked by a page; in fullscreen the
+ * controller also takes the Keyboard Lock where the browser supports it.)
+ */
+export function shouldSuppressKey(code: string, mods: KeyMods): boolean {
+  if (KEY_MAP[code] || MOVE_KEYS[code] || EXTRA_GAME_KEYS.has(code)) return true;
+  return mods.ctrlKey || mods.altKey || mods.metaKey;
+}
+
+interface KeyboardLockApi {
+  lock(codes?: string[]): Promise<void>;
+  unlock(): void;
+}
+const keyboardLock = (): KeyboardLockApi | undefined =>
+  typeof navigator !== 'undefined' ? (navigator as Navigator & { keyboard?: KeyboardLockApi }).keyboard : undefined;
 
 /**
  * Pure input state machine (no DOM): accumulates look deltas, key states and
@@ -299,6 +326,24 @@ export class InputController implements InputSink {
     on(document, 'pointerlockerror', () => {
       for (const cb of this.lockSubs) cb(false);
     });
+    // fullscreen: take the Keyboard Lock (where supported) so even browser
+    // shortcuts reach the game; released when leaving fullscreen / disposing
+    on(document, 'fullscreenchange', () => this.syncKeyboardLock());
+  }
+
+  private keyboardLocked = false;
+  private syncKeyboardLock(): void {
+    const kb = keyboardLock();
+    if (!kb) return;
+    const want = !this.disposed && typeof document !== 'undefined' && !!document.fullscreenElement && !this.touchMode;
+    if (want === this.keyboardLocked) return;
+    this.keyboardLocked = want;
+    try {
+      if (want) void kb.lock().catch(() => (this.keyboardLocked = false));
+      else kb.unlock();
+    } catch {
+      this.keyboardLocked = false;
+    }
   }
 
   // ── pointer lock ─────────────────────────────────────────────────────────
@@ -398,6 +443,7 @@ export class InputController implements InputSink {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.syncKeyboardLock();
     this.exitLock();
     for (const c of this.cleanup) c();
     this.cleanup.length = 0;
@@ -414,17 +460,19 @@ export class InputController implements InputSink {
   private onKey(e: KeyboardEvent, down: boolean): void {
     if (this.disposed) return;
     if (isEditable(e.target)) return;
+    if (!this.state.enabled) {
+      // menus / chat open: keep browser keys working, but a held key must still be released
+      if (!down) this.state.keyUp(e.code);
+      return;
+    }
     const code = e.code;
+    if (shouldSuppressKey(code, e)) e.preventDefault();
     const b = KEY_MAP[code];
     if (b?.kind === 'ui') {
-      if (!this.state.enabled) return;
-      if (code === 'Tab') e.preventDefault();
       if (down && e.repeat) return;
       for (const cb of this.uiSubs) cb(b.key, down);
       return;
     }
-    if (!this.state.enabled) return;
-    if (PREVENT.has(code) || (e.ctrlKey && (code === 'KeyW' || code === 'KeyS' || code === 'KeyD'))) e.preventDefault();
     if (down) this.state.keyDown(code);
     else this.state.keyUp(code);
   }

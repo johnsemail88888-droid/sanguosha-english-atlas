@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { VF_ADS, VF_FIRING, VF_RELOADING } from '../core/types';
 import { HERO_BY_ID } from '../data';
 import { CharacterRig } from './models/character';
-import { heroSpec } from './models';
+import { heroMountCoat, heroSpec } from './models';
 import { kingdomColor } from './palette';
 import { GeoBuilder, PRIM, shade, trs } from './core/geo';
 import { worldMaterial } from './core/materials';
@@ -70,9 +70,10 @@ export function mountHeroTurntable(container: HTMLElement, heroId: string): Turn
   rim.position.set(3, 3, -4);
   scene.add(key, rim, new THREE.HemisphereLight('#d0dcea', '#4a3a28', 1.1));
 
-  const mounted = def?.abilities.some((a) => a.id === 'machao_mashu') ?? false;
-  if (mounted) rig.setMount('horse', '#e8e0d0', kc, '#d8ac4c');
-  const frameH = mounted ? 3.1 : 2.55;
+  // always-mounted heroes (HeroVisual.mount: 马超 西凉战马, 吕布 赤兔) are shown riding, as in the match
+  const coat = heroMountCoat(heroId, undefined, false);
+  if (coat) rig.setMount('horse', coat, kc, '#d8ac4c');
+  const frameH = coat ? Math.max(2.55, rig.headHeight() + 0.45) : 2.55;
   const resize = (): void => {
     const w = Math.max(1, container.clientWidth);
     const h = Math.max(1, container.clientHeight);

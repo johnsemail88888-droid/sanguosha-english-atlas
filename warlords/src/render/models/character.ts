@@ -6,10 +6,10 @@ import * as THREE from 'three';
 import { characterMaterial } from '../core/materials';
 import { CharacterAnimator, type AnimInput, type RigBones } from '../anim/animator';
 import { buildCharacter, specKey, type CharacterSpec } from './humanoid';
-import { B, localRest } from './rig';
+import { B, localRest, type BodyDims } from './rig';
 import { buildWeapon, isAkimbo, type HoldStyle, type WeaponModel, type WeaponModelInfo } from './weapons';
 import { MountRig, SADDLE_HIP, type MountKind } from './mounts';
-import { loadHeroGlb, hasHeroGlb } from './glb';
+import { loadHeroGlb } from './glb';
 
 export interface RigUpdate {
   speed: number;
@@ -111,6 +111,7 @@ export class CharacterRig {
   readonly spec: CharacterSpec;
   readonly rigBones: RigBones;
   private readonly bodyGeo: THREE.BufferGeometry;
+  private readonly dims: BodyDims;
   private readonly key: string;
   private readonly leftHandBusy: boolean;
   private info: WeaponModelInfo | null = null;
@@ -118,7 +119,7 @@ export class CharacterRig {
   private hold: HoldStyle = 'none';
   private akimbo = false;
   mount: MountRig | null = null;
-  private mountKey = '';
+  private readonly mountKey: { kind: MountKind | null; coat: string; cloth: string; trim: string } = { kind: null, coat: '', cloth: '', trim: '' };
   private glbMixer: THREE.AnimationMixer | null = null;
   private glbObject: THREE.Object3D | null = null;
   private glbWeapons: WeaponModel[] = [];
@@ -127,13 +128,30 @@ export class CharacterRig {
   private castShadows = true;
   private weaponShown = false;
   private fade = 1;
+  private localView = false;
   private xray: THREE.SkinnedMesh | null = null;
+  /** reused animator input (no per-frame allocation) */
+  private readonly animIn: AnimInput = {
+    dt: 0,
+    time: 0,
+    speed: 0,
+    moveX: 0,
+    moveZ: 0,
+    pitch: 0,
+    flags: 0,
+    hold: 'none',
+    mountHip: 0,
+    mountBob: 0,
+    leftHandBusy: false,
+    akimbo: false,
+  };
 
   constructor(spec: CharacterSpec) {
     this.spec = spec;
     this.key = specKey(spec);
     const built = buildCharacter(spec);
     this.bodyGeo = built.geometry;
+    this.dims = built.dims;
     this.leftHandBusy = built.leftHandBusy;
     this.material = characterMaterial();
     this.mesh = new THREE.SkinnedMesh(built.geometry, this.material);
@@ -153,6 +171,22 @@ export class CharacterRig {
       armL1: d.shoulderY - d.elbowY,
       armL2: d.elbowY - d.wristY,
     };
+  }
+
+  /**
+   * Height of the top of the head above the feet in world metres (standing,
+   * or seated on the current mount), including the rig's root scale.
+   */
+  headHeight(): number {
+    const d = this.dims;
+    let top = d.headCY + 0.19 * d.h;
+    if (this.mount) top += SADDLE_HIP[this.mount.kind] - d.hipY;
+    return top * this.root.scale.y;
+  }
+
+  /** true once a GLB body replaced the procedural one (see models/glb.ts) */
+  get usesGlb(): boolean {
+    return this.glbObject !== null;
   }
 
   get currentWeapon(): string | null {
@@ -205,11 +239,14 @@ export class CharacterRig {
     if (this.glbObject) this.attachGlbWeapons();
   }
 
-  /** Ride a mount (null = on foot). */
+  /** Ride a mount (null = on foot). Cheap (no allocation) when unchanged. */
   setMount(kind: MountKind | null, coat = '#6b4a2e', cloth = '#8a2a22', trim = '#d8ac4c'): void {
-    const key = kind ? `${kind}|${coat}|${cloth}|${trim}` : '';
-    if (key === this.mountKey) return;
-    this.mountKey = key;
+    const k = this.mountKey;
+    if (kind === k.kind && (!kind || (coat === k.coat && cloth === k.cloth && trim === k.trim))) return;
+    k.kind = kind;
+    k.coat = coat;
+    k.cloth = cloth;
+    k.trim = trim;
     if (this.mount) {
       this.mount.object.removeFromParent();
       this.mount.dispose();
@@ -223,9 +260,8 @@ export class CharacterRig {
     }
   }
 
-  /** Swap the procedural body for a GLB if one is shipped for this hero (async, silent on failure). */
+  /** Swap the procedural body for a GLB if one exists for this hero (async, resolved once per id, silent on failure). */
   tryGlbOverride(heroId: string): void {
-    if (!hasHeroGlb(heroId)) return;
     void loadHeroGlb(heroId).then((glb) => {
       if (!glb || this.disposed) return;
       glb.scene.scale.setScalar(glb.scale);
@@ -284,6 +320,18 @@ export class CharacterRig {
     this.xray.visible = true;
   }
 
+  /**
+   * Local over-the-shoulder view: tall head / back ornaments (吕布's pheasant
+   * feathers, 靠旗 back flags) are shortened so they do not arc across the
+   * crosshair or fill the top of the screen.
+   */
+  setLocalView(on: boolean): void {
+    if (on === this.localView) return;
+    this.localView = on;
+    this.rigBones.bones[B.plume].scale.setScalar(on ? 0.3 : 1);
+    this.rigBones.bones[B.backOrn].scale.setScalar(on ? 0.45 : 1);
+  }
+
   /** Fade the whole character (1 = opaque); used when the TPS camera is pushed into the local hero. */
   setFade(alpha: number): void {
     const a = Math.max(0.05, Math.min(1, alpha));
@@ -321,20 +369,19 @@ export class CharacterRig {
   update(dt: number, time: number, u: RigUpdate): void {
     let mountBob = 0;
     if (this.mount) mountBob = this.mount.update(dt, u.speed, time);
-    const inp: AnimInput = {
-      dt,
-      time,
-      speed: u.speed,
-      moveX: u.moveX,
-      moveZ: u.moveZ,
-      pitch: u.pitch,
-      flags: u.flags,
-      hold: this.hold,
-      mountHip: this.mount ? SADDLE_HIP[this.mount.kind] : 0,
-      mountBob,
-      leftHandBusy: this.leftHandBusy,
-      akimbo: this.akimbo,
-    };
+    const inp = this.animIn;
+    inp.dt = dt;
+    inp.time = time;
+    inp.speed = u.speed;
+    inp.moveX = u.moveX;
+    inp.moveZ = u.moveZ;
+    inp.pitch = u.pitch;
+    inp.flags = u.flags;
+    inp.hold = this.hold;
+    inp.mountHip = this.mount ? SADDLE_HIP[this.mount.kind] : 0;
+    inp.mountBob = mountBob;
+    inp.leftHandBusy = this.leftHandBusy;
+    inp.akimbo = this.akimbo;
     this.animator.update(inp);
     const info = this.info;
     this.animator.apply(this.rigBones, { fore: info?.fore ?? null, mag: info?.mag ?? null });

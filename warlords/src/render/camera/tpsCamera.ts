@@ -5,7 +5,10 @@
 //   camera = pivot + right(yaw) * CAM_SHOULDER − dir(yaw, pitch) * CAM_DISTANCE
 //   look   = dir(yaw, pitch)
 // Collision pulls the camera forward ALONG the aim ray first (keeping the ray
-// identical), then toward the pivot when a wall hugs the shoulder.
+// identical), then toward the pivot when a wall hugs the shoulder. Aiming down
+// sights with a magnifying weapon also slides the camera forward along the
+// same ray (the sim's crosshair ray and pick() are unchanged), so the hero
+// does not fill a third of the zoomed view.
 import * as THREE from 'three';
 import type { Vec3 } from '../../core/math';
 import { clamp, dirFromYawPitch, lerpAngle, rightFromYaw, wrapAngle } from '../../core/math';
@@ -16,6 +19,18 @@ export const CAM_UP = CAM_PIVOT_HEIGHT;
 export const CAM_RIGHT = CAM_SHOULDER;
 export const CAM_BACK = CAM_DISTANCE;
 export const PITCH_LIMIT = 1.45;
+/** Closest the camera gets to the shoulder when aiming a high-zoom weapon (m). */
+export const ADS_BACK_MIN = 1.15;
+
+/** 0..1: how far an ADS zoom factor pulls the camera in (1.1x → 0, ≥ 2.3x → 1). */
+export function adsPull(zoom: number): number {
+  return clamp((zoom - 1.1) / 1.2, 0, 1);
+}
+
+/** Camera distance behind the shoulder while aiming with this zoom factor. */
+export function adsBackDistance(zoom: number): number {
+  return CAM_BACK + (ADS_BACK_MIN - CAM_BACK) * adsPull(zoom);
+}
 
 export interface CameraPose {
   origin: Vec3;
@@ -130,6 +145,8 @@ export class TpsCameraRig {
   private initialised = false;
   private orbitAngle = 0;
   private collisionDist = CAM_BACK;
+  /** smoothed ADS back distance (CAM_BACK when not aiming) */
+  private adsBack = CAM_BACK;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -162,24 +179,47 @@ export class TpsCameraRig {
     this.pitch += (pitch - this.pitch) * k;
   }
 
-  /** Follow a hero with the canonical TPS pose (+collision). Collision pulls in instantly, eases back out. */
-  follow(world: PickWorld | null, target: Vec3, yaw: number, pitch: number, dt: number, smooth: boolean, downed = false): void {
+  /**
+   * Follow a hero with the canonical TPS pose (+collision). Collision pulls in
+   * instantly and eases back out; `adsZoom` (> 1 while aiming) slides the
+   * camera forward along the aim ray.
+   */
+  follow(
+    world: PickWorld | null,
+    target: Vec3,
+    yaw: number,
+    pitch: number,
+    dt: number,
+    smooth: boolean,
+    downed = false,
+    adsZoom = 1,
+  ): void {
     const p = clamp(pitch, -PITCH_LIMIT, PITCH_LIMIT);
-    let camPos: Vec3;
+    this.adsBack += (adsBackDistance(adsZoom) - this.adsBack) * (1 - Math.exp(-dt * 12));
+    let right = CAM_RIGHT;
+    let back = CAM_BACK;
     if (world) {
       const res = resolveCameraCollision(world, target, yaw, p, downed);
       this.collisionDist =
         res.back < this.collisionDist ? res.back : this.collisionDist + (res.back - this.collisionDist) * (1 - Math.exp(-dt * 5));
-      const d = dirFromYawPitch(yaw, p);
-      const r = rightFromYaw(yaw);
-      camPos = {
-        x: target.x + r.x * res.right - d.x * this.collisionDist,
-        y: target.y + pivotHeight(downed) - d.y * this.collisionDist,
-        z: target.z + r.z * res.right - d.z * this.collisionDist,
-      };
-    } else camPos = tpsCameraPose(target, yaw, p, downed).origin;
+      right = res.right;
+      back = this.collisionDist;
+    }
+    back = Math.min(back, this.adsBack);
+    const d = dirFromYawPitch(yaw, p);
+    const r = rightFromYaw(yaw);
+    const camPos = {
+      x: target.x + r.x * right - d.x * back,
+      y: target.y + pivotHeight(downed) - d.y * back,
+      z: target.z + r.z * right - d.z * back,
+    };
     if (smooth) this.approach(camPos, yaw, p, dt, 14);
     else this.setPose(camPos, yaw, p);
+  }
+
+  /** 0..1 how far ADS has pulled the camera in (for fading the local hero). */
+  get adsBlend(): number {
+    return clamp((CAM_BACK - this.adsBack) / (CAM_BACK - ADS_BACK_MIN), 0, 1);
   }
 
   /** Slow cinematic orbit around a point (before spawn / dead without a spectate target). */

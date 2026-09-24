@@ -108,7 +108,8 @@ function shoulderPads(c: BodyCtx): void {
 /** 靠旗: four little pennants on poles from the back — a very tall silhouette. */
 function backFlags(c: BodyCtx): void {
   const { d, s, b } = c;
-  c.on('chest');
+  // own bone: the local TPS view shortens them (CharacterRig.setLocalView)
+  c.on('backOrn');
   const cols = [s.kingdom, s.accent, s.kingdom, s.accent];
   [-0.09, -0.03, 0.03, 0.09].forEach((x, i) => {
     const base = c.v(x, d.chestY + 0.05, 0.13 * d.depth);
@@ -129,33 +130,45 @@ function cape(c: BodyCtx): void {
   c.on('cape');
   const clr = shade(mixCol(s.primary, s.kingdom, 0.35), 0.78);
   const inner = shade(clr, 0.62);
+  // Tapered swallow-tail cape: narrower than the shoulders (arms, weapon and
+  // reload stay readable from the TPS camera behind), ending mid-thigh, split
+  // up the middle so it reads as cloth rather than a slab.
   const topY = d.shoulderY + 0.01;
-  const botY = 0.32;
+  const botY = 0.6 * d.h;
+  const slitY = botY + 0.26 * d.h;
   const zTop = 0.13 * d.depth;
-  const zBot = zTop + 0.14;
-  const wTop = 0.44 * d.w;
-  const wBot = 0.64 * d.w;
-  const v = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
-  // five vertical folds: alternating depth + shade so the cloth reads from behind
-  const folds = 5;
+  const zBot = zTop + 0.12;
+  const wTop = 0.36 * d.w;
+  const wBot = 0.58 * d.w;
+  const folds = 6;
+  // bottom edge height across the cape (u 0..1): a V notch in the middle
+  const yAt = (u: number): number => {
+    const m = Math.abs(u - 0.5) * 2;
+    return m < 1 / 3 ? slitY + (botY - slitY) * m * 3 : botY;
+  };
+  const P = (u: number, y: number, dz: number): THREE.Vector3 => {
+    const t = (topY - y) / (topY - botY);
+    const w = wTop + (wBot - wTop) * t;
+    return new THREE.Vector3(-w / 2 + u * w, y, zTop + (zBot - zTop) * t + dz);
+  };
   for (let i = 0; i < folds; i++) {
     const u0 = i / folds;
     const u1 = (i + 1) / folds;
-    const x0t = -wTop / 2 + u0 * wTop;
-    const x1t = -wTop / 2 + u1 * wTop;
-    const x0b = -wBot / 2 + u0 * wBot;
-    const x1b = -wBot / 2 + u1 * wBot;
-    const dz = i % 2 ? 0.035 : 0;
+    const y0 = yAt(u0);
+    const y1 = yAt(u1);
+    // alternating depth + shade so the folds read from behind
+    const dz = i % 2 ? 0.03 : 0;
     const col = i % 2 ? shade(clr, 0.86) : clr;
-    b.quad(v(x0t, topY, zTop + dz * 0.3), v(x0b, botY, zBot + dz), v(x1b, botY, zBot + dz), v(x1t, topY, zTop + dz * 0.3), col, true);
+    b.quad(P(u0, topY, dz * 0.3), P(u0, y0, dz), P(u1, y1, dz), P(u1, topY, dz * 0.3), col, true);
     // hem trim
-    b.quad(v(x0b, botY + 0.06, zBot + dz + 0.004), v(x0b, botY, zBot + dz + 0.004), v(x1b, botY, zBot + dz + 0.004), v(x1b, botY + 0.06, zBot + dz + 0.004), s.accent, true);
+    b.quad(P(u0, y0 + 0.05, dz + 0.004), P(u0, y0, dz + 0.004), P(u1, y1, dz + 0.004), P(u1, y1 + 0.05, dz + 0.004), s.accent, true);
+    // lining
+    b.quad(P(u0, topY, -0.012), P(u0, y0, -0.012), P(u1, y1, -0.012), P(u1, topY, -0.012), inner, true);
   }
-  b.quad(v(-wTop / 2, topY, zTop - 0.012), v(-wBot / 2, botY, zBot - 0.012), v(wBot / 2, botY, zBot - 0.012), v(wTop / 2, topY, zTop - 0.012), inner, true);
   // collar + clasps
-  b.boxAt(0, topY + 0.01, zTop - 0.01, wTop + 0.04, 0.05, 0.05, shade(clr, 0.9));
-  ball(c, -wTop / 2, topY, zTop - 0.05, 0.03, s.accent);
-  ball(c, wTop / 2, topY, zTop - 0.05, 0.03, s.accent);
+  b.boxAt(0, topY + 0.01, zTop - 0.01, wTop + 0.06, 0.05, 0.05, shade(clr, 0.9));
+  ball(c, -wTop / 2 - 0.01, topY, zTop - 0.05, 0.03, s.accent);
+  ball(c, wTop / 2 + 0.01, topY, zTop - 0.05, 0.03, s.accent);
 }
 
 function scarf(c: BodyCtx): void {

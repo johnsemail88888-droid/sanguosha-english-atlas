@@ -8,6 +8,7 @@ import { CharacterView } from './characterView';
 import { AirdropView, CrateView, LootView, ProjectileView, TurretView, type EntityView } from './objects';
 import { HazardView } from './hazards';
 import type { EntityCtx } from './context';
+import { TroopBadgeLayer } from './nameplate';
 
 type AnyView = CharacterView | EntityView;
 const MAX_CORPSES = 24;
@@ -17,14 +18,19 @@ const isCharacterKind = (k: ViewEntity['kind']): boolean => k === 'hero' || k ==
 
 export class EntityManager {
   readonly group = new THREE.Group();
+  /** one instanced draw call for every troop / NPC pennant + HP bar */
+  readonly badges = new TroopBadgeLayer();
   private readonly views = new Map<EntityId, AnyView>();
-  private readonly kinds = new Map<EntityId, string>();
+  /** kind / sub each view was built for (an id reused for something else is rebuilt) */
+  private readonly kinds = new Map<EntityId, ViewEntity['kind']>();
+  private readonly subs = new Map<EntityId, string>();
   private corpses: CharacterView[] = [];
   private readonly died = new Map<EntityId, number>();
   private readonly seen = new Set<EntityId>();
 
   constructor() {
     this.group.name = 'entities';
+    this.group.add(this.badges.mesh);
   }
 
   get size(): number {
@@ -69,14 +75,15 @@ export class EntityManager {
     }
   }
 
+  /** `ctx.badges` must be this manager's `badges` layer. */
   sync(entities: readonly ViewEntity[], ctx: EntityCtx): void {
     const seen = this.seen;
     seen.clear();
+    this.badges.begin();
     for (const e of entities) {
       seen.add(e.id);
       let v = this.views.get(e.id);
-      const key = `${e.kind}|${e.sub}`;
-      if (v && this.kinds.get(e.id) !== key) {
+      if (v && (this.kinds.get(e.id) !== e.kind || this.subs.get(e.id) !== e.sub)) {
         // id reused for a different thing (or a hero changed model) → rebuild
         v.dispose();
         this.views.delete(e.id);
@@ -87,7 +94,8 @@ export class EntityManager {
         if (!nv) continue;
         v = nv;
         this.views.set(e.id, v);
-        this.kinds.set(e.id, key);
+        this.kinds.set(e.id, e.kind);
+        this.subs.set(e.id, e.sub);
         this.group.add(v.root);
       }
       try {
@@ -105,6 +113,7 @@ export class EntityManager {
       if (seen.has(id)) continue;
       this.views.delete(id);
       this.kinds.delete(id);
+      this.subs.delete(id);
       if (v instanceof CharacterView && isCharacterKind(v.kind)) {
         const wasDead = (v.last.flags & VF_DEAD) !== 0 || v.last.hp <= 0 || this.died.has(id);
         if (wasDead && this.corpses.length < MAX_CORPSES) {
@@ -121,14 +130,19 @@ export class EntityManager {
       const keep: CharacterView[] = [];
       for (const c of this.corpses) {
         c.corpseTime += ctx.dt;
-        const e = c.last;
+        // the corpse keeps its own copy of the last snapshot (the sim may reuse ViewEntity objects)
+        if (!c.corpseEnt) c.corpseEnt = { ...c.last, flags: c.last.flags | VF_DEAD, speed: 0 };
+        const ce = c.corpseEnt;
         const sink = Math.max(0, c.corpseTime - (CORPSE_TIME - 1.5)) * 0.5;
-        c.update({ ...e, flags: e.flags | VF_DEAD, speed: 0, y: e.y - sink }, ctx);
+        const baseY = c.corpseBaseY ?? (c.corpseBaseY = ce.y);
+        ce.y = baseY - sink;
+        c.update(ce, ctx);
         if (c.corpseTime < CORPSE_TIME) keep.push(c);
         else c.dispose();
       }
       this.corpses = keep;
     }
+    this.badges.end();
     // forget old death notes
     if (this.died.size > 64) {
       for (const [id, t] of this.died) if (ctx.time - t > 10) this.died.delete(id);
@@ -143,6 +157,9 @@ export class EntityManager {
     for (const v of this.views.values()) v.dispose();
     for (const c of this.corpses) c.dispose();
     this.views.clear();
+    this.kinds.clear();
+    this.subs.clear();
     this.corpses = [];
+    this.badges.dispose();
   }
 }

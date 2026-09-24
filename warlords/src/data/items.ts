@@ -6,14 +6,20 @@
 //  - "enemy" = any unit that is not on the user's own side (SimApi.isOwnSide false).
 //  - `range`   = max throw / target distance (mirrors ItemDef.range).
 //  - `radius`  = effect radius around the impact point / user.
-//  - thrown items (`fuse`) fly to the aim point (clamped to range) and trigger after `fuse` s.
-//  - traps (`armTime`, `lifetime`) are hazards with triggerOnce that hit the first enemy HERO
-//    that steps inside `radius`; they are only visible to their owner and to anyone within 6 m.
+//  - thrown items (`fuse`) are lobbed at the aim point (clamped to range); they stop at the first
+//    wall / roof / unit on the way, lie there as a visible warning circle of `radius`, and go off
+//    `fuse` s after the throw.
+//  - traps (`armTime`, `lifetime`) are hidden hazards that spring once on the first enemy HERO
+//    (standing, not immune to the trap's status) inside `radius`; enemy soldiers never trigger
+//    them. Only the owner's side sees them; enemies spot them up close (design: 6 m — snapshots
+//    currently use the 8 m stealth send range, see docs/SIM_REQUESTS.md).
 //  - random items are rolled with rollLoot('reward', …) from data/loot.ts.
 //  - `dtype` is the DamageType of every hit an item deals. Item damage is never a weapon hit
 //    (no weaponId): bullet-only armor rules and 酒 don't apply to it.
 //  - Everything here is implementable with SimApi (+ sim/ext.ts) alone: 决斗 and 借刀杀人 use
 //    statuses, squad orders and sim.schedule() polling — no damage-pipeline hooks needed.
+//  - "Not consumed on failure": an item that cannot do anything (no target, nothing to steal, nobody
+//    hurt, squad full …) stays in its slot. An item cancelled by the target's 无懈可击 is spent.
 import type { ArmorDef, ItemDef, MountDef } from './types';
 
 export const ITEMS: ItemDef[] = [
@@ -118,14 +124,16 @@ export const ITEMS: ItemDef[] = [
     nameEn: 'Dismantle (EMP Grenade)',
     sgsCard: '过河拆桥',
     kind: 'trick',
-    descZh: '投掷电磁手雷（1.2 秒后于 4 米内生效）：敌人的护甲与坐骑掉落在地，护盾清空。',
-    descEn: 'Throw an EMP grenade (4 m, 1.2 s fuse): enemies drop their armor and mount on the ground and lose all shield.',
+    descZh: '投掷电磁手雷（1.2 秒后于 4 米内生效）：敌人的护甲与坐骑被震落到 2.5 米外（本人 5 秒内无法拾回），护盾清空。',
+    descEn: 'Throw an EMP grenade (4 m, 1.2 s fuse): enemies lose all shield, and their armor and mount are knocked 2.5 m away (they cannot pick them back up for 5 s).',
     rarity: 'rare',
     useTime: 0,
     targeting: 'point',
     range: 25,
     maxStack: 2,
-    params: { range: 25, radius: 4, fuse: 1.2 },
+    // impl: gear is flung `scatter` m away from the blast (pulled in by walls) as loot locked for its
+    //   former wearer for `dropLock` s (anyone else may grab it at once); 白银狮子 still heals on removal.
+    params: { range: 25, radius: 4, fuse: 1.2, scatter: 2.5, dropLock: 5 },
     icon: '拆',
     color: '#6a8ad0',
     aiHint: 'offense',
@@ -161,13 +169,14 @@ export const ITEMS: ItemDef[] = [
     targeting: 'enemy',
     range: 20,
     maxStack: 1,
-    // impl (SimApi only): applyStatus(target, 'marked', duration, { sourceId: user }) and
-    //   applyStatus(user, 'marked', duration, { sourceId: target }) — each side's troops focus the other;
-    //   if 无懈可击 cancels the target's mark the duel is cancelled (item still spent).
-    //   Record hp + shield of both at start; sim.schedule() a check every pollEvery s: the duel ends
-    //   at `duration`, when either is downed/dead, or when they are more than breakDist apart.
+    // impl (SimApi only): the target's 无懈可击 refuses the duel (item spent; 'marked' itself is an
+    //   information status and never consumes it, so the gate is checked explicitly). Otherwise
+    //   applyStatus(target, 'marked', duration, { sourceId: user }) and applyStatus(user, 'marked',
+    //   duration, { sourceId: target }) — each side's troops focus the other. One duel per user at a
+    //   time. Record hp + shield of both at start; sim.schedule() a check every pollEvery s: the duel
+    //   ends at `duration`, when either is downed/dead, or when they are more than breakDist apart.
     //   HP lost = start − now (downed/dead = everything). The one that lost more takes loserDamage
-    //   (dtype, canDodge false, sourceId = the other duelist); a tie punishes nobody.
+    //   (dtype, canDodge false, sourceId = the other duelist) unless it already fell; a tie punishes nobody.
     params: { range: 20, duration: 8, breakDist: 35, pollEvery: 0.5, loserDamage: 80 },
     dtype: 'normal',
     icon: '斗',
@@ -180,16 +189,18 @@ export const ITEMS: ItemDef[] = [
     nameEn: 'Borrowed Blade (Hack)',
     sgsCard: '借刀杀人',
     kind: 'trick',
-    descZh: '入侵 40 米内敌方武将的士兵：6 秒内它们围攻离其主人最近的另一名武将（不会是你）；附近没有则无法使用。',
-    descEn: "Hack an enemy hero's soldiers (40 m): for 6 s they attack the hero nearest their commander (never you). Fails if there is none.",
+    descZh: '入侵 40 米内敌方武将的士兵与炮台：6 秒内它们围攻离其主人最近的另一名武将（不会是你）；对方无兵或附近无人时无法使用。',
+    descEn: "Hack an enemy hero's soldiers and turrets (40 m): for 6 s they attack the hero nearest their commander (never you). Fails if they have none, or nobody is near.",
     rarity: 'epic',
     useTime: 0.5,
     targeting: 'enemy',
     range: 40,
     maxStack: 1,
-    // impl (SimApi only): x = nearest hero ≠ target, ≠ user within searchRadius of the target; none ⇒
-    //   use() returns false (not consumed). Otherwise sim.setSquadOrder(target, { kind: 'attack', targetId: x })
-    //   re-applied every pollEvery s via sim.schedule() for `duration`, then { kind: 'follow' }.
+    // impl (SimApi only): aiming at a soldier / turret hacks its commander. x = nearest standing hero
+    //   ≠ target, ≠ user within searchRadius of the target; none (or no living soldier / turret) ⇒
+    //   use() returns false (not consumed). 无懈可击 on the target cancels it (spent). Otherwise
+    //   sim.setSquadOrder(target, { kind: 'attack', targetId: x }) re-applied every pollEvery s via
+    //   sim.schedule() for `duration` (x re-picked if it falls or leaves), then the previous order.
     //   (A commander's own troops can never damage him — combat credit rule — so they turn on x instead.)
     params: { range: 40, duration: 6, searchRadius: 40, pollEvery: 0.5 },
     icon: '借',
@@ -220,8 +231,8 @@ export const ITEMS: ItemDef[] = [
     nameEn: 'Barbarian Invasion',
     sgsCard: '南蛮入侵',
     kind: 'trick',
-    descZh: '召唤 5 名南蛮勇士冲向准星处（20 秒），它们攻击除你以外的所有人。',
-    descEn: 'Summon 5 barbarian warriors (20 s) that rush the aim point and attack everyone but you.',
+    descZh: '召唤 5 名南蛮勇士冲向准星处（20 秒），它们攻击除你和你的士兵以外的所有人。',
+    descEn: 'Summon 5 barbarian warriors (20 s) that rush the aim point and attack everyone but you and your soldiers.',
     rarity: 'epic',
     useTime: 0.5,
     targeting: 'point',
@@ -332,17 +343,20 @@ export const ITEMS: ItemDef[] = [
     nameEn: 'Indulgence (Trap)',
     sgsCard: '乐不思蜀',
     kind: 'delayTrick',
-    descZh: '布置陷阱（1 秒后生效，存在 60 秒）：首个踏入的敌方武将跳舞 3 秒，无法射击与使用技能。',
-    descEn: 'Place a trap (arms in 1 s, lasts 60 s): the first enemy hero to step in dances for 3 s, unable to shoot or use abilities.',
+    descZh: '布置隐蔽陷阱（敌人靠近才能发现；1 秒后生效，存在 60 秒）：首个踏入的敌方武将跳舞 3 秒，无法射击与使用技能。',
+    descEn: 'Place a hidden trap (enemies only spot it up close; arms in 1 s, lasts 60 s): the first enemy hero to step in dances for 3 s, unable to shoot or use abilities.',
     rarity: 'rare',
     useTime: 0.5,
-    targeting: 'point',
+    // 'self', not 'point': the public itemUse event must not carry the hidden trap's spot (ITEMS-3);
+    //   use() lays it at the crosshair (≤ range), or where the bot's botShouldUse decided.
+    targeting: 'self',
     range: 8,
     maxStack: 2,
     params: { range: 8, radius: 2.5, armTime: 1, lifetime: 60, duration: 3 },
     icon: '乐',
     color: '#e070b0',
-    aiHint: 'defense',
+    // 'utility': the bot planner defers to botShouldUse (charging foes, retreats, doorways, airdrops)
+    aiHint: 'utility',
   },
   {
     id: 'bingliang',
@@ -350,17 +364,20 @@ export const ITEMS: ItemDef[] = [
     nameEn: 'Supply Shortage (Trap)',
     sgsCard: '兵粮寸断',
     kind: 'delayTrick',
-    descZh: '布置陷阱（1 秒后生效，存在 60 秒）：首个踏入的敌方武将定身 2.5 秒并失去 50% 备弹。',
-    descEn: 'Place a trap (arms in 1 s, lasts 60 s): the first enemy hero to step in is rooted 2.5 s and loses 50% reserve ammo.',
+    descZh: '布置隐蔽陷阱（敌人靠近才能发现；1 秒后生效，存在 60 秒）：首个踏入的敌方武将定身 2.5 秒并失去 50% 备弹。',
+    descEn: 'Place a hidden trap (enemies only spot it up close; arms in 1 s, lasts 60 s): the first enemy hero to step in is rooted 2.5 s and loses 50% reserve ammo.',
     rarity: 'rare',
     useTime: 0.5,
-    targeting: 'point',
+    // 'self', not 'point': the public itemUse event must not carry the hidden trap's spot (ITEMS-3);
+    //   use() lays it at the crosshair (≤ range), or where the bot's botShouldUse decided.
+    targeting: 'self',
     range: 8,
     maxStack: 2,
     params: { range: 8, radius: 2.5, armTime: 1, lifetime: 60, rootTime: 2.5, reserveLoss: 0.5 },
     icon: '粮',
     color: '#a08040',
-    aiHint: 'defense',
+    // 'utility': the bot planner defers to botShouldUse (charging foes, retreats, doorways, airdrops)
+    aiHint: 'utility',
   },
   {
     id: 'shandian',
@@ -368,8 +385,8 @@ export const ITEMS: ItemDef[] = [
     nameEn: 'Lightning (Storm Cloud)',
     sgsCard: '闪电',
     kind: 'delayTrick',
-    descZh: '在准星处召出雷云（18 秒）：以 3.5 米/秒飘向最近的武将（可能是你！），每 3 秒劈下 70 雷电伤害（3 米）。',
-    descEn: 'Summon a storm cloud (18 s) that drifts at 3.5 m/s toward the nearest hero — maybe you! — striking for 70 thunder (3 m) every 3 s.',
+    descZh: '在准星处召出雷云（18 秒）：以 3.5 米/秒飘向最近的武将（可能是你！），每 3 秒对其下方 3 米内所有人劈下 70 雷电伤害。',
+    descEn: 'Summon a storm cloud (18 s) that drifts at 3.5 m/s toward the nearest hero — maybe you! — striking everyone within 3 m below it for 70 thunder every 3 s.',
     rarity: 'epic',
     useTime: 0.5,
     targeting: 'point',
@@ -414,8 +431,9 @@ export const BULLET_EVASION_CAP = 0.5;
 //  bagua    chance: probability to fully evade a dodgeable bullet (ignored by undodgeable).
 //  renwang  frontArc: degrees in front of the wearer; mul: bullet damage multiplier from that arc.
 //  tengjia  fireMul: fire damage multiplier; troopImmune=1: immune to troop/NPC/turret bullets.
-//  baiyin   cap: max damage from any single hit (any type except zone);
-//           healOnRemove: heal when the armor is removed, stripped or stolen.
+//  baiyin   cap: max damage from any single hit (any type except zone and 'true' HP loss; like
+//           every armor it is bypassed by armor-piercing hits — 青釭剑, 'pierce');
+//           healOnRemove: heal when the armor is removed, swapped, stripped or stolen.
 export const ARMORS: ArmorDef[] = [
   {
     id: 'bagua',

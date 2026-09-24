@@ -1,6 +1,14 @@
 // Graphics quality presets (settings.quality). Changing preset at runtime is
 // supported; toggling shadows recompiles materials once (brief hitch).
 import type { Quality } from '../game/settings';
+import { WEAPONS } from '../data';
+
+/**
+ * Heroes within this distance of the camera are always drawn, on every
+ * preset (the far plane is stretched for them): the longest weapon range in
+ * the data (麒麟弓 400 m) plus a margin, clamped to a sane band.
+ */
+export const HERO_VIEW_RANGE = Math.min(640, Math.max(300, WEAPONS.reduce((m, w) => Math.max(m, w.maxRange || 0), 0) + 30));
 
 export interface QualityPreset {
   /** multiplier on devicePixelRatio, and an absolute cap */
@@ -15,9 +23,9 @@ export interface QualityPreset {
   post: boolean;
   /** MSAA samples for the composer render target */
   msaa: number;
-  /** camera far plane / fog end (m) */
+  /** camera far plane / fog end (m) for the world; heroes stay visible to HERO_VIEW_RANGE */
   drawDistance: number;
-  /** characters beyond this are hidden (m) */
+  /** troops / NPCs beyond this are hidden (m); heroes are never distance-culled */
   characterDistance: number;
   /** dynamic point lights for braziers / VFX */
   brazierLights: number;

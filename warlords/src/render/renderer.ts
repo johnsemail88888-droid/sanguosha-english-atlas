@@ -10,10 +10,11 @@ import type { Vec3 } from '../core/math';
 import { dirFromYawPitch } from '../core/math';
 import type { EntityId, GameEvent, ViewEntity } from '../core/types';
 import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
+import { LocalFirePredictor, type LocalFireGate } from './localFire';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { ViewSource } from './view';
-import { qualityPreset, type QualityPreset } from './quality';
+import { HERO_VIEW_RANGE, qualityPreset, type QualityPreset } from './quality';
 import { sharedUniforms, disposeSharedMaterials } from './core/materials';
 import { SKY } from './palette';
 import { createSkyLayer, type SkyLayer } from './scene/sky';
@@ -26,7 +27,7 @@ import { buildWorld, type WorldBuild } from './world/world';
 import { FireSystem } from './world/fires';
 import { GrassField } from './scene/grass';
 import { PickWorld } from './camera/pick';
-import { TpsCameraRig, tpsCameraPose, PITCH_LIMIT } from './camera/tpsCamera';
+import { TpsCameraRig, tpsCameraPose, PITCH_LIMIT, adsPull } from './camera/tpsCamera';
 import { EntityManager } from './entities/manager';
 import type { EntityCtx } from './entities/context';
 import { updateAuraShared } from './entities/auras';
@@ -106,14 +107,13 @@ export class GameRenderer {
   private freeCam: { pos: Vec3; yaw: number; pitch: number } | null = null;
   private readonly eventSubs = new Set<(evs: readonly GameEvent[]) => void>();
   private readonly fireSubs = new Set<(weaponId: string) => void>();
-  // local fire prediction
-  private fireCooldown = 0;
-  private firePrevHeld = false;
-  private predictedShots = 0;
-  private lastMag = -1;
-  private lastWeaponKey = '';
-  /** timestamps of locally predicted shots not yet matched by a host 'shot' event */
-  private predictedQueue: number[] = [];
+  // local fire prediction (muzzle / tracer / audio before the host confirms)
+  private readonly firePredictor = new LocalFirePredictor();
+  private readonly fireGate: LocalFireGate = { canShoot: false, reloading: false, noReload: false };
+  private readonly fireWeapon = { id: '', slot: 0, mag: 0 };
+  /** far plane actually in use (drawDistance, extended to keep far heroes on screen) */
+  private farNow = 0;
+  private ctx: EntityCtx | null = null;
   private damagePulse = 0;
   private lastLocalHp = -1;
   private squad = new Set<EntityId>();
@@ -223,12 +223,20 @@ export class GameRenderer {
     const ctx = this.entityCtx(d, localId, local);
     this.entities.sync(view.entities(), ctx);
 
-    // fade the local hero when the camera is pushed into them (walls behind, tight corners)
+    // fade the local hero when the camera is pushed into them (walls behind,
+    // tight corners) and while aiming a magnifying weapon (the camera slides in)
     if (localEnt) {
       const lv = this.entities.character(localEnt.id);
       if (lv) {
-        const d = this.camera.position.distanceTo(_v.set(localEnt.x, localEnt.y + 1.5, localEnt.z));
-        lv.rig.setFade(this.rig.mode === 'follow' ? Math.min(1, Math.max(0, (d - 0.55) / 0.9)) : 1);
+        let fade = 1;
+        if (this.rig.mode === 'follow') {
+          const d = this.camera.position.distanceTo(_v.set(localEnt.x, localEnt.y + 1.5, localEnt.z));
+          const near = Math.min(1, Math.max(0, (d - 0.55) / 0.9));
+          const ads = 1 - 0.6 * Math.min(1, Math.max(0, (adsPull(this.zoomNow) - 0.5) / 0.5)) * this.rig.adsBlend;
+          fade = Math.min(near, ads);
+        }
+        lv.rig.setFade(fade);
+        lv.rig.setLocalView(this.rig.mode === 'follow');
       }
     }
 
@@ -239,7 +247,7 @@ export class GameRenderer {
         fx: this.fx,
         entities: this.entities,
         localId,
-        consumePredictedShot: () => this.consumePredictedShot(),
+        consumePredictedShot: (weaponId) => this.firePredictor.confirmHostShot(this.time, weaponId),
         lang: settings.get().lang,
         time: this.time,
         camPos: this.camera.position,
@@ -260,7 +268,8 @@ export class GameRenderer {
     this.damagePulse = Math.max(0, this.damagePulse - d * 1.6);
     this.post.setDamage(this.damagePulse * 0.9 + (local?.downed ? 0.55 + 0.15 * Math.sin(this.time * 4) : 0));
 
-    // 6. render
+    // 6. render (far plane stretched so no hero within weapon range is clipped)
+    this.updateFarPlane(localId);
     this.renderer.info.reset();
     this.post.render(d);
 
@@ -443,6 +452,7 @@ export class GameRenderer {
       if (Array.isArray(m)) m.forEach((mm) => (mm.needsUpdate = true));
       else if (m) m.needsUpdate = true;
     });
+    this.farNow = p.drawDistance;
     this.camera.far = p.drawDistance;
     this.camera.updateProjectionMatrix();
     this.fog.near = p.drawDistance * 0.35;
@@ -459,22 +469,62 @@ export class GameRenderer {
   }
 
   private entityCtx(dt: number, localId: EntityId | null, local: ReturnType<ViewSource['local']>): EntityCtx {
-    return {
-      time: this.time,
-      dt,
-      camPos: this.camera.position,
-      fovDeg: this.camera.fov,
-      localId,
-      local,
-      squad: this.squad,
-      lang: settings.get().lang,
-      fx: this.fx,
-      blocked: (a, b) => this.pickWorld.segmentBlocked(a, b),
-      groundY: (x, z) => this.pickWorld.groundHeight(x, z),
-      characterDistance: this.preset.characterDistance,
-      shadows: this.preset.shadows,
-      frame: this.frameNo,
-    };
+    // one context object for the renderer's lifetime (mutated per frame, no per-frame closures)
+    let c = this.ctx;
+    if (!c) {
+      c = this.ctx = {
+        time: 0,
+        dt: 0,
+        camPos: this.camera.position,
+        fovDeg: this.camera.fov,
+        localId: null,
+        local: null,
+        squad: this.squad,
+        lang: settings.get().lang,
+        fx: this.fx,
+        blocked: (a, b) => this.pickWorld.segmentBlocked(a, b),
+        groundY: (x, z) => this.pickWorld.groundHeight(x, z),
+        characterDistance: this.preset.characterDistance,
+        badges: this.entities.badges,
+        shadows: this.preset.shadows,
+        frame: 0,
+      };
+    }
+    c.time = this.time;
+    c.dt = dt;
+    c.fovDeg = this.camera.fov;
+    c.localId = localId;
+    c.local = local;
+    c.lang = settings.get().lang;
+    c.characterDistance = this.preset.characterDistance;
+    c.shadows = this.preset.shadows;
+    c.frame = this.frameNo;
+    return c;
+  }
+
+  /**
+   * Heroes are never distance-culled (at most 8): when a non-local hero within
+   * HERO_VIEW_RANGE stands beyond the preset draw distance, the far plane is
+   * stretched to include it, so the world in between still occludes it (no
+   * see-through-hills on low quality) and every preset sees the same heroes.
+   * Character materials clamp their fog (see scene/skyfog.ts FOG_MAX).
+   */
+  private updateFarPlane(localId: EntityId | null): void {
+    const base = this.preset.drawDistance;
+    let need = base;
+    const cam = this.camera.position;
+    for (const e of this.view.entities()) {
+      if (e.kind !== 'hero' || e.id === localId || e.flags & VF_DEAD) continue;
+      const d = Math.hypot(e.x - cam.x, e.y - cam.y, e.z - cam.z);
+      if (d > need - 12 && d <= HERO_VIEW_RANGE) need = d + 12;
+    }
+    // quantise so the projection is not rebuilt every frame while someone walks
+    const far = Math.max(base, Math.ceil(need / 20) * 20);
+    if (far !== this.farNow) {
+      this.farNow = far;
+      this.camera.far = far;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   private updateCamera(dt: number, localEnt: ViewEntity | undefined, localDead: boolean): void {
@@ -486,8 +536,9 @@ export class GameRenderer {
       const yaw = this.look.fresh ? this.look.yaw : localEnt.yaw;
       const pitch = this.look.fresh ? this.look.pitch : localEnt.pitch;
       rig.mode = 'follow';
-      rig.follow(this.pickWorld, localEnt, yaw, pitch, dt, false, (localEnt.flags & VF_DOWNED) !== 0);
-      rig.setZoom(this.adsZoom, dt);
+      const zoom = this.adsZoom;
+      rig.follow(this.pickWorld, localEnt, yaw, pitch, dt, false, (localEnt.flags & VF_DOWNED) !== 0, zoom);
+      rig.setZoom(zoom, dt);
     } else {
       // dead / not spawned: spectate a target or orbit
       const target = this.spectateId !== null ? this.view.get(this.spectateId) : undefined;
@@ -503,14 +554,6 @@ export class GameRenderer {
     }
     this.zoomNow = rig.currentZoom;
     rig.apply(dt);
-  }
-
-  private consumePredictedShot(): boolean {
-    const q = this.predictedQueue;
-    while (q.length && this.time - q[0] > 0.6) q.shift();
-    if (!q.length) return false;
-    q.shift();
-    return true;
   }
 
   private shakeAt(pos: THREE.Vector3, intensity: number, radius: number): void {
@@ -529,35 +572,36 @@ export class GameRenderer {
     }
   }
 
-  /** Instant local muzzle flash + tracer while the fire button is held and the weapon has ammo. */
+  /**
+   * Instant local muzzle flash + tracer (+ onLocalFire for audio) for the
+   * shots the host is about to fire — see LocalFirePredictor for the gating.
+   */
   private localFire(dt: number, ent: ViewEntity | undefined, local: ReturnType<ViewSource['local']>): void {
     const held = this.look.fire;
-    const pressed = held && !this.firePrevHeld;
-    this.firePrevHeld = held;
-    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
-    if (!ent || !local || local.dead || local.downed || local.reloading > 0 || local.channel) return;
-    if (ent.flags & (VF_DEAD | VF_DOWNED | VF_STUNNED | VF_DANCING)) return;
-    const w = local.weapons[local.activeSlot];
-    if (!w) return;
-    const def = WEAPON_BY_ID[w.id];
-    // host magazine is authoritative; count predicted shots until it catches up
-    const key = `${w.id}|${local.activeSlot}`;
-    if (key !== this.lastWeaponKey || w.mag !== this.lastMag) {
-      this.lastWeaponKey = key;
-      this.lastMag = w.mag;
-      this.predictedShots = 0;
+    const w = local ? local.weapons[local.activeSlot] : null;
+    const gate = this.fireGate;
+    gate.canShoot = false;
+    gate.reloading = false;
+    gate.noReload = false;
+    if (ent && local && !local.dead && !local.downed && !(ent.flags & (VF_DEAD | VF_DOWNED | VF_STUNNED | VF_DANCING))) {
+      gate.canShoot = true;
+      for (const st of local.statuses) {
+        if (st.remaining <= 0) continue;
+        if (st.id === 'disarm' || st.id === 'stun' || st.id === 'dance') gate.canShoot = false;
+        else if (st.id === 'noReload') gate.noReload = true;
+      }
+      gate.reloading = local.reloading > 0;
     }
-    if (!held) return;
-    if (w.mag - this.predictedShots <= 0) return;
-    const auto = def?.auto ?? true;
-    if (!auto && !pressed) return;
-    if (this.fireCooldown > 0) return;
-    const rate = Math.max(0.5, def?.fireRate ?? 8);
-    this.fireCooldown = 1 / rate;
-    this.predictedShots++;
-    this.predictedQueue.push(this.time);
-    if (this.predictedQueue.length > 16) this.predictedQueue.shift();
-    // visuals
+    let weapon: { id: string; slot: number; mag: number } | null = null;
+    if (w && local) {
+      weapon = this.fireWeapon;
+      weapon.id = w.id;
+      weapon.slot = local.activeSlot;
+      weapon.mag = w.mag;
+    }
+    const def = w ? WEAPON_BY_ID[w.id] : undefined;
+    const shots = this.firePredictor.update(this.time, dt, held, weapon, def, gate);
+    if (shots <= 0 || !ent || !w) return;
     const view = this.entities.character(ent.id);
     const cls = shotClass(w.id);
     const aim = this.pick().aimPoint;
@@ -565,23 +609,25 @@ export class GameRenderer {
     if (!view || !view.muzzleWorld(muzzle)) muzzle.set(ent.x, ent.y + 1.4, ent.z);
     const d = dirFromYawPitch(this.look.fresh ? this.look.yaw : ent.yaw, this.look.fresh ? this.look.pitch : ent.pitch);
     _dir.set(d.x, d.y, d.z);
-    this.fx.muzzleFlash(muzzle, _dir, cls, true);
-    if (!def?.projectile && !def?.melee) {
-      const pellets = Math.min(4, def?.pellets ?? 1);
-      for (let i = 0; i < pellets; i++) {
-        const spread = pellets > 1 ? 0.6 : 0;
-        _v.set(aim.x + (Math.random() - 0.5) * spread, aim.y + (Math.random() - 0.5) * spread, aim.z + (Math.random() - 0.5) * spread);
-        this.fx.tracer(muzzle, _v, cls);
+    for (let s = 0; s < shots; s++) {
+      this.fx.muzzleFlash(muzzle, _dir, cls, s === 0);
+      if (!def?.projectile && !def?.melee) {
+        const pellets = Math.min(4, def?.pellets ?? 1);
+        for (let i = 0; i < pellets; i++) {
+          const spread = pellets > 1 ? 0.6 : 0;
+          _v.set(aim.x + (Math.random() - 0.5) * spread, aim.y + (Math.random() - 0.5) * spread, aim.z + (Math.random() - 0.5) * spread);
+          this.fx.tracer(muzzle, _v, cls);
+        }
       }
-    }
-    view?.onShot();
-    const kick = Math.min(0.05, ((def?.recoil ?? 1) * Math.PI) / 180);
-    this.rig.shake.kick(kick * 0.6, (Math.random() - 0.5) * kick * 0.3);
-    for (const cb of this.fireSubs) {
-      try {
-        cb(w.id);
-      } catch (err) {
-        console.error('[render] onLocalFire subscriber failed', err);
+      view?.onShot();
+      const kick = Math.min(0.05, ((def?.recoil ?? 1) * Math.PI) / 180);
+      this.rig.shake.kick(kick * 0.6, (Math.random() - 0.5) * kick * 0.3);
+      for (const cb of this.fireSubs) {
+        try {
+          cb(w.id);
+        } catch (err) {
+          console.error('[render] onLocalFire subscriber failed', err);
+        }
       }
     }
   }

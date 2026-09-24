@@ -56,7 +56,8 @@ export const SHU_HEROES: HeroDef[] = [
         descZh: '插下军旗 10 秒：8 米内武将与你的士兵每秒回复 15，你的士兵伤害 +30%。',
         descEn: 'Plant a banner for 10 s: heroes and your soldiers within 8 m regen 15 HP/s; your soldiers deal +30% damage.',
         cooldown: 30,
-        // impl: hazard 'healZone' (affectsOwner) at your feet; troop dmgBoost refreshed each tick in radius.
+        // impl: custom hazard kind 'shuBanner' at your feet (heals heroes you are not fighting + own soldiers;
+        //       own soldiers inside get a short dmgBoost refreshed every field tick) — sim/abilities/shu/liubei.ts.
         params: { duration: 10, radius: 8, hps: 15, troopDmgMul: 1.3 },
         targeting: 'self',
         aiHint: 'heal',
@@ -605,7 +606,8 @@ export const SHU_HEROES: HeroDef[] = [
         sgsSkill: '烈弓',
         descZh: '对 30 米外目标的攻击无法被闪避，且伤害 +25%。',
         descEn: 'Attacks against targets beyond 30 m cannot be dodged and deal +25% damage.',
-        // impl: modifyOutgoing sets req.canDodge = false and multiplies when dist(self, target) > minDist.
+        // impl: beforeDamageDealt sets req.canDodge = false (dodge checks run before modifyOutgoing) and
+        //       modifyOutgoing multiplies, when dist(self, target) > minDist — sim/abilities/shu/huangzhong.ts.
         params: { minDist: 30, mul: 1.25 },
         aiHint: 'offense',
       },

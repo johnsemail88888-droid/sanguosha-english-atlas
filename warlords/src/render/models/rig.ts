@@ -25,6 +25,8 @@ export const BONES = [
   'weapon',
   'weaponL',
   'cape',
+  'plume',
+  'backOrn',
 ] as const;
 export type BoneName = (typeof BONES)[number];
 export const BONE_COUNT = BONES.length;
@@ -51,6 +53,8 @@ const PARENT: Record<BoneName, BoneName | null> = {
   weapon: 'chest',
   weaponL: 'chest',
   cape: 'chest',
+  plume: 'head',
+  backOrn: 'chest',
 };
 export const boneParent = (n: BoneName): BoneName | null => PARENT[n];
 
@@ -133,6 +137,10 @@ export function restPositions(d: BodyDims): THREE.Vector3[] {
     weapon: [0.13 * d.w, d.chestY + 0.02, -0.28],
     weaponL: [-0.13 * d.w, d.chestY + 0.02, -0.28],
     cape: [0, d.shoulderY - 0.02, 0.12 * d.depth],
+    // root of tall head ornaments (吕布's pheasant feathers): shortened for the local TPS view
+    plume: [0, d.headCY + 0.14 * d.headScale, -0.06],
+    // root of tall back ornaments (靠旗 back flags): shortened for the local TPS view
+    backOrn: [0, d.chestY + 0.05, 0.13 * d.depth],
   };
   return BONES.map((n) => new THREE.Vector3(...p[n]));
 }

@@ -49,6 +49,7 @@ describe('entity update budget', () => {
       blocked: () => false,
       groundY: () => 0,
       characterDistance: 200,
+      badges: mgr.badges,
       shadows: true,
       frame: 0,
     };
@@ -65,6 +66,9 @@ describe('entity update budget', () => {
       fx.update(1 / 60);
     }
     const ms = (performance.now() - t0) / frames;
+    // every troop / NPC marker goes into ONE instanced batch: pennant + bar (+ background) each
+    expect(mgr.badges.count).toBeGreaterThanOrEqual(80);
+    expect(mgr.badges.count).toBeLessThanOrEqual(80 * 3);
     // generous bound (shared CI CPUs); typical is a few ms
     expect(ms).toBeLessThan(25);
     console.log(`entity sync: ${ms.toFixed(2)} ms/frame for ${ents.length} characters`);

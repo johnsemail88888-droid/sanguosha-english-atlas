@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { HEROES, TROOPS, WEAPONS } from '../../../src/data';
-import { createHeroModel, createTroopModel, createWeaponModel, disposeModel, heroSpec } from '../../../src/render/models';
+import { HEROES, MOUNT_BY_ID, TROOPS, WEAPONS } from '../../../src/data';
+import {
+  RED_HARE_COAT,
+  WARHORSE_COAT,
+  XILIANG_COAT,
+  createHeroModel,
+  createTroopModel,
+  createWeaponModel,
+  disposeModel,
+  heroMountCoat,
+  heroSpec,
+} from '../../../src/render/models';
 import { CharacterRig } from '../../../src/render/models/character';
 import { GeoBuilder, PRIM, trs } from '../../../src/render/core/geo';
 import type { Headgear, HeroExtra } from '../../../src/data/types';
@@ -55,11 +65,45 @@ describe('model factories', () => {
     expect(HEROES.length).toBeGreaterThan(0);
     for (const h of HEROES) {
       const m = createHeroModel(h.id);
-      const n = vertexCount(m);
+      const rig = m.userData.rig as CharacterRig;
+      // the rider (body + weapon) has the budget; an innate mount is counted separately
+      const n = vertexCount(m) - (rig.mount ? vertexCount(rig.mount.object) : 0);
       expect(n, h.id).toBeGreaterThan(500);
       expect(n, h.id).toBeLessThan(14000);
+      if (rig.mount) expect(vertexCount(rig.mount.object), h.id).toBeLessThan(6000);
       disposeModel(m);
     }
+  });
+
+  it('draws the always-mounted heroes (HeroVisual.mount) on horseback', () => {
+    const mounted = HEROES.filter((h) => h.visual.mount);
+    expect(mounted.length).toBeGreaterThan(0);
+    for (const h of mounted) {
+      const m = createHeroModel(h.id);
+      const rig = m.userData.rig as CharacterRig;
+      expect(rig.mount?.kind, h.id).toBe('horse');
+      // rider's head inside the agreed mounted hit box (cavalry: 2.3 m tall)
+      expect(rig.headHeight(), h.id).toBeGreaterThan(2.0);
+      expect(rig.headHeight(), h.id).toBeLessThan(2.45);
+      disposeModel(m);
+    }
+    for (const h of HEROES.filter((x) => !x.visual.mount)) {
+      const m = createHeroModel(h.id);
+      expect((m.userData.rig as CharacterRig).mount, h.id).toBeNull();
+      // on foot: head top near the sim's 1.8 m capsule top
+      expect((m.userData.rig as CharacterRig).headHeight(), h.id).toBeLessThan(1.95);
+      disposeModel(m);
+    }
+  });
+
+  it('coats: mount item colour first, then 赤兔 red / 西凉 grey, else bay', () => {
+    expect(heroMountCoat('guanyu', undefined, false)).toBeNull();
+    expect(heroMountCoat('guanyu', 'dawan', true)).toBe(MOUNT_BY_ID.dawan.color);
+    expect(heroMountCoat('guanyu', undefined, true)).toBe(WARHORSE_COAT);
+    const redHare = HEROES.find((h) => h.visual.mount === 'redHare');
+    if (redHare) expect(heroMountCoat(redHare.id, undefined, false)).toBe(MOUNT_BY_ID.chitu?.color ?? RED_HARE_COAT);
+    const horse = HEROES.find((h) => h.visual.mount === 'horse');
+    if (horse) expect(heroMountCoat(horse.id, undefined, false)).toBe(XILIANG_COAT);
   });
 
   it('builds every troop / NPC type (mounts included)', () => {

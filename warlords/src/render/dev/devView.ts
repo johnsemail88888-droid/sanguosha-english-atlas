@@ -90,6 +90,8 @@ export interface DevViewOptions {
   /** lineup origin (world x/z), facing −Z towards the lineup */
   origin: { x: number; z: number };
   seed?: number;
+  /** a hero standing this far (m) straight ahead of the local hero (hero visibility at range / low quality) */
+  farHeroDist?: number;
 }
 
 export class DevView implements ViewSource {
@@ -151,6 +153,14 @@ export class DevView implements ViewSource {
     rider.flags |= VF_MOUNTED;
     rider.mount = MOUNTS[0]?.id;
     this.actors.push({ e: rider, home: { x: ox + 18, y: rider.y, z: oz + 4 }, mode: 'circle', stateFlags: VF_MOUNTED, phase: 0 });
+    // far sniper straight ahead (−Z) of the local hero: heroes are never distance-culled
+    if (opts.farHeroDist && opts.farHeroDist > 0) {
+      const fz = oz + 14 - opts.farHeroDist;
+      const far = this.makeHero(HERO_BY_ID.huangzhong ? 'huangzhong' : lh, ox, fz, Math.PI);
+      far.name = 'Sniper';
+      far.flags |= VF_ADS;
+      this.actors.push({ e: far, home: { x: ox, y: far.y, z: fz }, mode: 'idle', stateFlags: VF_ADS, phase: 0 });
+    }
     // troops lineup (left side)
     TROOPS.forEach((t, i) => {
       const x = ox - 20 - (i % 4) * 2.4;

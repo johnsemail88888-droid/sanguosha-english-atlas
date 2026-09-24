@@ -55,6 +55,8 @@ export const QUN_HEROES: HeroDef[] = [
         descZh: '向准星处投掷麻醉毒气（5 米）：敌人眩晕 1.2 秒，随后减速 40% 持续 4 秒。',
         descEn: 'Throw an anesthetic gas grenade (5 m) at the crosshair: enemies are stunned 1.2 s, then slowed 40% for 4 s.',
         cooldown: 22,
+        // impl: a visual flask is lobbed at the point (≤ 30 m, 0.3–1.2 s flight); on impact every enemy within
+        //       radius (LOS from the burst) gets stun + slow (stun + slowTime) — one cast for 无懈可击.
         params: { range: 30, radius: 5, stun: 1.2, slow: 0.4, slowTime: 4 },
         targeting: 'point',
         aiHint: 'defense',
@@ -108,8 +110,8 @@ export const QUN_HEROES: HeroDef[] = [
         sgsSkill: '无双',
         descZh: '你的伤害无法被闪避，且无视目标 50% 的护盾；骑乘赤兔，移速 +15%。',
         descEn: 'Your damage cannot be dodged and ignores 50% of shields. Rides Red Hare: +15% move speed.',
-        // impl: SimExt beforeDamageDealt sets req.canDodge = false; modifiers().shieldPierce;
-        //       speedMul hook like 马术 (does not stack with mounts).
+        // impl: SimExt beforeDamageDealt sets req.canDodge = false (his own hits); modifiers().shieldPierce;
+        //       modifiers().speedMul = the built-in 赤兔 (does not stack with mounts: total = max(1.15, mount).
         params: { shieldPierce: 0.5, speedMul: 1.15 },
         aiHint: 'offense',
       },
@@ -204,7 +206,8 @@ export const QUN_HEROES: HeroDef[] = [
         descZh: '魅惑准星处敌人及其 15 米内最近的另一名武将 2.5 秒，令二者互相攻击。',
         descEn: 'Charm the crosshair enemy and the nearest other hero within 15 m of it for 2.5 s; they attack each other.',
         cooldown: 22,
-        // impl: two charm statuses with params.targetId pointing at each other; no second hero → single charm on nearest unit.
+        // impl: two charm statuses with params.targetId pointing at each other; no second hero → single charm on nearest unit
+        //       (third-party units first, else Diaochan's own soldiers; never the target's own squad).
         params: { range: 30, radius: 15, duration: 2.5 },
         targeting: 'enemy',
         aiHint: 'offense',
@@ -299,7 +302,8 @@ export const QUN_HEROES: HeroDef[] = [
         descZh: '雷云跟随准星处敌人 8 秒，每 1.5 秒劈下 35 雷电伤害（2.5 米）。',
         descEn: 'A storm cloud follows the crosshair enemy for 8 s, striking every 1.5 s for 35 thunder damage (2.5 m).',
         cooldown: 26,
-        // impl: hazard 'lightningCloud' with followId = target, tickEvery = interval (first strike after 1 interval).
+        // impl: hazard 'lightningCloud' with followId = target (the visible cloud); strikes are scheduled every interval
+        //       (first after 1 interval) and hit every enemy within radius of the cloud — each strike is an ability hit.
         params: { range: 50, duration: 8, interval: 1.5, damage: 35, radius: 2.5 },
         dtype: 'thunder',
         targeting: 'enemy',

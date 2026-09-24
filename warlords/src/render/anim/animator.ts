@@ -460,18 +460,16 @@ export class CharacterAnimator {
     if (w.downed > 0.001) {
       const d = w.downed;
       const c = this.crawlPhase;
-      this.blendPose(d, {
-        root: [-1.45, 0, 0],
-        head: [0.95, 0, 0],
-        armUL: [2.55 + Math.sin(c) * 0.45, 0, -0.25],
-        armUR: [2.55 - Math.sin(c) * 0.45, 0, 0.25],
-        armLL: [0.4 + Math.max(0, Math.cos(c)) * 0.6, 0, 0],
-        armLR: [0.4 + Math.max(0, -Math.cos(c)) * 0.6, 0, 0],
-        legUL: [0.15 + Math.sin(c + Math.PI) * 0.2, 0, -0.1],
-        legUR: [0.15 + Math.sin(c) * 0.2, 0, 0.1],
-        legLL: [-0.5, 0, 0],
-        legLR: [-0.3, 0, 0],
-      });
+      this.blendBone(d, B.root, -1.45, 0, 0);
+      this.blendBone(d, B.head, 0.95, 0, 0);
+      this.blendBone(d, B.armUL, 2.55 + Math.sin(c) * 0.45, 0, -0.25);
+      this.blendBone(d, B.armUR, 2.55 - Math.sin(c) * 0.45, 0, 0.25);
+      this.blendBone(d, B.armLL, 0.4 + Math.max(0, Math.cos(c)) * 0.6, 0, 0);
+      this.blendBone(d, B.armLR, 0.4 + Math.max(0, -Math.cos(c)) * 0.6, 0, 0);
+      this.blendBone(d, B.legUL, 0.15 + Math.sin(c + Math.PI) * 0.2, 0, -0.1);
+      this.blendBone(d, B.legUR, 0.15 + Math.sin(c) * 0.2, 0, 0.1);
+      this.blendBone(d, B.legLL, -0.5, 0, 0);
+      this.blendBone(d, B.legLR, -0.3, 0, 0);
       root.y = root.y * (1 - d) + 0.16 * d;
       root.z = root.z * (1 - d) + 0.85 * d;
     }
@@ -479,19 +477,17 @@ export class CharacterAnimator {
     if (w.dead > 0.001) {
       const d = w.dead;
       const stagger = clamp01(1 - this.deadTime / 0.35);
-      this.blendPose(d, {
-        root: [1.5, this.deathTwist, 0],
-        spine: [0.1, 0, 0],
-        head: [-0.35, 0.4 * this.deathTwist, 0],
-        armUL: [0.5, 0, -1.25],
-        armUR: [0.2, 0, 1.35],
-        armLL: [0.3, 0, 0],
-        armLR: [0.5, 0, 0],
-        legUL: [0.35 + stagger * 0.5, 0, -0.12],
-        legUR: [0.1 + stagger * 0.3, 0, 0.1],
-        legLL: [-0.4 - stagger * 0.6, 0, 0],
-        legLR: [-0.15, 0, 0],
-      });
+      this.blendBone(d, B.root, 1.5, this.deathTwist, 0);
+      this.blendBone(d, B.spine, 0.1, 0, 0);
+      this.blendBone(d, B.head, -0.35, 0.4 * this.deathTwist, 0);
+      this.blendBone(d, B.armUL, 0.5, 0, -1.25);
+      this.blendBone(d, B.armUR, 0.2, 0, 1.35);
+      this.blendBone(d, B.armLL, 0.3, 0, 0);
+      this.blendBone(d, B.armLR, 0.5, 0, 0);
+      this.blendBone(d, B.legUL, 0.35 + stagger * 0.5, 0, -0.12);
+      this.blendBone(d, B.legUR, 0.1 + stagger * 0.3, 0, 0.1);
+      this.blendBone(d, B.legLL, -0.4 - stagger * 0.6, 0, 0);
+      this.blendBone(d, B.legLR, -0.15, 0, 0);
       root.y = root.y * (1 - d) + 0.12 * d;
     }
 
@@ -531,15 +527,13 @@ export class CharacterAnimator {
     if (this.holdR > 0.001 || this.holdL > 0.001) this.solveArms(rig, grip, inp);
   }
 
-  /** Blend the current pose toward a full-body override pose by weight k. */
-  private blendPose(k: number, pose: Partial<Record<keyof typeof B, [number, number, number]>>): void {
+  /** Blend one bone of the current pose toward an override euler (x, y, z) by weight k (allocation-free). */
+  private blendBone(k: number, bone: number, x: number, y: number, z: number): void {
     const E = this.euler;
-    for (const [name, v] of Object.entries(pose) as [keyof typeof B, [number, number, number]][]) {
-      const i = B[name] * 3;
-      E[i] = E[i] * (1 - k) + v[0] * k;
-      E[i + 1] = E[i + 1] * (1 - k) + v[1] * k;
-      E[i + 2] = E[i + 2] * (1 - k) + v[2] * k;
-    }
+    const i = bone * 3;
+    E[i] = E[i] * (1 - k) + x * k;
+    E[i + 1] = E[i + 1] * (1 - k) + y * k;
+    E[i + 2] = E[i + 2] * (1 - k) + z * k;
   }
 
   private solveArms(rig: RigBones, grip: WeaponGrip, inp: AnimInput): void {

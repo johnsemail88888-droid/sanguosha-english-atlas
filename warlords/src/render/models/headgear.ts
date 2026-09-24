@@ -90,6 +90,8 @@ export function buildHeadgear(c: BodyCtx): void {
       b.add(PRIM.dome(12, 4), trs(0, cy + 0.06 * hs, 0.01, 0, 0, 0, 0.118 * hs, 0.1 * hs, 0.126 * hs), GOLD);
       b.add(PRIM.box(), trs(0, cy + 0.13 * hs, -0.1 * hs, -0.25, 0, 0, 0.12 * hs, 0.08, 0.02), s.accent);
       ball(c, 0, cy + 0.15 * hs, -0.105 * hs, 0.022, '#c8322a');
+      // the feathers ride their own bone so the local TPS view can shorten them (CharacterRig.setLocalView)
+      c.on('plume');
       for (const side of [-1, 1]) {
         const pts: THREE.Vector3[] = [];
         const N = 10;
@@ -107,6 +109,7 @@ export function buildHeadgear(c: BodyCtx): void {
         strip(c, pts, 0.034, 0.01, 0.008, (i) => (i % 2 ? '#e9dfc4' : '#5e3f24'), new THREE.Vector3(1, 0, 0));
         ball(c, side * 0.045, cy + 0.14 * hs, -0.06, 0.035, '#c8322a');
       }
+      c.on('head');
       break;
     }
     case 'scholarHat': {

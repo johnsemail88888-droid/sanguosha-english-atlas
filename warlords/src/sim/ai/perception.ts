@@ -59,3 +59,42 @@ export function pickTarget(
   for (let i = 0; i < n; i++) if (hasLineOfSight(sim, self, scored[i].e)) return scored[i].e;
   return undefined;
 }
+
+/** Is this hazard harmful to units that are not on its owner's side? */
+export function harmfulHazard(h: Entity): boolean {
+  const hz = h.hazard;
+  if (!hz) return false;
+  const p = hz.params;
+  return (p.damage ?? 0) > 0 || (p.strike ?? 0) > 0 || (p.slow ?? 0) > 0 || (p.dps ?? 0) > 0;
+}
+
+/**
+ * Direction (unit x/z) out of the harmful hazard `self` stands in, or null.
+ * Own side's hazards are ignored (they never hurt their owner's side).
+ */
+export function hazardEscape(sim: SimApi, self: Entity): { x: number; z: number } | null {
+  let ex = 0;
+  let ez = 0;
+  let found = false;
+  for (const h of sim.queryRadius(self.pos, 10, { kinds: ['hazard'] })) {
+    const hz = h.hazard;
+    if (!hz || !harmfulHazard(h)) continue;
+    if (sim.isOwnSide(self, h)) continue;
+    const dx = self.pos.x - h.pos.x;
+    const dz = self.pos.z - h.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > hz.radius + 0.6) continue;
+    found = true;
+    const w = (hz.radius + 0.6 - d) / Math.max(0.5, hz.radius);
+    if (d < 1e-3) {
+      ex += Math.sin(self.id);
+      ez += Math.cos(self.id);
+    } else {
+      ex += (dx / d) * w;
+      ez += (dz / d) * w;
+    }
+  }
+  if (!found) return null;
+  const l = Math.hypot(ex, ez) || 1;
+  return { x: ex / l, z: ez / l };
+}

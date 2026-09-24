@@ -41,7 +41,8 @@ export const WEI_HEROES: HeroDef[] = [
         descEn: 'For 6 s your soldiers deal +50% damage and charge your crosshair target (none: charge freely); you gain 20% lifesteal.',
         cooldown: 20,
         // impl: target = aimTarget(range) → setSquadOrder attack; no target → order 'charge' (the
-        //       description's fallback, so this never returns false).
+        //       description's fallback, so this never returns false). After `duration` the previous
+        //       squad order comes back unless the player re-commanded the squad meanwhile.
         params: { range: 60, duration: 6, troopDmgMul: 1.5, lifesteal: 0.2 },
         targeting: 'enemy',
         aiHint: 'offense',
@@ -68,7 +69,9 @@ export const WEI_HEROES: HeroDef[] = [
         descZh: '召唤 3 名虎豹骑亲卫（30 秒）；6 秒内你受伤的 50% 转由 10 米内魏国单位承担。',
         descEn: 'Summon 3 Tiger Guards (30 s). For 6 s, 50% of damage you take is redirected to Wei units within 10 m.',
         cooldown: 45,
-        // impl: modifyIncoming picks the nearest Wei troop/hero in radius, dealDamage(redirected: true) to it.
+        // impl: modifyIncoming picks the nearest Wei unit in radius — own soldiers first, then other Wei
+        //       soldiers, then Wei heroes, never the attacker's side — and dealDamage(redirected: true) to it
+        //       (source-less until docs/SIM_REQUESTS.md WEI-1 lands).
         params: { count: 3, lifetime: 30, duration: 6, redirectFrac: 0.5, radius: 10 },
         targeting: 'self',
         aiHint: 'summon',
@@ -134,7 +137,9 @@ export const WEI_HEROES: HeroDef[] = [
         descZh: '2.5 秒内受到的子弹伤害 -50%，并将原伤害的 100% 反弹给射手。',
         descEn: 'For 2.5 s, bullet damage you take is halved and 100% of the original is reflected back to the shooter.',
         cooldown: 16,
-        // impl: reflect status (frac) + modifyIncoming halving 'normal' bullets while active.
+        // impl: modifyIncoming halves weapon bullets (combat isBulletDamage) and remembers the original;
+        //       onDamageTaken reflects original × reflect to the shooter with the engine's reflect
+        //       semantics (abilityId 'status:reflect'). A frac-0 'reflect' status + 'guicai' hazard mark it.
         params: { duration: 2.5, takenMul: 0.5, reflect: 1 },
         targeting: 'self',
         aiHint: 'defense',
@@ -202,8 +207,9 @@ export const WEI_HEROES: HeroDef[] = [
         sgsSkill: '刚烈',
         descZh: '受到伤害时，将伤害的 30% 反弹给攻击者。',
         descEn: 'Whenever you take damage, 30% of it is dealt back to the attacker.',
-        // impl: onDamageTaken → dealDamage(attacker, dealt * reflectFrac, dtype, noReflect, canDodge: false).
-        //       Zone / no-source damage and requests that already carry noReflect are ignored.
+        // impl: a permanent 'thorns' status { frac: reflectFrac }: combat deals reflectFrac × (HP + shield
+        //       damage taken) back to the attacker as undodgeable `dtype` damage. Zone / no-source damage
+        //       and requests that already carry noReflect (DoT ticks, reflects) are ignored.
         params: { reflectFrac: 0.3 },
         dtype: 'normal',
         aiHint: 'defense',
@@ -522,9 +528,8 @@ export const WEI_HEROES: HeroDef[] = [
         sgsSkill: '倾国',
         descZh: '移动中受到子弹攻击时，有 25% 几率完全闪避。',
         descEn: 'While moving, each incoming bullet has a 25% chance to be completely evaded.',
-        // impl: modifyIncoming on a dodgeable weapon bullet while horizontal speed >= minSpeed: with
-        //       p0 = the combined chance combat already rolled (八卦 + dodgeChance), roll
-        //       q = min(chance, (BULLET_EVASION_CAP − p0) / (1 − p0)) so the total stays within the cap.
+        // impl: AbilityImplEx.bulletEvadeChance returns `chance` while horizontal speed >= minSpeed; combat
+        //       folds it with 八卦 / dodgeChance as 1 − Π(1 − p) under BULLET_EVASION_CAP and rolls once.
         params: { chance: 0.25, minSpeed: 1.5 },
         aiHint: 'defense',
       },
@@ -617,7 +622,8 @@ export const WEI_HEROES: HeroDef[] = [
         descEn: 'Blink up to 14 m to the crosshair, then instantly volley 5 shots (22 damage each) at the nearest enemy within 30 m.',
         cooldown: 14,
         // impl: teleport, then `shots` × fireHitscan(shotDamage, weaponId of the held weapon) at the nearest
-        //       visible enemy within volleyRange (weaponHit: these ARE weapon hits — falloff, specials, 酒 apply).
+        //       visible enemy within volleyRange — the crosshair enemy when valid, else the nearest hero, else
+        //       the nearest unit (weaponHit: these ARE weapon hits — falloff, specials, 酒 apply).
         params: { range: 14, shots: 5, shotDamage: 22, volleyRange: 30, weaponHit: 1 },
         dtype: 'normal',
         targeting: 'point',

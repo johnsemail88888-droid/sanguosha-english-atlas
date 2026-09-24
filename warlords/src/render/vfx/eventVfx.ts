@@ -8,6 +8,7 @@ import { PT } from '../core/textures';
 import type { EntityManager } from '../entities/manager';
 import { FX_COLORS, type Effects, type ShotClass } from './effects';
 import { genericAbilityVfx, getAbilityVfx, type AbilityVfxContext } from './abilities';
+import { QUICKCHAT, type QuickChatLine } from '../../ui/theme';
 
 const C = (r: number, g: number, b: number): THREE.Color => new THREE.Color(r, g, b);
 
@@ -30,28 +31,34 @@ export function shotClass(weaponId: string | undefined): ShotClass {
   return def.class as ShotClass;
 }
 
-const QUICKCHAT: Record<string, [string, string]> = {
-  protectLord: ['保护主公！', 'Protect the Lord!'],
-  protect_lord: ['保护主公！', 'Protect the Lord!'],
-  focus: ['集火此人！', 'Focus this one!'],
-  focusTarget: ['集火此人！', 'Focus this one!'],
-  needPeach: ['需要桃！', 'Need a Peach!'],
-  need_peach: ['需要桃！', 'Need a Peach!'],
-  followMe: ['跟我来！', 'Follow me!'],
-  follow_me: ['跟我来！', 'Follow me!'],
-  help: ['救命！', 'Help!'],
-  thanks: ['多谢！', 'Thanks!'],
-};
+/**
+ * Overhead quick-chat bubbles use the UI's shared line table (ui/theme.ts
+ * QUICKCHAT — the ids the sim / bots emit), plus snake_case aliases. An
+ * unknown id shows a generic call-out, never the raw id.
+ */
+const QUICKCHAT_LINES = new Map<string, QuickChatLine>();
+for (const l of QUICKCHAT) {
+  QUICKCHAT_LINES.set(l.id, l);
+  QUICKCHAT_LINES.set(l.id.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`), l);
+}
+const QUICKCHAT_FALLBACK: QuickChatLine = { id: '', zh: '注意！', en: 'Heads up!' };
+
+/** Bubble text for a quick-chat id in the given language. */
+export function quickChatBubble(id: string, lang: Lang): string {
+  const l = QUICKCHAT_LINES.get(id) ?? QUICKCHAT_FALLBACK;
+  return lang === 'en' ? l.en : l.zh;
+}
 
 export interface EventVfxDeps {
   fx: Effects;
   entities: EntityManager;
   localId: EntityId | null;
   /**
-   * Called for each host 'shot' by the local hero: returns true (and consumes
-   * it) when local fire feedback already drew that shot's muzzle / tracer.
+   * Called for each host 'shot' by the local hero (with its weapon id): returns
+   * true (and consumes it) when local fire feedback already drew that shot's
+   * muzzle / tracer. Shots of other weapons / abilities never match.
    */
-  consumePredictedShot: () => boolean;
+  consumePredictedShot: (weaponId: string) => boolean;
   lang: Lang;
   time: number;
   camPos: THREE.Vector3;
@@ -71,7 +78,7 @@ export function handleEvents(evs: readonly GameEvent[], deps: EventVfxDeps): voi
           const cls = shotClass(ev.weapon);
           const to = _b.set(ev.to.x, ev.to.y, ev.to.z);
           const view = entities.character(ev.src) ?? undefined;
-          const own = ev.src === deps.localId && deps.consumePredictedShot();
+          const own = ev.src === deps.localId && deps.consumePredictedShot(ev.weapon);
           if (!own) {
             let from = _a.set(ev.from.x, ev.from.y, ev.from.z);
             if (view && view.muzzleWorld(_d) && _d.distanceTo(from) < 3) from = _a.copy(_d);
@@ -284,8 +291,7 @@ export function handleEvents(evs: readonly GameEvent[], deps: EventVfxDeps): voi
         }
         case 'quickchat': {
           const tv = entities.character(ev.who);
-          const txt = QUICKCHAT[ev.id];
-          if (tv) tv.say(txt ? (deps.lang === 'en' ? txt[1] : txt[0]) : ev.id, deps.time + 3);
+          if (tv) tv.say(quickChatBubble(ev.id, deps.lang), deps.time + 3);
           break;
         }
         default:

@@ -7,6 +7,9 @@ import { terrainHeight } from '../../core/map';
 import type { Vec3 } from '../../core/math';
 import type { EntityId, ViewEntity } from '../../core/types';
 import { VF_DEAD, VF_DOWNED, VF_MOUNTED } from '../../core/types';
+import { HERO_BY_ID, TROOP_BY_ID } from '../../data';
+import type { TroopTypeDef } from '../../data/types';
+import { CHAR_HEIGHT, CHAR_RADIUS } from '../../sim/physics';
 
 export interface PickHit {
   point: Vec3;
@@ -27,26 +30,102 @@ export interface PickOptions {
   water?: boolean;
 }
 
-/** Collision shape of a pickable view entity (vertical capsule approximated by a cylinder). */
-export function entityShape(e: ViewEntity): { r: number; h: number } | null {
+/**
+ * Hit shape of a pickable view entity, mirroring the simulation's hitbox
+ * (sim/combat.ts hitbox + raycastEntities): a vertical body cylinder of radius
+ * `r` from the feet to `bodyTop`, plus a head sphere (centre `headY`, radius
+ * `headR`; 0 = none). `h` is the total height.
+ */
+export interface EntityHitShape {
+  r: number;
+  h: number;
+  bodyTop: number;
+  headY: number;
+  headR: number;
+}
+
+/** Collision capsule of a unit type — same rule as sim/troops.ts unitSize (checked by a unit test). */
+export function unitSizeOf(visual: Pick<TroopTypeDef['visual'], 'body' | 'mountedOn'> | undefined): { radius: number; height: number } {
+  if (visual) {
+    if (visual.body === 'huge' || visual.mountedOn === 'elephant') return { radius: 1.3, height: 3.2 };
+    if (visual.mountedOn === 'horse') return { radius: 0.6, height: 2.3 };
+    if (visual.body === 'heavy') return { radius: 0.45, height: 1.85 };
+  }
+  return { radius: CHAR_RADIUS, height: CHAR_HEIGHT };
+}
+
+/**
+ * Hit capsule of a mounted hero (VF_MOUNTED, or HeroVisual.mount: 马超 / 吕布):
+ * the horse-cavalry size, which is where the renderer seats the rider
+ * (models/mounts.ts SADDLE_HIP). Agreed with SIM-CORE — docs/CONTRACT_CHANGES.md.
+ */
+export const MOUNTED_HERO_SIZE = { radius: 0.6, height: 2.3 } as const;
+
+/** Is this hero drawn (and hit) on horseback? */
+export function heroRides(e: Pick<ViewEntity, 'sub' | 'flags' | 'mount'>): boolean {
+  return (e.flags & VF_MOUNTED) !== 0 || !!e.mount || !!HERO_BY_ID[e.sub]?.visual.mount;
+}
+
+const TURRET = { radius: 0.6, height: 1.2 };
+const CRATE = { radius: 0.7, height: 0.9 };
+const AIRDROP = { radius: 1.0, height: 1.2 };
+
+/** sim/combat.ts hitbox(): body cylinder up to height − 1.6·headR, head sphere centred at height − headR. */
+function withHead(radius: number, height: number, downed = false): EntityHitShape {
+  if (downed) return { r: radius, h: 0.6, bodyTop: 0.6 - 0.2 * 1.6, headY: 0.4, headR: 0.2 };
+  const headR = Math.max(0.15, 0.22 * (height / 1.8));
+  return { r: radius, h: height, bodyTop: height - headR * 1.6, headY: height - headR, headR };
+}
+
+/** Hit shape of a view entity (null = not pickable). */
+export function entityShape(e: ViewEntity): EntityHitShape | null {
   if (e.flags & VF_DEAD) return null;
   switch (e.kind) {
-    case 'hero':
+    case 'hero': {
+      const downed = (e.flags & VF_DOWNED) !== 0;
+      const size = !downed && heroRides(e) ? MOUNTED_HERO_SIZE : { radius: CHAR_RADIUS, height: CHAR_HEIGHT };
+      return withHead(size.radius, size.height, downed);
+    }
     case 'troop':
     case 'npc': {
-      if (e.flags & VF_DOWNED) return { r: 0.55, h: 0.6 };
-      if (e.sub === 'elephant' || e.sub.includes('elephant')) return { r: 1.5, h: 3.4 };
-      const mounted = (e.flags & VF_MOUNTED) !== 0 || !!e.mount;
-      return mounted ? { r: 0.7, h: 2.5 } : { r: 0.42, h: 1.85 };
+      const size = unitSizeOf(TROOP_BY_ID[e.sub]?.visual);
+      return withHead(size.radius, size.height);
     }
     case 'turret':
-      return { r: 0.7, h: 1.4 };
+      return { r: TURRET.radius, h: TURRET.height, bodyTop: TURRET.height, headY: 0, headR: 0 };
+    // not hittable by bullets, but aimTargetId steers F-interact towards them
     case 'crate':
+      return { r: CRATE.radius, h: CRATE.height, bodyTop: CRATE.height, headY: 0, headR: 0 };
     case 'airdrop':
-      return { r: 0.6, h: 0.9 };
+      return { r: AIRDROP.radius, h: AIRDROP.height, bodyTop: AIRDROP.height, headY: 0, headR: 0 };
     default:
       return null;
   }
+}
+
+/** Ray vs an entity's hit shape standing at (x, y, z); entry distance or null. */
+export function rayEntityShape(o: Vec3, d: Vec3, x: number, y: number, z: number, s: EntityHitShape): number | null {
+  const body = rayCylinderSpan(o, d, x, z, s.r, y, y + s.bodyTop);
+  let t = body ? body.t : null;
+  if (s.headR > 0) {
+    const th = raySphere(o, d, x, y + s.headY, z, s.headR);
+    if (th !== null && (t === null || th < t)) t = th;
+  }
+  return t;
+}
+
+/** Ray vs sphere; entry distance (0 when starting inside) or null. */
+function raySphere(o: Vec3, d: Vec3, cx: number, cy: number, cz: number, r: number): number | null {
+  const ox = o.x - cx;
+  const oy = o.y - cy;
+  const oz = o.z - cz;
+  const b = ox * d.x + oy * d.y + oz * d.z;
+  const c = ox * ox + oy * oy + oz * oz - r * r;
+  if (c <= 0) return 0;
+  if (b > 0) return null;
+  const disc = b * b - c;
+  if (disc < 0) return null;
+  return -b - Math.sqrt(disc);
 }
 
 const CELL = 8;
@@ -125,7 +204,7 @@ export class PickWorld {
         }
         const s = entityShape(e);
         if (!s) continue;
-        const t = rayCylinder(origin, dir, e.x, e.y, e.z, s.r, s.h);
+        const t = rayEntityShape(origin, dir, e.x, e.y, e.z, s);
         if (t !== null && t >= minDist && t < bestT) {
           bestT = t;
           const p = at(origin, dir, t);

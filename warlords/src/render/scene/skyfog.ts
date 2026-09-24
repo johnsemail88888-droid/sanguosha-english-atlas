@@ -2,7 +2,8 @@
 // shows in that view direction (horizon haze → zenith gradient + sun glow),
 // so mountains and the far plane never show a pale silhouette or a hard clip
 // edge. Implemented by overriding three's fog shader chunks (installed once;
-// only affects materials with fog enabled).
+// only affects materials with fog enabled). Materials that define FOG_MAX
+// (characters) clamp the fog factor to it.
 import * as THREE from 'three';
 import { SKY } from '../palette';
 
@@ -66,6 +67,10 @@ export function installSkyFog(sunDir: THREE.Vector3): void {
     float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
   #else
     float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
+  #endif
+  #ifdef FOG_MAX
+    // characters: never fully swallowed by fog (a far hero must stay visible on every preset)
+    fogFactor = min( fogFactor, FOG_MAX );
   #endif
   gl_FragColor.rgb = mix( gl_FragColor.rgb, fogSkyColor(), fogFactor );
 #endif`;

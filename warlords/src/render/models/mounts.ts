@@ -44,8 +44,17 @@ const ELEPHANT_BONES: BoneDef[] = [
   { name: 'earR', parent: 'head', pos: [0.5, 2.55, -1.5] },
 ];
 
-/** Height of the rider's hip bone above the ground. */
-export const SADDLE_HIP: Record<MountKind, number> = { horse: 1.6, elephant: 3.25 };
+/**
+ * Uniform scale of each mount model. The rigs are authored at a heroic size;
+ * they are drawn smaller so the rider sits inside the simulation's hit box
+ * (sim/troops.ts unitSize: horse cavalry 0.6 x 2.3 m with the head sphere
+ * centred at 2.02 m, war elephant 1.3 x 3.2 m with the head at 2.81 m;
+ * mounted heroes use the cavalry box, see docs/CONTRACT_CHANGES.md).
+ */
+export const MOUNT_SCALE: Record<MountKind, number> = { horse: 0.86, elephant: 0.72 };
+
+/** Height of the rider's hip bone above the ground (authored saddle height x MOUNT_SCALE). */
+export const SADDLE_HIP: Record<MountKind, number> = { horse: 1.6 * MOUNT_SCALE.horse, elephant: 3.25 * MOUNT_SCALE.elephant };
 
 export class MountRig {
   readonly object: THREE.Group;
@@ -90,6 +99,7 @@ export class MountRig {
     this.mesh.castShadow = true;
     this.mesh.frustumCulled = false;
     this.object = new THREE.Group();
+    this.object.scale.setScalar(MOUNT_SCALE[kind]);
     this.object.add(this.mesh);
   }
 
@@ -99,7 +109,8 @@ export class MountRig {
     const targetGait = Math.min(1, speed / 7);
     this.gait += (targetGait - this.gait) * (1 - Math.exp(-dt * 6));
     const moving = speed > 0.3;
-    const stride = this.kind === 'horse' ? 1.6 + this.gait * 1.6 : 2.4;
+    // stride in world metres (the model is scaled): keeps hooves from sliding
+    const stride = (this.kind === 'horse' ? 1.6 + this.gait * 1.6 : 2.4) * MOUNT_SCALE[this.kind];
     this.phase = (this.phase + (dt * speed) / stride) % 1;
     const P = this.phase * Math.PI * 2;
     let bob = 0;
@@ -140,7 +151,8 @@ export class MountRig {
       b('earR').rotation.y = 0.2 - Math.sin(t * 2.1 + 0.4) * 0.25;
       b('tail').rotation.z = Math.sin(t * 2) * 0.3;
     }
-    return bob;
+    // bone offsets are in model units; the rider's root is not scaled
+    return bob * MOUNT_SCALE[this.kind];
   }
 
   dispose(): void {
@@ -222,10 +234,11 @@ function buildElephant(gb: GeoBuilder, on: (n: string) => void, coat: string, cl
     [-0.5, 0.65],
     [0.5, 0.65],
   ]) {
-    gb.rod(v(px, 3.0, pz), v(px, 4.0, pz), 0.03, '#9b2b22', 5);
+    gb.rod(v(px, 3.0, pz), v(px, 4.75, pz), 0.03, '#9b2b22', 5);
   }
   gb.add(PRIM.box(), trs(0, 3.25, 0.1, 0, 0, 0, 1.12, 0.05, 1.22), trim);
-  gb.add(PRIM.cone(4), trs(0, 4.2, 0.1, 0, Math.PI / 4, 0, 0.95, 0.45, 0.95), cloth);
+  // parasol canopy high enough for the huge rider's head (model units; x MOUNT_SCALE in the world)
+  gb.add(PRIM.cone(4), trs(0, 4.97, 0.1, 0, Math.PI / 4, 0, 0.95, 0.45, 0.95), cloth);
   on('head');
   gb.add(PRIM.sphere(10, 7), trs(0, 2.45, -1.55, 0, 0, 0, 0.62, 0.7, 0.6), skin);
   gb.add(PRIM.box(), trs(0, 2.75, -1.65, 0.2, 0, 0, 0.6, 0.35, 0.3), mixCol(cloth, trim, 0.3)); // head plate

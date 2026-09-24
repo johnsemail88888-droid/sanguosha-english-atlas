@@ -4,6 +4,7 @@ import type { Vec3 } from '../../core/math';
 import type { EntityId, PrivateHeroView } from '../../core/types';
 import type { Lang } from '../../game/settings';
 import type { Effects } from '../vfx/effects';
+import type { TroopBadgeLayer } from './nameplate';
 
 export interface EntityCtx {
   time: number;
@@ -19,7 +20,10 @@ export interface EntityCtx {
   /** static line-of-sight test (colliders + terrain) */
   blocked(a: Vec3, b: Vec3): boolean;
   groundY(x: number, z: number): number;
+  /** troops / NPCs beyond this are hidden (heroes are never distance-culled) */
   characterDistance: number;
+  /** shared batch for troop / NPC overhead markers (one draw call) */
+  badges: TroopBadgeLayer;
   shadows: boolean;
   /** frame counter (for staggered work) */
   frame: number;

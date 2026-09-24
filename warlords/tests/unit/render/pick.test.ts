@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Collider, MapData } from '../../../src/core/map';
-import type { ViewEntity } from '../../../src/core/types';
-import { VF_DEAD, VF_DOWNED } from '../../../src/core/types';
-import { PickWorld, colliderAabb, entityShape, rayCollider } from '../../../src/render/camera/pick';
+import type { Entity, ViewEntity } from '../../../src/core/types';
+import { VF_DEAD, VF_DOWNED, VF_MOUNTED } from '../../../src/core/types';
+import { HEROES, TROOPS } from '../../../src/data';
+import { MOUNTED_HERO_SIZE, PickWorld, colliderAabb, entityShape, rayCollider, unitSizeOf } from '../../../src/render/camera/pick';
+import { hitbox } from '../../../src/sim/combat';
+import { CHAR_HEIGHT, CHAR_RADIUS } from '../../../src/sim/physics';
+import { unitSize } from '../../../src/sim/troops';
 
 function flatMap(colliders: Collider[], opts: { height?: number; water?: number; bump?: boolean } = {}): MapData {
   const res = 32;
@@ -138,6 +142,60 @@ describe('PickWorld', () => {
   it('downed heroes are low targets', () => {
     expect(entityShape(ent(1, 0, 0, VF_DOWNED))!.h).toBeLessThan(1);
     expect(entityShape(ent(1, 0, 0, 0, 'loot'))).toBeNull();
+  });
+
+  it('mirrors the sim unit sizing (sim/troops.ts unitSize) for every troop / NPC type', () => {
+    for (const t of TROOPS) {
+      const sim = unitSize(t);
+      expect(unitSizeOf(t.visual), t.id).toEqual(sim);
+      const shape = entityShape({ ...ent(1, 0, 0, 0, 'troop'), sub: t.id })!;
+      expect(shape.r, t.id).toBe(sim.radius);
+      expect(shape.h, t.id).toBe(sim.height);
+    }
+    // unknown ids: the sim spawns a generic rifleman
+    expect(entityShape({ ...ent(1, 0, 0, 0, 'npc'), sub: 'no_such_unit' })).toMatchObject({ r: CHAR_RADIUS, h: CHAR_HEIGHT });
+  });
+
+  it('mirrors the sim hitbox (body cylinder + head sphere) for heroes, standing and downed', () => {
+    const fake = (height: number, downed: boolean): Entity => ({ kind: 'hero', height, hero: { downed } }) as unknown as Entity;
+    for (const [flags, downed] of [
+      [0, false],
+      [VF_DOWNED, true],
+    ] as const) {
+      const hb = hitbox(fake(CHAR_HEIGHT, downed));
+      const s = entityShape(ent(1, 0, 0, flags))!;
+      expect(s.r).toBe(CHAR_RADIUS);
+      expect(s.h).toBeCloseTo(hb.height, 9);
+      expect(s.bodyTop).toBeCloseTo(hb.bodyTop, 9);
+      expect(s.headY).toBeCloseTo(hb.headY, 9);
+      expect(s.headR).toBeCloseTo(hb.headR, 9);
+    }
+    // a unit of the mounted size gets the same formula
+    const mounted = hitbox(fake(MOUNTED_HERO_SIZE.height, false));
+    const ms = entityShape({ ...ent(1, 0, 0, VF_MOUNTED), mount: 'chitu' })!;
+    expect(ms.r).toBe(MOUNTED_HERO_SIZE.radius);
+    expect(ms.headY).toBeCloseTo(mounted.headY, 9);
+    expect(ms.bodyTop).toBeCloseTo(mounted.bodyTop, 9);
+  });
+
+  it('always-mounted heroes (HeroVisual.mount) use the mounted capsule; the head sphere is a head shot target', () => {
+    const rider = HEROES.find((h) => h.visual.mount);
+    expect(rider).toBeDefined();
+    const e = { ...ent(1, 0, -10), sub: rider!.id };
+    const s = entityShape(e)!;
+    expect(s.h).toBe(MOUNTED_HERO_SIZE.height);
+    const w = new PickWorld(flatMap([]));
+    // a ray at the rider's head height (2.0 m) hits; on foot the same ray would pass over the head
+    const o = { x: 0, y: s.headY, z: 0 };
+    const d = { x: 0, y: 0, z: -1 };
+    expect(w.raycast(o, d, 100, { entities: [e] })?.entityId).toBe(1);
+    expect(w.raycast(o, d, 100, { entities: [{ ...ent(1, 0, -10) }] })?.entityId).toBeUndefined();
+  });
+
+  it('crates and airdrops use the sim sizes (aimTargetId steers F-interact)', () => {
+    expect(entityShape(ent(1, 0, 0, 0, 'crate'))).toMatchObject({ r: 0.7, h: 0.9 });
+    expect(entityShape(ent(1, 0, 0, 0, 'airdrop'))).toMatchObject({ r: 1.0, h: 1.2 });
+    expect(entityShape(ent(1, 0, 0, 0, 'turret'))).toMatchObject({ r: 0.6, h: 1.2, headR: 0 });
   });
 
   it('hits the water surface only where the terrain is below it', () => {

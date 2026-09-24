@@ -1,22 +1,29 @@
-// Optional GLB override for hero bodies: if public/assets/heroes/<id>.glb exists
-// it replaces the procedural body (future AI-generated assets). Existence is
-// resolved at BUILD time through import.meta.glob, so missing files never cause
-// 404 requests / console errors; loading failures are swallowed (checked once).
+// Optional GLB override for hero bodies: `assets/heroes/<id>.glb` (the file
+// lives in public/assets/heroes/) replaces the procedural body — for future
+// AI-generated / modded assets. Resolution, per hero id, once per session:
+//   1. registerHeroGlb(id, url)       explicit override (mods, tests)
+//   2. dev server                     import.meta.glob over public/assets/heroes
+//                                     (no 404 probes, updates when files change)
+//   3. production over http(s)        one HEAD probe of assets/heroes/<id>.glb
+//                                     relative to the page (dist/, Electron's
+//                                     embedded server, any static host), so a
+//                                     GLB dropped into a built game works; the
+//                                     negative result is cached
+// The single-file build (file://) cannot fetch side files, so it only honours
+// registerHeroGlb. Loading / parsing failures are swallowed: the procedural
+// hero stays. The model is scaled to 1.8 m (the sim's hero capsule).
 import * as THREE from 'three';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 
-const GLB_URLS: Record<string, () => Promise<unknown>> = (() => {
-  try {
-    return import.meta.glob('../../../public/assets/heroes/*.glb', { query: '?url', import: 'default' });
-  } catch {
-    return {};
-  }
-})();
+/** Dev only: files present in public/assets/heroes at transform time (never bundled into builds). */
+const DEV_GLBS: Record<string, () => Promise<unknown>> = import.meta.env.DEV
+  ? import.meta.glob('../../../public/assets/heroes/*.glb', { query: '?url', import: 'default' })
+  : {};
 
-const byId = new Map<string, () => Promise<unknown>>();
-for (const [path, loader] of Object.entries(GLB_URLS)) {
+const devById = new Map<string, () => Promise<unknown>>();
+for (const [path, loader] of Object.entries(DEV_GLBS)) {
   const m = /([^/]+)\.glb$/.exec(path);
-  if (m) byId.set(m[1], loader);
+  if (m) devById.set(m[1], loader);
 }
 
 export interface HeroGlb {
@@ -26,37 +33,84 @@ export interface HeroGlb {
   scale: number;
 }
 
+/** Height every GLB hero is normalised to (m). */
+export const GLB_HERO_HEIGHT = 1.8;
+
+const registered = new Map<string, string>();
+const urlCache = new Map<string, Promise<string | null>>();
 const cache = new Map<string, Promise<HeroGlb | null>>();
 
-export function hasHeroGlb(heroId: string): boolean {
-  return byId.has(heroId);
+/** Use this GLB (any URL, incl. blob:) for a hero from now on. Affects models created afterwards. */
+export function registerHeroGlb(heroId: string, url: string): void {
+  registered.set(heroId, url);
+  urlCache.delete(heroId);
+  cache.delete(heroId);
+}
+
+/** Where the GLB for a hero lives, or null when there is none (cached per id). */
+export function resolveHeroGlbUrl(heroId: string): Promise<string | null> {
+  let p = urlCache.get(heroId);
+  if (!p) {
+    p = resolveNow(heroId);
+    urlCache.set(heroId, p);
+  }
+  return p;
+}
+
+async function resolveNow(heroId: string): Promise<string | null> {
+  const reg = registered.get(heroId);
+  if (reg) return reg;
+  const dev = devById.get(heroId);
+  if (dev) {
+    try {
+      return (await dev()) as string;
+    } catch {
+      return null;
+    }
+  }
+  if (import.meta.env.DEV) return null; // the dev glob is authoritative: no 404 noise while developing
+  if (!/^[\w-]+$/.test(heroId)) return null;
+  if (typeof location === 'undefined' || !/^https?:$/.test(location.protocol) || typeof fetch !== 'function') return null;
+  const url = `assets/heroes/${heroId}.glb`;
+  try {
+    const r = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
+    // SPA-style servers answer unknown paths with index.html (200 text/html)
+    const type = r.headers.get('content-type') ?? '';
+    return r.ok && !/text\/html/i.test(type) ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Load and normalise a hero GLB from a URL (null when it cannot be loaded). */
+export async function loadGlbFromUrl(url: string): Promise<HeroGlb | null> {
+  try {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+    const gltf: GLTF = await new GLTFLoader().loadAsync(url);
+    const box = new THREE.Box3().setFromObject(gltf.scene);
+    const h = box.max.y - box.min.y;
+    if (!(h > 1e-3) || !Number.isFinite(h)) return null;
+    gltf.scene.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = false;
+      }
+    });
+    // feet on the ground
+    gltf.scene.position.y -= box.min.y;
+    const root = new THREE.Group();
+    root.add(gltf.scene);
+    return { scene: root, animations: gltf.animations, scale: GLB_HERO_HEIGHT / h };
+  } catch {
+    return null;
+  }
 }
 
 /** Load (once) the GLB for a hero; resolves null when absent or broken. Returns a fresh clone per call. */
 export async function loadHeroGlb(heroId: string): Promise<HeroGlb | null> {
-  const loader = byId.get(heroId);
-  if (!loader) return null;
   let p = cache.get(heroId);
   if (!p) {
-    p = (async (): Promise<HeroGlb | null> => {
-      try {
-        const url = (await loader()) as string;
-        const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
-        const gltf: GLTF = await new GLTFLoader().loadAsync(url);
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const h = box.max.y - box.min.y;
-        const scale = h > 1e-3 ? 1.8 / h : 1;
-        gltf.scene.traverse((o) => {
-          if ((o as THREE.Mesh).isMesh) {
-            o.castShadow = true;
-            o.receiveShadow = false;
-          }
-        });
-        return { scene: gltf.scene, animations: gltf.animations, scale };
-      } catch {
-        return null;
-      }
-    })();
+    p = resolveHeroGlbUrl(heroId).then((url) => (url ? loadGlbFromUrl(url) : null));
     cache.set(heroId, p);
   }
   const base = await p;
