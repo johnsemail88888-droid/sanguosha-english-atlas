@@ -9,18 +9,18 @@ import { kingdomName, t, tx, type I18nKey } from '../i18n';
 import { ORDER_KEYS, RARITY_COLOR, roleInk } from '../theme';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
 import { weaponClassName } from './heroDetail';
+import { ZONE_PHASES } from '../../sim/zone';
 
 type HelpTab = 'roles' | 'rules' | 'zone' | 'squad' | 'controls' | 'items' | 'gear' | 'weapons';
 
-/** Zone schedule (GAME_SPEC §4). */
-export const ZONE_TABLE: readonly { phase: number; wait: number; shrink: number; radius: number; dps: number }[] = [
-  { phase: 0, wait: 90, shrink: 0, radius: 230, dps: 0 },
-  { phase: 1, wait: 0, shrink: 60, radius: 160, dps: 4 },
-  { phase: 2, wait: 60, shrink: 45, radius: 100, dps: 8 },
-  { phase: 3, wait: 45, shrink: 40, radius: 55, dps: 15 },
-  { phase: 4, wait: 40, shrink: 30, radius: 25, dps: 30 },
-  { phase: 5, wait: 30, shrink: 30, radius: 0, dps: 60 },
-];
+/** Zone schedule (GAME_SPEC §4), generated from the sim's phase table so it never drifts. */
+export const ZONE_TABLE: readonly { phase: number; wait: number; shrink: number; radius: number; dps: number }[] = ZONE_PHASES.map((z, phase) => ({
+  phase,
+  wait: z.wait,
+  shrink: z.shrink,
+  radius: z.radius,
+  dps: z.dps,
+}));
 
 export const CONTROLS: readonly { keys: string[]; zh: string; en: string }[] = [
   { keys: ['W', 'A', 'S', 'D'], zh: '移动（鼠标瞄准，点击锁定鼠标）', en: 'Move (mouse aims; click to lock the pointer)' },

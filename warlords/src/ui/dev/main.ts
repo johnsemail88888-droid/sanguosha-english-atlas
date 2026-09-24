@@ -2,9 +2,13 @@
 //   ?screen=title|single|online|lobby|roles|heroSelect|hud|scoreboard|map|gameOver|gallery|help|settings
 //   &lang=en  &touch=1  &state=downed|dead  &role=lord|rebel|traitor|bounty|...
 //   &overlay=wheel|chat|pause|controls  &lordPhase=1  &freePick=1  &host=0  &outside=1
+//   &double=1 (deal a 影武者; `role=double` makes it you)
 //   &weapon=<weaponId> &ads=1 (crosshair / scope preview)
 //   &portraits=real (use the renderer's portrait instead of the procedural mock)
 //   &real=1 (single player runs the real HostSession + sim; the 3D view stays a painted backdrop)
+//   &input=real (the in-match GameHandle uses the real InputController from src/game/input.ts)
+//   &locked=0 (start without the simulated pointer lock → "click to play")
+//   &persist=1 (let settings changed here persist; by default the harness never writes them)
 import type { RoleId } from '../../core/types';
 import { settings } from '../../game/settings';
 import { renderHeroPortrait } from '../../render/portrait';
@@ -24,6 +28,11 @@ const state = (params.get('state') ?? 'alive') as MockHeroState;
 const role = (params.get('role') ?? undefined) as RoleId | undefined;
 const overlay = params.get('overlay');
 
+// The harness shares the game's origin (same localStorage). Its URL overrides and
+// anything changed while previewing stay in memory: the persisted settings are
+// restored after every update so `?touch=1` / `?lang=en` never leak into the game.
+if (params.get('persist') !== '1') sandboxSettingsStorage();
+
 settings.update({
   lang,
   touchControls: touch ? 'on' : 'off',
@@ -31,7 +40,10 @@ settings.update({
   playerName: settings.get().playerName || '玩家',
 });
 
-const deps = createMockDeps({ role, state, freePick: params.get('freePick') === '1' });
+const deps = createMockDeps(
+  { role, state, freePick: params.get('freePick') === '1', double: params.get('double') === '1' },
+  { realInput: params.get('input') === 'real', locked: params.get('locked') !== '0' },
+);
 if (params.get('portraits') === 'real') deps.renderHeroPortrait = renderHeroPortrait;
 if (params.get('real') === '1') {
   // real single-player stack (net HostSession + sim) behind the painted mock backdrop
@@ -47,7 +59,7 @@ const online = params.get('online') !== '0';
 const isHost = params.get('host') !== '0';
 const view = { weaponId: params.get('weapon') ?? undefined, ads: params.get('ads') === '1', outside: params.get('outside') === '1' };
 const newSession = (): MockSession => {
-  const s = new MockSession({ name: settings.get().playerName, isHost, online: screen === 'lobby' ? true : online && screen !== 'hud', role, state, freePick: params.get('freePick') === '1', asLord: role === 'lord', view });
+  const s = new MockSession({ name: settings.get().playerName, isHost, online: screen === 'lobby' ? true : online && screen !== 'hud', role, state, freePick: params.get('freePick') === '1', asLord: role === 'lord', double: params.get('double') === '1', view });
   deps.lastSession = s;
   return s;
 };
@@ -134,6 +146,35 @@ window.addEventListener('keydown', (ev) => {
   if (ev.code === 'F8') deps.lastSession?.finish(ev.shiftKey ? 'rebel' : 'lord');
   if (ev.code === 'F9') deps.lastSession?.fail('hostLeft', '房主已离开，房间已关闭', 'The host left — the room is closed');
 });
+
+function sandboxSettingsStorage(): void {
+  const PREFIX = 'sgwl.settings';
+  let store: Storage | null = null;
+  try {
+    store = window.localStorage;
+  } catch {
+    return;
+  }
+  if (!store) return;
+  const saved = new Map<string, string>();
+  for (let i = 0; i < store.length; i++) {
+    const k = store.key(i);
+    if (k?.startsWith(PREFIX)) saved.set(k, store.getItem(k) ?? '');
+  }
+  const restore = (): void => {
+    try {
+      for (let i = store.length - 1; i >= 0; i--) {
+        const k = store.key(i);
+        if (k?.startsWith(PREFIX) && !saved.has(k)) store.removeItem(k);
+      }
+      for (const [k, v] of saved) if (store.getItem(k) !== v) store.setItem(k, v);
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  // settings.update() writes synchronously before notifying subscribers
+  settings.subscribe(restore);
+}
 
 declare global {
   interface Window {

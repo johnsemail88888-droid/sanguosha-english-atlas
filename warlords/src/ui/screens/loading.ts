@@ -44,6 +44,8 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
       ),
     );
   };
+  // a late hero-select broadcast (auto-pick at the deadline) still shows your hero
+  bag.add(session.on('heroSelect', () => render()));
   bag.interval(() => {
     tipIndex++;
     showTip();

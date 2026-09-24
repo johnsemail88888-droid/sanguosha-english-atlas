@@ -35,7 +35,7 @@ import type {
 import { BTN_ADS, BTN_FIRE, SIM_DT, emptyInput } from '../core/types';
 import { ROLE_BY_ID, isPassiveAbility } from '../data';
 import type { AbilityDef, HeroDef, WeaponDef } from '../data/types';
-import { buildNavGrid, findPath as navFindPath } from './map/nav';
+import { NAV_MAIN, buildNavGrid, locateNode, findPath as navFindPath } from './map/nav';
 import type { NavGrid } from './map/nav';
 import { generateMap } from './map/generate';
 import type {
@@ -105,6 +105,7 @@ import {
   CHAR_RADIUS,
   buildCollisionWorld,
   findFreeSpot,
+  findOpenGround,
   forcedMove,
   groundAt,
   lineOfSight as staticLos,
@@ -179,6 +180,8 @@ export interface HeroRuntime {
   focusAt: number;
   downedBy?: EntityId;
   downedBySource?: EntityId;
+  /** the hero who downed us did it personally (not via troops / summons) — kept in case the source despawns */
+  downedDirect?: boolean;
   bountyKills: number;
   baseMaxHp: number;
   appliedHpBonus: number;
@@ -223,8 +226,25 @@ const DODGE_TIME = 0.35;
 const WEAPON_SWAP_TIME = 0.25;
 const ATTACK_MEMORY = 10;
 const MARK_TIME = 12;
+const AIRDROP_RADIUS = 1.0;
+/** airdrops stay this far from the map edge */
+const AIRDROP_EDGE_MARGIN = 25;
+/** A* searches started per tick (more are refused; callers retry later) */
 const PATH_BUDGET_PER_TICK = 1;
-const PATH_MAX_ITER = 5000;
+/** A* node expansions per search (caps the worst single search at ~1–2 ms) */
+const PATH_MAX_ITER = 3000;
+/**
+ * Deterministic amortisation (no wall clock, so the host stays reproducible):
+ * a failed search is charged the full PATH_MAX_ITER, a found path about a third
+ * of it; the allowance refills PATH_ITER_PER_TICK per tick and searches wait
+ * while it is overdrawn.
+ */
+const PATH_ITER_PER_TICK = 1000;
+const PATH_COST_FOUND = 1000;
+/** paths are shared per (start cell, goal cell) for this long (squadmates, repeated queries) */
+const PATH_CACHE_TTL = 4;
+const PATH_CACHE_CELL = 4;
+const PATH_CACHE_MAX = 768;
 const EMPTY_INPUT = emptyInput();
 
 const KIND_ORDER: EntityKind[] = ['hero', 'troop', 'npc', 'projectile', 'loot', 'crate', 'airdrop', 'turret', 'hazard'];
@@ -288,6 +308,8 @@ export class World implements SimExt, SimHost {
   private nav: NavGrid | null = null;
   private navFailed = false;
   private pathBudget = PATH_BUDGET_PER_TICK;
+  private pathDebt = 0;
+  private readonly pathCache = new Map<string, { path: Vec3[] | null; at: number }>();
   private zoneDamageAt = ZONE_DAMAGE_PERIOD;
   private readonly cs: ControlState = { stunned: false, rooted: false, silenced: false, disarmed: false, dancing: false, frozen: false };
   private readonly moveMods: MoveMods = { speedMul: 1, canSprint: true, canJump: true, rooted: false, ads: false, downed: false };
@@ -604,6 +626,7 @@ export class World implements SimExt, SimHost {
     this.time = this.tick * SIM_DT;
     const dt = SIM_DT;
     this.pathBudget = PATH_BUDGET_PER_TICK;
+    this.pathDebt = Math.max(0, this.pathDebt - PATH_ITER_PER_TICK);
     const prof = this.profile !== null;
     let t = prof ? performance.now() : 0;
     this.rebuildGrid();
@@ -1235,20 +1258,36 @@ export class World implements SimExt, SimHost {
     }
   }
 
+  /**
+   * Where the next airdrop lands: open dry ground (no roof, tree, statue or
+   * deck over the crate) inside the next zone when possible, so the best loot
+   * is always reachable on foot.
+   */
+  airdropSpot(center: Vec3, radius: number): Vec3 {
+    const margin = AIRDROP_EDGE_MARGIN;
+    const lim = this.map.size / 2 - margin;
+    const cx = clamp(center.x, -lim, lim);
+    const cz = clamp(center.z, -lim, lim);
+    const rand = (): number => this.rng.next();
+    const nav = this.nav;
+    // with a nav grid, also require a node of the main (reachable) component: no sealed courtyards
+    const reachable = nav
+      ? (p: Vec3): boolean => {
+          const n = locateNode(nav, p, 1.2);
+          return n >= 0 && (nav.flags[n] & NAV_MAIN) !== 0;
+        }
+      : undefined;
+    const o = { radius: AIRDROP_RADIUS + 0.2, margin };
+    const spot = findOpenGround(this.cw, cx, cz, Math.max(0, radius * 0.8), rand, { ...o, accept: reachable }) ?? findOpenGround(this.cw, cx, cz, Math.max(0, radius * 0.8), rand, o);
+    if (spot) return spot;
+    warnOnce('airdrop-spot', 'no open ground for an airdrop; dropping at the nearest free spot');
+    return findFreeSpot(this.cw, { x: cx, y: groundAt(this.cw, cx, cz), z: cz }, AIRDROP_RADIUS, 1.2, 30);
+  }
+
   private spawnAirdrop(): void {
     const z = this.zone.view();
-    let pos: Vec3 | null = null;
-    for (let i = 0; i < 20 && !pos; i++) {
-      const r = Math.max(0, z.targetRadius * 0.8) * Math.sqrt(this.rng.next());
-      const a = this.rng.next() * Math.PI * 2;
-      const lim = this.map.size / 2 - 25;
-      const x = clamp(z.targetCenter.x + Math.cos(a) * r, -lim, lim);
-      const zz = clamp(z.targetCenter.z + Math.sin(a) * r, -lim, lim);
-      const p = findFreeSpot(this.cw, { x, y: 50, z: zz }, 1.0, 1.2, 6);
-      if (p.y > this.map.waterLevel + 0.2) pos = p;
-    }
-    if (!pos) pos = findFreeSpot(this.cw, { x: z.targetCenter.x, y: 50, z: z.targetCenter.z }, 1.0, 1.2, 20);
-    const e = this.createEntity('airdrop', { x: pos.x, y: pos.y + AIRDROP_HEIGHT, z: pos.z }, { radius: 1.0, height: 1.2, hp: 1 });
+    const pos = this.airdropSpot(z.targetCenter, z.targetRadius);
+    const e = this.createEntity('airdrop', { x: pos.x, y: pos.y + AIRDROP_HEIGHT, z: pos.z }, { radius: AIRDROP_RADIUS, height: 1.2, hp: 1 });
     e.vel.y = -AIRDROP_HEIGHT / AIRDROP_FALL_TIME;
     e.onGround = false;
     e.crate = { tier: 3, opened: false };
@@ -1494,6 +1533,14 @@ export class World implements SimExt, SimHost {
 
   /** Crosshair point (validated client aimPoint, or reconstructed third-person ray). */
   crosshairPoint(e: Entity, maxDist: number): Vec3 {
+    return this.crosshair(e, maxDist).point;
+  }
+
+  /**
+   * Crosshair point and whether it lies on something (false: the ray ran out
+   * in the air — sky, over a ridge — and the point was clamped to maxDist).
+   */
+  private crosshair(e: Entity, maxDist: number): { point: Vec3; onSurface: boolean } {
     const input = this.inputOf(e);
     const rig = cameraRig(e.pos, finiteOr(input.yaw, e.yaw), finiteOr(input.pitch, e.pitch), e.hero?.downed === true);
     const eye = this.eyePos(e);
@@ -1510,8 +1557,8 @@ export class World implements SimExt, SimHost {
         const dy = ap.y - eye.y;
         const dz = ap.z - eye.z;
         const dl = Math.hypot(dx, dy, dz);
-        if (dl <= maxDist) return { x: ap.x, y: ap.y, z: ap.z };
-        return { x: eye.x + (dx / dl) * maxDist, y: eye.y + (dy / dl) * maxDist, z: eye.z + (dz / dl) * maxDist };
+        if (dl <= maxDist) return { point: { x: ap.x, y: ap.y, z: ap.z }, onSurface: true };
+        return { point: { x: eye.x + (dx / dl) * maxDist, y: eye.y + (dy / dl) * maxDist, z: eye.z + (dz / dl) * maxDist }, onSurface: false };
       }
     }
     const start = {
@@ -1521,12 +1568,19 @@ export class World implements SimExt, SimHost {
     };
     const rewind = this.isBotHero(e) ? undefined : this.rewindTickFor(e);
     const hit = raycastAll(this, start, rig.dir, maxDist, (x) => x === e || this.creditOf(x.id) === e.id, true, rewind);
-    if (hit) return hit.point;
-    return { x: start.x + rig.dir.x * maxDist, y: start.y + rig.dir.y * maxDist, z: start.z + rig.dir.z * maxDist };
+    if (hit) return { point: hit.point, onSurface: true };
+    return { point: { x: start.x + rig.dir.x * maxDist, y: start.y + rig.dir.y * maxDist, z: start.z + rig.dir.z * maxDist }, onSurface: false };
   }
 
+  /**
+   * SimApi.aimPoint for abilities: the crosshair point within maxDist of the
+   * hero. When the crosshair ray hits nothing (sky, over a ridge) or is clamped
+   * horizontally, the point is dropped onto the ground below it, so
+   * point-targeted effects never happen in mid-air.
+   */
   aimPoint(e: Entity, maxDist: number): Vec3 {
-    const p = this.crosshairPoint(e, maxDist);
+    const c = this.crosshair(e, maxDist);
+    const p = c.point;
     // clamp to maxDist from the hero
     const dx = p.x - e.pos.x;
     const dz = p.z - e.pos.z;
@@ -1536,6 +1590,7 @@ export class World implements SimExt, SimHost {
       const z = e.pos.z + (dz / d) * maxDist;
       return { x, y: groundAt(this.cw, x, z, p.y + 2), z };
     }
+    if (!c.onSurface) return { x: p.x, y: groundAt(this.cw, p.x, p.z, p.y), z: p.z };
     return p;
   }
 
@@ -1939,14 +1994,26 @@ export class World implements SimExt, SimHost {
 
   findPath(from: Vec3, to: Vec3, requesterId?: EntityId): Vec3[] | null {
     void requesterId;
-    if (!this.nav || this.navFailed || this.pathBudget <= 0) return null;
+    if (!this.nav || this.navFailed) return null;
+    const key = pathCacheKey(from, to);
+    const cached = this.pathCache.get(key);
+    if (cached && this.time - cached.at <= PATH_CACHE_TTL) return cached.path ? rebasePath(cached.path, from) : null;
+    if (this.pathBudget <= 0 || this.pathDebt > 0) return null;
     this.pathBudget--;
+    let path: Vec3[] | null = null;
     try {
-      return navFindPath(this.nav, from, to, PATH_MAX_ITER);
+      path = navFindPath(this.nav, from, to, PATH_MAX_ITER);
     } catch (err) {
       warnOnce('nav-find', `findPath threw: ${String(err)}`);
-      return null;
+      path = null;
     }
+    this.pathDebt += path ? PATH_COST_FOUND : PATH_MAX_ITER;
+    if (this.pathCache.size >= PATH_CACHE_MAX) {
+      for (const [k, v] of this.pathCache) if (this.time - v.at > PATH_CACHE_TTL) this.pathCache.delete(k);
+      if (this.pathCache.size >= PATH_CACHE_MAX) this.pathCache.clear();
+    }
+    this.pathCache.set(key, { path, at: this.time });
+    return path ? rebasePath(path, from) : null;
   }
 
   zoneView(): ZoneView {
@@ -1972,6 +2039,21 @@ function finiteOr(v: number | undefined, fallback: number): number {
 
 function isFiniteVec(v: Vec3): boolean {
   return Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z);
+}
+
+/** Path cache key: start and goal quantised to PATH_CACHE_CELL m cells (and 3 m levels). */
+function pathCacheKey(from: Vec3, to: Vec3): string {
+  const q = (v: number): number => Math.floor(v / PATH_CACHE_CELL);
+  const lv = (v: number): number => Math.floor(v / 3);
+  return `${q(from.x)},${q(from.z)},${lv(from.y)}>${q(to.x)},${q(to.z)},${lv(to.y)}`;
+}
+
+/** A shared path for a caller: fresh arrays, first waypoint replaced by the caller's own start. */
+function rebasePath(path: Vec3[], from: Vec3): Vec3[] {
+  const out = new Array<Vec3>(path.length);
+  for (let i = 0; i < path.length; i++) out[i] = { x: path[i].x, y: path[i].y, z: path[i].z };
+  if (out.length > 0) out[0] = { x: from.x, y: out[0].y, z: from.z };
+  return out;
 }
 
 function dist3(a: Vec3, b: Vec3): number {

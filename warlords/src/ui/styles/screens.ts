@@ -166,7 +166,7 @@ export const SCREENS_CSS = /* css */ `
 .sg-roles .stage { display: flex; gap: 2.4em; align-items: center; justify-content: center; flex-wrap: wrap; }
 .sg-roles .card-col { display: flex; flex-direction: column; align-items: center; gap: 0.7em; }
 .sg-roles .hint { font-size: 0.85em; }
-.flip-card { position: relative; width: clamp(10em, 30vmin, 19em); aspect-ratio: 5 / 7; perspective: 1400px; cursor: pointer; }
+.flip-card { position: relative; width: clamp(10em, 30vmin, 19em); aspect-ratio: 5 / 7; perspective: 1400px; cursor: pointer; container-type: inline-size; }
 .flip-card .face { position: absolute; inset: 0; border-radius: 12px; backface-visibility: hidden; -webkit-backface-visibility: hidden; transition: transform 0.9s cubic-bezier(0.3, 1.3, 0.5, 1); overflow: hidden; }
 .flip-card .face .frame { position: absolute; inset: 9px; border-radius: 7px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.6em; }
 .flip-card .back { background: radial-gradient(circle at 50% 38%, #b23a24, #5a120a 72%); box-shadow: 0 0 0 3px #d6ad52, 0 0 0 5px #3a1a08, 0 16px 34px rgba(0, 0, 0, 0.65); }
@@ -175,7 +175,7 @@ export const SCREENS_CSS = /* css */ `
 .flip-card .back-sub { color: #f5d98a; letter-spacing: 0.25em; font-size: 0.75em; font-family: var(--font-display); }
 .flip-card .front { --rc: #b3261e; transform: rotateY(180deg); background-color: #efe2c4; background-image: var(--grain), linear-gradient(160deg, #f7eed8, #dcc596); box-shadow: 0 0 0 3px var(--rc), 0 0 0 5px #2a1a0c, 0 0 46px color-mix(in srgb, var(--rc) 65%, transparent), 0 16px 34px rgba(0, 0, 0, 0.65); }
 .flip-card .front .frame { border: 2px solid var(--gold-lo); }
-.flip-card .front .rname { font-family: var(--font-display); font-size: 2.3em; font-weight: 900; color: var(--paper-ink); letter-spacing: 0.2em; padding-left: 0.2em; }
+.flip-card .front .rname { font-family: var(--font-display); font-size: min(2.3em, calc(78cqi / (var(--len, 2) * 1.2))); font-weight: 900; color: var(--paper-ink); letter-spacing: 0.2em; padding-left: 0.2em; white-space: nowrap; }
 .flip-card .front .faction { color: var(--paper-mute); letter-spacing: 0.2em; font-size: 0.85em; }
 .flip-card.flipped .back { transform: rotateY(-180deg); }
 .flip-card.flipped .front { transform: rotateY(0deg); }
@@ -235,6 +235,7 @@ export const SCREENS_CSS = /* css */ `
 .sg-select .grid.n-mid { grid-template-columns: repeat(auto-fill, minmax(8em, 1fr)); gap: 1em; }
 .sg-select .grid.n-large { grid-template-columns: repeat(auto-fill, minmax(6.4em, 1fr)); gap: 0.8em; }
 .sg-select.waiting .grid { opacity: 0.55; }
+.sg-select.no-options .detail { display: none; }
 .wait-note { text-align: center; font-family: var(--font-display); font-size: 1.2em; color: var(--gold-hi); }
 .wait-note:empty { display: none; }
 .sg-select .detail { display: flex; flex-direction: column; min-height: 0; padding: 1em 1.2em; }

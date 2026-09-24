@@ -37,21 +37,95 @@ function send(w: World, player: string, p: Partial<InputFrame>): void {
 }
 
 describe('status effects', () => {
-  it('re-applying refreshes the expiry, keeps the stronger magnitude and stacks', () => {
+  it('re-applying from one source: a dominating application replaces, a dominated one only stacks', () => {
     const { w, a, b } = setup();
     expect(w.applyStatus(b.id, 'slow', 2, { sourceId: a.id, params: { amount: 0.3 } })).toBe(true);
     stepN(w, 15);
-    expect(w.applyStatus(b.id, 'slow', 2, { sourceId: a.id, params: { amount: 0.2 } })).toBe(true);
-    const inst = b.statuses.filter((s) => s.id === 'slow');
+    // stronger and longer: replaces (stacks carry over)
+    expect(w.applyStatus(b.id, 'slow', 2, { sourceId: a.id, params: { amount: 0.4 } })).toBe(true);
+    let inst = b.statuses.filter((s) => s.id === 'slow');
     expect(inst.length).toBe(1);
-    expect(inst[0].params?.amount).toBe(0.3);
+    expect(inst[0].params?.amount).toBe(0.4);
     expect(inst[0].stacks).toBe(2);
     expect(inst[0].until).toBeCloseTo(w.time + 2, 5);
+    // weaker and shorter: absorbed
+    expect(w.applyStatus(b.id, 'slow', 1, { sourceId: a.id, params: { amount: 0.1 } })).toBe(true);
+    inst = b.statuses.filter((s) => s.id === 'slow');
+    expect(inst.length).toBe(1);
+    expect(inst[0].stacks).toBe(3);
     const evs = statusEvents(w.drainEvents());
     expect(evs.filter((e) => e.on).length).toBe(1);
+    expect(evs.filter((e) => !e.on).length).toBe(0);
     stepN(w, 61);
     expect(w.hasStatus(b.id, 'slow')).toBe(false);
-    expect(statusEvents(w.drainEvents()).some((e) => e.status === 'slow' && !e.on)).toBe(true);
+    expect(statusEvents(w.drainEvents()).filter((e) => e.status === 'slow' && !e.on).length).toBe(1);
+  });
+
+  it('a short strong slow never inherits the duration of a long weak one (any source)', () => {
+    const { w, a, b } = setup();
+    const c = hero(w, 4);
+    // same source: 1 s 80 % then 10 s 10 %
+    w.applyStatus(b.id, 'slow', 1, { sourceId: a.id, params: { amount: 0.8 } });
+    w.applyStatus(b.id, 'slow', 10, { sourceId: a.id, params: { amount: 0.1 } });
+    expect(b.statuses.filter((s) => s.id === 'slow').length).toBe(2);
+    expect(w.statusParam(b.id, 'slow', 'amount', 0)).toBeCloseTo(0.8, 6);
+    stepN(w, 31);
+    expect(w.statusParam(b.id, 'slow', 'amount', 0)).toBeCloseTo(0.1, 6);
+    // different sources: strongest active slow wins, each keeps its own expiry
+    w.applyStatus(b.id, 'slow', 1, { sourceId: c.id, params: { amount: 0.5 } });
+    expect(w.statusParam(b.id, 'slow', 'amount', 0)).toBeCloseTo(0.5, 6);
+    stepN(w, 31);
+    expect(w.statusParam(b.id, 'slow', 'amount', 0)).toBeCloseTo(0.1, 6);
+    // statusSpeedMul uses the strongest slow only (no multiplicative stacking)
+    w.applyStatus(b.id, 'slow', 5, { sourceId: c.id, params: { amount: 0.3 } });
+    const z0 = b.pos.z;
+    send(w, 'p3', { moveZ: 1 });
+    stepN(w, 30);
+    expect(z0 - b.pos.z).toBeGreaterThan(5 * 0.7 - 0.4);
+    expect(z0 - b.pos.z).toBeLessThan(5 * 0.7 + 0.1);
+  });
+
+  it('multiplicative statuses combine across sources, strongest per source', () => {
+    const { w, a, b } = setup();
+    const c = hero(w, 4);
+    w.applyStatus(a.id, 'dmgBoost', 5, { sourceId: a.id, params: { mul: 1.5 } });
+    w.applyStatus(a.id, 'dmgBoost', 5, { sourceId: a.id, params: { mul: 1.2 } }); // same source, weaker: dominated
+    w.applyStatus(a.id, 'dmgBoost', 5, { sourceId: c.id, params: { mul: 1.2 } });
+    expect(w.statusParam(a.id, 'dmgBoost', 'mul', 1)).toBeCloseTo(1.8, 6);
+    const r = w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 10, type: 'true', abilityId: 'x' });
+    expect(r.dealt).toBeCloseTo(18, 5);
+    // dmgTakenDown stacks multiplicatively but never below the floor
+    for (const s of [a, c, hero(w, 0)]) w.applyStatus(b.id, 'dmgTakenDown', 5, { sourceId: s.id, params: { mul: 0.5 } });
+    expect(w.statusParam(b.id, 'dmgTakenDown', 'mul', 1)).toBeCloseTo(0.2, 6);
+    // regen from two sources both tick
+    b.hp = 100;
+    w.applyStatus(b.id, 'regen', 1, { sourceId: a.id, params: { hps: 10 } });
+    w.applyStatus(b.id, 'regen', 1, { sourceId: c.id, params: { hps: 10 } });
+    stepN(w, 31);
+    expect(b.hp).toBeCloseTo(120, 5);
+  });
+
+  it('private reveals are kept per viewer; a public reveal is separate', () => {
+    const { w, a, b } = setup();
+    const c = hero(w, 4);
+    w.applyStatus(b.id, 'reveal', 5, { sourceId: a.id, params: { viewerId: a.id } });
+    w.applyStatus(b.id, 'reveal', 5, { sourceId: c.id, params: { viewerId: c.id } });
+    let evs = statusEvents(w.drainEvents()).filter((e) => e.status === 'reveal' && e.on);
+    expect(evs.map((e) => e.privateTo).sort()).toEqual([a.id, c.id].sort());
+    expect(w.canSee(a, b) && w.canSee(c, b)).toBe(true);
+    // a public reveal does not merge into a private one
+    w.applyStatus(b.id, 'reveal', 3, { sourceId: a.id });
+    evs = statusEvents(w.drainEvents()).filter((e) => e.status === 'reveal');
+    expect(evs).toEqual([{ t: 'status', target: b.id, status: 'reveal', on: true }]);
+    expect(b.statuses.filter((s) => s.id === 'reveal').length).toBe(3);
+    // the public one expires first: the private viewers keep theirs
+    stepN(w, 91);
+    const offs = statusEvents(w.drainEvents()).filter((e) => e.status === 'reveal' && !e.on);
+    expect(offs).toEqual([{ t: 'status', target: b.id, status: 'reveal', on: false }]);
+    expect(b.statuses.filter((s) => s.id === 'reveal').map((s) => s.params?.viewerId).sort()).toEqual([a.id, c.id].sort());
+    // the revealed hero's own HUD never lists someone else's private reveal
+    const you = w.snapshotFor('p3').you!;
+    expect(you.statuses.some((s) => s.id === 'reveal')).toBe(false);
   });
 
   it('burn deals fire damage over time, poison true damage, regen heals', () => {
@@ -76,8 +150,14 @@ describe('status effects', () => {
     expect(w.applyStatus(b.id, 'stun', 2, { sourceId: a.id })).toBe(false);
     expect(w.hasStatus(b.id, 'stun')).toBe(false);
     expect(w.hasStatus(b.id, 'nullify')).toBe(false);
-    const hit = w.drainEvents().find((e) => e.t === 'hit');
-    expect(hit).toMatchObject({ target: b.id, blocked: 'nullify' });
+    // the nullify notice is private to the two parties
+    const hits = w.drainEvents().filter((e) => e.t === 'hit');
+    expect(hits.length).toBe(2);
+    for (const h of hits) expect(h).toMatchObject({ target: b.id, blocked: 'nullify' });
+    expect(hits.map((h) => h.privateTo).sort()).toEqual([a.id, b.id].sort());
+    // the rest of that cast (same enemy, same tick) is cancelled too, without another charge
+    expect(w.applyStatus(b.id, 'slow', 2, { sourceId: a.id, params: { amount: 0.5 } })).toBe(false);
+    w.step();
     expect(w.applyStatus(b.id, 'stun', 2, { sourceId: a.id })).toBe(true);
     // buffs are never cancelled
     w.applyStatus(b.id, 'nullify', 20, { sourceId: b.id });

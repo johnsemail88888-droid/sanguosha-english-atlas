@@ -151,8 +151,8 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
       }),
     );
 
-    // options grid
-    const opts = v.options;
+    // options grid (crowns get no options in the general phase: show their own pick)
+    const opts = v.options.length ? v.options : picked ? [picked] : [];
     if (!focused || !opts.includes(focused) || taken.has(focused)) focused = picked ?? opts.find((o) => !taken.has(o)) ?? opts[0] ?? null;
     grid.className = `grid ${opts.length <= 3 ? 'n-small' : opts.length <= 8 ? 'n-mid' : 'n-large'}`;
     grid.replaceChildren(
@@ -174,6 +174,8 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
       }),
     );
     el.classList.toggle('waiting', waiting);
+    // nothing to show or choose yet (another stage is picking): hide the empty detail panel
+    el.classList.toggle('no-options', !opts.length);
     el.classList.toggle('locked', !!picked);
     waitNote.replaceChildren();
     if (waiting) {

@@ -5,7 +5,7 @@ import type { Entity } from '../../core/types';
 import type { SimApi } from '../api';
 import { ext } from '../ext';
 import { troopDef } from '../defs';
-import { dist2d, hasLineOfSight, isTargetable, pickTarget } from './perception';
+import { dist2d, hasLineOfSight, isTargetable, pickTarget, scanJitter } from './perception';
 import { fleeFrom, steerTo } from './steer';
 import type { NpcBrain, UnitIntent } from './types';
 
@@ -41,7 +41,7 @@ export class BasicNpcBrain implements NpcBrain {
 
     // ── target acquisition ──
     if (now >= (ai.nextScan ?? 0)) {
-      ai.nextScan = now + SCAN_EVERY + (self.id % 7) * 0.02;
+      ai.nextScan = now + SCAN_EVERY * scanJitter(self.id, sim.tick);
       const summoned = npc.summonerId !== undefined;
       const range = summoned ? Math.max(def.aggroRange, 35) : def.aggroRange;
       const cur = npc.targetId !== undefined ? sim.get(npc.targetId) : undefined;

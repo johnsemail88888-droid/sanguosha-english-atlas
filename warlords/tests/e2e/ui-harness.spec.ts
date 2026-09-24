@@ -73,6 +73,15 @@ async function open(query: string, width = 1280, height = 720): Promise<Opened> 
   return { ctx, page, errors };
 }
 
+/** InputActions that reached the (mock) sim so far, as compact strings like `claim:rebel` / `item:2`. */
+async function simActions(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    type A = { a: string; role?: string; id?: string; slot?: number | string; order?: string };
+    const g = (window as unknown as { __ui: { deps: { lastGame: { actions: A[] } | null } } }).__ui.deps.lastGame;
+    return (g?.actions ?? []).map((a) => [a.a, a.role ?? a.id ?? a.slot ?? a.order].filter((x) => x !== undefined).join(':'));
+  });
+}
+
 /** Elements that stick out of the viewport horizontally (outside any scroll/clip container). */
 async function horizontalOverflow(page: Page): Promise<string[]> {
   return page.evaluate(() => {
@@ -189,13 +198,25 @@ test('mock single-player flow: setup → roles → hero select → HUD → game 
   await page.keyboard.up('Tab');
   await expect(page.locator('.sg-hud.show-score')).toHaveCount(0);
 
-  // T wheel → number key sends a claim through the InputSink
+  // the mock mirrors the input controller: with no overlay a digit is a gameplay key
+  await page.keyboard.press('Digit5');
+  await expect.poll(() => simActions(page)).toContain('item:1');
+
+  // T wheel → number key sends a claim through the InputSink (and nothing else)
   await page.keyboard.press('KeyT');
   await expect(page.locator('.sg-hud[data-overlay="wheel"] .hud-wheel')).toBeVisible();
   await page.keyboard.press('Digit1');
   await expect(page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1);
-  const actions = await page.evaluate(() => (window as unknown as { __ui: { deps: { lastGame: { actions: { a: string }[] } | null } } }).__ui.deps.lastGame?.actions.map((a) => a.a) ?? []);
-  expect(actions).toContain('claim');
+  await expect.poll(() => simActions(page)).toContain('claim:loyalist');
+  // T then 6 = quick chat #3: the digit must not also use item slot 3 / switch weapons
+  await page.keyboard.press('KeyT');
+  await expect(page.locator('.sg-hud[data-overlay="wheel"]')).toHaveCount(1);
+  await page.keyboard.press('Digit6');
+  await expect(page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1);
+  await expect.poll(() => simActions(page)).toContainEqual(expect.stringMatching(/^quickchat:/));
+  await page.waitForTimeout(100);
+  const acts = await simActions(page);
+  expect(acts.filter((a) => a === 'item:2' || a.startsWith('weapon'))).toEqual([]);
 
   // Enter opens chat, typing + Enter sends through the session
   await page.keyboard.press('Enter');
@@ -268,12 +289,89 @@ test('touch controls on a landscape phone', async () => {
     await page.mouse.up();
   }
   await page.locator('.sg-touch .jump').dispatchEvent('pointerdown', { pointerId: 7, isPrimary: true });
-  const actions = await page.evaluate(() => (window as unknown as { __ui: { deps: { lastGame: { actions: { a: string }[] } | null } } }).__ui.deps.lastGame?.actions.map((a) => a.a) ?? []);
-  expect(actions).toContain('jump');
-  // touch bar opens the claim wheel
+  await expect.poll(() => simActions(page)).toContain('jump');
+  // ADS toggles on, then an overlay releases it (InputController.releaseAll) → the button follows
+  await page.locator('.sg-touch .ads').dispatchEvent('pointerdown', { pointerId: 8, isPrimary: true });
+  await expect(page.locator('.sg-touch .ads.on')).toHaveCount(1);
+  // touch bar opens the claim wheel; tapping a claim reaches the sim
+  await page.locator('.hud-touchbar .tb').first().click();
+  await expect(page.locator('.sg-hud[data-overlay="wheel"]')).toHaveCount(1);
+  await expect(page.locator('.sg-touch .ads.on')).toHaveCount(0);
+  await page.locator('.hud-wheel .wh-item.claim').nth(1).click();
+  await expect(page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1);
+  await expect.poll(() => simActions(page)).toContain('claim:rebel');
   await page.locator('.hud-touchbar .tb').first().click();
   await expect(page.locator('.sg-hud[data-overlay="wheel"]')).toHaveCount(1);
   expect(await horizontalOverflow(page)).toEqual([]);
   expect(errors).toEqual([]);
   await ctx.close();
+});
+
+test('real InputController: wheel claims / quick chat reach the sim, digits never leak', async () => {
+  const { ctx, page, errors } = await open('screen=hud&input=real', 1280, 720);
+  await expect(page.locator('.sg-hud .hud-vitals .v-hpbar')).toBeVisible({ timeout: 15_000 });
+  expect(await page.evaluate(() => (window as unknown as { __ui: { deps: { lastGame: { realInput: boolean } | null } } }).__ui.deps.lastGame?.realInput)).toBe(true);
+
+  // T → 1: claim loyalist
+  await page.keyboard.press('KeyT');
+  await expect(page.locator('.sg-hud[data-overlay="wheel"]')).toHaveCount(1);
+  await page.keyboard.press('Digit1');
+  await expect(page.locator('.sg-hud[data-overlay="wheel"]')).toHaveCount(0);
+  await expect.poll(() => simActions(page)).toContain('claim:loyalist');
+
+  // T → 6: quick chat, and NOT item slot 3
+  await page.keyboard.press('KeyT');
+  await expect(page.locator('.sg-hud[data-overlay="wheel"]')).toHaveCount(1);
+  await page.keyboard.press('Digit6');
+  await expect(page.locator('.sg-hud[data-overlay="wheel"]')).toHaveCount(0);
+  await expect.poll(() => simActions(page)).toContainEqual(expect.stringMatching(/^quickchat:/));
+
+  // T → click a quick-chat item
+  const before = (await simActions(page)).filter((a) => a.startsWith('quickchat')).length;
+  await page.keyboard.press('KeyT');
+  await expect(page.locator('.sg-hud[data-overlay="wheel"]')).toHaveCount(1);
+  await page.locator('.hud-wheel .wh-item.quick').first().click();
+  await expect.poll(async () => (await simActions(page)).filter((a) => a.startsWith('quickchat')).length).toBe(before + 1);
+
+  await page.waitForTimeout(150);
+  const acts = await simActions(page);
+  expect(acts.filter((a) => a.startsWith('item') || a.startsWith('weapon')), acts.join(', ')).toEqual([]);
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
+test('pointer lock: Esc under lock with chat open ends in "click to play", clicking resumes', async () => {
+  const { ctx, page, errors } = await open('screen=hud', 1280, 720);
+  await expect(page.locator('.sg-hud .hud-vitals .v-hpbar')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.hud-chat.open input')).toBeFocused();
+  // the browser drops the lock on Esc; the chat input closes chat on the same key
+  await page.evaluate(() => (window as unknown as { __ui: { deps: { lastGame: { simulateUnlock(): void } } } }).__ui.deps.lastGame.simulateUnlock());
+  await page.locator('.hud-chat.open input').press('Escape');
+  await expect(page.locator('.sg-hud[data-overlay="pause"] .hud-pause[data-mode="click"]')).toBeVisible();
+  await page.locator('.hud-pause .click-prompt').click();
+  await expect(page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as unknown as { __ui: { deps: { lastGame: { input: { isLocked(): boolean } } } } }).__ui.deps.lastGame.input.isLocked())).toBe(true);
+
+  // losing the lock during play opens the pause menu; wheel picks are not affected by the lock
+  await page.evaluate(() => (window as unknown as { __ui: { deps: { lastGame: { simulateUnlock(): void } } } }).__ui.deps.lastGame.simulateUnlock());
+  await expect(page.locator('.sg-hud[data-overlay="pause"] .pm-box')).toBeVisible();
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
+test('roles: the real Lord is told which crown is the Body Double', async () => {
+  const { ctx, page, errors } = await open('screen=roles&role=lord&double=1', 1280, 720);
+  await expect(page.locator('[data-screen="roles"] .crown-secret.yourDouble')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('.seat-chip.decoy')).toHaveCount(1);
+  expect(errors).toEqual([]);
+  await ctx.close();
+  const dbl = await open('screen=heroSelect&role=double&lordPhase=1', 1280, 720);
+  await expect(dbl.page.locator('[data-screen="heroSelect"] .grid .sg-hcard').first()).toBeVisible({ timeout: 10_000 });
+  await expect(dbl.page.locator('.sg-select.waiting')).toHaveCount(0);
+  await expect(dbl.page.locator('.detail-actions .sg-btn')).toBeEnabled();
+  await expect(dbl.page.locator('.picks-strip .pick.lord')).toHaveCount(2);
+  expect(dbl.errors).toEqual([]);
+  await dbl.ctx.close();
 });

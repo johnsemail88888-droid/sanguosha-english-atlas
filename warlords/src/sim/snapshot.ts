@@ -42,7 +42,7 @@ import {
   VF_STUNNED,
 } from '../core/types';
 import { troopDef } from './defs';
-import { revealedTo } from './status';
+import { revealedTo, statusRows } from './status';
 import type { World } from './world';
 
 /** Extension flag (sim-level): 'reveal' status — show on every minimap / outline through walls. */
@@ -269,9 +269,7 @@ export function privateView(w: World, e: Entity): PrivateHeroView {
     downed: h.downed,
     downedRemaining: h.downed ? Math.max(0, Math.round((h.downedUntil - now) * 10) / 10) : 0,
     dead: h.dead,
-    statuses: e.statuses
-      .filter((s) => s.until > now)
-      .map((s) => ({ id: s.id, remaining: s.until === Infinity ? -1 : Math.round((s.until - now) * 10) / 10 })),
+    statuses: statusRows(e, now, e.id),
     squad,
     order: { ...h.order },
     stats: { ...h.stats },

@@ -59,8 +59,9 @@ describe('layout — no clipping', () => {
     }
   });
 
-  it('sits box-shaped props on the ground (uphill end buried by <= 40% of their height)', () => {
-    const BOXY = new Set<MapProp['type']>(['ruin', 'barricade', 'crateStack', 'tent', 'house', 'statue', 'watchtower']);
+  it('sits flat-based props on the ground (uphill end buried by <= 40% of their height)', () => {
+    // (walls are exempt: the 虎牢关 fortress wall deliberately runs into the ridges)
+    const BOXY = new Set<MapProp['type']>(['ruin', 'barricade', 'crateStack', 'tent', 'house', 'statue', 'watchtower', 'brazier']);
     for (const { map } of maps) {
       for (const p of map.props) {
         if (!BOXY.has(p.type)) continue;

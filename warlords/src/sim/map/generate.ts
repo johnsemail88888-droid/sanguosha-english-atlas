@@ -16,7 +16,7 @@
 //   洛阳宫城 centre (walls ±38, outer face ±40.5)   虎牢关 north (fortress z=-100)
 //   赤壁 river z≈92 (3 bridges, docks, 3 ships)      官渡大营 east (104,-6)
 //   长坂坡 west (-104,6)   乌巢 NE (98,-100)   北邙山 NW (-98,-100)
-//   南蛮营地 SW (-98,122)  华容道 SE (98,122)  red cliffs (40,124)
+//   南蛮营地 SW (-92,122)  华容道 SE (98,122)  red cliffs (40,124)
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // PROP GEOMETRY CONVENTIONS  (renderer builds meshes from the same numbers;
@@ -250,7 +250,7 @@ export function generateMapDetailed(seed: number): GeneratedMapDetails {
   // bridgeheads: flat landing at the deck ends, then a ramp road up the valley flank
   const landY = BRIDGE_DECK_Y - 0.25;
   for (const br of plan.bridges) {
-    const hw = BRIDGE_W / 2 + 2;
+    const hw = BRIDGE_W / 2 + 3; // deck + the braziers flanking it (at ±(W/2 + 1.6))
     terrain.applyPad({ shape: rect(br.x, br.zN - 11, hw, 12.5), blend: 5, ramp: { axis: 'z', from: br.zN - 1, to: br.zN - 22, h0: landY, h1: 'natural' } });
     terrain.applyPad({ shape: rect(br.x, br.zS + 11, hw, 12.5), blend: 5, ramp: { axis: 'z', from: br.zS + 1, to: br.zS + 22, h0: landY, h1: 'natural' } });
   }

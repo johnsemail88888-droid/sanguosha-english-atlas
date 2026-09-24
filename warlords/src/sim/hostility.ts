@@ -9,7 +9,7 @@
 // Neutral NPCs (黄巾 camps) attack heroes/troops in range; summoned NPCs attack
 // everything that is not on their summoner's side (except npcImmune heroes).
 import type { Entity, RoleId } from '../core/types';
-import { findStatus } from './status';
+import { hasStatusFrom } from './status';
 import type { World } from './world';
 
 const FOCUS_MEMORY = 4;
@@ -80,8 +80,7 @@ export function isHostile(w: World, a: Entity, b: Entity): boolean {
   if (focus.id !== undefined && now - focus.at <= FOCUS_MEMORY && (focus.id === b.id || (b.kind === 'hero' && focus.id === bRoot.id && bRoot === b))) return true;
   const order = ca.hero?.order;
   if (order && order.kind === 'attack' && order.targetId === b.id) return true;
-  const mark = findStatus(b, 'marked', now);
-  if (mark && mark.sourceId === ca.id) return true;
+  if (b.statuses.length > 0 && hasStatusFrom(b, 'marked', ca.id, now)) return true;
   // (c) aggroed NPCs
   if (b.kind === 'npc' && b.npc) {
     const t = b.npc.targetId;

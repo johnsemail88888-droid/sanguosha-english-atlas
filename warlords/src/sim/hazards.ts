@@ -12,6 +12,9 @@
 //   HazardSpec.followId     hazard follows that entity
 // Owner-side units are unaffected by damage/status unless affectsOwner.
 // Wave-2 code can register custom per-kind logic with registerHazardKind().
+// 无懈可击: lingering field ticks (damage / slow / status, custom kind ticks)
+// neither consume nor are blocked by nullify; discrete effects — a trap
+// springing (triggerOnce) or a lightning strike — are ability effects and do.
 import type { DamageType, Entity, StatusId } from '../core/types';
 import type { HazardSpec, SimApi } from './api';
 import { warnOnce } from './defs';
@@ -54,12 +57,27 @@ export function hazardRuntimeFrom(spec: HazardSpec): HazardRuntime {
   };
 }
 
-function safeKind<T>(impl: HazardKindImpl, fn: () => T): T | undefined {
+/** Run a custom kind hook, isolated, with the hazard's owner as the acting hero. */
+function safeKind<T>(w: World, h: Entity, impl: HazardKindImpl, fn: () => T): T | undefined {
+  const prev = w.actorId;
+  w.actorId = w.creditOf(h.ownerId);
   try {
     return fn();
   } catch (err) {
     warnOnce(`hazard:${impl.kind}`, `hazard kind '${impl.kind}' threw: ${String(err)}`);
     return undefined;
+  } finally {
+    w.actorId = prev;
+  }
+}
+
+/** Periodic area effects: never consume 无懈可击 (see header). */
+function periodic(w: World, fn: () => void): void {
+  w.periodicDepth++;
+  try {
+    fn();
+  } finally {
+    w.periodicDepth--;
   }
 }
 
@@ -70,7 +88,7 @@ export function updateHazards(w: World, list: readonly Entity[], dt: number): vo
     if (!h.alive || !hz) continue;
     const impl = KINDS.get(hz.kind);
     if (now + 1e-9 >= hz.expiresAt) {
-      if (impl?.onExpire) safeKind(impl, () => impl.onExpire!(w, h));
+      if (impl?.onExpire) safeKind(w, h, impl, () => impl.onExpire!(w, h));
       w.removeEntity(h.id);
       continue;
     }
@@ -85,7 +103,7 @@ export function updateHazards(w: World, list: readonly Entity[], dt: number): vo
     }
     const seek = hz.params.seek ?? 0;
     if (seek > 0) seekNearestHero(w, h, seek, dt);
-    if (impl?.update) safeKind(impl, () => impl.update!(w, h, dt));
+    if (impl?.update) safeKind(w, h, impl, () => impl.update!(w, h, dt));
     if (now + 1e-9 < hz.nextTickAt) continue;
     hz.nextTickAt += Math.max(0.05, hz.tickEvery);
     const rt = w.hazardRt.get(h.id) ?? { dtype: 'fire' as DamageType, affectsOwner: false, triggerOnce: false };
@@ -96,7 +114,10 @@ export function updateHazards(w: World, list: readonly Entity[], dt: number): vo
       (u) => rt.affectsOwner || ownerCredit === undefined || w.creditOf(u.id) !== ownerCredit,
     );
     if (impl?.tick) {
-      const skip = safeKind(impl, () => impl.tick!(w, h, inside));
+      let skip: boolean | void | undefined;
+      periodic(w, () => {
+        skip = safeKind(w, h, impl, () => impl.tick!(w, h, inside));
+      });
       if (skip) continue;
     }
     if (rt.triggerOnce) {
@@ -113,17 +134,27 @@ function applyHazardEffects(w: World, h: Entity, rt: HazardRuntime, enemies: Ent
   const hz = h.hazard!;
   const p = hz.params;
   const owner = h.ownerId;
-  if ((p.damage ?? 0) > 0) {
-    for (const u of enemies) {
-      w.dealDamage({ targetId: u.id, sourceId: owner, amount: p.damage, type: rt.dtype, canDodge: false, abilityId: hz.kind, pos: w.centerOf(u) });
-    }
-  }
+  // a trap springing once is a discrete trick (nullify applies); a lingering field is not
+  if (rt.triggerOnce) fieldEffects(w, h, rt, enemies, inside);
+  else periodic(w, () => fieldEffects(w, h, rt, enemies, inside));
   if ((p.strike ?? 0) > 0 && enemies.length > 0) {
     const victim = enemies[Math.floor(w.rng.next() * enemies.length)];
     if (victim.alive) {
       w.emit({ t: 'explosion', pos: { x: victim.pos.x, y: victim.pos.y, z: victim.pos.z }, radius: 1.5, kind: 'thunder' });
       w.dealDamage({ targetId: victim.id, sourceId: owner, amount: p.strike, type: 'thunder', canDodge: false, abilityId: hz.kind, pos: w.centerOf(victim) });
       if ((p.stun ?? 0) > 0 && victim.alive) w.applyStatus(victim.id, 'stun', p.stun, { sourceId: owner });
+    }
+  }
+}
+
+/** damage / heal / slow / status to everything inside (see applyHazardEffects). */
+function fieldEffects(w: World, h: Entity, rt: HazardRuntime, enemies: Entity[], inside: Entity[]): void {
+  const hz = h.hazard!;
+  const p = hz.params;
+  const owner = h.ownerId;
+  if ((p.damage ?? 0) > 0) {
+    for (const u of enemies) {
+      w.dealDamage({ targetId: u.id, sourceId: owner, amount: p.damage, type: rt.dtype, canDodge: false, abilityId: hz.kind, pos: w.centerOf(u) });
     }
   }
   if ((p.heal ?? 0) > 0) {

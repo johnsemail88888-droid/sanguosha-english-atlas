@@ -2,7 +2,10 @@
 // Uses only public knowledge (known roles, claims, who attacked whom) — never
 // the hidden roles of other players.
 //  - fights: whoever is hostile per sim.isHostileTo, whoever shot it, (lord
-//    side) whoever shot a crown bearer, (traitor) the lord in the endgame
+//    side) whoever shot a crown bearer, (bounty hunter) its bounty target,
+//    (traitor) the loyal side once every rebel is dead, the lord at the end
+//  - role *counts* are public in 身份局 (the table is known, the dead are
+//    revealed), so "rebels left" / "loyalists left" are fair knowledge
 //  - roams: stays in the zone, opens crates / grabs better gear, rebels hunt
 //    the lord, loyalists escort the lord and revive a downed crown bearer
 //  - uses 桃 when low, 酒 when downed, other items via ItemImplEx.botShouldUse,
@@ -44,6 +47,23 @@ const DIFFICULTY: Record<BotDifficulty, DiffCfg> = {
 const RARITY_RANK: Record<Rarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3 };
 const LORD_SIDE: ReadonlySet<RoleId> = new Set<RoleId>(['lord', 'loyalist', 'double']);
 const SLOTS: AbilitySlot[] = ['q', 'e', 'lord'];
+const REBEL_ROLES: ReadonlySet<RoleId> = new Set<RoleId>(['rebel']);
+const LOYAL_ROLES: ReadonlySet<RoleId> = new Set<RoleId>(['loyalist', 'double']);
+/** seconds before a shrink starts at which bots head for the next circle */
+const ZONE_LEAD = 45;
+
+/**
+ * Living heroes with one of `roles`: the table's role counts are public and
+ * the dead are revealed, so this is fair knowledge (it never says *who*).
+ */
+function rolesLeft(sim: SimApi, roles: ReadonlySet<RoleId>): number {
+  let n = 0;
+  for (const e of sim.heroes()) {
+    const r = sim.roleOf(e);
+    if (r && roles.has(r) && !e.hero!.dead) n++;
+  }
+  return n;
+}
 
 function toLocal(yaw: number, dx: number, dz: number): { mx: number; mz: number } {
   const fx = -Math.sin(yaw);
@@ -114,8 +134,11 @@ export class BasicBot implements BotBrain {
 
     // target acquisition
     const cur = this.targetId !== undefined ? sim.get(this.targetId) : undefined;
-    if (now >= this.nextScan || !cur || !isTargetable(sim, self, cur)) {
-      this.nextScan = now + this.cfg.scan;
+    // scan on a jittered cadence (bots never scan in lockstep); rescan at once when the
+    // current target is gone or we just got shot without one
+    const lost = this.targetId !== undefined && (!cur || !isTargetable(sim, self, cur));
+    if (now >= this.nextScan || lost || (hurt && !cur)) {
+      this.nextScan = now + this.cfg.scan * (0.75 + 0.5 * this.rng.next());
       const t = this.pickTarget(sim, self);
       if (t?.id !== this.targetId) {
         this.targetId = t?.id;
@@ -141,14 +164,23 @@ export class BasicBot implements BotBrain {
     const h = self.hero!;
     const attackers = new Set(x.recentAttackers(self.id, 8));
     const crowns = sim.heroes().filter((e) => !e.hero!.dead && sim.knownRole(e) === 'lord' && e !== self);
-    const defendLord = LORD_SIDE.has(h.role) || (h.role === 'traitor' && this.aliveHeroes(sim) > 2);
+    const defendLord = LORD_SIDE.has(h.role) || (h.role === 'traitor' && this.aliveHeroes(sim) > 2 && rolesLeft(sim, REBEL_ROLES) > 0);
     const lordAttackers = new Set<EntityId>();
     if (defendLord) for (const c of crowns) for (const a of x.recentAttackers(c.id, 8)) lordAttackers.add(a);
     if (h.role === 'lord') for (const a of x.recentAttackers(self.id, 10)) lordAttackers.add(a);
-    const traitorEndgame = h.role === 'traitor' && this.aliveHeroes(sim) <= 2;
     const calm = sim.time < this.cfg.calm;
+    // 内奸: help the lord while rebels live, then thin out the loyal side, then the lord
+    const rebelsLeft = h.role === 'traitor' ? rolesLeft(sim, REBEL_ROLES) : 1;
+    const loyalLeft = h.role === 'traitor' ? rolesLeft(sim, LOYAL_ROLES) : 1;
+    const traitorPurge = h.role === 'traitor' && !calm && rebelsLeft === 0 && loyalLeft > 0;
+    const traitorEndgame = h.role === 'traitor' && (this.aliveHeroes(sim) <= 2 || (!calm && rebelsLeft === 0 && loyalLeft === 0));
+    const bountyId = h.role === 'bounty' && !calm ? h.bountyTargetId : undefined;
     const accept = (c: Entity): boolean => {
       if (sim.isOwnSide(self, c)) return false;
+      // a crown bearer we defend is never a target, even after a stray friendly-fire hit
+      if (defendLord && crowns.includes(c)) return false;
+      const cc = x.commanderOf(c);
+      if (defendLord && cc && cc !== c && crowns.includes(cc)) return false;
       const credit = x.creditOf(c.id);
       // early game: gear up; only fight whoever picks a fight (or aggressive NPCs)
       const provoked = attackers.has(c.id) || (credit !== undefined && attackers.has(credit)) || c.kind === 'npc';
@@ -159,6 +191,8 @@ export class BasicBot implements BotBrain {
         return !(defendLord && crowns.includes(c));
       }
       if (traitorEndgame && c.kind === 'hero' && sim.knownRole(c) === 'lord') return true;
+      if (traitorPurge && c.kind === 'hero' && sim.knownRole(c) !== 'lord') return true;
+      if (bountyId !== undefined && c.id === bountyId) return true;
       if (c.kind === 'npc' && c.npc?.targetId === self.id) return true;
       if (c.kind === 'hero' && c.hero?.claim) {
         const claim = c.hero.claim;
@@ -236,6 +270,14 @@ export class BasicBot implements BotBrain {
       const pz = (target.pos.x - self.pos.x) / Math.max(1e-3, d);
       mvx += px * this.strafe * 0.8;
       mvz += pz * this.strafe * 0.8;
+    }
+    // never fight to the death in the fire: the circle wins over the duel
+    const zoneGoal = this.zoneGoal(sim, self);
+    if (zoneGoal && this.zoneHurts(sim, self)) {
+      resetIntent(this.intent);
+      steerTo(sim, self, zoneGoal, this.mem, this.intent, 2);
+      mvx = this.intent.moveX;
+      mvz = this.intent.moveZ;
     }
     const ml = Math.hypot(mvx, mvz);
     if (ml > 1) {
@@ -392,13 +434,22 @@ export class BasicBot implements BotBrain {
     return null;
   }
 
+  /** Outside the burning circle now, or about to be caught by the next shrink. */
+  private zoneHurts(sim: SimApi, self: Entity): boolean {
+    const z = ext(sim).zoneView();
+    if (dist2d(self.pos, z.center) > z.radius - 2) return true;
+    return z.shrinkStart - sim.time < 10 && dist2d(self.pos, z.targetCenter) > z.targetRadius;
+  }
+
+  /** Head for the next circle well before it closes (late circles: deep inside it). */
   private zoneGoal(sim: SimApi, self: Entity): Vec3 | null {
     const z = ext(sim).zoneView();
-    const soon = z.shrinkStart - sim.time < 25;
+    const soon = z.shrinkStart - sim.time < ZONE_LEAD;
     const c = soon ? z.targetCenter : z.center;
     const r = soon ? z.targetRadius : z.radius;
+    const margin = r < 60 ? Math.max(3, r * 0.3) : 8;
     const d = dist2d(self.pos, c);
-    if (d > Math.max(0, r - 6)) return { x: c.x, y: self.pos.y, z: c.z };
+    if (d > Math.max(0, r - margin)) return { x: c.x, y: self.pos.y, z: c.z };
     return null;
   }
 
@@ -479,9 +530,22 @@ export class BasicBot implements BotBrain {
     const h = self.hero!;
     const crowns = sim.heroes().filter((e) => e !== self && !e.hero!.dead && sim.knownRole(e) === 'lord');
     const lord = crowns[0];
+    const hunting = sim.time > this.cfg.calm;
     if (lord) {
-      if (h.role === 'rebel' && sim.time > this.cfg.calm) return { ...lord.pos };
+      if (h.role === 'rebel' && hunting) {
+        // regroup with a fellow (claimed / known) rebel near the lord before committing
+        const mate = this.rebelMate(sim, self, lord);
+        return mate && dist2d(self.pos, mate.pos) > 25 ? { ...mate.pos } : { ...lord.pos };
+      }
       if ((h.role === 'loyalist' || h.role === 'double') && dist2d(self.pos, lord.pos) > 18) return { ...lord.pos };
+    }
+    if (h.role === 'bounty' && hunting && h.bountyTargetId !== undefined) {
+      const t = sim.get(h.bountyTargetId);
+      if (t && !t.hero?.dead) return { ...t.pos };
+    }
+    if (h.role === 'traitor' && hunting && rolesLeft(sim, REBEL_ROLES) === 0) {
+      // go looking for the loyal side (they gather around the lord)
+      if (lord) return { ...lord.pos };
     }
     // wander inside the (next) zone
     const zone = ext(sim).zoneView();
@@ -490,6 +554,21 @@ export class BasicBot implements BotBrain {
     const a = this.rng.next() * Math.PI * 2;
     const d = r * Math.sqrt(this.rng.next());
     return { x: c.x + Math.cos(a) * d, y: self.pos.y, z: c.z + Math.sin(a) * d };
+  }
+
+  /** the rebel-claimed hero closest to the lord (rebels regroup on it) */
+  private rebelMate(sim: SimApi, self: Entity, lord: Entity): Entity | undefined {
+    let best: Entity | undefined;
+    let bd = Infinity;
+    for (const e of sim.heroes()) {
+      if (e === self || e.hero!.dead || e.hero!.claim !== 'rebel') continue;
+      const d = dist2d(e.pos, lord.pos);
+      if (d < bd) {
+        bd = d;
+        best = e;
+      }
+    }
+    return best;
   }
 
   // ── items / downed / claims ─────────────────────────────────────────────

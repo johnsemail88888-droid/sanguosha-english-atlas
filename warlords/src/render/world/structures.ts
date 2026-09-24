@@ -15,7 +15,6 @@ import {
   SHIP_BULWARK_H,
   SHIP_BULWARK_T,
   SHIP_CABIN_H,
-  SHIP_GANG_GAP,
   bridgePiers,
   stairSteps,
 } from '../../sim/map/props';
@@ -96,15 +95,12 @@ export function buildBarricade(c: PropCtx): void {
       const n = Math.max(2, Math.round(sx / 0.9));
       for (let i = 0; i < n; i++) {
         const x = -hx + ((i + 0.5) * sx) / n;
-        const len = Math.hypot(sy, sz) * 1.05;
         for (const sgn of [-1, 1]) {
           const a = V(x, logY - (sgn * sy) / 2, (-sgn * sz) / 2);
           const e = V(x, logY + (sgn * sy) / 2, (sgn * sz) / 2);
           b.rod(a, e, 0.06, jitter(c, ARCH.woodLight, 0.1), 5);
-          const dir = e.clone().sub(a).normalize();
-          b.add(PRIM.cone(5), trs(e.x, e.y, e.z, 0, 0, 0, 0.06, 0.25, 0.06), '#d8c9a0');
-          void dir;
-          void len;
+          // sharpened tip continuing the stake direction
+          b.rod(e, e.clone().add(e.clone().sub(a).normalize().multiplyScalar(0.25)), 0.06, '#d8c9a0', 5, 0.05);
         }
       }
       break;
@@ -362,8 +358,6 @@ export function buildShip(c: PropCtx): void {
     // pennant at the masthead
     c.cloth.quad(V(mx, mh, 0), V(mx + 2.4, mh - 0.3, 0), V(mx + 2.4, mh - 0.6, 0), V(mx, mh - 0.9, 0), paint, true);
   }
-  // gangplank gap marker (the stairs prop handles the ramp itself)
-  void SHIP_GANG_GAP;
 }
 
 export function buildStatue(c: PropCtx): void {

@@ -9,6 +9,7 @@ import {
   VF_CHARMED,
   VF_DEAD,
   VF_DOWNED,
+  VF_EXPOSED,
   VF_FROZEN,
   VF_INVULN,
   VF_LORD,
@@ -172,6 +173,8 @@ export class CharacterView {
 
     // stealth: only you / your squad receive stealthed entities → translucent shimmer
     this.rig.setStealth((e.flags & VF_STEALTH) !== 0);
+    // revealed (观星 / 狼顾 / 鬼谋): red silhouette through walls
+    this.rig.setXray((e.flags & VF_EXPOSED) !== 0 && !isLocal && (e.flags & VF_DEAD) === 0);
     this.rig.setShadows(ctx.shadows && dist < 60);
     this.applyTint(e.flags, dt, ctx.time);
 

@@ -30,6 +30,7 @@ import {
   VF_DEAD,
   VF_DODGING,
   VF_DOWNED,
+  VF_EXPOSED,
   VF_FIRING,
   VF_FROZEN,
   VF_HASTE,
@@ -79,6 +80,8 @@ const DEMO_FLAGS = [
   VF_HASTE,
   VF_SLOWED,
   VF_ROOTED,
+  VF_EXPOSED,
+  VF_STEALTH,
 ];
 
 export interface DevViewOptions {

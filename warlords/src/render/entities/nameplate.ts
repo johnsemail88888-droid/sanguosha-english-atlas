@@ -25,9 +25,9 @@ export interface PlateData {
 }
 
 const W = 384;
-const H = 144;
+const H = 136;
 /** plate height as a fraction of the screen height */
-export const PLATE_SCREEN_FRAC = 0.062;
+export const PLATE_SCREEN_FRAC = 0.085;
 
 export class Nameplate {
   readonly sprite: THREE.Sprite;
@@ -107,9 +107,9 @@ function draw(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, d
   y = 40;
   // name row
   g.textBaseline = 'middle';
-  g.font = `bold 30px ${CALLIGRAPHY_FONT}`;
+  g.font = `bold 36px ${CALLIGRAPHY_FONT}`;
   const nameW = g.measureText(d.heroName).width;
-  g.font = `18px ${UI_FONT}`;
+  g.font = `bold 20px ${UI_FONT}`;
   const pn = d.playerName ? ` ${d.playerName}` : '';
   const pnW = g.measureText(pn).width;
   const badges = (d.lord ? 34 : 0) + (d.role ? 34 : 0);
@@ -134,22 +134,22 @@ function draw(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, d
     x += 34;
   }
   g.textAlign = 'left';
-  g.font = `bold 30px ${CALLIGRAPHY_FONT}`;
-  g.lineWidth = 5;
+  g.font = `bold 36px ${CALLIGRAPHY_FONT}`;
+  g.lineWidth = 6;
   g.strokeStyle = 'rgba(12,8,4,0.85)';
   g.strokeText(d.heroName, x, rowY);
   g.fillStyle = d.friendly ? '#8fe08a' : lighten(kc);
   g.fillText(d.heroName, x, rowY);
   x += nameW;
   if (pn) {
-    g.font = `18px ${UI_FONT}`;
+    g.font = `bold 20px ${UI_FONT}`;
     g.lineWidth = 4;
     g.strokeText(pn, x, rowY + 2);
     g.fillStyle = '#f2ead6';
     g.fillText(pn, x, rowY + 2);
   }
   // claim tag (跳身份) under the name, right-aligned
-  const barY = y + 44;
+  const barY = y + 48;
   if (d.claim && d.claimLabel) {
     const rb = ROLE_BADGE[d.claim];
     g.font = `bold 16px ${UI_FONT}`;
@@ -163,8 +163,8 @@ function draw(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, d
     g.fillText(t, W - tw / 2 - 30, barY + 34);
   }
   // HP bar with 100-HP ticks (勾玉 segments) + shield overlay
-  const bw = 240;
-  const bh = 16;
+  const bw = 260;
+  const bh = 18;
   const bx = (W - bw) / 2;
   g.fillStyle = 'rgba(10,8,6,0.8)';
   roundRect(g, bx - 3, barY - 3, bw + 6, bh + 6, 5);

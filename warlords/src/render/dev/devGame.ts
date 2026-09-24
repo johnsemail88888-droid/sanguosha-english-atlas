@@ -7,7 +7,7 @@
 import { generateMap } from '../../sim/map/generate';
 import type { MapData } from '../../core/map';
 import { terrainHeight } from '../../core/map';
-import { settings, type Quality } from '../../game/settings';
+import type { Quality } from '../../game/settings';
 import { GameRenderer } from '../renderer';
 import { InputController } from '../../game/input';
 import { DevView } from './devView';
@@ -59,15 +59,16 @@ function findOpenArea(map: MapData, near: { x: number; z: number }, w = 70, d = 
 }
 
 export function startDevGame(canvas: HTMLCanvasElement, params: URLSearchParams): void {
-  const q = params.get('quality') as Quality | null;
-  if (q === 'low' || q === 'medium' || q === 'high') settings.update({ quality: q });
+  const qp = params.get('quality');
+  // dev override only: do not persist into the player's stored settings
+  const quality: Quality | undefined = qp === 'low' || qp === 'medium' || qp === 'high' ? qp : undefined;
   const t0 = performance.now();
   const showcase = params.get('map') === 'showcase';
   const map = showcase ? buildShowcaseMap() : generateMap(Number(params.get('seed') ?? 20260924));
   const at = params.get('at')?.split(',').map(Number);
   const origin = at && at.length === 2 ? { x: at[0], z: at[1] } : showcase ? { x: 0, z: 25 } : findOpenArea(map, { x: 0, z: 60 });
   const view = new DevView({ heroId: params.get('hero') ?? 'guanyu', map, origin });
-  const renderer = new GameRenderer(canvas, view);
+  const renderer = new GameRenderer(canvas, view, { quality });
   const tBuild = performance.now() - t0;
   // debug: ?hide=zone,terrain_skirt,water,... hides scene objects by name prefix
   const hide = params.get('hide')?.split(',') ?? [];

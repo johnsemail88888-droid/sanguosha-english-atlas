@@ -21,6 +21,22 @@ export interface RigUpdate {
 
 const mergedCache = new Map<string, THREE.BufferGeometry>();
 
+let xrayMat: THREE.MeshBasicMaterial | null = null;
+function xrayMaterial(): THREE.MeshBasicMaterial {
+  if (!xrayMat) {
+    xrayMat = new THREE.MeshBasicMaterial({
+      color: '#ff4a2a',
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+      depthFunc: THREE.GreaterDepth,
+      fog: false,
+    });
+    xrayMat.name = 'xray';
+  }
+  return xrayMat;
+}
+
 interface MergePart {
   geo: THREE.BufferGeometry;
   bone: number;
@@ -111,6 +127,7 @@ export class CharacterRig {
   private castShadows = true;
   private weaponShown = false;
   private fade = 1;
+  private xray: THREE.SkinnedMesh | null = null;
 
   constructor(spec: CharacterSpec) {
     this.spec = spec;
@@ -246,6 +263,25 @@ export class CharacterRig {
     this.stealthed = on;
     this.applyOpacity();
     this.setShadows(this.castShadows);
+  }
+
+  /** Through-wall silhouette (VF_EXPOSED / reveal): drawn only where the character is occluded. */
+  setXray(on: boolean): void {
+    if (!on) {
+      if (this.xray) this.xray.visible = false;
+      return;
+    }
+    if (!this.xray) {
+      this.xray = new THREE.SkinnedMesh(this.mesh.geometry, xrayMaterial());
+      this.xray.bind(this.mesh.skeleton, this.mesh.bindMatrix);
+      this.xray.boundingSphere = this.mesh.boundingSphere;
+      this.xray.renderOrder = 40;
+      this.xray.castShadow = false;
+      this.xray.name = 'xray';
+      this.root.add(this.xray);
+    }
+    this.xray.geometry = this.mesh.geometry;
+    this.xray.visible = true;
   }
 
   /** Fade the whole character (1 = opaque); used when the TPS camera is pushed into the local hero. */

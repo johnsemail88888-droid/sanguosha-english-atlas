@@ -3,11 +3,13 @@ import type { GameResult, HeroSelectView, PublicPlayerView, RoleDealView } from 
 import { isFatalSessionError } from '../../../src/ui/app';
 import { terrainRgb } from '../../../src/ui/hud/minimap';
 import { wheelChoices } from '../../../src/ui/hud/overlays';
-import { takenHeroes } from '../../../src/ui/screens/heroSelect';
+import { selectTurn, takenHeroes } from '../../../src/ui/screens/heroSelect';
+import { ZONE_TABLE } from '../../../src/ui/screens/help';
+import { ZONE_PHASES } from '../../../src/sim/zone';
 import { inviteLink } from '../../../src/ui/screens/lobby';
 import { buildOverRows, outcomeFor } from '../../../src/ui/screens/gameOver';
 import { errorMessage, isValidRoomCode, normalizeRoomCode } from '../../../src/ui/screens/online';
-import { crownSeats } from '../../../src/ui/screens/roles';
+import { crownSecret, crownSeats, shownSeatRole } from '../../../src/ui/screens/roles';
 import { shouldUseTouch, stickVector } from '../../../src/ui/touch';
 import { overrideLang } from '../../../src/ui/i18n';
 
@@ -48,6 +50,40 @@ describe('roles & hero select', () => {
   it('announces both crowns in chaos mode', () => {
     const deal: RoleDealView = { yourRole: 'rebel', publicRoles: { 3: 'double', 0: 'lord' } };
     expect(crownSeats(deal)).toEqual([0, 3]);
+  });
+
+  it('tells the real Lord (only) which crown is the decoy', () => {
+    const asLord: RoleDealView = { yourRole: 'lord', publicRoles: { 0: 'lord', 3: 'double' } };
+    const asDouble: RoleDealView = { yourRole: 'double', publicRoles: { 0: 'lord', 3: 'lord' } };
+    const asRebel: RoleDealView = { yourRole: 'rebel', publicRoles: { 0: 'lord', 3: 'lord' } };
+    expect(crownSecret(asLord, 0)).toEqual({ kind: 'yourDouble', seat: 3 });
+    expect(crownSecret(asDouble, 3)).toEqual({ kind: 'trueLord', seat: 0 });
+    expect(crownSecret(asRebel, 5)).toBeNull();
+    expect(shownSeatRole(asLord, 3, 0)).toBe('double');
+    expect(shownSeatRole(asDouble, 3, 3)).toBe('double');
+    expect(shownSeatRole(asDouble, 0, 3)).toBe('lord');
+    expect(shownSeatRole(asRebel, 3, 5)).toBe('lord');
+    expect(shownSeatRole(asRebel, 4, 5)).toBeUndefined();
+  });
+
+  it('lets the 影武者 pick in the lord phase (turn comes from the options)', () => {
+    // exactly what net/hostSession sends the Double: the REAL lord seat + its own options
+    const deal: RoleDealView = { yourRole: 'double', publicRoles: { 0: 'lord', 3: 'lord' } };
+    const forDouble: HeroSelectView = { options: ['a', 'b', 'c'], deadline: 10, picks: {}, lordSeat: 0, lordPhase: true };
+    expect(selectTurn(forDouble, 3, deal)).toMatchObject({ waiting: false, iAmCrown: true, iAmRealLord: false, crowns: [0, 3] });
+    const lordDeal: RoleDealView = { yourRole: 'lord', publicRoles: { 0: 'lord', 3: 'double' } };
+    expect(selectTurn({ ...forDouble }, 0, lordDeal)).toMatchObject({ waiting: false, iAmCrown: true, iAmRealLord: true });
+    const rebel: RoleDealView = { yourRole: 'rebel', publicRoles: { 0: 'lord', 3: 'lord' } };
+    const forRebel: HeroSelectView = { options: [], deadline: 10, picks: { 3: 'x' }, lordSeat: 0, lordPhase: true };
+    expect(selectTurn(forRebel, 5, rebel)).toMatchObject({ waiting: true, iAmCrown: false, iAmRealLord: false });
+    expect(selectTurn({ ...forRebel, lordPhase: false, options: ['a'] }, 5, rebel).waiting).toBe(false);
+    // no deal known (should not happen): fall back to lordSeat
+    expect(selectTurn({ ...forRebel, lordSeat: 2 }, 2, null)).toMatchObject({ iAmCrown: true, iAmRealLord: true, crowns: [2] });
+  });
+
+  it('generates the zone table from the sim phases', () => {
+    expect(ZONE_TABLE).toHaveLength(ZONE_PHASES.length);
+    ZONE_PHASES.forEach((z, i) => expect(ZONE_TABLE[i]).toEqual({ phase: i, ...z }));
   });
 
   it('marks heroes picked by others as taken', () => {

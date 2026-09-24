@@ -166,6 +166,8 @@ export interface WeaponModelSpec {
     | 'spear';
   /** decorative ancient element fused onto the gun */
   ornament?: 'dragonHead' | 'blade' | 'bayonet' | 'tassel' | 'phoenixFeathers' | 'axeHead' | 'serpentBlade' | 'crescent' | 'none';
+  /** render a pair (one gun per hand), e.g. 雌雄双股剑 dual pistols, 甘宁 dual SMGs */
+  akimbo?: boolean;
 }
 
 export interface WeaponDef {

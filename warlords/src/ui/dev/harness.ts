@@ -1,7 +1,14 @@
 // DOM side of the dev harness: fake 3D backdrop + GameHandle, procedural
 // portraits, and AppDeps wired to the mocks.
+//
+// The mock GameHandle mirrors the real InputController (src/game/input.ts):
+// gameplay input goes through the same InputState, so actions pushed while the
+// HUD has input disabled are dropped, key presses map through KEY_MAP, and the
+// pointer lock is simulated (requestLock grants it, simulateUnlock loses it).
+// `realInput` wires the actual InputController instead.
 import type { GameEvent, InputAction } from '../../core/types';
 import { HERO_BY_ID } from '../../data';
+import { InputController, InputState, KEY_MAP } from '../../game/input';
 import type { GameSession } from '../../game/session';
 import type { ViewSource } from '../../render/view';
 import type { AppDeps, GameHandle, UiKey } from '../app';
@@ -9,15 +16,28 @@ import { kingdomColor } from '../theme';
 import { MockSession, type MockSessionOptions } from './mock';
 
 export interface MockGameHandle extends GameHandle {
-  /** simulate the input controller reporting a UI key */
+  /** simulate the input controller reporting a UI key (bypasses the enabled gate, like a harness shortcut) */
   emitUiKey(key: UiKey, down: boolean): void;
+  /** every InputAction that reached the (fake) sim, in order */
   readonly actions: InputAction[];
   readonly spectate: (number | null)[];
-  enabled: boolean;
+  /** gameplay input enabled (the HUD disables it while modal overlays are open) */
+  readonly enabled: boolean;
+  /** true when the real InputController drives this handle */
+  readonly realInput: boolean;
+  /** simulate losing the pointer lock (Esc / alt-tab); no-op with the real controller */
+  simulateUnlock(): void;
+}
+
+export interface MockGameOptions {
+  /** start with the (simulated) pointer lock held — default true so HUD previews are not covered by "click to play" */
+  locked?: boolean;
+  /** drive the handle with the real InputController (src/game/input.ts) */
+  realInput?: boolean;
 }
 
 /** A painted battlefield backdrop + a GameHandle that re-emits the view's events each frame. */
-export function mountMockGame(container: HTMLElement, view: ViewSource): MockGameHandle {
+export function mountMockGame(container: HTMLElement, view: ViewSource, opts: MockGameOptions = {}): MockGameHandle {
   const canvas = document.createElement('canvas');
   canvas.className = 'mock-game-canvas';
   canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
@@ -92,55 +112,101 @@ export function mountMockGame(container: HTMLElement, view: ViewSource): MockGam
   const evCbs = new Set<(evs: readonly GameEvent[]) => void>();
   const actions: InputAction[] = [];
   const spectate: (number | null)[] = [];
+  const cleanup: (() => void)[] = [];
+  const listen = <K extends keyof WindowEventMap>(type: K, fn: (e: WindowEventMap[K]) => void): void => {
+    window.addEventListener(type, fn);
+    cleanup.push(() => window.removeEventListener(type, fn));
+  };
+
+  // ── input: the real controller, or a mirror of it built on the same InputState ──
+  const real = opts.realInput ? new InputController(canvas) : null;
+  const state = real ? real.state : new InputState();
+  let locked = !real && (opts.locked ?? true);
+  let touchMode = false;
+  const setLocked = (on: boolean): void => {
+    if (locked === on) return;
+    locked = on;
+    // the HUD reads isLocked() on this event, exactly as with the real pointer lock
+    queueMicrotask(() => document.dispatchEvent(new Event('pointerlockchange')));
+  };
+  const isEditable = (t: EventTarget | null): boolean => {
+    const el = t as HTMLElement | null;
+    return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+  };
+  if (!real) {
+    const onKey = (down: boolean) => (ev: KeyboardEvent): void => {
+      if (isEditable(ev.target)) return;
+      const b = KEY_MAP[ev.code];
+      if (b?.kind === 'ui') {
+        // like InputController: UI keys are not reported while gameplay input is disabled
+        if (!state.enabled || (down && ev.repeat)) return;
+        if (b.key === 'scoreboard') ev.preventDefault();
+        for (const cb of uiCbs) cb(b.key, down);
+        return;
+      }
+      if (!state.enabled) return;
+      if (down) state.keyDown(ev.code);
+      else state.keyUp(ev.code);
+    };
+    listen('keydown', onKey(true));
+    listen('keyup', onKey(false));
+    listen('blur', () => state.releaseAll());
+    const onDown = (): void => {
+      if (!locked && !touchMode && state.enabled) setLocked(true);
+    };
+    canvas.addEventListener('mousedown', onDown);
+    cleanup.push(() => canvas.removeEventListener('mousedown', onDown));
+  }
+
   let raf = 0;
   let last = performance.now();
+  const aim = { aimPoint: { x: 0, y: 0, z: 0 } };
   const loop = (now: number): void => {
     raf = requestAnimationFrame(loop);
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
+    // sample input like the render loop does: queued actions reach the "sim" once per frame
+    const frame = real ? real.sample({ pick: () => aim }) : state.frame(aim);
+    if (frame.actions.length) actions.push(...frame.actions);
+    view.pushInput(frame);
     view.update(dt);
     const evs = view.drainEvents();
     if (evs.length) for (const cb of evCbs) cb(evs);
   };
   raf = requestAnimationFrame(loop);
 
-  const keyMap: Record<string, UiKey> = { Tab: 'scoreboard', KeyM: 'map', Enter: 'chat', Escape: 'menu', KeyT: 'quickchat' };
-  const onKey = (down: boolean) => (ev: KeyboardEvent): void => {
-    const target = ev.target as HTMLElement | null;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
-    const key = keyMap[ev.code];
-    if (!key || (ev.repeat && key !== 'scoreboard')) return;
-    if (key === 'scoreboard') ev.preventDefault();
-    if (!down && key !== 'scoreboard') return;
-    for (const cb of uiCbs) cb(key, down);
+  const input: GameHandle['input'] = real ?? {
+    setMove: (x, z) => state.setTouchMove(x, z),
+    addLook: (dx, dy) => state.addLook(dx, dy),
+    setHeld: (btn, down) => state.setTouchHeld(btn, down),
+    // dropped while disabled, exactly like InputState.pushAction
+    pushAction: (a) => state.pushAction(a),
+    setTouchMode: (on) => {
+      touchMode = on;
+      if (on) setLocked(false);
+    },
+    onUiKey: (cb) => {
+      uiCbs.add(cb);
+      return () => uiCbs.delete(cb);
+    },
+    setEnabled: (on) => {
+      state.enabled = on;
+      if (!on) state.releaseAll();
+    },
+    requestLock: () => {
+      if (!touchMode) setLocked(true);
+    },
+    isLocked: () => locked,
   };
-  const kd = onKey(true);
-  const ku = onKey(false);
-  window.addEventListener('keydown', kd);
-  window.addEventListener('keyup', ku);
 
   const handle: MockGameHandle = {
     actions,
     spectate,
-    enabled: true,
-    input: {
-      setMove: () => undefined,
-      addLook: () => undefined,
-      setHeld: () => undefined,
-      pushAction: (a) => {
-        actions.push(a);
-      },
-      setTouchMode: () => undefined,
-      onUiKey: (cb) => {
-        uiCbs.add(cb);
-        return () => uiCbs.delete(cb);
-      },
-      setEnabled: (on) => {
-        handle.enabled = on;
-      },
-      requestLock: () => undefined,
-      isLocked: () => true,
+    realInput: !!real,
+    get enabled() {
+      return state.enabled;
     },
+    input,
     onEvents: (cb) => {
       evCbs.add(cb);
       return () => evCbs.delete(cb);
@@ -149,18 +215,28 @@ export function mountMockGame(container: HTMLElement, view: ViewSource): MockGam
       spectate.push(id);
     },
     emitUiKey: (key, down) => {
+      if (real) {
+        // the real controller only reports UI keys from the keyboard
+        window.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code: UI_KEY_CODES[key] }));
+        return;
+      }
       for (const cb of uiCbs) cb(key, down);
+    },
+    simulateUnlock: () => {
+      if (!real) setLocked(false);
     },
     dispose: () => {
       cancelAnimationFrame(raf);
       ro?.disconnect();
-      window.removeEventListener('keydown', kd);
-      window.removeEventListener('keyup', ku);
+      for (const c of cleanup) c();
+      real?.dispose();
       canvas.remove();
     },
   };
   return handle;
 }
+
+const UI_KEY_CODES: Record<UiKey, string> = { scoreboard: 'Tab', map: 'KeyM', chat: 'Enter', menu: 'Escape', quickchat: 'KeyT' };
 
 const portraitCache = new Map<string, string>();
 
@@ -228,7 +304,7 @@ export interface MockDeps extends AppDeps {
   audioLog: string[];
 }
 
-export function createMockDeps(sessionOpts: MockSessionOptions = {}): MockDeps {
+export function createMockDeps(sessionOpts: MockSessionOptions = {}, gameOpts: MockGameOptions = {}): MockDeps {
   const deps: MockDeps = {
     lastGame: null,
     lastSession: null,
@@ -261,7 +337,7 @@ export function createMockDeps(sessionOpts: MockSessionOptions = {}): MockDeps {
       });
     },
     mountGame(container: HTMLElement, view: ViewSource, _session: GameSession) {
-      const h = mountMockGame(container, view);
+      const h = mountMockGame(container, view, gameOpts);
       deps.lastGame = h;
       return h;
     },

@@ -126,12 +126,10 @@ function rock(kind: number): THREE.BufferGeometry {
   ng.translate(-(bb.max.x + bb.min.x) / 2, -bb.min.y, -(bb.max.z + bb.min.z) / 2);
   ng.scale(sx, sy, sz);
   ng.translate(0, -0.2, 0);
-  const P = ng.getAttribute('position') as THREE.BufferAttribute;
   b.addWith(ng, new THREE.Matrix4(), (_x, y) => {
     const t = Math.min(1, Math.max(0, y));
     return mixCol(NATURE.rockDark, NATURE.rock, 0.4 + t * 0.6);
   });
-  void P;
   ng.dispose();
   // moss cap
   return b.build();

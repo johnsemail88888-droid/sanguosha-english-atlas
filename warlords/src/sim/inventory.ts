@@ -95,10 +95,14 @@ export function completeItem(w: World, e: Entity, rt: HeroRuntime, slot: number,
   if (!def || !impl) return;
   const ctx: ItemCtx = { sim: w, self: e, def, input: rt.input, target, point };
   let ok = false;
+  const prevActor = w.actorId;
+  w.actorId = e.id; // source of source-less effects (knockback, steal) for nullify / vetoes
   try {
     ok = impl.use(ctx) === true;
   } catch (err) {
     warnOnce(`item-throw:${itemId}`, `item '${itemId}' threw: ${String(err)}`);
+  } finally {
+    w.actorId = prevActor;
   }
   if (!ok) return;
   const cur = h.items[slot];
@@ -185,11 +189,26 @@ export function rollRewardItems(w: World, n: number, minRarity?: 'common' | 'rar
 }
 
 /** Remove one random item (or armor/mount) from a hero. Returns null when 谦逊-style vetoes block theft. */
+/**
+ * SimApi.takeRandomItem: remove one random item (and optionally armor/mount).
+ * Called from ability / item code the acting hero is the thief: 陆逊 谦逊
+ * vetoes it and 无懈可击 cancels it when that hero is an enemy.
+ */
 export function takeRandomItem(w: World, heroId: EntityId, includeEquipment = false): string | null {
   const e = w.get(heroId);
-  const h = e?.hero;
-  if (!e || !h) return null;
-  if (!w.hooks.canBeAffected(e, 'steal')) return null;
+  if (!e?.hero) return null;
+  const actor = w.actorId;
+  if (actor !== e.id) {
+    if (!w.hooks.canBeAffected(e, 'steal', actor)) return null;
+    if (actor !== undefined && w.nullifies(e, actor)) return null;
+  }
+  return takeItemFrom(w, e, includeEquipment);
+}
+
+/** Remove one random item/equipment piece (no vetoes). */
+function takeItemFrom(w: World, e: Entity, includeEquipment: boolean): string | null {
+  const h = e.hero!;
+  const heroId = e.id;
   const opts: { kind: 'item' | 'armor' | 'mount'; slot: number }[] = [];
   h.items.forEach((s, i) => {
     if (s) opts.push({ kind: 'item', slot: i });
@@ -221,7 +240,8 @@ export function stealItem(w: World, thiefId: EntityId, victimId: EntityId, inclu
   const thief = w.get(thiefId);
   if (!victim?.hero || !thief?.hero || victim === thief) return null;
   if (!w.hooks.canBeAffected(victim, 'steal', thiefId)) return null;
-  const id = takeRandomItem(w, victimId, includeEquipment);
+  if (w.nullifies(victim, thiefId)) return null;
+  const id = takeItemFrom(w, victim, includeEquipment);
   if (id) giveOrDrop(w, thief, id);
   return id;
 }

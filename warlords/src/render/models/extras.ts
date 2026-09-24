@@ -170,7 +170,6 @@ function scarf(c: BodyCtx): void {
     0.02,
     s.kingdom,
   );
-  void b;
 }
 
 function goggles(c: BodyCtx): void {
@@ -321,5 +320,4 @@ function staff(c: BodyCtx): void {
     const p = t.clone().lerp(a, 0.1 + i * 0.05);
     b.add(PRIM.box(), trs(p.x + 0.03, p.y - 0.08, p.z + 0.02, 0, 0, 0.1, 0.035, 0.14, 0.004), '#e8cf5a');
   }
-  void col;
 }

@@ -114,7 +114,7 @@ export function buildWeapon(id: string): WeaponModel {
 
 export function isAkimbo(id: string): boolean {
   const { spec } = weaponSpecOf(id);
-  return AKIMBO_IDS.has(id) || (spec as WeaponModelSpec & { akimbo?: boolean }).akimbo === true;
+  return spec.akimbo ?? AKIMBO_IDS.has(id);
 }
 
 // ── builders ────────────────────────────────────────────────────────────────
@@ -357,7 +357,8 @@ function sword(b: GeoBuilder, L: number, body: THREE.Color, acc: THREE.Color): W
   b.add(PRIM.box(), trs(0, 0, -0.06 - (L - 0.2) / 2, 0, 0, 0, 0.045, 0.01, L - 0.2), '#d8dde2');
   b.add(PRIM.cone(4), trs(0, 0, -L + 0.1, -Math.PI / 2, Math.PI / 4, 0, 0.032, 0.08, 0.008), '#d8dde2');
   b.add(PRIM.sphere(6, 4), trs(0, 0, 0.13, 0, 0, 0, 0.025, 0.025, 0.025), acc);
-  void body;
+  // the blade uses polished steel; the body colour tints the grip wrap
+  b.rod(v(0, 0, 0.1), v(0, 0, -0.02), 0.021, shade(body, 0.8), 6);
   return { hold: 'sword', fore: null, mag: null, muzzle: v(0, 0, -L + 0.05), length: L, fxClass: 'melee' };
 }
 
@@ -420,7 +421,6 @@ function ornament(b: GeoBuilder, kind: NonNullable<WeaponModelSpec['ornament']>,
       break;
     }
     default:
-      void body;
       break;
   }
 }

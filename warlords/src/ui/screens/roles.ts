@@ -47,13 +47,20 @@ export function shownSeatRole(deal: RoleDealView, seat: number, me: number): Rol
   return seat === me ? deal.yourRole : deal.publicRoles[seat];
 }
 
+/** Rough width of a label in em: CJK glyphs are 1 em, Latin ~0.6 em (fits long role names on small cards). */
+export function textUnits(text: string): number {
+  let n = 0;
+  for (const ch of text) n += (ch.codePointAt(0) ?? 0) >= 0x2e80 ? 1 : 0.6;
+  return Math.max(1, n);
+}
+
 function roleCard(role: RoleId): HTMLElement {
   const def = ROLE_BY_ID[role];
   const color = roleColor(role);
   const front = h('div', { class: 'face front' },
     h('div', { class: 'frame' },
       seal(ROLE_GLYPH[role], { color, size: '5.2em' }),
-      h('div', { class: 'rname' }, roleName(role)),
+      h('div', { class: 'rname', style: `--len:${textUnits(roleName(role)).toFixed(1)}` }, roleName(role)),
       h('div', { class: 'faction' }, def ? tx(def.nameEn, def.nameZh) : ''),
     ),
   );

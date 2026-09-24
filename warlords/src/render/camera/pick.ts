@@ -199,7 +199,6 @@ export class PickWorld {
     const half = this.map.size / 2;
     let t = tMin;
     let prevT = t;
-    let prevAbove = true;
     // skip quickly if the whole ray segment is above the highest terrain point
     if (d.y >= 0 && o.y + d.y * tMin > this.maxTerrain) return null;
     const cell = this.map.size / this.map.res;
@@ -227,13 +226,11 @@ export class PickWorld {
         }
         return hi;
       }
-      prevAbove = above;
       prevT = t;
       if (d.y > 0 && y > this.maxTerrain) return null;
       // adaptive step: bigger when high above ground, never skip a cell entirely
       t += Math.min(Math.max(gap * 0.5, cell * 0.35), cell * 2);
     }
-    void prevAbove;
     return null;
   }
 
@@ -260,7 +257,6 @@ export class PickWorld {
     let tMaxZ = Number.isFinite(invZ) ? (nextBoundary(iz, stepZ) - o.z) * invZ : Infinity;
     const tDeltaX = Number.isFinite(invX) ? CELL * Math.abs(invX) : Infinity;
     const tDeltaZ = Number.isFinite(invZ) ? CELL * Math.abs(invZ) : Infinity;
-    let tCell = tMin;
     for (let guard = 0; guard < 4096; guard++) {
       if (ix >= 0 && iz >= 0 && ix < this.gridN && iz < this.gridN) {
         const list = this.cells[iz * this.gridN + ix];
@@ -285,7 +281,6 @@ export class PickWorld {
       const tExit = Math.min(tMaxX, tMaxZ);
       if (best && best.t <= tExit) break;
       if (tExit > bestT || tExit > tMax) break;
-      tCell = tExit;
       if (tMaxX < tMaxZ) {
         ix += stepX;
         tMaxX += tDeltaX;
@@ -294,7 +289,6 @@ export class PickWorld {
         tMaxZ += tDeltaZ;
       }
     }
-    void tCell;
     return best;
   }
 }

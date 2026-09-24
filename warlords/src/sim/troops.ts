@@ -10,7 +10,7 @@ import { unitFire } from './combat';
 import { troopDef, weaponDef } from './defs';
 import { findFreeSpot, forcedMove, steerMove } from './physics';
 import type { MoveState } from './physics';
-import { controlState, findStatus, statusSpeedMul } from './status';
+import { controlState, findStatus, statusSpeedMul, statusValue } from './status';
 import type { ControlState } from './status';
 import type { World } from './world';
 
@@ -169,7 +169,7 @@ export function driveUnit(
     const want = Math.atan2(-(target.pos.x - u.pos.x), -(target.pos.z - u.pos.z));
     if (Math.abs(wrap(want - u.yaw)) > 0.9) return;
   }
-  const rate = weapon.fireRate * (findStatus(u, 'fireRateUp', now)?.params?.mul ?? 1);
+  const rate = weapon.fireRate * statusValue(u, 'fireRateUp', now, 1);
   if (unitFire(w, u, target, weapon, accuracy, dmgMul)) {
     fire.nextFireAt = now + 1 / Math.max(0.05, rate) * (0.9 + w.rng.next() * 0.2);
     if (!weapon.melee && weapon.magSize > 0 && !findStatus(u, 'noReload', now)) {
@@ -246,7 +246,7 @@ export function updateTurrets(w: World, list: readonly Entity[], dt: number): vo
     }
     t.yaw = Math.atan2(-(target.pos.x - t.pos.x), -(target.pos.z - t.pos.z));
     if (now < tu.nextFireAt || findStatus(t, 'stun', now)) continue;
-    const rate = weapon.fireRate * (findStatus(t, 'fireRateUp', now)?.params?.mul ?? 1);
+    const rate = weapon.fireRate * statusValue(t, 'fireRateUp', now, 1);
     // commander troopDmgMul is applied by the damage pipeline
     if (unitFire(w, t, target, weapon, TURRET_ACCURACY)) tu.nextFireAt = now + 1 / Math.max(0.05, rate);
     else tu.nextFireAt = now + 0.3;

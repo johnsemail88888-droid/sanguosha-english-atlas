@@ -178,3 +178,26 @@ describe('temporary troops', () => {
     expect(cmd.hero!.squad.length).toBe(0);
   });
 });
+
+describe('pathfinding budget', () => {
+  it('shares paths per (start cell, goal cell), keeps a per-tick search budget and stays deterministic', () => {
+    const w = makeWorld(['lord', 'loyalist', 'rebel', 'rebel', 'traitor'], { nav: true });
+    w.step();
+    const goal = { x: -30, y: 0, z: -30 };
+    const p1 = w.findPath({ x: 30, y: 0, z: 40 }, goal);
+    expect(p1).not.toBeNull();
+    expect(p1![0]).toMatchObject({ x: 30, z: 40 });
+    // same tick, budget spent: a new search is refused, but a nearby start (same 4 m cell) reuses the path
+    expect(w.findPath({ x: 30, y: 0, z: 10 }, goal)).toBeNull();
+    const p2 = w.findPath({ x: 31, y: 0, z: 41 }, goal);
+    expect(p2).not.toBeNull();
+    expect(p2![0]).toMatchObject({ x: 31, z: 41 });
+    expect(p2!.slice(1)).toEqual(p1!.slice(1));
+    // callers get their own arrays
+    p2![1].x += 100;
+    expect(w.findPath({ x: 30.5, y: 0, z: 40.5 }, goal)![1].x).toBe(p1![1].x);
+    // next tick the budget is back
+    w.step();
+    expect(w.findPath({ x: 30, y: 0, z: 10 }, goal)).not.toBeNull();
+  });
+});

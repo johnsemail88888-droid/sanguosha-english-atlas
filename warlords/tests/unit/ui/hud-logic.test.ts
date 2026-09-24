@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { PrivateHeroView, PublicPlayerView, ViewEntity, ZoneView } from '../../../src/core/types';
-import { VF_AIRBORNE, VF_DEAD, VF_DOWNED, VF_OPENED } from '../../../src/core/types';
-import { HEROES, WEAPONS } from '../../../src/data';
+import { VF_AIRBORNE, VF_DEAD, VF_DOWNED, VF_EXPOSED, VF_OPENED, VF_STEALTH } from '../../../src/core/types';
+import { HEROES, HERO_BY_ID, WEAPONS, isPassiveAbility } from '../../../src/data';
+import { crownKind, isMapVisible } from '../../../src/ui/hud/minimap';
 import {
+  BASE_DODGE_CHARGES,
+  abilityReady,
+  canReviveFree,
+  maxDodgeCharges,
   aliveCount,
   cooldownFraction,
   crosshairStyle,
@@ -106,6 +111,50 @@ describe('abilities', () => {
   });
   it('returns nothing for unknown heroes', () => {
     expect(hudAbilities(undefined, 'lord')).toEqual([]);
+  });
+  it('shows passive lord skills (袁绍 血裔) without a key and not clickable', () => {
+    const passiveLord = HEROES.find((h) => h.abilities.some((a) => a.slot === 'lord' && isPassiveAbility(a)));
+    if (!passiveLord) return;
+    const views = hudAbilities(passiveLord, 'lord');
+    const lord = views.find((a) => a.def.slot === 'lord');
+    expect(lord).toMatchObject({ key: '', active: false });
+    for (const v of views.filter((a) => a.def.slot === 'q' || a.def.slot === 'e')) expect(v.active).toBe(true);
+    for (const v of views.filter((a) => a.def.slot === 'passive')) expect(v).toMatchObject({ key: '', active: false });
+  });
+  it('charge-based abilities stay ready while a charge is left', () => {
+    const charged = HEROES.flatMap((h) => h.abilities).find((a) => (a.charges ?? 0) > 1);
+    const plain = HEROES.flatMap((h) => h.abilities).find((a) => !a.charges && a.cooldown);
+    if (charged) {
+      expect(abilityReady(charged, 7, 1)).toBe(true); // recharging the 2nd charge
+      expect(abilityReady(charged, 7, 0)).toBe(false);
+      expect(abilityReady(charged, 0, undefined)).toBe(true); // not sent yet → full
+    }
+    if (plain) {
+      expect(abilityReady(plain, 3, undefined)).toBe(false);
+      expect(abilityReady(plain, 0, undefined)).toBe(true);
+    }
+  });
+  it('reads max dodge charges from hero data', () => {
+    expect(maxDodgeCharges(undefined)).toBe(BASE_DODGE_CHARGES);
+    expect(maxDodgeCharges('no-such-hero')).toBe(BASE_DODGE_CHARGES);
+    for (const h of HEROES) {
+      const extra = h.abilities.map((a) => a.params?.maxDodges).find((m) => typeof m === 'number');
+      expect(maxDodgeCharges(h.id)).toBe(Math.max(BASE_DODGE_CHARGES, extra ?? 0));
+    }
+    if (HERO_BY_ID.zhaoyun) expect(maxDodgeCharges('zhaoyun')).toBe(3);
+  });
+  it('knows who can revive without a peach (data-driven, cooldown-aware)', () => {
+    const healer = HEROES.find((h) => h.abilities.some((a) => typeof a.params?.freeReviveCd === 'number'));
+    const other = HEROES.find((h) => !h.abilities.some((a) => typeof a.params?.freeReviveCd === 'number'));
+    if (other) expect(canReviveFree({ heroId: other.id, cooldowns: {} })).toBe(false);
+    if (healer) {
+      const ab = healer.abilities.find((a) => typeof a.params?.freeReviveCd === 'number')!;
+      expect(canReviveFree({ heroId: healer.id, cooldowns: {} })).toBe(true);
+      expect(canReviveFree({ heroId: healer.id, cooldowns: { [ab.id]: 12 } })).toBe(false);
+      const downed = [ent(2, 'hero', (other ?? healer).id, 1, 1, VF_DOWNED)];
+      const p = deriveInteract(me({ heroId: healer.id, cooldowns: { [ab.id]: 12 } }), { x: 0, y: 0, z: 0 }, downed);
+      expect(p?.kind === 'revive' && p.needPeach).toBe(true);
+    }
   });
   it('cooldown fraction is clamped', () => {
     expect(cooldownFraction(0, 10)).toBe(0);
@@ -244,5 +293,25 @@ describe('UI key de-duplication', () => {
     // different keys never pair
     expect(d.accept('map:false', 'ctl', 600)).toBe(true);
     expect(d.accept('quickchat:true', 'doc', 601)).toBe(true);
+  });
+});
+
+describe('minimap visibility', () => {
+  it('hides stealthed enemies unless exposed; friends always show', () => {
+    expect(isMapVisible({ flags: 0 }, false)).toBe(true);
+    expect(isMapVisible({ flags: VF_STEALTH }, false)).toBe(false);
+    expect(isMapVisible({ flags: VF_STEALTH | VF_EXPOSED }, false)).toBe(true);
+    expect(isMapVisible({ flags: VF_STEALTH }, true)).toBe(true);
+    expect(isMapVisible({ flags: VF_DEAD | VF_EXPOSED }, false)).toBe(false);
+  });
+  it('only the real Lord sees which crown is the decoy', () => {
+    const allies = new Set([7]);
+    // the Lord: the Double arrives as role 'double' and is a known ally
+    expect(crownKind('lord', { id: 7, role: 'double' }, allies)).toBe('decoy');
+    // the Double: the real Lord is a known ally
+    expect(crownKind('double', { id: 7, role: 'lord' }, allies)).toBe('ally');
+    // everyone else: both crowns look the same
+    expect(crownKind('rebel', { id: 7, role: 'lord' }, new Set())).toBe('plain');
+    expect(crownKind('loyalist', { id: 9, role: 'lord' }, new Set())).toBe('plain');
   });
 });

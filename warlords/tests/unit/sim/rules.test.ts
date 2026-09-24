@@ -206,6 +206,50 @@ describe('life, death and rewards', () => {
     expect(lord.hero!.items[0]).not.toBeNull();
   });
 
+  it("no lord penalty when the lord's summoned NPCs land the kill (黄天 黄巾力士), even after they despawn", () => {
+    const w = world5();
+    const lord = hero(w, 0);
+    const loyal = hero(w, 1);
+    lord.hero!.items = [{ id: 'tao', count: 1 }, null, null, null];
+    const npc = w.spawnNpc('yellowTurban', { x: -12, y: 0, z: 26 }, { summonerId: lord.id, lifetime: 30 });
+    w.dealDamage({ targetId: loyal.id, sourceId: npc.id, amount: 5000, type: 'true' });
+    expect(loyal.hero!.downed).toBe(true);
+    // the summon is gone before the loyalist bleeds out
+    w.removeEntity(npc.id);
+    stepN(w, 30 * 13);
+    expect(loyal.hero!.dead).toBe(true);
+    expect(loyal.hero!.killerId).toBe(lord.id);
+    expect(lord.hero!.items[0]).not.toBeNull();
+    expect(ofType(w.drainEvents(), 'reward').some((r) => r.kind === 'lordPenalty')).toBe(false);
+  });
+
+  it("the lord's own projectile kill still counts as his own hand", () => {
+    const w = world5();
+    const lord = hero(w, 0);
+    const loyal = hero(w, 1);
+    lord.hero!.items = [{ id: 'tao', count: 1 }, null, null, null];
+    const p = w.spawnProjectile({ kind: 'rocket', ownerId: lord.id, pos: { x: 0, y: 5, z: 0 }, vel: { x: 0, y: 0, z: 1 }, damage: 1, dtype: 'explosive' });
+    kill(w, loyal, p);
+    expect(loyal.hero!.dead).toBe(true);
+    expect(lord.hero!.items[0]).toBeNull();
+    expect(ofType(w.drainEvents(), 'reward').some((r) => r.kind === 'lordPenalty' && r.who === lord.id)).toBe(true);
+  });
+
+  it("bounty: a kill by the hunter's troops is credited but not paid", () => {
+    const roles: RoleId[] = ['lord', 'loyalist', 'rebel', 'bounty', 'traitor'];
+    const w = world5(roles);
+    const hunter = hero(w, 3);
+    const target = w.get(hunter.hero!.bountyTargetId)!;
+    const [t] = w.spawnTroops(hunter.id, 'shu_rifleman', 1, { x: 0, y: 0, z: 26 });
+    kill(w, target, t);
+    expect(target.hero!.dead).toBe(true);
+    expect(target.hero!.killerId).toBe(hunter.id);
+    expect(w.heroRt(hunter.id)!.bountyKills).toBe(0);
+    expect(ofType(w.drainEvents(), 'reward').some((r) => r.kind === 'bounty')).toBe(false);
+    // a new target is assigned either way
+    expect(hunter.hero!.bountyTargetId).not.toBe(target.id);
+  });
+
   it('revive: hold F with a 桃 for 1.5 s → 100 HP, 桃 consumed, rescue counted; releasing F cancels', () => {
     const w = world5();
     const lord = hero(w, 0);

@@ -27,6 +27,7 @@ import {
   VF_ADS,
   VF_DEAD,
   VF_DOWNED,
+  VF_EXPOSED,
   VF_FIRING,
   VF_LORD,
   VF_MARKED,
@@ -60,7 +61,13 @@ export function mockHeroLineup(count: number, mine?: string): string[] {
     if (!out.includes(id) || HEROES.length < count) out.push(id);
     if (i > 400) break;
   }
-  if (mine) out[2 % count] = mine;
+  if (mine) {
+    // you sit at seat 2: never show your hero twice
+    const k = 2 % count;
+    const j = out.indexOf(mine);
+    if (j >= 0 && j !== k) out[j] = out[k];
+    out[k] = mine;
+  }
   return out;
 }
 
@@ -83,6 +90,8 @@ export interface MockViewOptions {
   weaponId?: string;
   /** keep aiming down sights */
   ads?: boolean;
+  /** add a 影武者 (a second crown); implied when `role` is 'double' */
+  double?: boolean;
 }
 
 export class MockView implements ViewSource {
@@ -103,6 +112,7 @@ export class MockView implements ViewSource {
   private tick = 0;
   readonly myId: EntityId = 1;
   private readonly lively: boolean;
+  private readonly knownAllies: EntityId[] | undefined;
   lastInput: InputFrame | null = null;
 
   constructor(private readonly opts: MockViewOptions = {}) {
@@ -126,12 +136,19 @@ export class MockView implements ViewSource {
     }
 
     const center = { x: 12, z: 26 };
+    // 影武者: you, or seat 1. Seen as 'double' only by the real Lord (as net/snapshot sends it)
+    const doubleSeat = myRole === 'double' ? mySeat : opts.double ? 1 : -1;
+    const lordSeat = myRole === 'lord' ? mySeat : 0;
+    const entityOf = (seat: number): EntityId => (seat === mySeat ? this.myId : 100 + seat);
+    this.knownAllies = myRole === 'lord' && doubleSeat >= 0 ? [entityOf(doubleSeat)] : myRole === 'double' ? [entityOf(lordSeat)] : undefined;
     for (let seat = 0; seat < count; seat++) {
       const id = seat === mySeat ? this.myId : 100 + seat;
       const heroId = this.heroIds[seat];
       const def = HERO_BY_ID[heroId];
       const role = roles[seat] as RoleId;
-      const isLord = role === 'lord' || (seat === 0 && myRole !== 'lord');
+      const isDouble = seat === doubleSeat && seat !== lordSeat;
+      const isLord = role === 'lord' || (seat === 0 && myRole !== 'lord') || isDouble;
+      const crownRole: RoleId = isDouble && (myRole === 'lord' || seat === mySeat) ? 'double' : 'lord';
       const ang = (seat / count) * Math.PI * 2;
       const dist = seat === mySeat ? 0 : 18 + seat * 7;
       const dead = seat === 5;
@@ -141,6 +158,7 @@ export class MockView implements ViewSource {
       if (dead) flags |= VF_DEAD | VF_REVEALED;
       if (downedAlly) flags |= VF_DOWNED;
       if (seat === 6) flags |= VF_MARKED;
+      if (seat === 7) flags |= VF_EXPOSED; // revealed (观星 / 狼顾): pulsing minimap marker
       const ent: ViewEntity = {
         id,
         kind: 'hero',
@@ -157,7 +175,7 @@ export class MockView implements ViewSource {
         flags,
         kingdom: def?.kingdom,
         weapon: def?.signatureWeapon,
-        role: isLord ? 'lord' : dead ? role : seat === mySeat ? myRole : undefined,
+        role: isLord ? crownRole : dead ? role : seat === mySeat ? myRole : undefined,
         claim: seat === 4 ? 'loyalist' : seat === 7 ? 'rebel' : undefined,
         name: seat === mySeat ? opts.myName ?? MOCK_NAMES[2] : MOCK_NAMES[seat % MOCK_NAMES.length],
       };
@@ -191,6 +209,13 @@ export class MockView implements ViewSource {
       squad.push({ id, hp: 90 - i * 22, maxHp: 90 });
       this.add({ id, kind: 'troop', sub: myDef?.troopType ?? 'shu_rifleman', x: center.x - 3 - i * 1.5, y: 0, z: center.z + 3 + (i % 2) * 2, yaw: 0, pitch: 0, speed: 2, hp: 90 - i * 22, maxHp: 90, shield: 0, flags: 0, kingdom: myDef?.kingdom, owner: this.myId });
     }
+    // an exposed enemy squad next to the revealed hero
+    const revealed = this.ents.get(100 + 7);
+    if (revealed) {
+      for (let i = 0; i < 3; i++) {
+        this.add({ id: 250 + i, kind: 'troop', sub: 'qun_raider', x: revealed.x + 3 + i * 2, y: 0, z: revealed.z - 2 - (i % 2) * 2, yaw: 0, pitch: 0, speed: 2, hp: 80, maxHp: 90, shield: 0, flags: VF_EXPOSED, kingdom: revealed.kingdom, owner: revealed.id });
+      }
+    }
     // loot next to you (a weapon that is not your current primary)
     const lootWeapon = WEAPONS.find((w) => w.lootable && w.id !== myDef?.signatureWeapon && w.class !== 'pistol') ?? WEAPONS[0];
     if (opts.state !== 'downed') {
@@ -213,7 +238,7 @@ export class MockView implements ViewSource {
       heroId: myHero,
       role: myRole,
       hp: state === 'dead' ? 0 : state === 'downed' ? 0 : 260,
-      maxHp: (myDef?.maxHp ?? 400) + (myRole === 'lord' ? 100 : 0),
+      maxHp: (myDef?.maxHp ?? 400) + (myRole === 'lord' || myRole === 'double' ? 100 : 0),
       shield: 0,
       weapons: [
         primary ? { id: primary.id, mag: primary.magSize, reserve: primary.magSize * 4 } : null,
@@ -236,7 +261,7 @@ export class MockView implements ViewSource {
       squad,
       order: { kind: 'follow' },
       bountyTargetId: myRole === 'bounty' ? 106 : undefined,
-      knownAllies: myRole === 'lord' ? [104] : undefined,
+      knownAllies: this.knownAllies,
       stats: { kills: 3, damage: 1240, healing: 180, rescues: 1 },
     };
     const myEnt = this.ents.get(this.myId);
@@ -492,6 +517,8 @@ export interface MockSessionOptions {
   freePick?: boolean;
   /** you are the lord (seat 0) */
   asLord?: boolean;
+  /** deal a 影武者 at seat 3 (implied when `role` is 'double': then it is you) */
+  double?: boolean;
   /** passed through to the MockView */
   view?: Pick<MockViewOptions, 'weaponId' | 'ads' | 'outside'>;
   roomCode?: string;
@@ -591,7 +618,7 @@ export class MockSession implements GameSession {
     this.heroSelect = { ...v, picks: { ...v.picks, [this.mySeat()]: heroId } };
     this.emit('heroSelect', this.heroSelect);
     if (!this.opts.auto) return;
-    if (v.lordPhase) this.later(900, () => this.othersPhase());
+    if (v.lordPhase) this.maybeEndLordPhase();
     else this.later(1200, () => this.finishSelect());
   }
   sendChat(text: string): void {
@@ -668,26 +695,52 @@ export class MockSession implements GameSession {
     const dist = ROLE_DISTRIBUTION[mode][count][0];
     const mine = this.mySeat();
     const yourRole: RoleId = this.opts.role ?? (mine === 0 ? 'lord' : dist[mine] ?? 'loyalist');
+    const dbl = yourRole === 'double' ? mine : this.opts.double ? 3 : dist.indexOf('double');
+    // like net/flow roleDealViewFor: everyone sees two lords, only the real Lord learns the decoy
     const publicRoles: Record<number, RoleId> = { 0: 'lord' };
-    const dbl = dist.indexOf('double');
-    if (dbl > 0) publicRoles[dbl] = 'double';
+    if (dbl > 0) publicRoles[dbl] = yourRole === 'lord' ? 'double' : 'lord';
     this.roles = { yourRole, publicRoles, bountySeat: yourRole === 'bounty' ? 5 : undefined };
     this.emit('roles', this.roles);
     this.setPhase('roles');
   }
 
+  /** Crowned seats (the Lord, plus a 影武者): they pick in the lord phase. */
+  private crowns(): number[] {
+    return Object.keys(this.roles?.publicRoles ?? { 0: 'lord' })
+      .map(Number)
+      .sort((a, b) => a - b);
+  }
+
   private lordPhase(): void {
     const lordIds = (LORD_CANDIDATE_IDS?.length ? LORD_CANDIDATE_IDS : HEROES.slice(0, 5).map((h) => h.id)).slice(0, 5);
     const extra = HEROES.map((h) => h.id).filter((id) => !lordIds.includes(id)).slice(0, 3);
-    const iAmLord = this.mySeat() === 0;
-    this.heroSelect = { options: iAmLord ? [...lordIds, ...extra] : [], deadline: 15, picks: {}, lordSeat: 0, lordPhase: true };
+    const mine = this.mySeat();
+    const crowns = this.crowns();
+    // like the host: only pickers get options (lordSeat is the real Lord's for crowns, the lowest crown otherwise → 0 here)
+    this.heroSelect = { options: crowns.includes(mine) ? [...lordIds, ...extra] : [], deadline: 15, picks: {}, lordSeat: 0, lordPhase: true };
     this.emit('heroSelect', this.heroSelect);
     this.setPhase('heroSelect');
-    if (!iAmLord && this.opts.auto) this.later(2500, () => {
-      if (!this.heroSelect) return;
-      this.heroSelect = { ...this.heroSelect, picks: { 0: lordIds[0] ?? heroIdAt(0) } };
-      this.emit('heroSelect', this.heroSelect);
-      this.later(1200, () => this.othersPhase());
+    if (!this.opts.auto) return;
+    crowns
+      .filter((seat) => seat !== mine)
+      .forEach((seat, i) => {
+        this.later(2500 + i * 800, () => {
+          const v = this.heroSelect;
+          if (!v?.lordPhase) return;
+          const taken = new Set(Object.values(v.picks));
+          const hero = [...lordIds, ...extra].find((id) => !taken.has(id)) ?? heroIdAt(seat);
+          this.heroSelect = { ...v, picks: { ...v.picks, [seat]: hero } };
+          this.emit('heroSelect', this.heroSelect);
+          this.maybeEndLordPhase();
+        });
+      });
+  }
+
+  private maybeEndLordPhase(): void {
+    const v = this.heroSelect;
+    if (!v?.lordPhase || !this.crowns().every((s) => v.picks[s])) return;
+    this.later(1200, () => {
+      if (this.heroSelect?.lordPhase) this.othersPhase();
     });
   }
 
@@ -698,20 +751,24 @@ export class MockSession implements GameSession {
     const all = HEROES.map((h) => h.id).filter((id) => id !== lordPick);
     const free = !!this.lobby?.settings.freePick;
     const offset = 5;
-    const options = free ? all : all.slice(offset, offset + 3).length ? all.slice(offset, offset + 3) : all.slice(0, 3);
+    const crowns = this.crowns();
+    const offered = free ? all : all.slice(offset, offset + 3).length ? all.slice(offset, offset + 3) : all.slice(0, 3);
     const picks: Record<number, string> = { ...(prev?.picks ?? {}), 0: lordPick };
+    // crowns already picked: like the host, they are not pickers any more (no options)
+    for (const c of crowns) if (!picks[c]) picks[c] = all.find((id) => !Object.values(picks).includes(id) && !offered.includes(id)) ?? heroIdAt(c);
+    const options = crowns.includes(this.mySeat()) ? [] : offered;
     this.heroSelect = { options, deadline: 20, picks, lordSeat: 0, lordPhase: false };
     this.emit('heroSelect', this.heroSelect);
     if (this.phase !== 'heroSelect') this.setPhase('heroSelect');
     if (!this.opts.auto) return;
     // bots pick one by one
-    const seats = this.lobby?.seats.filter((s) => s.seat !== 0 && s.playerId !== this.myId) ?? [];
+    const seats = this.lobby?.seats.filter((s) => !crowns.includes(s.seat) && s.playerId !== this.myId) ?? [];
     seats.forEach((s, i) => {
       this.later(700 + i * 450, () => {
         if (!this.heroSelect || this.heroSelect.lordPhase) return;
         const taken = new Set(Object.values(this.heroSelect.picks));
         // bots leave your offered heroes alone (unless everything is on offer)
-        const pool = free ? [...all].reverse() : all.filter((id) => !options.includes(id));
+        const pool = free ? [...all].reverse() : all.filter((id) => !offered.includes(id));
         const hero = pool.find((id) => !taken.has(id)) ?? all[i % all.length];
         this.heroSelect = { ...this.heroSelect, picks: { ...this.heroSelect.picks, [s.seat]: hero } };
         this.emit('heroSelect', this.heroSelect);
@@ -733,6 +790,7 @@ export class MockSession implements GameSession {
       state: this.opts.state,
       myName: this.lobby?.seats.find((s) => s.seat === mine)?.name,
       playerCount: this.lobby?.settings.playerCount ?? 8,
+      double: Object.keys(this.roles?.publicRoles ?? {}).length > 1,
       ...this.opts.view,
     });
     this.emit('matchStart', this.view);
@@ -757,13 +815,13 @@ export class MockSession implements GameSession {
       case 'loading':
         this.dealRoles();
         this.othersPhase();
-        if (this.heroSelect) this.heroSelect.picks[this.mySeat()] = this.heroSelect.options[0];
+        if (this.heroSelect) this.heroSelect.picks[this.mySeat()] ??= this.heroSelect.options[0] ?? heroIdAt(1);
         this.setPhase('loading');
         break;
       case 'playing':
         this.dealRoles();
         this.othersPhase();
-        if (this.heroSelect) this.heroSelect.picks[this.mySeat()] = this.heroSelect.options[0] ?? heroIdAt(1);
+        if (this.heroSelect) this.heroSelect.picks[this.mySeat()] ??= this.heroSelect.options[0] ?? heroIdAt(1);
         this.startMatch();
         break;
       case 'gameOver':

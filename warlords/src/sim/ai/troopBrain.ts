@@ -4,7 +4,7 @@ import type { Vec3 } from '../../core/math';
 import type { Entity } from '../../core/types';
 import type { SimApi } from '../api';
 import { troopDef } from '../defs';
-import { dist2d, hasLineOfSight, isTargetable, pickTarget } from './perception';
+import { dist2d, hasLineOfSight, isTargetable, pickTarget, scanJitter } from './perception';
 import { fleeFrom, steerTo } from './steer';
 import type { TroopBrain, UnitIntent } from './types';
 
@@ -59,7 +59,7 @@ export class BasicTroopBrain implements TroopBrain {
 
     // ── target selection ──
     if (now >= (ai.nextScan ?? 0)) {
-      ai.nextScan = now + SCAN_EVERY + (self.id % 5) * 0.02;
+      ai.nextScan = now + SCAN_EVERY * scanJitter(self.id, sim.tick);
       tr.targetId = this.chooseTarget(sim, self, cmd!, def.aggroRange, def.attackRange)?.id;
     } else if (tr.targetId !== undefined && !this.validTarget(sim, self, tr.targetId, Math.max(def.aggroRange, CHARGE_RANGE) + 10)) {
       tr.targetId = undefined;
@@ -143,8 +143,8 @@ export class BasicTroopBrain implements TroopBrain {
       (e) => sim.isHostileTo(self, e),
       (e) => {
         let b = 0;
-        const markedBy = e.statuses.find((s) => s.id === 'marked' && s.until > sim.time)?.sourceId;
-        if (markedBy === cmd.id) b += 60;
+        // the commander's own mark (several commanders may mark the same unit)
+        if (e.statuses.some((s) => s.id === 'marked' && s.sourceId === cmd.id && s.until > sim.time)) b += 60;
         if (e.id === cmd.lastDamagedBy && (cmd.lastDamagedAt ?? -99) > sim.time - 5) b += 20;
         if (e.kind === 'hero') b += 4;
         return b;

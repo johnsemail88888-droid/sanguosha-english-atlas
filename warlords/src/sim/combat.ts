@@ -690,11 +690,15 @@ export function falloffMul(def: WeaponDef, dist: number): number {
 export function startReload(w: World, e: Entity): boolean {
   const h = e.hero;
   if (!h) return false;
+  if (h.reloadUntil > 0) {
+    if (w.time < h.reloadUntil) return false; // already reloading
+    // due this very tick (R is processed before tickReload): finish it, never restart it
+    tickReload(w, e);
+  }
   const inst = h.weapons[h.activeSlot];
   if (!inst) return false;
   const def = weaponDef(inst.id);
   if (!usesAmmo(def) || inst.mag >= def.magSize || inst.reserve <= 0) return false;
-  if (h.reloadUntil > w.time) return false;
   const t = def.reloadTime * w.modifiers(e.id).reloadMul;
   h.reloadUntil = w.time + Math.max(0.2, t);
   return true;

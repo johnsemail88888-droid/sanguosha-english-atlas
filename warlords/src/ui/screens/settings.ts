@@ -18,7 +18,23 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
   back.appendChild(sheet);
 
   const upd = (patch: Partial<UserSettings>): void => settings.update(patch);
+  // the lobby name is sent once the edit is committed (blur / Enter / closing the
+  // panel), not on every keystroke: each setName is a network message + lobby rebroadcast
+  let sentName = settings.get().playerName.trim();
+  const commitName = (): void => {
+    const name = settings.get().playerName.trim().slice(0, 16);
+    if (!name || name === sentName) return;
+    sentName = name;
+    const s = ctx.session;
+    if (s && s.phase === 'lobby') s.setName(name);
+  };
   const net = (patch: Partial<UserSettings['net']>): void => settings.update({ net: { ...settings.get().net, ...patch } });
+
+  const nameInput = (): HTMLInputElement => {
+    const input = textInput(settings.get().playerName, (v) => upd({ playerName: v.slice(0, 16) }), { maxlength: 16, placeholder: t('title.namePh'), label: t('settings.name') });
+    input.addEventListener('change', commitName);
+    return input;
+  };
 
   const general = (): HTMLElement[] => {
     const st = settings.get();
@@ -27,11 +43,7 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
         { value: 'zh' as Lang, label: '中文' },
         { value: 'en' as Lang, label: 'English' },
       ], st.lang, (v) => upd({ lang: v }), { name: t('settings.language') })),
-      field(t('settings.name'), textInput(st.playerName, (v) => {
-        upd({ playerName: v.slice(0, 16) });
-        const s = ctx.session;
-        if (s && s.phase === 'lobby' && v.trim()) s.setName(v.trim().slice(0, 16));
-      }, { maxlength: 16, placeholder: t('title.namePh'), label: t('settings.name') })),
+      field(t('settings.name'), nameInput()),
     ];
   };
 
@@ -156,5 +168,12 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
     if (ev.target === back) onClose();
   });
   build();
-  return { el: back, relabel: build, dispose: () => bag.dispose() };
+  return {
+    el: back,
+    relabel: build,
+    dispose: () => {
+      commitName();
+      bag.dispose();
+    },
+  };
 }

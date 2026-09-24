@@ -574,6 +574,77 @@ export function findFreeSpot(cw: CollisionWorld, pos: Vec3, radius = CHAR_RADIUS
   return { x: cx, y: groundAt(cw, cx, cz), z: cz };
 }
 
+/**
+ * Open ground for something dropped from the sky (airdrops): dry terrain with a
+ * walkable slope and no collider taller than a step anywhere over the
+ * footprint (roofs, trees, statues, bridge decks…), so it lands within reach.
+ * `margin`: minimum distance from the map edge.
+ */
+export function isOpenGround(cw: CollisionWorld, x: number, z: number, r: number, margin = 2): boolean {
+  const lim = cw.half - Math.max(r, margin);
+  if (!(Math.abs(x) <= lim && Math.abs(z) <= lim)) return false;
+  const t = terrainHeight(cw.map, x, z);
+  if (t < cw.map.waterLevel + 0.3) return false;
+  terrainGrad(cw, x, z, gradTmp);
+  if (Math.hypot(gradTmp.x, gradTmp.z) > MAX_SLOPE_TAN * 0.8) return false;
+  const ids = cw.grid.collectRect(x - r, z - r, x + r, z + r, cw.scratch);
+  const low = t + STEP_HEIGHT;
+  for (let i = 0; i < ids.length; i++) {
+    const sh = cw.shapes[ids[i]];
+    if (sh.y1 <= low) continue;
+    if (overlapsFootprint(sh, x, z, r)) return false;
+  }
+  return true;
+}
+
+export interface OpenGroundOptions {
+  /** footprint radius (default 1.2) */
+  radius?: number;
+  /** minimum distance from the map edge (default 2) */
+  margin?: number;
+  /** random samples inside maxR before the spiral (default 40) */
+  tries?: number;
+  /** extra acceptance test, e.g. "on the nav grid's main component" */
+  accept?: (p: Vec3) => boolean;
+}
+
+/**
+ * An open-ground spot (see isOpenGround) near (cx, cz): `tries` random samples
+ * inside `maxR` (uniform over the disc, using `rand`), then a deterministic
+ * outward spiral up to maxR + 120 m. y is the terrain height. null if none.
+ */
+export function findOpenGround(cw: CollisionWorld, cx: number, cz: number, maxR: number, rand: () => number, o: OpenGroundOptions = {}): Vec3 | null {
+  const r = o.radius ?? 1.2;
+  const margin = o.margin ?? 2;
+  const R = Math.max(0, maxR);
+  const test = (x: number, z: number): Vec3 | null => {
+    if (!isOpenGround(cw, x, z, r, margin)) return null;
+    const p = { x, y: terrainHeight(cw.map, x, z), z };
+    return !o.accept || o.accept(p) ? p : null;
+  };
+  const tries = o.tries ?? 40;
+  for (let i = 0; i < tries; i++) {
+    const d = R * Math.sqrt(rand());
+    const a = rand() * Math.PI * 2;
+    const p = test(cx + Math.cos(a) * d, cz + Math.sin(a) * d);
+    if (p) return p;
+  }
+  const c = test(cx, cz);
+  if (c) return c;
+  const step = 2;
+  for (let ring = 1; ring * step <= R + 120; ring++) {
+    const rr = ring * step;
+    const n = Math.max(8, Math.ceil((2 * Math.PI * rr) / step));
+    const phase = rand() * Math.PI * 2;
+    for (let k = 0; k < n; k++) {
+      const a = phase + (k / n) * Math.PI * 2;
+      const p = test(cx + Math.cos(a) * rr, cz + Math.sin(a) * rr);
+      if (p) return p;
+    }
+  }
+  return null;
+}
+
 // ── Raycasts ────────────────────────────────────────────────────────────────
 export interface StaticHit {
   t: number;

@@ -42,6 +42,8 @@ export function downHero(w: World, e: Entity, creditId: EntityId | undefined, so
   if (rt) {
     rt.downedBy = creditId;
     rt.downedBySource = sourceId;
+    const by = creditId !== undefined ? w.get(creditId) : undefined;
+    rt.downedDirect = by?.hero ? w.isDirectSource(sourceId, by) : true;
   }
   w.emit({ t: 'downed', target: e.id, src: creditId });
   w.hooks.onOtherDowned(e);
@@ -99,17 +101,24 @@ export function killHero(w: World, e: Entity, creditId: EntityId | undefined, so
   w.emit({ t: 'death', target: e.id, killer: h.killerId, kind: 'hero', role: h.role, heroId: h.heroId, name: h.name });
 
   const killer = killerId !== undefined && killerId !== e.id ? w.get(killerId) : undefined;
+  // "by his own hand" (not via troops / summons); if the source already despawned, trust the record from when it downed us
+  let direct = true;
+  if (killer?.hero) {
+    const srcEnt = killerSource !== undefined ? w.get(killerSource) : undefined;
+    if (srcEnt || killerSource === undefined) direct = w.isDirectSource(killerSource, killer);
+    else if (killerSource === rt?.downedBySource) direct = rt?.downedDirect ?? true;
+  }
   if (killer?.hero) {
     killer.hero.stats.kills++;
-    if (w.isDirectSource(killerSource, killer)) w.hooks.onKill(killer, e);
-    applyRewards(w, killer, e, killerSource);
+    if (direct) w.hooks.onKill(killer, e);
+    applyRewards(w, killer, e, direct);
   }
-  processBounties(w, e, killer);
+  processBounties(w, e, killer, direct);
   disbandSquad(w, e);
   w.requestWinCheck();
 }
 
-function applyRewards(w: World, killer: Entity, victim: Entity, sourceId: EntityId | undefined): void {
+function applyRewards(w: World, killer: Entity, victim: Entity, direct: boolean): void {
   const kh = killer.hero!;
   const vRole = victim.hero!.role;
   // 杀反贼 → 摸三张牌
@@ -118,10 +127,9 @@ function applyRewards(w: World, killer: Entity, victim: Entity, sourceId: Entity
     for (const id of items) w.giveOrDrop(killer, id);
     w.emit({ t: 'reward', who: killer.id, kind: 'rebelKill', items });
   }
-  // 主公杀忠臣 → 弃置所有牌 (troop kills don't count: only the lord's own hand)
+  // 主公杀忠臣 → 弃置所有牌 — only the lord's own hand: kills by his troops or
+  // summoned NPCs (黄天 黄巾力士) don't count; his projectiles / hazards / turrets do
   if (kh.role === 'lord' && (vRole === 'loyalist' || vRole === 'double')) {
-    const src = sourceId !== undefined ? w.get(sourceId) : undefined;
-    const direct = !src || src.kind !== 'troop';
     if (direct) {
       const dropped = w.dropEverything(killer);
       w.emit({ t: 'reward', who: killer.id, kind: 'lordPenalty', items: dropped });
@@ -134,11 +142,12 @@ function applyRewards(w: World, killer: Entity, victim: Entity, sourceId: Entity
   }
 }
 
-function processBounties(w: World, victim: Entity, killer: Entity | undefined): void {
+/** 赏金猎人: paid only for a target it killed personally (not by its troops / summons); a new target either way. */
+function processBounties(w: World, victim: Entity, killer: Entity | undefined, direct: boolean): void {
   for (const hunter of w.heroList()) {
     const hh = hunter.hero!;
     if (hh.role !== 'bounty' || hh.bountyTargetId !== victim.id) continue;
-    if (killer === hunter && !hh.dead) {
+    if (killer === hunter && !hh.dead && direct) {
       const rt = w.heroRt(hunter.id);
       if (rt) rt.bountyKills++;
       const items = w.rollRewardItems(BOUNTY_REWARD_ITEMS, 'rare');

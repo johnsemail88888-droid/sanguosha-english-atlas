@@ -3,8 +3,9 @@
 // its own Vite dev server on :5181 unless one is already listening there.
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.RENDER_E2E_PORT ?? 5181);
@@ -35,7 +36,10 @@ async function reachable(): Promise<boolean> {
 test.beforeAll(async () => {
   test.setTimeout(90_000);
   if (await reachable()) return;
-  server = spawn(process.execPath, [resolve(ROOT, 'node_modules/vite/bin/vite.js'), '--port', String(PORT), '--strictPort'], {
+  // private config: same root, but no HMR so concurrent edits never reload the page mid-test
+  const cfg = join(mkdtempSync(join(tmpdir(), 'render-e2e-')), 'vite.config.mjs');
+  writeFileSync(cfg, `export default { root: ${JSON.stringify(ROOT)}, base: './', server: { hmr: false }, logLevel: 'warn' };\n`);
+  server = spawn(process.execPath, [resolve(ROOT, 'node_modules/vite/bin/vite.js'), '--config', cfg, '--port', String(PORT), '--strictPort'], {
     cwd: ROOT,
     stdio: 'ignore',
   });

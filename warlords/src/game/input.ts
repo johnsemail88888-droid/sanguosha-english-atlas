@@ -284,7 +284,7 @@ export class InputController implements InputSink {
     on(target, 'wheel', (e) => {
       if (!this.locked || !this.state.enabled) return;
       e.preventDefault();
-      this.state.pushAction({ a: 'weapon', slot: this.nextWeaponSlot(e.deltaY) });
+      if (e.deltaY !== 0) this.state.pushAction({ a: 'weapon', slot: this.nextWeaponSlot() });
     }, { passive: false });
     on(document, 'pointerlockchange', () => {
       const now = document.pointerLockElement === this.target;
@@ -406,9 +406,8 @@ export class InputController implements InputSink {
   }
 
   // ── internals ────────────────────────────────────────────────────────────
-  private nextWeaponSlot(deltaY: number): number {
-    // two weapon slots: any wheel step toggles primary ↔ secondary
-    void deltaY;
+  /** Two weapon slots: any wheel step toggles primary ↔ secondary. */
+  private nextWeaponSlot(): number {
     return this.activeSlot === 0 ? 1 : 0;
   }
 

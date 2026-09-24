@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Entity, GameEvent, InputFrame } from '../../../src/core/types';
 import { BTN_ADS, BTN_FIRE, emptyInput } from '../../../src/core/types';
 import { BULLET_EVASION_CAP } from '../../../src/data';
+import { circleAttack } from '../../../src/sim/abilities/common';
 import type { AbilityImplEx } from '../../../src/sim/ext';
 import { aimAnglesFor } from '../../../src/sim/aim';
 import type { World } from '../../../src/sim/world';
@@ -102,6 +103,39 @@ describe('damage pipeline', () => {
     expect(dodged / 2000).toBeLessThan(BULLET_EVASION_CAP + 0.04);
   });
 
+  it('every dodgeChance source, evadeChance modifiers and bulletEvadeChance hooks fold into one roll', () => {
+    const { w, a, b } = duel();
+    const c = hero(w, 4);
+    b.maxHp = 1e9;
+    b.hp = 1e9;
+    const rate = (n = 3000): number => {
+      let dodged = 0;
+      for (let i = 0; i < n; i++) if (w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 1, type: 'normal', weaponId: 'pistol' }).blocked === 'dodge') dodged++;
+      return dodged / n;
+    };
+    // 八阵图-style 0.3 from one source + 0.25 from another → 1 − 0.7 × 0.75 = 0.475 (not max-merged)
+    w.applyStatus(b.id, 'dodgeChance', 1e6, { sourceId: b.id, params: { chance: 0.3 } });
+    w.applyStatus(b.id, 'dodgeChance', 1e6, { sourceId: c.id, params: { chance: 0.25 } });
+    expect(rate()).toBeCloseTo(0.475, 1);
+    // removing one source keeps the other
+    w.removeStatus(b.id, 'dodgeChance');
+    w.applyStatus(b.id, 'dodgeChance', 1e6, { sourceId: c.id, params: { chance: 0.25 } });
+    expect(rate()).toBeCloseTo(0.25, 1);
+    // conditional passive (倾国) through the hook: 0.25 ⊕ 0.2 = 0.4
+    let moving = true;
+    inject(w, b, { id: 't_qingguo', bulletEvadeChance: () => (moving ? 0.2 : 0) });
+    expect(rate()).toBeCloseTo(0.4, 1);
+    moving = false;
+    expect(rate()).toBeCloseTo(0.25, 1);
+    // an always-on modifier folds too, and the total is capped
+    inject(w, b, { id: 't_evade', modifiers: () => ({ evadeChance: 0.6 }) });
+    w.step();
+    expect(w.modifiers(b.id).evadeChance).toBeCloseTo(0.6, 6);
+    expect(rate()).toBeCloseTo(BULLET_EVASION_CAP, 1);
+    // ability damage is never a bullet
+    for (let i = 0; i < 50; i++) expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 1, type: 'normal', abilityId: 'x' }).blocked).toBeUndefined();
+  });
+
   it('仁王盾 reduces bullets from the front only', () => {
     const { w, a, b } = duel();
     b.hero!.armor = 'renwang';
@@ -186,7 +220,9 @@ describe('damage pipeline', () => {
     const r1 = w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 30, type: 'normal' });
     expect(r1.absorbed).toBe(30);
     expect(r1.dealt).toBe(0);
-    expect(r1.blocked).toBeUndefined();
+    expect(r1.blocked).toBe('shield');
+    const ev = w.drainEvents().find((e) => e.t === 'hit');
+    expect(ev).toMatchObject({ target: b.id, amount: 30, blocked: 'shield' });
     const r2 = w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 30, type: 'normal' });
     expect(r2.absorbed).toBe(20);
     expect(r2.dealt).toBe(10);
@@ -340,6 +376,17 @@ describe('weapons', () => {
     expect(a.hero!.weapons[0]!.mag).toBeGreaterThan(0);
   });
 
+  it('holding R every tick never restarts a reload that is due', () => {
+    const { w, a } = duel();
+    a.hero!.weapons[0] = { id: 'carbine', mag: 0, reserve: 60 };
+    let seq = 1;
+    for (let i = 0; i < 150 && a.hero!.weapons[0]!.mag === 0; i++) {
+      w.setInput('p2', { ...emptyInput(seq++), actions: [{ a: 'reload' }] });
+      w.step();
+    }
+    expect(a.hero!.weapons[0]!.mag).toBeGreaterThan(0);
+  });
+
   it('lag compensation rewinds targets to the shooter view tick', () => {
     const { w, a, b } = duel();
     a.hero!.weapons[0] = { id: 'qinggang', mag: 12, reserve: 48 };
@@ -407,5 +454,126 @@ describe('weapons', () => {
     expect(head?.head).toBe(true);
     const miss = w.raycast({ x: 0, y: 1.0, z: 26 }, { x: 0, y: 0, z: -1 }, 50, { ignore: [b.id] });
     expect(miss?.entityId).toBeUndefined();
+  });
+});
+
+describe('无懈可击 (nullify) vs ability effects', () => {
+  function armed(): { w: World; a: Entity; b: Entity } {
+    const d = duel();
+    d.w.applyStatus(d.b.id, 'nullify', 30, { sourceId: d.b.id });
+    d.w.drainEvents();
+    return d;
+  }
+
+  it("cancels an enemy ability's whole hit: damage, knockback and the attached status", () => {
+    const { w, a, b } = armed();
+    b.pos.z = a.pos.z - 3;
+    w.markGridDirty();
+    const hp = b.hp;
+    const hit = circleAttack(w, a, a.pos, 6, { damage: 150, dtype: 'normal', abilityId: 'yuanmen', knockback: 8, status: { id: 'stun', duration: 1 } });
+    expect(hit).toEqual([]);
+    expect(b.hp).toBe(hp);
+    expect(b.forced).toBeUndefined();
+    expect(w.hasStatus(b.id, 'stun')).toBe(false);
+    expect(w.hasStatus(b.id, 'nullify')).toBe(false);
+    // the next cast lands
+    w.step();
+    const r = w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 50, type: 'normal', abilityId: 'yuanmen' });
+    expect(r.dealt).toBe(50);
+  });
+
+  it('dealDamage reports blocked=nullify; the notice goes privately to both parties', () => {
+    const { w, a, b } = armed();
+    const r = w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 150, type: 'fire', abilityId: 'huogong' });
+    expect(r).toMatchObject({ dealt: 0, absorbed: 0, blocked: 'nullify' });
+    const hits = events(w.drainEvents(), 'hit');
+    expect(hits.every((h) => h.blocked === 'nullify' && h.privateTo !== undefined)).toBe(true);
+    expect(hits.map((h) => h.privateTo).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('a stealthed target is not revealed to the attacker by the nullify notice', () => {
+    const { w, a, b } = armed();
+    w.applyStatus(b.id, 'stealth', 10, { sourceId: b.id });
+    w.drainEvents();
+    w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 50, type: 'normal', abilityId: 'aoe' });
+    const hits = events(w.drainEvents(), 'hit');
+    expect(hits.map((h) => h.privateTo)).toEqual([b.id]);
+  });
+
+  it('weapon hits, DoT ticks, reflects and the zone never consume it', () => {
+    const { w, a, b } = armed();
+    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 10, type: 'normal', weaponId: 'pistol' }).dealt).toBe(10);
+    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 10, type: 'fire', abilityId: 'status:burn' }).dealt).toBe(10);
+    expect(w.dealDamage({ targetId: b.id, amount: 10, type: 'zone' }).dealt).toBe(10);
+    expect(w.hasStatus(b.id, 'nullify')).toBe(true);
+  });
+
+  it('lingering fields do not consume it; a trap springing does', () => {
+    const { w, a, b } = armed();
+    w.spawnHazard({ kind: 'fire', ownerId: a.id, pos: { ...b.pos }, radius: 3, duration: 1, tickEvery: 0.5, params: { damage: 5, slow: 0.3 } });
+    const hp = b.hp;
+    stepN(w, 20);
+    expect(b.hp).toBeLessThan(hp);
+    expect(w.hasStatus(b.id, 'nullify')).toBe(true);
+    stepN(w, 30);
+    w.spawnHazard({ kind: 'trapDance', ownerId: a.id, pos: { ...b.pos }, radius: 3, duration: 5, tickEvery: 0.2, params: {}, triggerOnce: true, status: { id: 'dance', duration: 3 } });
+    stepN(w, 3);
+    expect(w.hasStatus(b.id, 'dance')).toBe(false);
+    expect(w.hasStatus(b.id, 'nullify')).toBe(false);
+  });
+
+  it('information statuses (reveal, marked) neither consume nor get cancelled', () => {
+    const { w, a, b } = armed();
+    expect(w.applyStatus(b.id, 'reveal', 5, { sourceId: a.id, params: { viewerId: a.id } })).toBe(true);
+    expect(w.applyStatus(b.id, 'marked', 5, { sourceId: a.id })).toBe(true);
+    expect(w.hasStatus(b.id, 'nullify')).toBe(true);
+    expect(events(w.drainEvents(), 'hit').length).toBe(0);
+  });
+
+  it("cancels an enemy ability's steal and shove (source-less calls are attributed to the acting hero)", () => {
+    const { w, a, b } = armed();
+    b.hero!.items = [{ id: 'tao', count: 1 }, { id: 'shan', count: 1 }, null, null];
+    let took: string | null = 'unset';
+    const x0 = b.pos.x;
+    w.heroRt(a.id)!.abilities.push({
+      def: { id: 't_shunshou', slot: 'q', nameZh: '', nameEn: '', sgsSkill: '', descZh: '', descEn: '', params: {}, cooldown: 1 },
+      impl: {
+        id: 't_shunshou',
+        activate: (ctx) => {
+          took = ctx.sim.takeRandomItem(b.id);
+          ctx.sim.knockback(b.id, { x: 1, y: 0, z: 0 }, 10);
+          return true;
+        },
+      },
+    });
+    w.setInput('p2', { ...emptyInput(1), actions: [{ a: 'ability', slot: 'q' }] });
+    stepN(w, 10);
+    expect(took).toBeNull();
+    expect(b.hero!.items.filter(Boolean).length).toBe(2);
+    expect(Math.abs(b.pos.x - x0)).toBeLessThan(0.01);
+    expect(w.hasStatus(b.id, 'nullify')).toBe(false);
+    // without a nullify charge the same cast works
+    w.setInput('p2', { ...emptyInput(2), actions: [{ a: 'ability', slot: 'q' }] });
+    stepN(w, 40);
+    w.setInput('p2', { ...emptyInput(3), actions: [{ a: 'ability', slot: 'q' }] });
+    stepN(w, 10);
+    expect(took).not.toBeNull();
+    expect(Math.abs(b.pos.x - x0)).toBeGreaterThan(1);
+    // stealItem (explicit thief) is nullifiable too
+    w.applyStatus(b.id, 'nullify', 30, { sourceId: b.id });
+    expect(w.stealItem(a.id, b.id)).toBeNull();
+    expect(w.hasStatus(b.id, 'nullify')).toBe(false);
+  });
+
+  it("an ally's ability effects never consume it", () => {
+    const { w, b } = armed();
+    const ally = hero(w, 4);
+    ally.hero!.role = 'rebel';
+    w.spawnTroops(b.id, 'shu_rifleman', 1, { ...b.pos });
+    const own = w.get(b.hero!.squad[0])!;
+    // own troop / own ability: own side
+    expect(w.dealDamage({ targetId: b.id, sourceId: b.id, amount: 5, type: 'true', abilityId: 'self' }).dealt).toBe(5);
+    expect(w.applyStatus(b.id, 'slow', 2, { sourceId: own.id, params: { amount: 0.2 } })).toBe(true);
+    expect(w.hasStatus(b.id, 'nullify')).toBe(true);
   });
 });

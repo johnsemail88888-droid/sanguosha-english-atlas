@@ -25,6 +25,15 @@ export function hasLineOfSight(sim: SimApi, a: Entity, b: Entity): boolean {
 export const dist2d = (a: Vec3, b: Vec3): number => Math.hypot(a.x - b.x, a.z - b.z);
 
 /**
+ * 0.75..1.25: deterministic per-unit, per-tick jitter for scan intervals, so
+ * squads and camps never run their target scans in the same tick (tick-time spikes).
+ */
+export function scanJitter(id: number, tick: number): number {
+  const h = Math.imul(id ^ Math.imul(tick, 0x9e3779b1), 0x85ebca6b) >>> 0;
+  return 0.75 + (h % 1000) / 2000;
+}
+
+/**
  * Best visible target within `range` accepted by `accept`, scored by
  * distance minus `bonus(e)` (meters). LOS is checked only for the few best
  * candidates to keep scans cheap.
