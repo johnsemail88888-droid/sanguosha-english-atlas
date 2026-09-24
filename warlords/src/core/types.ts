@@ -323,38 +323,46 @@ export const emptyInput = (seq = 0): InputFrame => ({
 });
 
 // ── Events (host → everyone; drive VFX, audio, HUD, kill feed) ───────────────
-export type GameEvent =
-  | { t: 'shot'; src: EntityId; weapon: string; from: Vec3; to: Vec3; hit?: EntityId }
-  | {
-      t: 'hit';
-      target: EntityId;
-      src?: EntityId;
-      amount: number;
-      dtype: DamageType;
-      pos: Vec3;
-      head?: boolean;
-      blocked?: 'dodge' | 'armor' | 'invuln' | 'shield' | 'nullify';
-    }
-  | { t: 'explosion'; pos: Vec3; radius: number; kind: string }
-  | { t: 'melee'; src: EntityId; pos: Vec3; dir: Vec3; range: number; arc: number }
-  | { t: 'ability'; src: EntityId; ability: string; pos?: Vec3; target?: EntityId; dir?: Vec3 }
-  | { t: 'status'; target: EntityId; status: StatusId; on: boolean }
-  | { t: 'heal'; target: EntityId; amount: number; src?: EntityId }
-  | { t: 'downed'; target: EntityId; src?: EntityId }
-  | { t: 'revived'; target: EntityId; by?: EntityId }
-  | { t: 'death'; target: EntityId; killer?: EntityId; kind: EntityKind; role?: RoleId; heroId?: string; name?: string }
-  | { t: 'pickup'; who: EntityId; item: string }
-  | { t: 'itemUse'; who: EntityId; item: string; pos?: Vec3; target?: EntityId }
-  | { t: 'reward'; who: EntityId; kind: 'rebelKill' | 'lordPenalty' | 'bounty'; items?: string[] }
-  | { t: 'zone'; phase: number; center: Vec3; radius: number; targetRadius: number; shrinkStart: number; shrinkEnd: number }
-  | { t: 'airdrop'; pos: Vec3; id: EntityId }
-  | { t: 'claim'; who: EntityId; role: RoleId }
-  | { t: 'quickchat'; who: EntityId; id: string }
-  | { t: 'chat'; from: string; text: string }
-  | { t: 'command'; who: EntityId; order: SquadOrderKind; point?: Vec3; target?: EntityId }
-  | { t: 'announce'; zh: string; en: string; kind?: 'info' | 'warn' | 'big' }
-  | { t: 'sfx'; name: string; pos?: Vec3 }
-  | { t: 'gameOver'; result: GameResult };
+/** Optional routing shared by every GameEvent. */
+export interface EventRouting {
+  /** hidden information: only this hero's player receives the event (private reveal, bounty reward). Absent = public. */
+  privateTo?: EntityId;
+}
+
+export type GameEvent = EventRouting &
+  (
+    | { t: 'shot'; src: EntityId; weapon: string; from: Vec3; to: Vec3; hit?: EntityId }
+    | {
+        t: 'hit';
+        target: EntityId;
+        src?: EntityId;
+        amount: number;
+        dtype: DamageType;
+        pos: Vec3;
+        head?: boolean;
+        blocked?: 'dodge' | 'armor' | 'invuln' | 'shield' | 'nullify';
+      }
+    | { t: 'explosion'; pos: Vec3; radius: number; kind: string }
+    | { t: 'melee'; src: EntityId; pos: Vec3; dir: Vec3; range: number; arc: number }
+    | { t: 'ability'; src: EntityId; ability: string; pos?: Vec3; target?: EntityId; dir?: Vec3 }
+    | { t: 'status'; target: EntityId; status: StatusId; on: boolean }
+    | { t: 'heal'; target: EntityId; amount: number; src?: EntityId }
+    | { t: 'downed'; target: EntityId; src?: EntityId }
+    | { t: 'revived'; target: EntityId; by?: EntityId }
+    | { t: 'death'; target: EntityId; killer?: EntityId; kind: EntityKind; role?: RoleId; heroId?: string; name?: string }
+    | { t: 'pickup'; who: EntityId; item: string }
+    | { t: 'itemUse'; who: EntityId; item: string; pos?: Vec3; target?: EntityId }
+    | { t: 'reward'; who: EntityId; kind: 'rebelKill' | 'lordPenalty' | 'bounty'; items?: string[] }
+    | { t: 'zone'; phase: number; center: Vec3; radius: number; targetRadius: number; shrinkStart: number; shrinkEnd: number }
+    | { t: 'airdrop'; pos: Vec3; id: EntityId }
+    | { t: 'claim'; who: EntityId; role: RoleId }
+    | { t: 'quickchat'; who: EntityId; id: string }
+    | { t: 'chat'; from: string; text: string }
+    | { t: 'command'; who: EntityId; order: SquadOrderKind; point?: Vec3; target?: EntityId }
+    | { t: 'announce'; zh: string; en: string; kind?: 'info' | 'warn' | 'big' }
+    | { t: 'sfx'; name: string; pos?: Vec3 }
+    | { t: 'gameOver'; result: GameResult }
+  );
 
 export interface GameResult {
   winner: Faction | 'draw';
@@ -396,6 +404,7 @@ export const VF_HASTE = 1 << 22;
 export const VF_ROOTED = 1 << 23;
 export const VF_SLOWED = 1 << 24;
 export const VF_BOOSTED = 1 << 25; // dmgBoost active (glow)
+export const VF_EXPOSED = 1 << 26; // 'reveal' status: shown on the minimap / outlined through walls (public, or private to this viewer)
 
 export interface ViewEntity {
   id: EntityId;
@@ -459,6 +468,22 @@ export interface PrivateHeroView {
   /** for 影武者/主公: id of the other crown bearer, when known */
   knownAllies?: EntityId[];
   stats: HeroState['stats'];
+  /** (optional, for client prediction) authoritative velocity of your hero */
+  vel?: Vec3;
+  /** (optional, for client prediction) your hero is standing on ground */
+  onGround?: boolean;
+  /** (optional, for client prediction) the exact MoveMods the host used for your hero this tick */
+  moveMods?: PredictionMoveMods;
+  /** (optional, for client prediction) active forced movement of your hero (dash / knockback): Entity.forced.vel and seconds until it ends */
+  forced?: { vel: Vec3; remaining: number };
+}
+
+/** Mirror of sim/physics MoveMods (core must not import sim). Sent for the local hero only. */
+export interface PredictionMoveMods {
+  speedMul: number;
+  canSprint: boolean;
+  canJump: boolean;
+  rooted: boolean;
 }
 
 export interface ZoneView {

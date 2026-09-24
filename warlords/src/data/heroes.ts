@@ -1,84 +1,91 @@
-// SEED FILE — the DATA agent expands this to the full 30-hero roster
-// (see docs/GAME_SPEC.md §5). Keep export names stable.
-import type { HeroDef } from './types';
+// The 30-hero roster (docs/GAME_SPEC.md §5): 蜀 8 · 魏 8 · 吴 8 · 群 6.
+// Per-kingdom definitions live in heroes-{shu,wei,wu,qun}.ts; this module
+// aggregates them and provides lookups.
+//
+// ── Conventions for ability implementers (sim/abilities/*) ──────────────────
+// The descriptions (descZh/descEn) are the player-facing contract and `params`
+// carries every number they mention. Implement exactly that with SimApi.
+//  - Units: meters, seconds, HP. `mul` 1.3 = +30 %; `frac`/`slow`/`haste`/`chance` are 0..1.
+//  - "enemy"/敌人 = any unit NOT on your own side (!sim.isOwnSide(self, x)): other heroes
+//    (roles are hidden), their troops, NPCs, turrets. "your soldiers/squad" = self.hero.squad
+//    plus your temporary summons. "heroes"/武将 in area effects = every hero incl. enemies.
+//  - targeting 'enemy' / 'ally': the hero/unit under the crosshair within params.range
+//    (sim.aimTarget). No valid target ⇒ activate() returns false (no cooldown), unless the
+//    description gives a fallback (e.g. "or yourself").
+//  - targeting 'point': sim.aimPoint(self, params.range). 'direction': the aim ray yaw/pitch.
+//  - range: max targeting distance. radius: effect radius. duration: effect time (s).
+//  - dash/dashTime: sim.dash distance/time; blink: teleport distance; width: half-width (m) of
+//    a dash's damage corridor; knockback / knockUp: force passed to sim.knockback (up for knockUp).
+//  - Each unit is hit at most once per cast by corridor, sweep, slam or line damage (火烧赤壁's
+//    `blasts` included). Only counted hits — bolts, arrows, shots, periodic ticks — hit repeatedly.
+//  - Damage types: AbilityDef.dtype is the DamageType of EVERY hit the ability deals (direct, blast,
+//    field/hazard ticks, reflected damage): pass it as DamageRequest.type / explode dtype /
+//    HazardSpec.dtype. Abilities without dtype deal no damage themselves. Ability damage is NOT a
+//    weapon hit: pass abilityId and no weaponId, so bullet-only rules (armor bulletReduction, 八卦,
+//    仁王盾, 藤甲 troop immunity, 鬼才 reflect, 流离, 倾国, weapon specials/lifesteal, 酒) don't
+//    apply to it. Exception: params.weaponHit = 1 means the shots are fired with the held weapon
+//    (pass its weaponId; falloff and weapon specials apply). Type-based rules still apply: 藤甲
+//    fire ×2, 白银狮子 cap (except dtype 'pierce', which skips armor entirely), 武圣, 赤胆, 鬼道.
+//  - Burst: no single cast deals ≥ 300 to one target, including the owner's passive multipliers
+//    (enforced by tests/unit/data). 酒 only doubles WEAPON hits (ITEM_BY_ID.jiu.params.weaponOnly).
+//  - Private reveal: params.privateReveal = 1 ⇒ apply 'reveal' with params { viewerId: self.id }.
+//    Only that hero's client sees the outline + minimap marker (SIM-CORE canSee / snapshotFor and
+//    NET honour viewerId — see docs/CONTRACT_CHANGES.md). A reveal without viewerId is public.
+//  - Bullet evasion (八卦, dodgeChance statuses such as 八阵图, 倾国) combines as 1 − Π(1 − p) and
+//    is capped at BULLET_EVASION_CAP (data/items.ts).
+//  - stun on heroes never exceeds 1.5 s; stunTroop-style params apply to troops/NPCs only.
+//  - icd: internal cooldown of a passive, tracked in hero.abilityState.
+//  - Passive `troopBonus` params only mirror HeroDef.troopBonus, which the world already adds at
+//    spawn — never add them again. A lord skill's `squadBonus` IS extra and goes through
+//    SimExt modifiers().squadBonus (sim/ext.ts).
+//  - Stat modifiers (reloadMul, cdMul → cooldownMul, speedMul, fireRateMul, troopHpMul,
+//    extra dodge charges, knockback immunity, shieldPierce, sprintAds, maxHpBonus, revive
+//    tweaks) go through AbilityImplEx.modifiers() from sim/ext.ts, not per-tick hacks.
+//  - summons: kingdom units via sim.spawnTroops(self.id, type, count, pos, { temporary: lifetime });
+//    NPC-type summons via sim.spawnNpc(type, pos, { summonerId: self.id, lifetime }).
+//  - "N random items": rollRewardItems(sim.rng, N) from data/loot.ts, then sim.giveItem.
+//  - "steal": sim.takeRandomItem(target) then sim.giveItem(self). 陆逊 谦逊 blocks theft, so
+//    SimApi.takeRandomItem must return null when the victim's canBeAffected('steal') is false.
+//  - lord-slot abilities only work if the hero is the real Lord (world gates activation).
+//  - A lord-slot ability WITHOUT a cooldown is a passive lord skill (袁绍 血裔): it has no
+//    activate(), G does nothing, and UI / bots / world skip it — use isPassiveAbility().
+import { QUN_HEROES } from './heroes-qun';
+import { SHU_HEROES } from './heroes-shu';
+import { WEI_HEROES } from './heroes-wei';
+import { WU_HEROES } from './heroes-wu';
+import type { AbilityDef, HeroDef } from './types';
 
-export const HEROES: HeroDef[] = [
-  {
-    id: 'guanyu',
-    nameZh: '关羽',
-    nameEn: 'Guan Yu',
-    titleZh: '美髯公',
-    titleEn: 'The Lord of the Magnificent Beard',
-    kingdom: 'shu',
-    gender: 'male',
-    sgsHp: 4,
-    maxHp: 400,
-    speedMul: 1.0,
-    lordCandidate: false,
-    signatureWeapon: 'qinglong',
-    troopType: 'shu_rifleman',
-    troopBonus: 0,
-    abilities: [
-      {
-        id: 'guanyu_wusheng',
-        slot: 'passive',
-        nameZh: '武圣',
-        nameEn: 'Saint of War',
-        sgsSkill: '武圣',
-        descZh: '红色（火焰/爆炸）伤害与近战伤害 +25%；击中燃烧目标时额外造成一次斩击。',
-        descEn: 'Fire, explosive and melee damage +25%; hitting a burning target adds a bonus slash.',
-        params: { mul: 1.25, bonusSlash: 30 },
-        aiHint: 'offense',
-      },
-      {
-        id: 'guanyu_qinglong',
-        slot: 'q',
-        nameZh: '青龙斩',
-        nameEn: 'Green Dragon Cleave',
-        sgsSkill: '武圣',
-        descZh: '向前冲锋 8 米，以青龙偃月刀横扫前方 110° 扇形，造成 90 点伤害并击退。',
-        descEn: 'Charge 8 m and sweep a 110° arc with the Green Dragon glaive: 90 damage and knockback.',
-        cooldown: 9,
-        params: { dash: 8, damage: 90, arc: 110, range: 4.5, knockback: 6 },
-        targeting: 'direction',
-        aiHint: 'offense',
-      },
-      {
-        id: 'guanyu_yijue',
-        slot: 'e',
-        nameZh: '义绝',
-        nameEn: 'Righteous Severance',
-        sgsSkill: '义绝',
-        descZh: '指定准星处敌人：8 秒内其无法使用技能与锦囊，你对其伤害 +30%。',
-        descEn: 'Target under crosshair: for 8 s it cannot use abilities or items, and you deal +30% damage to it.',
-        cooldown: 16,
-        params: { duration: 8, mul: 1.3, range: 30 },
-        targeting: 'enemy',
-        aiHint: 'offense',
-      },
-    ],
-    visual: {
-      skin: '#c98c5a',
-      face: '#b3262a',
-      hair: '#141010',
-      primary: '#1f7a3a',
-      secondary: '#4a5a4a',
-      accent: '#d9b24a',
-      headgear: 'headband',
-      beard: 'long',
-      body: 'heavy',
-      extras: ['cape', 'shoulderPads'],
-      artPromptEn:
-        'Guan Yu, red face, very long black beard, green silk robe over modern tactical plate carrier with gold dragon engravings, green headscarf with tactical headset',
-    },
-    bioZh: '蜀汉五虎上将之首，温酒斩华雄，过五关斩六将，千里走单骑。',
-    bioEn: 'First of the Five Tiger Generals of Shu, famed for loyalty and his Green Dragon Crescent Blade.',
-    playstyleZh: '近中距离压制型战士，冲锋横扫打乱敌阵。',
-    playstyleEn: 'Close-to-mid range bruiser: charge in and cleave through formations.',
-    difficulty: 1,
-    quotesZh: ['关羽在此，尔等受死！', '青龙偃月，斩尽贼寇！'],
-    series: 'standard',
-  },
-];
+export const HEROES: HeroDef[] = [...SHU_HEROES, ...WEI_HEROES, ...WU_HEROES, ...QUN_HEROES];
 
 export const HERO_BY_ID: Record<string, HeroDef> = Object.fromEntries(HEROES.map((h) => [h.id, h]));
+
+/** Every ability of every hero, by globally unique ability id. */
+export const ABILITY_BY_ID: Record<string, AbilityDef> = Object.fromEntries(
+  HEROES.flatMap((h) => h.abilities.map((a) => [a.id, a] as const)),
+);
+
+/** Ability id → owning hero id. */
+export const ABILITY_HERO: Record<string, string> = Object.fromEntries(
+  HEROES.flatMap((h) => h.abilities.map((a) => [a.id, h.id] as const)),
+);
+
+/** The five heroes offered to the Lord (★): 刘备 曹操 孙权 张角 袁绍. */
+export const LORD_CANDIDATE_IDS: readonly string[] = HEROES.filter((h) => h.lordCandidate).map((h) => h.id);
+
+/** The hero's ability in an input slot ('q' | 'e' | 'lord'), if any. */
+export function heroAbility(heroId: string, slot: AbilityDef['slot']): AbilityDef | undefined {
+  return HERO_BY_ID[heroId]?.abilities.find((a) => a.slot === slot);
+}
+
+/**
+ * True for abilities that are never activated: passives and passive lord skills
+ * (a 'lord'-slot ability without a cooldown, e.g. 袁绍 血裔).
+ */
+export function isPassiveAbility(a: AbilityDef): boolean {
+  return a.slot === 'passive' || a.cooldown === undefined;
+}
+
+/** All passive abilities of a hero (some heroes have two). */
+export function heroPassives(heroId: string): AbilityDef[] {
+  return HERO_BY_ID[heroId]?.abilities.filter((a) => a.slot === 'passive') ?? [];
+}

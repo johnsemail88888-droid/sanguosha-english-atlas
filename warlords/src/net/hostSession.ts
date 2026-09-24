@@ -1,0 +1,1418 @@
+// Host-side GameSession (online host and single player). Owns the lobby, the
+// pre-match flow (roles → hero select → loading) and the authoritative sim loop
+// (GAME_SPEC §3, §11). Clients are driven purely by messages from here.
+import { Rng, randomSeed } from '../core/rng';
+import {
+  PROTOCOL_VERSION,
+  SIM_HZ,
+  SNAPSHOT_HZ,
+  defaultSettings,
+  type GameEvent,
+  type GameResult,
+  type EntityId,
+  type HeroSelectView,
+  type InputFrame,
+  type LobbySeat,
+  type LobbyState,
+  type MatchPhase,
+  type MatchSettings,
+  type PlayerId,
+  type RoleDealView,
+  type ViewEntity,
+} from '../core/types';
+import { HEROES } from '../data/heroes';
+import type { HeroDef } from '../data/types';
+import type { GameSession, SessionEvent, SessionEventMap } from '../game/session';
+import type { ViewSource } from '../render/view';
+import type { MatchInit, MatchSeatInit, SimHost } from '../sim/host';
+import {
+  BIN_INPUT,
+  isClientMsg,
+  MAX_TOKEN_LEN,
+  sanitizeChat,
+  sanitizeName,
+  type ClientMsg,
+  type HostMsg,
+  type SeatInfo,
+} from './protocol';
+import { binaryTag, buildMatchStrings, decodeInputMsg, decodeJson, encodeJson, encodeSnapshotMsg, heroKingdom, StringTable } from './codec';
+import { Emitter } from './emitter';
+import { NetError, netErrorText } from './errors';
+import { filterEventsFor, hasPrivateEvents } from './eventFilter';
+import { isPageHidden, watchPageFocus } from './focus';
+import {
+  botPickHero,
+  clampPlayerCount,
+  crownSeats,
+  dealRoles,
+  generalPhaseOptions,
+  lordPhaseOptions,
+  roleDealViewFor,
+  visibleLordSeat,
+  type RoleDeal,
+} from './flow';
+import { LocalView } from './localView';
+import { FixedStepLoop } from './ticker';
+import type { Channel, Payload, PeerId, Transport } from './transport';
+import { neutralInput, sanitizeInputPacket } from './validate';
+
+export interface FlowTimings {
+  /** role card reveal (s) */
+  roleReveal: number;
+  /** lord hero pick (s) */
+  lordPick: number;
+  /** everyone else's hero pick (s) */
+  pick: number;
+  /** pause after a pick phase completes so the picks can be seen (s) */
+  pickReveal: number;
+  /** max wait for clients to build the map (s) */
+  loadTimeout: number;
+  /** keep simulating after game over (s) */
+  postGame: number;
+  pingInterval: number;
+  /** no traffic from a peer for this long ⇒ disconnected (s) */
+  peerTimeout: number;
+}
+
+export const DEFAULT_TIMINGS: FlowTimings = {
+  roleReveal: 5,
+  lordPick: 15,
+  pick: 20,
+  pickReveal: 1.5,
+  loadTimeout: 20,
+  postGame: 4,
+  pingInterval: 2,
+  peerTimeout: 15,
+};
+
+export const MAX_PLAYERS = 8;
+/** extra heroes offered to the lord on top of every lord candidate */
+export const LORD_EXTRA_CHOICES = 3;
+const MAX_INPUT_QUEUE = 3;
+/**
+ * A client whose input stream has been silent this long (hidden tab, stall,
+ * dying link) gets neutral input: its hero stops instead of repeating the last
+ * frame (still running, still firing) indefinitely.
+ */
+export const INPUT_STALE_TICKS = Math.round(0.25 * SIM_HZ);
+/** Consecutive throwing sim steps before the match is abandoned (1 s). */
+const MAX_STEP_FAILURES = SIM_HZ;
+/**
+ * Snapshots remembered per client as delta baselines (1.6 s at 20 Hz). A
+ * client whose newest acknowledged snapshot is older gets a full snapshot.
+ */
+export const DELTA_HISTORY = 32;
+
+export interface HostSessionOptions {
+  name: string;
+  /** null / undefined = single player (no network) */
+  transport?: Transport | null;
+  roomCode?: string;
+  /** defaults to transport.selfId, or 'local' in single player */
+  myId?: PlayerId;
+  /** defaults to sim/world createMatch (loaded lazily at match start) */
+  createMatch?: (init: MatchInit) => SimHost | Promise<SimHost>;
+  /** hero pool (defaults to data HEROES) */
+  heroes?: readonly HeroDef[];
+  timings?: Partial<FlowTimings>;
+  /** seed for role dealing / hero options (default random) */
+  seed?: number;
+  settings?: Partial<MatchSettings>;
+  /** use a Worker-based ticker when available (default true) */
+  preferWorkerTicker?: boolean;
+}
+
+interface SeatRec {
+  seat: number;
+  playerId: PlayerId;
+  name: string;
+  /** a bot occupies the seat by design (added / auto-filled) */
+  isBot: boolean;
+  /** added explicitly in the lobby (kept on returnToLobby) */
+  explicitBot: boolean;
+  isHost: boolean;
+  ready: boolean;
+  /** human seat (host or client) — may reclaim after a disconnect */
+  human: boolean;
+  /** human client currently connected */
+  connected: boolean;
+  peer: PeerId | null;
+  /** secret handed to the seat's player in 'welcome'; a hello presenting it reclaims the seat */
+  token: string | null;
+}
+
+interface PeerRec {
+  id: PeerId;
+  seat: number | null;
+  lastSeen: number;
+  rtt: number | null;
+  pingSeq: number;
+  inputQueue: InputFrame[];
+  lastInputSeq: number;
+  processedSeq: number;
+  /** last frame applied to the sim (view direction for neutral input) */
+  lastFrame: InputFrame | null;
+  /** ticks since the last input was applied */
+  starvedTicks: number;
+  /** neutral input has been applied since the last real frame */
+  neutralized: boolean;
+  /** snapshots sent this match, oldest first: tick → entities (delta baselines) */
+  sent: Map<number, Map<EntityId, ViewEntity>>;
+  /** newest sent snapshot the client confirmed holding (-1 = none: send full) */
+  snapAck: number;
+  loaded: boolean;
+  chatTimes: number[];
+}
+
+interface PickState {
+  lordPhase: boolean;
+  pickers: Set<number>;
+  options: Map<number, string[]>;
+  picks: Map<number, string>;
+  deadlineAt: number;
+  completing: boolean;
+}
+
+const now = (): number => performance.now();
+
+const TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
+
+/** Unguessable seat reclaim token (crypto RNG when available). */
+function randomToken(): string {
+  const bytes = new Uint8Array(20);
+  const c = (globalThis as { crypto?: { getRandomValues?: (a: Uint8Array) => Uint8Array } }).crypto;
+  if (c?.getRandomValues) c.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  let out = '';
+  for (const b of bytes) out += TOKEN_ALPHABET[b % TOKEN_ALPHABET.length];
+  return out;
+}
+
+export class HostSession implements GameSession {
+  readonly isHost = true;
+  readonly myId: PlayerId;
+
+  private readonly emitter = new Emitter<SessionEventMap>();
+  private readonly transport: Transport | null;
+  private readonly roomCode: string;
+  private readonly createMatchFn: (init: MatchInit) => SimHost | Promise<SimHost>;
+  private readonly pool: readonly HeroDef[];
+  private readonly heroById: Record<string, HeroDef>;
+  private readonly timings: FlowTimings;
+  private readonly rng: Rng;
+  private readonly preferWorker: boolean;
+  private readonly unsubs: (() => void)[] = [];
+
+  private settings: MatchSettings;
+  private phaseValue: MatchPhase = 'lobby';
+  private readonly seats = new Map<number, SeatRec>();
+  private readonly peers = new Map<PeerId, PeerRec>();
+  private timers = new Set<ReturnType<typeof setTimeout>>();
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private flowToken = 0;
+  private disposed = false;
+
+  // flow state
+  private deal: RoleDeal | null = null;
+  private rolesEndAt = 0;
+  private pick: PickState | null = null;
+  private sim: SimHost | null = null;
+  private loop: FixedStepLoop | null = null;
+  private localView: LocalView | null = null;
+  private table: StringTable | null = null;
+  private waitingLoad = new Set<PeerId>();
+  private snapAcc = 0;
+  private postGameTicks = 0;
+  private extraEvents: GameEvent[] = [];
+  private resultValue: GameResult | null = null;
+  private unwatchFocus: (() => void) | null = null;
+
+  constructor(opts: HostSessionOptions) {
+    this.transport = opts.transport ?? null;
+    this.myId = opts.myId ?? this.transport?.selfId ?? 'local';
+    this.roomCode = opts.roomCode ?? '';
+    this.createMatchFn = opts.createMatch ?? loadAndCreateMatch;
+    this.pool = opts.heroes ?? HEROES;
+    this.heroById = Object.fromEntries(this.pool.map((h) => [h.id, h]));
+    this.timings = { ...DEFAULT_TIMINGS, ...opts.timings };
+    this.rng = new Rng(opts.seed ?? randomSeed());
+    this.preferWorker = opts.preferWorkerTicker ?? true;
+    this.settings = sanitizeSettings({ ...defaultSettings(), ...opts.settings }, 1);
+    this.seats.set(0, {
+      seat: 0,
+      playerId: this.myId,
+      name: sanitizeName(opts.name),
+      isBot: false,
+      explicitBot: false,
+      isHost: true,
+      ready: true,
+      human: true,
+      connected: true,
+      peer: null,
+      token: null,
+    });
+
+    const t = this.transport;
+    if (t) {
+      this.unsubs.push(
+        t.onMessage((from, data, ch) => this.onMessage(from, data, ch)),
+        t.onPeerJoin((p) => this.onPeerJoin(p)),
+        t.onPeerLeave((p) => this.onPeerLeave(p)),
+        t.onClose((err) => this.onTransportClosed(err)),
+      );
+      this.pingTimer = setInterval(() => this.pingPeers(), this.timings.pingInterval * 1000);
+      this.status('房间已创建，等待玩家加入…', 'Room created — waiting for players…');
+    }
+  }
+
+  // ── GameSession getters ──────────────────────────────────────────────────
+  get phase(): MatchPhase {
+    return this.phaseValue;
+  }
+
+  get lobby(): LobbyState {
+    return this.lobbyState();
+  }
+
+  get roles(): RoleDealView | null {
+    return this.deal ? roleDealViewFor(this.deal, 0) : null;
+  }
+
+  get heroSelect(): HeroSelectView | null {
+    return this.pick && this.phaseValue === 'heroSelect' ? this.heroSelectViewFor(0) : null;
+  }
+
+  get view(): ViewSource | null {
+    return this.localView;
+  }
+
+  get result(): GameResult | null {
+    return this.resultValue;
+  }
+
+  on<K extends SessionEvent>(ev: K, cb: (payload: SessionEventMap[K]) => void): () => void {
+    return this.emitter.on(ev, cb);
+  }
+
+  // ── everyone ─────────────────────────────────────────────────────────────
+  setName(name: string): void {
+    const rec = this.seats.get(0);
+    if (!rec || this.phaseValue !== 'lobby') return;
+    rec.name = this.uniqueName(sanitizeName(name), 0);
+    this.lobbyChanged();
+  }
+
+  setReady(_ready: boolean): void {
+    // the host is always ready
+  }
+
+  pickHero(heroId: string): void {
+    this.tryPick(0, heroId);
+  }
+
+  sendChat(text: string): void {
+    const clean = sanitizeChat(text);
+    if (!clean) return;
+    this.relayChat(this.seats.get(0)?.name ?? '', clean);
+  }
+
+  leave(): void {
+    if (this.disposed) return;
+    this.broadcast({ t: 'leave' });
+    this.dispose();
+  }
+
+  // ── host controls ────────────────────────────────────────────────────────
+  updateSettings(patch: Partial<MatchSettings>): void {
+    if (this.phaseValue !== 'lobby') return;
+    const before = this.seats.size;
+    this.settings = sanitizeSettings({ ...this.settings, ...patch }, this.humanCount());
+    this.fitSeatsToCount();
+    this.broadcast({ t: 'settings', settings: { ...this.settings } });
+    if (this.seats.size !== before) this.broadcastLobby();
+    this.emitter.emit('lobby', this.lobbyState());
+  }
+
+  addBot(): void {
+    if (this.phaseValue !== 'lobby') return;
+    let seat = this.firstFreeSeat(this.settings.playerCount);
+    if (seat === null && this.settings.playerCount < MAX_PLAYERS) {
+      this.settings = { ...this.settings, playerCount: clampPlayerCount(this.settings.playerCount + 1) };
+      seat = this.firstFreeSeat(this.settings.playerCount);
+    }
+    if (seat === null) return;
+    this.seats.set(seat, this.botRec(seat, true));
+    this.lobbyChanged();
+  }
+
+  removeBot(seat: number): void {
+    if (this.phaseValue !== 'lobby') return;
+    const rec = this.seats.get(seat);
+    if (!rec || !rec.isBot) return;
+    this.seats.delete(seat);
+    this.lobbyChanged();
+  }
+
+  kick(seat: number): void {
+    const rec = this.seats.get(seat);
+    if (!rec || rec.isHost) return;
+    if (rec.isBot) {
+      this.removeBot(seat);
+      return;
+    }
+    const peerId = rec.peer;
+    if (peerId) {
+      const k = netErrorText('kicked');
+      this.sendTo(peerId, { t: 'kick', zh: k.zh, en: k.en });
+      const peer = this.peers.get(peerId);
+      if (peer) peer.seat = null;
+      this.peers.delete(peerId);
+      // give the kick message a moment to flush before dropping the link
+      setTimeout(() => this.transport?.disconnect(peerId), 200);
+    }
+    // a kicked player cannot reclaim the seat
+    rec.human = false;
+    rec.connected = false;
+    rec.peer = null;
+    rec.token = null;
+    if (this.phaseValue === 'lobby') {
+      this.seats.delete(seat);
+      this.lobbyChanged();
+    } else {
+      this.humanLostMidMatch(rec);
+    }
+  }
+
+  start(): void {
+    if (this.phaseValue !== 'lobby' || this.disposed) return;
+    if (this.pool.length === 0) {
+      this.fail(new NetError('simFailed', 'no heroes available'));
+      return;
+    }
+    const count = clampPlayerCount(Math.max(this.settings.playerCount, this.humanCount()));
+    this.settings = { ...this.settings, playerCount: count };
+    this.fitSeatsToCount();
+    for (let s = 0; s < count; s++) if (!this.seats.has(s)) this.seats.set(s, this.botRec(s, false));
+
+    this.flowToken++;
+    this.deal = dealRoles(this.settings.mode, count, this.rng);
+    this.resultValue = null;
+    this.setPhase('roles');
+    this.broadcast({ t: 'start' });
+    this.broadcastLobby();
+    this.rolesEndAt = now() + this.timings.roleReveal * 1000;
+    for (const rec of this.seats.values()) this.sendRoles(rec);
+    const roles = this.roles;
+    if (roles) this.emitter.emit('roles', roles);
+    const token = this.flowToken;
+    this.after(this.timings.roleReveal, () => {
+      if (token === this.flowToken) this.beginLordPick();
+    });
+  }
+
+  returnToLobby(): void {
+    if (this.phaseValue === 'lobby' || this.disposed) return;
+    this.stopMatch();
+    this.flowToken++;
+    this.clearTimers();
+    for (const rec of [...this.seats.values()]) {
+      const keep = rec.isHost || (rec.human && rec.connected) || rec.explicitBot;
+      if (!keep) this.seats.delete(rec.seat);
+      else if (!rec.isHost && !rec.isBot) rec.ready = false;
+    }
+    for (const peer of this.peers.values()) {
+      peer.loaded = false;
+      peer.inputQueue = [];
+      peer.lastFrame = null;
+      peer.starvedTicks = 0;
+      peer.neutralized = false;
+      peer.sent.clear();
+      peer.snapAck = -1;
+    }
+    this.deal = null;
+    this.pick = null;
+    this.resultValue = null;
+    this.fitSeatsToCount();
+    this.setPhase('lobby');
+    this.broadcast({ t: 'returnToLobby', lobby: this.lobbyState() });
+    this.emitter.emit('lobby', this.lobbyState());
+  }
+
+  // ── lobby helpers ────────────────────────────────────────────────────────
+  private lobbyState(): LobbyState {
+    const seats: LobbySeat[] = [...this.seats.values()]
+      .sort((a, b) => a.seat - b.seat)
+      .map((r) => ({
+        seat: r.seat,
+        playerId: r.playerId,
+        name: r.name,
+        isBot: r.isBot || (!r.isHost && !r.connected),
+        isHost: r.isHost,
+        ready: r.isHost || r.isBot || r.ready,
+      }));
+    return { roomCode: this.roomCode, hostId: this.myId, settings: { ...this.settings }, seats };
+  }
+
+  private lobbyChanged(): void {
+    this.broadcastLobby();
+    this.emitter.emit('lobby', this.lobbyState());
+  }
+
+  private broadcastLobby(): void {
+    this.broadcast({ t: 'lobby', lobby: this.lobbyState() });
+  }
+
+  private humanCount(): number {
+    let n = 0;
+    for (const r of this.seats.values()) if (r.human && (r.isHost || r.connected)) n++;
+    return n;
+  }
+
+  private botRec(seat: number, explicit: boolean): SeatRec {
+    return {
+      seat,
+      playerId: `bot-${seat}`,
+      name: `人机${seat + 1}`,
+      isBot: true,
+      explicitBot: explicit,
+      isHost: false,
+      ready: true,
+      human: false,
+      connected: false,
+      peer: null,
+      token: null,
+    };
+  }
+
+  private firstFreeSeat(limit: number): number | null {
+    for (let s = 1; s < Math.min(limit, MAX_PLAYERS); s++) if (!this.seats.has(s)) return s;
+    return null;
+  }
+
+  /** Keep every seat index < playerCount: drop surplus bots, move humans down. */
+  private fitSeatsToCount(): void {
+    const count = this.settings.playerCount;
+    for (const rec of [...this.seats.values()].sort((a, b) => b.seat - a.seat)) {
+      if (rec.seat < count) continue;
+      this.seats.delete(rec.seat);
+      if (!rec.human) continue;
+      let free = this.firstFreeSeat(count);
+      if (free === null) {
+        // evict the highest bot to make room for the human
+        const bot = [...this.seats.values()].filter((r) => r.isBot).sort((a, b) => b.seat - a.seat)[0];
+        if (bot) {
+          this.seats.delete(bot.seat);
+          free = bot.seat;
+        }
+      }
+      if (free === null) continue; // cannot happen: count >= humans
+      rec.seat = free;
+      this.seats.set(free, rec);
+      if (rec.peer) {
+        const peer = this.peers.get(rec.peer);
+        if (peer) peer.seat = free;
+      }
+    }
+    if (this.phaseValue === 'lobby') {
+      for (const rec of this.seats.values()) if (rec.isBot) rec.playerId = `bot-${rec.seat}`;
+    }
+  }
+
+  private uniqueName(name: string, seat: number): string {
+    const taken = new Set([...this.seats.values()].filter((r) => r.seat !== seat).map((r) => r.name));
+    if (!taken.has(name)) return name;
+    for (let i = 2; i < 100; i++) {
+      const candidate = `${name}${i}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+    return `${name}${seat + 1}`;
+  }
+
+  // ── transport handlers ───────────────────────────────────────────────────
+  private onPeerJoin(id: PeerId): void {
+    if (this.disposed || this.peers.has(id)) return;
+    this.peers.set(id, {
+      id,
+      seat: null,
+      lastSeen: now(),
+      rtt: null,
+      pingSeq: 0,
+      inputQueue: [],
+      lastInputSeq: 0,
+      processedSeq: 0,
+      lastFrame: null,
+      starvedTicks: 0,
+      neutralized: false,
+      sent: new Map(),
+      snapAck: -1,
+      loaded: false,
+      chatTimes: [],
+    });
+  }
+
+  private onPeerLeave(id: PeerId): void {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    this.peers.delete(id);
+    this.waitingLoad.delete(id);
+    if (peer.seat === null) return;
+    const rec = this.seats.get(peer.seat);
+    if (!rec || rec.peer !== id) return;
+    rec.connected = false;
+    rec.peer = null;
+    if (this.phaseValue === 'lobby') {
+      this.seats.delete(rec.seat);
+      this.notice(`${rec.name} 离开了房间`, `${rec.name} left the room`);
+      this.lobbyChanged();
+      return;
+    }
+    this.notice(`${rec.name} 断开连接，由人机接管`, `${rec.name} disconnected — a bot takes over`);
+    this.humanLostMidMatch(rec);
+  }
+
+  /** A human seat lost its player during the flow: a bot takes over. */
+  private humanLostMidMatch(rec: SeatRec): void {
+    if (this.sim) {
+      try {
+        this.sim.convertToBot(rec.playerId);
+      } catch (err) {
+        console.error('[net] convertToBot failed', err);
+      }
+      this.injectEvent({ t: 'announce', zh: `${rec.name} 掉线，由人机接管`, en: `${rec.name} disconnected — a bot takes over`, kind: 'info' });
+    }
+    if (this.phaseValue === 'heroSelect' && this.pick) {
+      this.botPicks();
+      this.broadcastHeroSelect();
+      this.checkPickComplete();
+    }
+    if (this.phaseValue === 'loading') this.maybeBeginPlaying();
+    this.lobbyChanged();
+  }
+
+  private onTransportClosed(err: NetError | null): void {
+    if (this.disposed) return;
+    const e = err ?? new NetError('closed');
+    this.emitter.emit('error', e.toPayload());
+  }
+
+  private onMessage(from: PeerId, data: Payload, _channel: Channel): void {
+    if (this.disposed) return;
+    let peer = this.peers.get(from);
+    if (!peer) {
+      this.onPeerJoin(from);
+      peer = this.peers.get(from);
+      if (!peer) return;
+    }
+    peer.lastSeen = now();
+    if (typeof data !== 'string') {
+      if (binaryTag(data) === BIN_INPUT) this.onInput(peer, data);
+      return;
+    }
+    const raw = decodeJson(data);
+    if (!raw || !isClientMsg(raw)) return;
+    const msg = raw as ClientMsg;
+    if (msg.t === 'hello') {
+      this.onHello(peer, msg);
+      return;
+    }
+    if (msg.t === 'ping') {
+      this.sendTo(from, { t: 'pong', id: Number(msg.id) || 0, ts: Number(msg.ts) || 0 });
+      return;
+    }
+    if (msg.t === 'pong') {
+      const rtt = now() - Number(msg.ts);
+      if (Number.isFinite(rtt) && rtt >= 0 && rtt < 60_000) peer.rtt = peer.rtt === null ? rtt : peer.rtt * 0.7 + rtt * 0.3;
+      return;
+    }
+    if (peer.seat === null) return;
+    const rec = this.seats.get(peer.seat);
+    if (!rec || rec.peer !== from) return;
+    switch (msg.t) {
+      case 'setName':
+        if (this.phaseValue === 'lobby' && typeof msg.name === 'string') {
+          rec.name = this.uniqueName(sanitizeName(msg.name), rec.seat);
+          this.lobbyChanged();
+        }
+        break;
+      case 'ready':
+        if (this.phaseValue === 'lobby') {
+          rec.ready = msg.ready === true;
+          this.lobbyChanged();
+        }
+        break;
+      case 'pick':
+        if (typeof msg.heroId === 'string') this.tryPick(rec.seat, msg.heroId);
+        break;
+      case 'chat': {
+        if (typeof msg.text !== 'string') break;
+        const t = now();
+        peer.chatTimes = peer.chatTimes.filter((x) => t - x < 3000);
+        if (peer.chatTimes.length >= 5) break; // flood control
+        peer.chatTimes.push(t);
+        const clean = sanitizeChat(msg.text);
+        if (clean) this.relayChat(rec.name, clean);
+        break;
+      }
+      case 'loaded':
+        peer.loaded = true;
+        this.waitingLoad.delete(from);
+        this.maybeBeginPlaying();
+        break;
+      case 'leave':
+        this.transport?.disconnect(from);
+        this.onPeerLeave(from);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private onHello(peer: PeerRec, msg: Extract<ClientMsg, { t: 'hello' }>): void {
+    if (peer.seat !== null) return;
+    if (msg.v !== PROTOCOL_VERSION) {
+      this.reject(peer.id, 'versionMismatch');
+      return;
+    }
+    const name = sanitizeName(typeof msg.name === 'string' ? msg.name : '');
+    // a returning player (auto-rejoin after a blip, page reload) presents the
+    // seat's secret token: reclaim that seat in any phase, even if the host has
+    // not noticed the old connection dying yet
+    const token = typeof msg.token === 'string' && msg.token.length > 0 && msg.token.length <= MAX_TOKEN_LEN ? msg.token : null;
+    if (token) {
+      const owned = [...this.seats.values()].find((r) => r.human && !r.isHost && r.token === token);
+      if (owned) {
+        this.reclaim(peer, owned);
+        return;
+      }
+    }
+    if (this.phaseValue === 'lobby') {
+      let seat = this.firstFreeSeat(this.settings.playerCount);
+      if (seat === null) {
+        const bot = [...this.seats.values()].filter((r) => r.isBot).sort((a, b) => b.seat - a.seat)[0];
+        if (bot) {
+          this.seats.delete(bot.seat);
+          seat = bot.seat;
+        } else if (this.settings.playerCount < MAX_PLAYERS) {
+          this.settings = { ...this.settings, playerCount: clampPlayerCount(this.settings.playerCount + 1) };
+          seat = this.firstFreeSeat(this.settings.playerCount);
+        }
+      }
+      if (seat === null) {
+        this.reject(peer.id, 'roomFull');
+        return;
+      }
+      const rec: SeatRec = {
+        seat,
+        playerId: peer.id,
+        name: this.uniqueName(name, seat),
+        isBot: false,
+        explicitBot: false,
+        isHost: false,
+        ready: false,
+        human: true,
+        connected: true,
+        peer: peer.id,
+        token: randomToken(),
+      };
+      this.seats.set(seat, rec);
+      peer.seat = seat;
+      this.sendTo(peer.id, {
+        t: 'welcome',
+        v: PROTOCOL_VERSION,
+        playerId: peer.id,
+        seat,
+        phase: 'lobby',
+        lobby: this.lobbyState(),
+        token: rec.token ?? undefined,
+      });
+      this.notice(`${rec.name} 加入了房间`, `${rec.name} joined the room`);
+      this.lobbyChanged();
+      return;
+    }
+    // mid-flow without a token (new tab / device): a human seat with the same
+    // name may be reclaimed if it is disconnected — or if its connection has
+    // gone silent (the host has not detected the drop yet)
+    const humans = [...this.seats.values()].filter((r) => r.human && !r.isHost && r.name === name);
+    const rec = humans.find((r) => !r.connected) ?? humans.find((r) => this.connectionStale(r));
+    if (!rec) {
+      this.reject(peer.id, 'inProgress');
+      return;
+    }
+    this.reclaim(peer, rec);
+  }
+
+  /** The seat's connection has been silent for several ping intervals. */
+  private connectionStale(rec: SeatRec): boolean {
+    if (!rec.connected || !rec.peer) return false;
+    const old = this.peers.get(rec.peer);
+    if (!old) return true;
+    return now() - old.lastSeen > this.staleMs();
+  }
+
+  /** Silence after which a connection counts as dead for name-based reclaim (3.5 s with default timings). */
+  private staleMs(): number {
+    return Math.max(1, this.timings.pingInterval * 1.5 + 0.5) * 1000;
+  }
+
+  private reclaim(peer: PeerRec, rec: SeatRec): void {
+    // replace a connection the host still believes alive (dead link, duplicate tab)
+    const oldPeer = rec.peer;
+    if (oldPeer && oldPeer !== peer.id) {
+      this.peers.delete(oldPeer);
+      this.waitingLoad.delete(oldPeer);
+      this.transport?.disconnect(oldPeer);
+    }
+    rec.playerId = peer.id;
+    rec.peer = peer.id;
+    rec.connected = true;
+    rec.token ??= randomToken();
+    peer.seat = rec.seat;
+    this.sendTo(peer.id, {
+      t: 'welcome',
+      v: PROTOCOL_VERSION,
+      playerId: peer.id,
+      seat: rec.seat,
+      phase: this.phaseValue,
+      lobby: this.lobbyState(),
+      token: rec.token,
+    });
+    this.sendRoles(rec);
+    if (this.phaseValue === 'heroSelect' && this.pick) this.sendTo(peer.id, { t: 'heroSelect', view: this.heroSelectViewFor(rec.seat) });
+    if (this.sim) {
+      try {
+        this.sim.convertToHuman(rec.seat, peer.id, rec.name);
+      } catch (err) {
+        console.error('[net] convertToHuman failed', err);
+      }
+      this.sendMatchStart(peer);
+      if (this.phaseValue === 'loading') this.waitingLoad.add(peer.id);
+      this.injectEvent({ t: 'announce', zh: `${rec.name} 重新连接`, en: `${rec.name} reconnected`, kind: 'info' });
+    }
+    if (this.phaseValue === 'gameOver' && this.resultValue) this.sendTo(peer.id, { t: 'gameOver', result: this.resultValue });
+    this.notice(`${rec.name} 重新连接`, `${rec.name} reconnected`);
+    this.lobbyChanged();
+  }
+
+  private reject(peerId: PeerId, code: 'versionMismatch' | 'roomFull' | 'inProgress'): void {
+    const m = netErrorText(code);
+    this.sendTo(peerId, { t: 'reject', code, zh: m.zh, en: m.en });
+    this.peers.delete(peerId);
+    setTimeout(() => this.transport?.disconnect(peerId), 200);
+  }
+
+  private pingPeers(): void {
+    const t = now();
+    for (const peer of [...this.peers.values()]) {
+      if (t - peer.lastSeen > this.timings.peerTimeout * 1000) {
+        this.transport?.disconnect(peer.id);
+        this.onPeerLeave(peer.id);
+        continue;
+      }
+      this.sendTo(peer.id, { t: 'ping', id: ++peer.pingSeq, ts: t });
+    }
+  }
+
+  private onInput(peer: PeerRec, data: Uint8Array): void {
+    if (!this.sim || peer.seat === null) return;
+    const rec = this.seats.get(peer.seat);
+    if (!rec || rec.peer !== peer.id) return;
+    let pkt;
+    try {
+      pkt = sanitizeInputPacket(decodeInputMsg(data));
+    } catch {
+      return; // malformed packet
+    }
+    // delta baseline acknowledgement (only ticks we actually sent this match)
+    const ack = pkt.snapAck;
+    if (ack !== undefined && ack > peer.snapAck && peer.sent.has(ack)) peer.snapAck = ack;
+    const f = pkt.frame;
+    if (f.seq <= peer.lastInputSeq) return; // late / duplicate
+    // rescue edge actions from frames that were lost (seq-based dedup)
+    const actions = [];
+    const lost = pkt.history.filter((h) => h.seq > peer.lastInputSeq && h.seq < f.seq).sort((a, b) => a.seq - b.seq);
+    for (const h of lost) actions.push(...h.actions);
+    actions.push(...f.actions);
+    f.actions = actions;
+    peer.lastInputSeq = f.seq;
+    peer.inputQueue.push(f);
+    // bound input latency: merge the oldest frames' actions forward
+    while (peer.inputQueue.length > MAX_INPUT_QUEUE) {
+      const dropped = peer.inputQueue.shift() as InputFrame;
+      peer.inputQueue[0].actions = [...dropped.actions, ...peer.inputQueue[0].actions];
+    }
+  }
+
+  // ── roles / hero select ──────────────────────────────────────────────────
+  private sendRoles(rec: SeatRec): void {
+    if (!this.deal || !rec.peer || this.phaseValue === 'lobby') return;
+    const seconds = Math.max(0, (this.rolesEndAt - now()) / 1000);
+    this.sendTo(rec.peer, { t: 'roles', deal: roleDealViewFor(this.deal, rec.seat), seconds });
+  }
+
+  private seatBotControlled(seat: number): boolean {
+    const rec = this.seats.get(seat);
+    if (!rec) return true;
+    if (rec.isHost) return false;
+    return rec.isBot || !rec.connected;
+  }
+
+  private beginLordPick(): void {
+    const deal = this.deal;
+    if (!deal) return;
+    const crowns = crownSeats(deal);
+    const options = this.settings.freePick
+      ? Object.fromEntries(crowns.map((s) => [s, this.pool.map((h) => h.id)]))
+      : lordPhaseOptions(this.pool, crowns, LORD_EXTRA_CHOICES, this.rng);
+    this.pick = {
+      lordPhase: true,
+      pickers: new Set(crowns),
+      options: new Map(crowns.map((s) => [s, options[s]])),
+      picks: new Map(),
+      deadlineAt: now() + this.timings.lordPick * 1000,
+      completing: false,
+    };
+    this.setPhase('heroSelect');
+    this.runPickPhase(this.timings.lordPick);
+  }
+
+  private beginGeneralPick(): void {
+    const deal = this.deal;
+    const prev = this.pick;
+    if (!deal || !prev) return;
+    const crowns = new Set(crownSeats(deal));
+    const others = [...this.seats.keys()].filter((s) => !crowns.has(s)).sort((a, b) => a - b);
+    const taken = new Set(prev.picks.values());
+    const options = this.settings.freePick
+      ? Object.fromEntries(others.map((s) => [s, this.pool.map((h) => h.id)]))
+      : generalPhaseOptions(this.pool, others, this.settings.heroChoices, taken, this.rng);
+    this.pick = {
+      lordPhase: false,
+      pickers: new Set(others),
+      options: new Map(others.map((s) => [s, options[s]])),
+      picks: prev.picks,
+      deadlineAt: now() + this.timings.pick * 1000,
+      completing: false,
+    };
+    this.runPickPhase(this.timings.pick);
+  }
+
+  private runPickPhase(seconds: number): void {
+    const token = ++this.flowToken;
+    this.after(seconds, () => {
+      if (token !== this.flowToken || !this.pick) return;
+      // time's up: auto-pick for everyone still choosing
+      for (const seat of this.pick.pickers) if (!this.pick.picks.has(seat)) this.autoPick(seat);
+      this.broadcastHeroSelect();
+      this.checkPickComplete();
+    });
+    this.botPicks();
+    this.broadcastHeroSelect();
+    this.checkPickComplete();
+  }
+
+  /** Options `seat` may still choose from (taken heroes removed when possible). */
+  private availableOptions(seat: number): string[] {
+    const pick = this.pick;
+    if (!pick) return [];
+    const opts = pick.options.get(seat) ?? [];
+    const mine = pick.picks.get(seat);
+    const taken = new Set([...pick.picks.values()]);
+    const free = opts.filter((id) => !taken.has(id) || id === mine);
+    return free.length > 0 ? free : opts;
+  }
+
+  private botPicks(): void {
+    const pick = this.pick;
+    if (!pick) return;
+    // real lord first so a bot double never steals from a bot lord's best choice
+    const order = [...pick.pickers].sort((a, b) => (a === this.deal?.lordSeat ? -1 : b === this.deal?.lordSeat ? 1 : a - b));
+    for (const seat of order) if (!pick.picks.has(seat) && this.seatBotControlled(seat)) this.autoPick(seat);
+  }
+
+  private autoPick(seat: number): void {
+    const pick = this.pick;
+    const deal = this.deal;
+    if (!pick || !deal) return;
+    const opts = this.availableOptions(seat);
+    if (opts.length === 0) return;
+    const heroId = botPickHero(opts, deal.roles[seat], this.heroById, this.rng);
+    pick.picks.set(seat, heroId);
+  }
+
+  private tryPick(seat: number, heroId: string): void {
+    const pick = this.pick;
+    if (this.phaseValue !== 'heroSelect' || !pick || pick.completing) return;
+    if (!pick.pickers.has(seat) || pick.picks.has(seat)) return;
+    if (!this.availableOptions(seat).includes(heroId)) return;
+    pick.picks.set(seat, heroId);
+    this.broadcastHeroSelect();
+    this.checkPickComplete();
+  }
+
+  private checkPickComplete(): void {
+    const pick = this.pick;
+    if (!pick || pick.completing) return;
+    for (const seat of pick.pickers) if (!pick.picks.has(seat)) return;
+    pick.completing = true;
+    const token = ++this.flowToken; // cancels the phase timeout
+    const next = pick.lordPhase ? () => this.beginGeneralPick() : () => this.beginLoading();
+    this.after(this.timings.pickReveal, () => {
+      if (token === this.flowToken) next();
+    });
+  }
+
+  private heroSelectViewFor(seat: number): HeroSelectView {
+    const pick = this.pick as PickState;
+    const deal = this.deal as RoleDeal;
+    const picks: Record<number, string> = {};
+    for (const [s, h] of pick.picks) picks[s] = h;
+    return {
+      options: pick.pickers.has(seat) ? this.availableOptions(seat) : [],
+      deadline: pick.completing ? 0 : Math.max(0, (pick.deadlineAt - now()) / 1000),
+      picks,
+      lordSeat: visibleLordSeat(deal, seat),
+      lordPhase: pick.lordPhase,
+    };
+  }
+
+  private broadcastHeroSelect(): void {
+    if (!this.pick) return;
+    for (const rec of this.seats.values()) {
+      if (rec.peer && rec.connected) this.sendTo(rec.peer, { t: 'heroSelect', view: this.heroSelectViewFor(rec.seat) });
+    }
+    this.emitter.emit('heroSelect', this.heroSelectViewFor(0));
+  }
+
+  // ── match ────────────────────────────────────────────────────────────────
+  private beginLoading(): void {
+    const deal = this.deal;
+    const pick = this.pick;
+    if (!deal || !pick) return;
+    this.flowToken++;
+    this.clearTimers();
+    const seatsInit: MatchSeatInit[] = [...this.seats.values()]
+      .sort((a, b) => a.seat - b.seat)
+      .map((r) => {
+        const s: MatchSeatInit = {
+          seat: r.seat,
+          playerId: r.playerId,
+          name: r.name,
+          isBot: this.seatBotControlled(r.seat),
+          role: deal.roles[r.seat],
+          heroId: pick.picks.get(r.seat) ?? this.pool[0].id,
+        };
+        const target = deal.bountyTargets[r.seat];
+        if (target !== undefined) s.bountyTargetSeat = target;
+        return s;
+      });
+    const init: MatchInit = { settings: { ...this.settings }, seats: seatsInit, seed: this.rng.int(1, 0x7fffffff) };
+    this.setPhase('loading');
+    const token = this.flowToken;
+    let created: SimHost | Promise<SimHost>;
+    try {
+      created = this.createMatchFn(init);
+    } catch (err) {
+      this.simFailed(err);
+      return;
+    }
+    if (created instanceof Promise) {
+      created.then(
+        (sim) => {
+          if (token === this.flowToken && !this.disposed && this.phaseValue === 'loading') this.onSimReady(sim, init);
+        },
+        (err: unknown) => {
+          if (token === this.flowToken && !this.disposed) this.simFailed(err);
+        },
+      );
+    } else {
+      this.onSimReady(created, init);
+    }
+  }
+
+  private simFailed(err: unknown): void {
+    console.error('[net] match failed (creating or running the sim)', err);
+    this.fail(new NetError('simFailed', err instanceof Error ? err.message : undefined));
+    this.returnToLobby();
+  }
+
+  private onSimReady(sim: SimHost, init: MatchInit): void {
+    this.sim = sim;
+    // players who dropped / came back while the sim was being created
+    for (const s of init.seats) {
+      const rec = this.seats.get(s.seat);
+      if (!rec || rec.isHost || !rec.human) continue;
+      try {
+        // reconnected (possibly under a new peer id) / dropped meanwhile
+        if (rec.connected && (s.isBot || s.playerId !== rec.playerId)) sim.convertToHuman(s.seat, rec.playerId, rec.name);
+        else if (!rec.connected && !s.isBot) sim.convertToBot(s.playerId);
+      } catch (err) {
+        console.error('[net] seat conversion failed', err);
+      }
+    }
+    const extra: string[] = [];
+    for (const r of this.seats.values()) extra.push(r.playerId, r.name);
+    this.table = new StringTable(buildMatchStrings(extra));
+    this.snapAcc = 0;
+    const loop: FixedStepLoop = new FixedStepLoop(() => this.tick(), {
+      hz: SIM_HZ,
+      maxCatchUp: 5,
+      preferWorker: this.preferWorker,
+      maxConsecutiveFailures: MAX_STEP_FAILURES,
+      // the sim keeps throwing: surface it instead of showing a frozen match
+      onFatal: (err) => {
+        if (this.loop === loop && !this.disposed) this.simFailed(err);
+      },
+    });
+    this.loop = loop;
+    this.localView = new LocalView(sim, this.myId, () => loop.alpha());
+    // host player: release the controls while the tab is hidden / unfocused
+    // (the worker keeps the sim ticking with the last input otherwise)
+    const view = this.localView;
+    if (isPageHidden()) view.setSuspended(true);
+    this.unwatchFocus?.();
+    this.unwatchFocus = watchPageFocus({
+      onHidden: () => view.setSuspended(true),
+      onVisible: () => view.setSuspended(false),
+      onBlur: () => view.releaseInput(),
+    });
+    this.extraEvents = [];
+    this.waitingLoad.clear();
+    for (const peer of this.peers.values()) {
+      if (peer.seat === null) continue;
+      const rec = this.seats.get(peer.seat);
+      if (!rec || rec.peer !== peer.id || !rec.connected) continue;
+      this.waitingLoad.add(peer.id);
+      this.sendMatchStart(peer);
+    }
+    this.emitter.emit('matchStart', this.localView);
+    const token = this.flowToken;
+    this.after(this.timings.loadTimeout, () => {
+      if (token === this.flowToken && this.phaseValue === 'loading') this.beginPlaying();
+    });
+    this.maybeBeginPlaying();
+  }
+
+  private sendMatchStart(peer: PeerRec): void {
+    const sim = this.sim;
+    const table = this.table;
+    if (!sim || !table || !this.pick) return;
+    const rec = peer.seat === null ? undefined : this.seats.get(peer.seat);
+    if (!rec) return;
+    peer.loaded = false;
+    peer.inputQueue = [];
+    peer.lastInputSeq = 0;
+    peer.processedSeq = 0;
+    peer.lastFrame = null;
+    peer.starvedTicks = 0;
+    peer.neutralized = false;
+    peer.sent.clear();
+    peer.snapAck = -1;
+    const seats: SeatInfo[] = [...this.seats.values()]
+      .sort((a, b) => a.seat - b.seat)
+      .map((r) => {
+        const heroId = this.pick?.picks.get(r.seat) ?? '';
+        const info: SeatInfo = {
+          seat: r.seat,
+          playerId: r.playerId,
+          name: r.name,
+          isBot: this.seatBotControlled(r.seat),
+          heroId,
+          entityId: sim.entityOf(r.playerId),
+        };
+        const k = heroKingdom(heroId);
+        if (k) info.kingdom = k;
+        return info;
+      });
+    this.sendTo(peer.id, {
+      t: 'matchStart',
+      seats,
+      mapSeed: this.settings.mapSeed,
+      settings: { ...this.settings },
+      you: sim.entityOf(rec.playerId),
+      strings: [...table.strings],
+      tick: sim.tick,
+    });
+  }
+
+  private maybeBeginPlaying(): void {
+    if (this.phaseValue === 'loading' && this.waitingLoad.size === 0) this.beginPlaying();
+  }
+
+  private beginPlaying(): void {
+    if (this.phaseValue !== 'loading' || !this.loop) return;
+    this.flowToken++;
+    this.clearTimers();
+    this.waitingLoad.clear();
+    this.setPhase('playing');
+    this.loop.start();
+  }
+
+  /** One authoritative tick. */
+  private tick(): void {
+    const sim = this.sim;
+    if (!sim) return;
+    for (const peer of this.peers.values()) {
+      if (peer.seat === null) continue;
+      const rec = this.seats.get(peer.seat);
+      if (!rec || rec.peer !== peer.id) {
+        peer.inputQueue.length = 0;
+        continue;
+      }
+      const f = peer.inputQueue.shift();
+      if (f) {
+        sim.setInput(rec.playerId, f);
+        peer.processedSeq = f.seq;
+        peer.lastFrame = f;
+        peer.starvedTicks = 0;
+        peer.neutralized = false;
+        continue;
+      }
+      // silent client (hidden tab, stall, dying link): let go of its controls
+      if (!peer.neutralized && peer.lastFrame && ++peer.starvedTicks >= INPUT_STALE_TICKS) {
+        const n = neutralInput(peer.lastFrame);
+        if (n) sim.setInput(rec.playerId, n);
+        peer.neutralized = true;
+      }
+    }
+    sim.step();
+    const events = sim.drainEvents();
+    if (this.extraEvents.length > 0) {
+      events.push(...this.extraEvents);
+      this.extraEvents = [];
+    }
+    if (events.length > 0) this.fanOutEvents(sim.tick, events);
+    this.localView?.onStep();
+
+    this.snapAcc += SNAPSHOT_HZ / SIM_HZ;
+    if (this.snapAcc >= 1) {
+      this.snapAcc -= 1;
+      this.sendSnapshots();
+    }
+
+    if (this.phaseValue === 'playing') {
+      const r = sim.result();
+      if (r) this.onGameOver(r);
+    } else if (this.phaseValue === 'gameOver') {
+      if (--this.postGameTicks <= 0) this.loop?.stop();
+    }
+  }
+
+  /**
+   * Deliver one tick's events: public events to everyone, private ones (hidden
+   * information, see eventFilter.ts) only to the player they concern — the
+   * host's own LocalView included.
+   */
+  private fanOutEvents(tick: number, events: GameEvent[]): void {
+    const sim = this.sim;
+    const priv = hasPrivateEvents(events);
+    const entityOf = (playerId: PlayerId): number | null => {
+      try {
+        return sim?.entityOf(playerId) ?? null;
+      } catch {
+        return null;
+      }
+    };
+    if (this.localView) this.localView.pushEvents(priv ? filterEventsFor(events, entityOf(this.myId)) : events);
+    const t = this.transport;
+    if (!t) return;
+    const pub = priv ? filterEventsFor(events, null) : events;
+    let pubText: string | null = null;
+    const encode = (list: GameEvent[]): string => encodeJson({ t: 'events', tick, events: list } satisfies HostMsg, { round: true });
+    for (const peer of this.peers.values()) {
+      if (peer.seat === null || !peer.loaded) continue;
+      let list = pub;
+      if (priv) {
+        const rec = this.seats.get(peer.seat);
+        if (!rec || rec.peer !== peer.id) continue;
+        list = filterEventsFor(events, entityOf(rec.playerId));
+      }
+      if (list.length === 0) continue;
+      // same length as the public list ⇒ identical (the filter only removes)
+      const text = list.length === pub.length ? (pubText ??= encode(pub)) : encode(list);
+      t.send(peer.id, text, 'reliable');
+    }
+  }
+
+  /** Add a host-generated event (announcements) to the stream; sent with the next tick. */
+  private injectEvent(ev: GameEvent): void {
+    const sim = this.sim;
+    if (!sim) return;
+    if (this.loop?.isRunning) {
+      this.extraEvents.push(ev);
+      if (this.extraEvents.length > 64) this.extraEvents.shift();
+    } else if (this.phaseValue === 'gameOver') {
+      this.fanOutEvents(sim.tick, [ev]);
+    }
+  }
+
+  private sendSnapshots(): void {
+    const sim = this.sim;
+    const table = this.table;
+    const t = this.transport;
+    if (!sim || !table || !t) return;
+    const pingByPlayer = new Map<PlayerId, number>();
+    for (const peer of this.peers.values()) {
+      if (peer.seat === null || peer.rtt === null) continue;
+      const rec = this.seats.get(peer.seat);
+      if (rec) pingByPlayer.set(rec.playerId, Math.round(peer.rtt));
+    }
+    for (const peer of this.peers.values()) {
+      if (peer.seat === null || !peer.loaded) continue;
+      const rec = this.seats.get(peer.seat);
+      if (!rec || rec.peer !== peer.id) continue;
+      try {
+        const raw = sim.snapshotFor(rec.playerId);
+        const snap = {
+          ...raw,
+          ackSeq: peer.processedSeq,
+          players: raw.players.map((p) => {
+            const ping = pingByPlayer.get(p.playerId);
+            return ping === undefined ? p : { ...p, ping };
+          }),
+        };
+        // delta against the newest snapshot the client confirmed (full if none)
+        const baseEnts = peer.snapAck >= 0 ? peer.sent.get(peer.snapAck) : undefined;
+        const base = baseEnts ? { tick: peer.snapAck, ents: baseEnts } : null;
+        t.send(peer.id, encodeSnapshotMsg(snap, table, base), 'unreliable');
+        this.rememberSent(peer, snap.tick, snap.ents);
+      } catch (err) {
+        console.error('[net] snapshot failed', err);
+      }
+    }
+  }
+
+  /** Keep what was sent as a potential delta baseline (bounded history). */
+  private rememberSent(peer: PeerRec, tick: number, ents: readonly ViewEntity[]): void {
+    const byId = new Map<EntityId, ViewEntity>();
+    for (const e of ents) byId.set(e.id, e);
+    peer.sent.delete(tick);
+    peer.sent.set(tick, byId);
+    while (peer.sent.size > DELTA_HISTORY) {
+      const oldest = peer.sent.keys().next().value as number;
+      peer.sent.delete(oldest);
+      if (oldest === peer.snapAck) peer.snapAck = -1;
+    }
+  }
+
+  private onGameOver(r: GameResult): void {
+    this.resultValue = r;
+    this.postGameTicks = Math.max(1, Math.round(this.timings.postGame * SIM_HZ));
+    this.setPhase('gameOver');
+    this.broadcast({ t: 'gameOver', result: r });
+    this.emitter.emit('gameOver', r);
+  }
+
+  private stopMatch(): void {
+    this.unwatchFocus?.();
+    this.unwatchFocus = null;
+    this.loop?.stop();
+    this.loop = null;
+    this.localView?.dispose();
+    this.localView = null;
+    this.sim = null;
+    this.table = null;
+    this.waitingLoad.clear();
+  }
+
+  // ── misc ─────────────────────────────────────────────────────────────────
+  private relayChat(from: string, text: string): void {
+    this.broadcast({ t: 'chat', from, text });
+    this.emitter.emit('chat', { from, text });
+  }
+
+  private notice(zh: string, en: string): void {
+    this.broadcast({ t: 'notice', zh, en });
+    this.status(zh, en);
+  }
+
+  private status(zh: string, en: string): void {
+    this.emitter.emit('status', { zh, en });
+  }
+
+  private fail(err: NetError): void {
+    const p = err.toPayload();
+    this.broadcast({ t: 'error', code: p.code, zh: p.zh, en: p.en });
+    this.emitter.emit('error', p);
+  }
+
+  private setPhase(p: MatchPhase): void {
+    if (this.phaseValue === p) return;
+    this.phaseValue = p;
+    this.emitter.emit('phase', p);
+  }
+
+  private sendTo(peer: PeerId, msg: HostMsg, channel: Channel = 'reliable'): void {
+    this.transport?.send(peer, encodeJson(msg), channel);
+  }
+
+  /** Send to every seated, connected peer. */
+  private broadcast(msg: HostMsg): void {
+    const t = this.transport;
+    if (!t) return;
+    const text = encodeJson(msg);
+    for (const peer of this.peers.values()) if (peer.seat !== null) t.send(peer.id, text, 'reliable');
+  }
+
+  private after(seconds: number, fn: () => void): void {
+    const id = setTimeout(() => {
+      this.timers.delete(id);
+      if (!this.disposed) fn();
+    }, Math.max(0, seconds * 1000));
+    this.timers.add(id);
+  }
+
+  private clearTimers(): void {
+    for (const id of this.timers) clearTimeout(id);
+    this.timers.clear();
+  }
+
+  private dispose(): void {
+    this.disposed = true;
+    this.stopMatch();
+    this.clearTimers();
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.pingTimer = null;
+    for (const u of this.unsubs) u();
+    const t = this.transport;
+    // let the 'leave' message flush before tearing the link down
+    if (t) setTimeout(() => t.close(), 100);
+    this.emitter.clear();
+  }
+
+  /** Diagnostics for tests / debug overlays. */
+  debugState(): { phase: MatchPhase; peers: number; tick: number; loopRunning: boolean } {
+    return { phase: this.phaseValue, peers: this.peers.size, tick: this.sim?.tick ?? 0, loopRunning: this.loop?.isRunning ?? false };
+  }
+
+  /** The live SimHost (tests / debug tools). */
+  get simHost(): SimHost | null {
+    return this.sim;
+  }
+
+  /** Secret: the dealt roles (tests only — never expose to clients). */
+  get dealtRoles(): RoleDeal | null {
+    return this.deal;
+  }
+}
+
+/** Default match factory: sim/world is imported lazily so a broken or heavy sim module never blocks the app shell. */
+async function loadAndCreateMatch(init: MatchInit): Promise<SimHost> {
+  const { createMatch } = await import('../sim/world');
+  return createMatch(init);
+}
+
+function sanitizeSettings(s: MatchSettings, minPlayers: number): MatchSettings {
+  const num = (v: unknown, lo: number, hi: number, fallback: number): number =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : fallback;
+  const d = defaultSettings();
+  return {
+    playerCount: clampPlayerCount(Math.max(num(s.playerCount, 5, 8, d.playerCount), minPlayers)),
+    mode: s.mode === 'chaos' ? 'chaos' : 'standard',
+    botDifficulty: s.botDifficulty === 'easy' || s.botDifficulty === 'hard' ? s.botDifficulty : 'normal',
+    heroChoices: num(s.heroChoices, 1, 10, d.heroChoices),
+    freePick: s.freePick === true,
+    mapSeed: num(s.mapSeed, 0, 0xffffffff, d.mapSeed),
+    friendlyFire: s.friendlyFire !== false,
+    troopsPerHero: num(s.troopsPerHero, 0, 12, d.troopsPerHero),
+  };
+}

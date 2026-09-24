@@ -54,6 +54,8 @@ export interface HeroVisual {
   beard: 'none' | 'short' | 'long' | 'wild';
   body: BodyType;
   extras: HeroExtra[];
+  /** hero is always drawn riding this mount (马超 西凉战马, 吕布 赤兔). Absent = on foot. */
+  mount?: 'horse' | 'redHare';
   /** for AI image / 3D model generation later */
   artPromptEn: string;
 }
@@ -71,6 +73,12 @@ export interface AbilityDef {
   charges?: number;
   /** tunables consumed by the implementation (damage, radius, duration...) */
   params: Record<string, number>;
+  /**
+   * Damage type of every hit this ability deals (direct hits, blasts, fields,
+   * ticks, reflected damage). Present iff the ability deals damage itself.
+   * Ability damage is not a weapon hit (no weaponId) unless params.weaponHit = 1.
+   */
+  dtype?: DamageType;
   /** how the ability is aimed (for UI hints + bot AI) */
   targeting?: 'self' | 'direction' | 'point' | 'enemy' | 'ally' | 'any' | 'none';
   /** bot AI hint: when to use */
@@ -100,6 +108,8 @@ export interface HeroDef {
   playstyleEn: string;
   difficulty: 1 | 2 | 3;
   quotesZh: string[]; // battle cries (text for bubbles / TTS)
+  /** English translations of quotesZh (same order), for subtitles / the en UI. */
+  quotesEn?: string[];
   series: 'standard' | 'wind' | 'fire' | 'forest' | 'mountain' | 'god' | 'extra';
 }
 
@@ -219,6 +229,8 @@ export interface ItemDef {
   range: number;
   maxStack: number;
   params: Record<string, number>;
+  /** damage type of every hit the item deals (present iff it deals damage; never a weapon hit) */
+  dtype?: DamageType;
   icon: string; // short glyph shown in UI (single Chinese char e.g. '桃')
   color: string;
   /** bot AI hint */
