@@ -484,6 +484,8 @@ export interface PredictionMoveMods {
   canSprint: boolean;
   canJump: boolean;
   rooted: boolean;
+  /** (optional) sprinting keeps ADS (夏侯渊 神速): predictMove then lets BTN_SPRINT win over BTN_ADS. Absent = false. */
+  sprintAds?: boolean;
 }
 
 export interface ZoneView {

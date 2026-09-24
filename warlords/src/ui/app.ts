@@ -1,0 +1,611 @@
+// App shell: owns the layer stack (3D game, HUD, screens, modals, toasts),
+// routes screens from GameSession phases/events, and exposes the UiCtx that
+// every screen uses. Public entry point: mountApp().
+import type { GameEvent, MatchPhase, MatchSettings, Vec3 } from '../core/types';
+import type { GameSession } from '../game/session';
+import type { InputSink } from '../game/input-types';
+import { settings } from '../game/settings';
+import type { ViewSource } from '../render/view';
+import type { ScreenId, Screen, SettingsTab, UiCtx } from './ctx';
+import { Bag, h, clear } from './dom';
+import { getLang, t, tx } from './i18n';
+import { applyRootVars, injectStyles } from './styles';
+import { PortraitCache, button, type SfxName } from './widgets';
+import { createTitleScreen } from './screens/title';
+import { createSingleScreen } from './screens/single';
+import { createOnlineScreen } from './screens/online';
+import { createLobbyScreen } from './screens/lobby';
+import { createRolesScreen } from './screens/roles';
+import { createHeroSelectScreen } from './screens/heroSelect';
+import { createLoadingScreen } from './screens/loading';
+import { createGameOverScreen } from './screens/gameOver';
+import { createGalleryScreen } from './screens/gallery';
+import { createHelpScreen } from './screens/help';
+import { createSettingsPanel } from './screens/settings';
+import { Hud } from './hud/hud';
+
+export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
+
+export interface AppDeps {
+  createLocalSession(name: string): GameSession;
+  hostOnline(name: string, mode: 'peer' | 'ws'): Promise<GameSession>;
+  joinOnline(code: string, name: string, mode: 'peer' | 'ws'): Promise<GameSession>;
+  /** mount the 3D game for a ViewSource; returns a handle the UI uses during the match */
+  mountGame(container: HTMLElement, view: ViewSource, session: GameSession): GameHandle;
+  renderHeroPortrait(heroId: string, size?: number): Promise<string>;
+  mountHeroTurntable?(container: HTMLElement, heroId: string): { dispose(): void };
+  audio?: {
+    ui(name: 'click' | 'hover' | 'confirm' | 'back' | 'flip' | 'error' | 'countdown' | 'reveal'): void;
+    music(track: 'menu' | 'battle' | 'victory' | 'defeat' | null): void;
+    unlock(): Promise<void>;
+  };
+}
+
+export interface GameHandle {
+  input: InputSink & {
+    onUiKey(cb: (key: UiKey, down: boolean) => void): () => void;
+    setEnabled(on: boolean): void;
+    requestLock(): void;
+    isLocked(): boolean;
+  };
+  /** batches of GameEvents each frame (the renderer is the only drainEvents consumer and re-emits them here) */
+  onEvents(cb: (evs: readonly GameEvent[]) => void): () => void;
+  setSpectateTarget(id: number | null): void;
+  dispose(): void;
+  /**
+   * Optional: project a world point to CSS pixels relative to the game container
+   * (null when behind the camera). When present, damage numbers float at the hit point.
+   */
+  worldToScreen?(p: Vec3): { x: number; y: number } | null;
+}
+
+export interface MountAppOptions {
+  /** open this screen first (dev harness / deep links) */
+  initialScreen?: ScreenId;
+  /** pre-fill the join code (defaults to `?room=` in the URL) */
+  roomCode?: string | null;
+  /** version string shown on the title screen */
+  version?: string;
+  /** adopt an already-created session (deep links, reconnects, dev harness) */
+  initialSession?: { session: GameSession; kind: 'single' | 'online' };
+  /** open the settings modal on this tab right after mounting */
+  initialSettings?: SettingsTab;
+}
+
+type MusicTrack = 'menu' | 'battle' | 'victory' | 'defeat' | null;
+
+/** Error codes after which the session is unusable (we return to the title). */
+const FATAL_CODES = new Set([
+  'kicked',
+  'hostLeft',
+  'connectionLost',
+  'closed',
+  'roomFull',
+  'roomNotFound',
+  'versionMismatch',
+  'inProgress',
+  'simFailed',
+  'timeout',
+  'serverUnreachable',
+  'networkRestricted',
+  'unsupported',
+]);
+const FATAL_ERROR = /kick|host.?left|disconnect|lost|closed|full|version|not.?found|fail|timeout|refused|ended/i;
+
+export function isFatalSessionError(code: string): boolean {
+  return FATAL_CODES.has(code) || FATAL_ERROR.test(code);
+}
+
+class App implements UiCtx {
+  readonly root: HTMLElement;
+  readonly portraits: PortraitCache;
+  session: GameSession | null = null;
+  sessionKind: 'single' | 'online' | null = null;
+
+  private readonly bag = new Bag();
+  private readonly gameLayer: HTMLElement;
+  private readonly hudLayer: HTMLElement;
+  private readonly screenLayer: HTMLElement;
+  private readonly modalLayer: HTMLElement;
+  private readonly toastLayer: HTMLElement;
+  private screen: Screen | null = null;
+  private screenId: ScreenId | null = null;
+  private settingsPanel: Screen | null = null;
+  private sessionBag: Bag | null = null;
+  private lastPhase: MatchPhase | null = null;
+  private autoRestart = false;
+  private match: { handle: GameHandle; hud: Hud; container: HTMLElement; view: ViewSource } | null = null;
+  private music: MusicTrack | undefined = undefined;
+  private unlocked = false;
+  private lastHover = 0;
+  private roomCode: string | null;
+  private lang = getLang();
+  readonly version: string;
+
+  constructor(
+    host: HTMLElement,
+    readonly deps: AppDeps,
+    opts: MountAppOptions,
+  ) {
+    injectStyles(host.ownerDocument);
+    this.version = opts.version ?? '0.1.0';
+    this.portraits = new PortraitCache((id, size) => deps.renderHeroPortrait(id, size));
+    this.root = h('div', { class: 'sg-root', data: { lang: this.lang } });
+    applyRootVars(this.root);
+    this.gameLayer = h('div', { class: 'sg-layer sg-game-layer' });
+    this.hudLayer = h('div', { class: 'sg-layer sg-hud-layer pass' });
+    this.screenLayer = h('div', { class: 'sg-layer sg-screen-layer pass' });
+    this.modalLayer = h('div', { class: 'sg-layer sg-modal-layer pass' });
+    this.toastLayer = h('div', { class: 'sg-toasts', aria: { live: 'polite' } });
+    this.root.append(this.gameLayer, this.hudLayer, this.screenLayer, this.modalLayer, this.toastLayer);
+    host.appendChild(this.root);
+    this.root.lang = this.lang === 'en' ? 'en' : 'zh-CN';
+
+    let room = opts.roomCode;
+    if (room === undefined) {
+      try {
+        room = new URLSearchParams(location.search).get('room');
+      } catch {
+        room = null;
+      }
+    }
+    this.roomCode = room ? room.trim().toUpperCase() : null;
+
+    this.installGlobalListeners();
+    this.bag.add(
+      settings.subscribe((st) => {
+        if (st.lang !== this.lang) {
+          this.lang = st.lang;
+          this.relabel();
+        }
+      }),
+    );
+    this.go(opts.initialScreen ?? (this.roomCode ? 'online' : 'title'));
+    if (opts.initialSession) {
+      const { session, kind } = opts.initialSession;
+      this.attachSession(session, kind);
+      if (kind === 'single' && session.phase === 'lobby') this.go('single');
+    }
+    if (opts.initialSettings) this.openSettings(opts.initialSettings);
+  }
+
+  // ── UiCtx ─────────────────────────────────────────────────────────────────
+
+  sfx(name: SfxName): void {
+    try {
+      this.deps.audio?.ui(name);
+    } catch (err) {
+      console.warn('[ui] audio.ui failed', err);
+    }
+  }
+
+  toast(text: string, kind: 'info' | 'error' = 'info'): void {
+    const el = h('div', { class: `sg-toast sg-dark ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, text);
+    this.toastLayer.appendChild(el);
+    while (this.toastLayer.childElementCount > 4) this.toastLayer.firstElementChild?.remove();
+    setTimeout(() => {
+      el.classList.add('out');
+      setTimeout(() => el.remove(), 320);
+    }, kind === 'error' ? 4200 : 2600);
+    if (kind === 'error') this.sfx('error');
+  }
+
+  confirm(text: string, opts: { ok?: string; cancel?: string; title?: string } = {}): Promise<boolean> {
+    return new Promise((resolve) => {
+      const close = (v: boolean): void => {
+        back.remove();
+        resolve(v);
+      };
+      const ok = button(opts.ok ?? t('common.confirm'), () => close(true), { sfx: 'confirm' });
+      const back = h('div', { class: 'sg-modal-back', role: 'dialog', aria: { modal: 'true' } },
+        h('div', { class: 'sg-modal sg-panel sg-corners' },
+          opts.title ? h('h2', { class: 'sg-h2' }, opts.title) : null,
+          h('p', null, text),
+          h('div', { class: 'actions' },
+            button(opts.cancel ?? t('common.cancel'), () => close(false), { cls: 'dark', sfx: 'back' }),
+            ok,
+          ),
+        ),
+      );
+      back.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') {
+          ev.stopPropagation();
+          close(false);
+        }
+      });
+      this.modalLayer.appendChild(back);
+      ok.focus();
+    });
+  }
+
+  alert(title: string, text: string): Promise<void> {
+    return new Promise((resolve) => {
+      const close = (): void => {
+        back.remove();
+        resolve();
+      };
+      const ok = button(t('common.ok'), close, { sfx: 'confirm' });
+      const back = h('div', { class: 'sg-modal-back', role: 'alertdialog', aria: { modal: 'true' } },
+        h('div', { class: 'sg-modal sg-panel sg-corners' }, h('h2', { class: 'sg-h2' }, title), h('p', null, text), h('div', { class: 'actions' }, ok)),
+      );
+      this.modalLayer.appendChild(back);
+      ok.focus();
+    });
+  }
+
+  openSettings(tab: SettingsTab = 'general'): void {
+    this.closeSettings();
+    const panel = createSettingsPanel(this, tab, () => this.closeSettings());
+    this.settingsPanel = panel;
+    this.modalLayer.appendChild(panel.el);
+    panel.el.querySelector<HTMLElement>('.sg-settings')?.focus({ preventScroll: true });
+    this.match?.hud.setSettingsOpen(true);
+  }
+
+  private closeSettings(): void {
+    if (!this.settingsPanel) return;
+    this.settingsPanel.dispose();
+    this.settingsPanel.el.remove();
+    this.settingsPanel = null;
+    this.match?.hud.setSettingsOpen(false);
+  }
+
+  playerName(): string {
+    let name = settings.get().playerName.trim();
+    if (!name) {
+      name = `${tx('无名', 'Nameless')}${100 + Math.floor(Math.random() * 900)}`;
+      settings.update({ playerName: name });
+    }
+    return name;
+  }
+
+  pendingRoom(): string | null {
+    const r = this.roomCode;
+    this.roomCode = null;
+    return r;
+  }
+
+  go(id: ScreenId): void {
+    if (id === this.screenId && this.screen) return;
+    const prev = this.screen;
+    this.screen = null;
+    if (prev) {
+      prev.dispose();
+      prev.el.remove();
+    }
+    this.screenId = id;
+    const s = this.createScreen(id);
+    this.screen = s;
+    if (s) this.screenLayer.appendChild(s.el);
+    this.hudLayerVisible(id === 'match');
+    this.updateMusic();
+    this.root.dataset.activeScreen = id;
+  }
+
+  startSingle(patch: Partial<MatchSettings>): void {
+    let s = this.sessionKind === 'single' ? this.session : null;
+    if (!s || s.phase !== 'lobby') {
+      this.leaveSession(false);
+      try {
+        s = this.deps.createLocalSession(this.playerName());
+      } catch (err) {
+        console.error('[ui] createLocalSession failed', err);
+        this.toast(t('error.generic'), 'error');
+        return;
+      }
+      this.attachSession(s, 'single');
+    }
+    s.updateSettings(patch);
+    s.start();
+  }
+
+  async hostOnline(mode: 'peer' | 'ws'): Promise<void> {
+    const s = await this.deps.hostOnline(this.playerName(), mode);
+    this.adoptOnline(s);
+  }
+
+  async joinOnline(code: string, mode: 'peer' | 'ws'): Promise<void> {
+    const s = await this.deps.joinOnline(code, this.playerName(), mode);
+    this.adoptOnline(s);
+  }
+
+  private adoptOnline(s: GameSession): void {
+    // the player navigated away while connecting → drop the new session
+    if (this.screenId !== 'online') {
+      s.leave();
+      return;
+    }
+    this.leaveSession(false);
+    this.attachSession(s, 'online');
+  }
+
+  leaveSession(goTitle = true): void {
+    const s = this.session;
+    this.sessionBag?.dispose();
+    this.sessionBag = null;
+    this.session = null;
+    this.sessionKind = null;
+    this.lastPhase = null;
+    this.autoRestart = false;
+    this.unmountMatch();
+    if (s) {
+      try {
+        s.leave();
+      } catch (err) {
+        console.warn('[ui] session.leave failed', err);
+      }
+    }
+    if (goTitle) this.go('title');
+  }
+
+  playAgain(): void {
+    const s = this.session;
+    if (!s) return;
+    if (s.phase === 'lobby') {
+      s.start();
+      return;
+    }
+    this.autoRestart = true;
+    s.returnToLobby();
+  }
+
+  // ── session routing ─────────────────────────────────────────────────────────
+
+  private attachSession(s: GameSession, kind: 'single' | 'online'): void {
+    this.session = s;
+    this.sessionKind = kind;
+    this.lastPhase = s.phase;
+    const bag = new Bag();
+    this.sessionBag = bag;
+    bag.add(s.on('phase', (p) => this.onPhase(p)));
+    bag.add(
+      s.on('matchStart', (view) => {
+        this.mountMatch(view);
+        if (s.phase === 'playing') this.go('match');
+      }),
+    );
+    bag.add(s.on('gameOver', () => this.onPhase('gameOver')));
+    bag.add(s.on('error', (e) => this.onSessionError(e)));
+    // route to whatever phase the session is already in
+    if (kind === 'online' || s.phase !== 'lobby') this.onPhase(s.phase, true);
+  }
+
+  private onPhase(phase: MatchPhase, force = false): void {
+    const prev = this.lastPhase;
+    if (!force && prev === phase && phase !== 'lobby') return;
+    this.lastPhase = phase;
+    const s = this.session;
+    if (!s) return;
+    switch (phase) {
+      case 'lobby':
+        this.unmountMatch();
+        if (this.sessionKind === 'single') {
+          if (this.autoRestart) {
+            this.autoRestart = false;
+            s.start();
+          } else if (prev && prev !== 'lobby') {
+            this.go('single');
+          }
+        } else {
+          this.go('lobby');
+        }
+        break;
+      case 'roles':
+        this.go('roles');
+        break;
+      case 'heroSelect':
+        this.go('heroSelect');
+        break;
+      case 'loading':
+        if (s.view && !this.match) this.mountMatch(s.view);
+        this.go('loading');
+        break;
+      case 'playing':
+        if (s.view && !this.match) this.mountMatch(s.view);
+        this.go('match');
+        break;
+      case 'gameOver':
+        if (s.view && !this.match) this.mountMatch(s.view);
+        this.match?.hud.setGameOver(true);
+        this.go('gameOver');
+        break;
+    }
+  }
+
+  private onSessionError(e: { code: string; zh: string; en: string }): void {
+    const msg = tx(e.zh, e.en);
+    if (isFatalSessionError(e.code)) {
+      this.leaveSession(true);
+      void this.alert(t('error.title'), msg);
+    } else {
+      this.toast(msg, 'error');
+    }
+  }
+
+  private mountMatch(view: ViewSource): void {
+    const s = this.session;
+    if (!s) return;
+    if (this.match && this.match.view === view) return;
+    this.unmountMatch();
+    const container = h('div', { class: 'sg-game' });
+    this.gameLayer.appendChild(container);
+    let handle: GameHandle;
+    try {
+      handle = this.deps.mountGame(container, view, s);
+    } catch (err) {
+      console.error('[ui] mountGame failed', err);
+      container.remove();
+      this.toast(t('error.generic'), 'error');
+      return;
+    }
+    const hud = new Hud(this, { view, handle, session: s });
+    hud.setActive(this.screenId === 'match');
+    this.hudLayer.appendChild(hud.el);
+    this.match = { handle, hud, container, view };
+  }
+
+  private unmountMatch(): void {
+    const m = this.match;
+    if (!m) return;
+    this.match = null;
+    try {
+      m.hud.dispose();
+    } catch (err) {
+      console.error('[ui] hud dispose failed', err);
+    }
+    m.hud.el.remove();
+    try {
+      m.handle.dispose();
+    } catch (err) {
+      console.error('[ui] game dispose failed', err);
+    }
+    m.container.remove();
+    clear(this.hudLayer);
+  }
+
+  // ── screens ───────────────────────────────────────────────────────────────
+
+  private createScreen(id: ScreenId): Screen | null {
+    const s = this.session;
+    switch (id) {
+      case 'title':
+        return createTitleScreen(this, this.version);
+      case 'single':
+        return createSingleScreen(this);
+      case 'online':
+        return createOnlineScreen(this);
+      case 'gallery':
+        return createGalleryScreen(this);
+      case 'help':
+        return createHelpScreen(this);
+      case 'lobby':
+        return s ? createLobbyScreen(this, s) : null;
+      case 'roles':
+        return s ? createRolesScreen(this, s) : null;
+      case 'heroSelect':
+        return s ? createHeroSelectScreen(this, s) : null;
+      case 'loading':
+        return s ? createLoadingScreen(this, s) : null;
+      case 'gameOver':
+        return s ? createGameOverScreen(this, s, this.match?.view ?? s.view) : null;
+      case 'match':
+        return null;
+    }
+  }
+
+  private hudLayerVisible(on: boolean): void {
+    this.hudLayer.classList.toggle('sg-hidden', !on);
+    if (this.match) this.match.hud.setActive(on && this.screenId === 'match');
+  }
+
+  private relabel(): void {
+    this.root.dataset.lang = this.lang;
+    this.root.lang = this.lang === 'en' ? 'en' : 'zh-CN';
+    if (this.screen) {
+      if (this.screen.relabel) this.screen.relabel();
+      else {
+        const id = this.screenId;
+        this.screenId = null;
+        if (id) this.go(id);
+      }
+    }
+    if (this.settingsPanel?.relabel) this.settingsPanel.relabel();
+    this.match?.hud.relabel();
+  }
+
+  private updateMusic(): void {
+    let track: MusicTrack = 'menu';
+    if (this.screenId === 'match') track = 'battle';
+    else if (this.screenId === 'gameOver') {
+      const won = this.didWin();
+      track = won === null ? 'defeat' : won ? 'victory' : 'defeat';
+    }
+    if (track === this.music) return;
+    this.music = track;
+    if (!this.unlocked) return;
+    try {
+      this.deps.audio?.music(track);
+    } catch (err) {
+      console.warn('[ui] audio.music failed', err);
+    }
+  }
+
+  private didWin(): boolean | null {
+    const s = this.session;
+    const res = s?.result;
+    if (!s || !res) return null;
+    const view = this.match?.view ?? s.view;
+    const me = view?.localId() ?? view?.players().find((p) => p.playerId === s.myId)?.entityId;
+    return me !== undefined && me !== null && res.winners.includes(me);
+  }
+
+  // ── global listeners ────────────────────────────────────────────────────────
+
+  private installGlobalListeners(): void {
+    const unlock = (): void => {
+      if (this.unlocked) return;
+      this.unlocked = true;
+      const a = this.deps.audio;
+      if (!a) return;
+      a.unlock()
+        .then(() => {
+          const track = this.music;
+          if (track !== undefined) a.music(track);
+        })
+        .catch((err: unknown) => console.warn('[ui] audio unlock failed', err));
+    };
+    this.bag.listen(this.root, 'pointerdown', unlock, { capture: true });
+    this.bag.listen(this.root.ownerDocument, 'keydown', unlock, { capture: true });
+    // Esc closes the settings modal wherever focus is
+    this.bag.listen(this.root.ownerDocument, 'keydown', (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape' && this.settingsPanel) {
+        ev.preventDefault();
+        // the same Esc must not also toggle the in-match pause menu
+        ev.stopImmediatePropagation();
+        this.closeSettings();
+      }
+    });
+
+    // delegated UI sounds
+    this.bag.listen(this.root, 'click', (ev) => {
+      const el = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.sg-btn, .sg-tab, .sg-seg > button, .sg-switch, .sg-hcard');
+      if (!el || (el as HTMLButtonElement).disabled) return;
+      const name = el.dataset.sfx as SfxName | 'none' | undefined;
+      if (name === 'none') return;
+      this.sfx(name ?? 'click');
+    });
+    this.bag.listen(this.root, 'pointerover', (ev) => {
+      if ((ev as PointerEvent).pointerType === 'touch') return;
+      const el = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.sg-btn, .sg-hcard, .sg-tab');
+      if (!el) return;
+      const rel = (ev as PointerEvent).relatedTarget as Node | null;
+      if (rel && el.contains(rel)) return;
+      const now = performance.now();
+      if (now - this.lastHover < 70) return;
+      this.lastHover = now;
+      this.sfx('hover');
+    });
+  }
+
+  dispose(): void {
+    this.closeSettings();
+    this.leaveSession(false);
+    if (this.screen) {
+      this.screen.dispose();
+      this.screen = null;
+    }
+    this.bag.dispose();
+    try {
+      this.deps.audio?.music(null);
+    } catch {
+      /* ignore */
+    }
+    this.root.remove();
+  }
+}
+
+/** Mount the whole UI into `root`. The integration layer passes real deps; the dev harness passes mocks. */
+export function mountApp(root: HTMLElement, deps: AppDeps, opts: MountAppOptions = {}): { dispose(): void } {
+  const app = new App(root, deps, opts);
+  return { dispose: () => app.dispose() };
+}

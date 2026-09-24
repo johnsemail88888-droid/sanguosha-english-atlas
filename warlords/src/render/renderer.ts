@@ -1,0 +1,588 @@
+// GameRenderer — the three.js presentation layer (GAME_SPEC §10, §12).
+// Reads only ViewSource + static data + user settings; never mutates the sim.
+//
+// Frame order expected from the owner (game loop):
+//   input.sample(renderer) → view.pushInput(frame) → view.update(dt) → renderer.frame(dt)
+// frame() does NOT call view.update() unless constructed with { updateView: true }.
+// GameRenderer is the ONLY consumer of view.drainEvents(); subscribe with onEvents().
+import * as THREE from 'three';
+import type { Vec3 } from '../core/math';
+import { dirFromYawPitch } from '../core/math';
+import type { EntityId, GameEvent, ViewEntity } from '../core/types';
+import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
+import { WEAPON_BY_ID } from '../data';
+import { settings, type Quality, type UserSettings } from '../game/settings';
+import type { ViewSource } from './view';
+import { qualityPreset, type QualityPreset } from './quality';
+import { sharedUniforms, disposeSharedMaterials } from './core/materials';
+import { SKY } from './palette';
+import { createSkyLayer, type SkyLayer } from './scene/sky';
+import { SceneLights, SUN_DIR } from './scene/lights';
+import { buildTerrain, type TerrainMeshes } from './scene/terrain';
+import { buildWater, type WaterMesh } from './scene/water';
+import { PostChain } from './scene/post';
+import { installSkyFog } from './scene/skyfog';
+import { buildWorld, type WorldBuild } from './world/world';
+import { FireSystem } from './world/fires';
+import { GrassField } from './scene/grass';
+import { PickWorld } from './camera/pick';
+import { TpsCameraRig, tpsCameraPose, PITCH_LIMIT } from './camera/tpsCamera';
+import { EntityManager } from './entities/manager';
+import type { EntityCtx } from './entities/context';
+import { updateAuraShared } from './entities/auras';
+import { Effects } from './vfx/effects';
+import { handleEvents, shotClass } from './vfx/eventVfx';
+import { ZoneVisual } from './vfx/zone';
+
+export { registerAbilityVfx } from './vfx/abilities';
+export type { AbilityVfxFn, AbilityVfxContext, AbilityEvent } from './vfx/abilities';
+
+export interface GameRendererOptions {
+  /** call view.update(dt) at the start of frame() (default false: the game loop owns it) */
+  updateView?: boolean;
+  /** initial quality (default: settings.quality) */
+  quality?: Quality;
+}
+
+export interface RenderStats {
+  drawCalls: number;
+  triangles: number;
+  geometries: number;
+  textures: number;
+  entities: number;
+  particles: number;
+  fps: number;
+  worldProps: number;
+  worldChunks: number;
+}
+
+const _v = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+
+export class GameRenderer {
+  readonly camera: THREE.PerspectiveCamera;
+  readonly view: ViewSource;
+  readonly renderer: THREE.WebGLRenderer;
+  readonly scene = new THREE.Scene();
+  private readonly canvas: HTMLCanvasElement;
+  private readonly opts: GameRendererOptions;
+  private readonly sky: SkyLayer;
+  private readonly lights: SceneLights;
+  private readonly terrain: TerrainMeshes;
+  private readonly water: WaterMesh;
+  private readonly world: WorldBuild;
+  private readonly fires: FireSystem;
+  private readonly grass: GrassField;
+  private readonly post: PostChain;
+  private readonly pickWorld: PickWorld;
+  private readonly rig: TpsCameraRig;
+  private readonly entities = new EntityManager();
+  private readonly fx: Effects;
+  private readonly zone: ZoneVisual;
+  private readonly fog: THREE.Fog;
+  private quality: Quality;
+  private preset: QualityPreset;
+  private size = { w: 1, h: 1 };
+  private time = 0;
+  private frameNo = 0;
+  private fps = 60;
+  private disposed = false;
+  private contextLost = false;
+  private readonly onContextLost = (e: Event): void => {
+    e.preventDefault();
+    this.contextLost = true;
+    console.warn('[render] WebGL context lost');
+  };
+  private readonly onContextRestored = (): void => {
+    this.contextLost = false;
+    this.applyQuality();
+    this.resize(this.size.w, this.size.h);
+  };
+  private unsubSettings: () => void;
+  // local control (from InputController)
+  private look = { yaw: 0, pitch: 0, ads: false, fire: false, fresh: false };
+  private spectateId: EntityId | null = null;
+  private freeCam: { pos: Vec3; yaw: number; pitch: number } | null = null;
+  private readonly eventSubs = new Set<(evs: readonly GameEvent[]) => void>();
+  private readonly fireSubs = new Set<(weaponId: string) => void>();
+  // local fire prediction
+  private fireCooldown = 0;
+  private firePrevHeld = false;
+  private predictedShots = 0;
+  private lastMag = -1;
+  private lastWeaponKey = '';
+  /** timestamps of locally predicted shots not yet matched by a host 'shot' event */
+  private predictedQueue: number[] = [];
+  private damagePulse = 0;
+  private lastLocalHp = -1;
+  private squad = new Set<EntityId>();
+  private zoomNow = 1;
+
+  constructor(canvas: HTMLCanvasElement, view: ViewSource, opts: GameRendererOptions = {}) {
+    this.canvas = canvas;
+    this.view = view;
+    this.opts = opts;
+    const s = settings.get();
+    this.quality = opts.quality ?? s.quality;
+    this.preset = qualityPreset(this.quality);
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: false, // MSAA lives on the post-processing target
+      powerPreference: 'high-performance',
+      stencil: false,
+    });
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.info.autoReset = false;
+    this.renderer.autoClear = false;
+    canvas.addEventListener('webglcontextlost', this.onContextLost, false);
+    canvas.addEventListener('webglcontextrestored', this.onContextRestored, false);
+
+    this.camera = new THREE.PerspectiveCamera(s.fov, 1, 0.1, this.preset.drawDistance);
+    this.rig = new TpsCameraRig(this.camera);
+    this.rig.baseFov = s.fov;
+
+    const map = view.map;
+    installSkyFog(SUN_DIR);
+    this.fog = new THREE.Fog(SKY.fog, this.preset.drawDistance * 0.35, this.preset.drawDistance * 0.95);
+    this.scene.fog = this.fog;
+    this.scene.background = null;
+    this.sky = createSkyLayer(map.size, SUN_DIR);
+    this.lights = new SceneLights(this.scene);
+    this.terrain = buildTerrain(map);
+    this.scene.add(this.terrain.group);
+    this.water = buildWater(map, SUN_DIR);
+    if (this.water.mesh) this.scene.add(this.water.mesh);
+    this.world = buildWorld(map);
+    this.scene.add(this.world.group);
+    this.fires = new FireSystem(this.scene, this.world.fires);
+    this.pickWorld = new PickWorld(map);
+    this.grass = new GrassField(map, this.pickWorld);
+    this.scene.add(this.grass.mesh);
+    this.fx = new Effects(this.scene, this.preset.vfxLights);
+    this.fx.groundY = (x, z) => this.pickWorld.groundHeight(x, z);
+    this.fx.entityPos = (id, out) => {
+      const c = this.entities.character(id);
+      if (!c) return false;
+      c.chestWorld(out);
+      return true;
+    };
+    this.fx.shakeAt = (pos, intensity, radius) => this.shakeAt(pos, intensity, radius);
+    this.scene.add(this.fx.group);
+    this.scene.add(this.entities.group);
+    this.zone = new ZoneVisual(map);
+    this.scene.add(this.zone.group);
+    this.post = new PostChain(this.renderer, this.sky, this.scene, this.camera, {
+      bloom: this.preset.bloom,
+      vignette: this.preset.post,
+      msaa: this.preset.msaa,
+    });
+    this.applyQuality();
+    const rect = canvas.getBoundingClientRect();
+    this.resize(Math.max(1, rect.width || canvas.width), Math.max(1, rect.height || canvas.height));
+    this.unsubSettings = settings.subscribe((u) => this.onSettings(u));
+    // initial camera: orbit around the lord spawn
+    const ls = map.lordSpawn;
+    this.rig.orbit({ x: ls.x, y: ls.y, z: ls.z }, 60, 30, 0);
+    this.rig.apply(0);
+  }
+
+  // ── public API ─────────────────────────────────────────────────────────────
+
+  /** Render one frame. dt = real seconds since the previous frame. */
+  frame(dt: number): void {
+    if (this.disposed) return;
+    if (this.contextLost) {
+      // keep draining so HUD / audio still get events while the GPU is gone
+      const evs = this.view.drainEvents();
+      if (evs.length) for (const cb of this.eventSubs) cb(evs);
+      return;
+    }
+    const d = Math.min(0.1, Math.max(0, dt));
+    if (this.opts.updateView) this.view.update(d);
+    this.time += d;
+    this.frameNo++;
+    if (d > 0) this.fps += (1 / d - this.fps) * 0.05;
+    sharedUniforms.uTime.value = this.time;
+    updateAuraShared(this.time);
+
+    const view = this.view;
+    const localId = view.localId();
+    const local = view.local();
+    const localEnt = localId !== null ? view.get(localId) : undefined;
+    this.squad.clear();
+    if (local) for (const s of local.squad) this.squad.add(s.id);
+
+    // 1. camera first (entities + nameplates read it)
+    this.updateCamera(d, localEnt, local?.dead ?? false);
+
+    // 2. entities
+    const ctx = this.entityCtx(d, localId, local);
+    this.entities.sync(view.entities(), ctx);
+
+    // fade the local hero when the camera is pushed into them (walls behind, tight corners)
+    if (localEnt) {
+      const lv = this.entities.character(localEnt.id);
+      if (lv) {
+        const d = this.camera.position.distanceTo(_v.set(localEnt.x, localEnt.y + 1.5, localEnt.z));
+        lv.rig.setFade(this.rig.mode === 'follow' ? Math.min(1, Math.max(0, (d - 0.55) / 0.9)) : 1);
+      }
+    }
+
+    // 3. events → VFX, then re-emit to subscribers
+    const evs = view.drainEvents();
+    if (evs.length) {
+      handleEvents(evs, {
+        fx: this.fx,
+        entities: this.entities,
+        localId,
+        consumePredictedShot: () => this.consumePredictedShot(),
+        lang: settings.get().lang,
+        time: this.time,
+        camPos: this.camera.position,
+      });
+      this.trackLocalDamage(evs, localId);
+    }
+
+    // 4. local fire feedback (instant muzzle / tracer, audio hook)
+    this.localFire(d, localEnt, local);
+
+    // 5. world systems
+    const focus = localEnt ? _v.set(localEnt.x, localEnt.y, localEnt.z) : _v.copy(this.camera.position);
+    this.lights.follow(focus);
+    this.fires.update(d, this.camera.position, this.time);
+    this.grass.update(this.camera.position);
+    this.zone.update(view.zone(), this.camera.position, d);
+    this.fx.update(d);
+    this.damagePulse = Math.max(0, this.damagePulse - d * 1.6);
+    this.post.setDamage(this.damagePulse * 0.9 + (local?.downed ? 0.55 + 0.15 * Math.sin(this.time * 4) : 0));
+
+    // 6. render
+    this.renderer.info.reset();
+    this.post.render(d);
+
+    if (evs.length) {
+      for (const cb of this.eventSubs) {
+        try {
+          cb(evs);
+        } catch (err) {
+          console.error('[render] onEvents subscriber failed', err);
+        }
+      }
+    }
+  }
+
+  resize(w: number, h: number): void {
+    this.size = { w: Math.max(1, Math.floor(w)), h: Math.max(1, Math.floor(h)) };
+    const pr = this.pixelRatio();
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(this.size.w, this.size.h, false);
+    this.post.setSize(this.size.w, this.size.h, pr);
+    this.camera.aspect = this.size.w / this.size.h;
+    this.camera.updateProjectionMatrix();
+  }
+
+  setQuality(q: Quality): void {
+    if (q === this.quality) return;
+    this.quality = q;
+    this.preset = qualityPreset(q);
+    this.applyQuality();
+    this.resize(this.size.w, this.size.h);
+  }
+
+  /**
+   * Crosshair query: ray from the (latest) camera through the screen centre
+   * against colliders + terrain + water + entities (render meshes are ignored).
+   */
+  pick(): { aimPoint: Vec3; aimTargetId?: EntityId } {
+    const localId = this.view.localId();
+    const ent = localId !== null ? this.view.get(localId) : undefined;
+    let origin: Vec3;
+    let dir: Vec3;
+    let minDist = 0;
+    if (ent && this.freeCam === null && !(ent.flags & VF_DEAD)) {
+      // canonical pose from the freshest look angles (not last frame's camera)
+      const yaw = this.look.fresh ? this.look.yaw : ent.yaw;
+      const pitch = this.look.fresh ? this.look.pitch : ent.pitch;
+      const pose = tpsCameraPose(ent, yaw, pitch, (ent.flags & VF_DOWNED) !== 0);
+      origin = pose.origin;
+      dir = pose.dir;
+      minDist = Math.max(0, pose.nearClip - 0.3);
+    } else {
+      const p = this.camera.position;
+      this.camera.getWorldDirection(_dir);
+      origin = { x: p.x, y: p.y, z: p.z };
+      dir = { x: _dir.x, y: _dir.y, z: _dir.z };
+    }
+    const maxDist = 600;
+    const hit = this.pickWorld.raycast(origin, dir, maxDist, {
+      entities: this.view.entities(),
+      ignore: localId,
+      minDist,
+    });
+    if (!hit) return { aimPoint: { x: origin.x + dir.x * maxDist, y: origin.y + dir.y * maxDist, z: origin.z + dir.z * maxDist } };
+    return hit.entityId !== undefined ? { aimPoint: hit.point, aimTargetId: hit.entityId } : { aimPoint: hit.point };
+  }
+
+  getCameraPose(): { pos: Vec3; yaw: number; pitch: number } {
+    return this.rig.pose();
+  }
+
+  setSpectateTarget(id: EntityId | null): void {
+    this.spectateId = id;
+  }
+
+  onLocalFire(cb: (weaponId: string) => void): () => void {
+    this.fireSubs.add(cb);
+    return () => this.fireSubs.delete(cb);
+  }
+
+  /** Every drained GameEvent batch is re-emitted here once per frame (HUD, audio, kill feed). */
+  onEvents(cb: (evs: readonly GameEvent[]) => void): () => void {
+    this.eventSubs.add(cb);
+    return () => this.eventSubs.delete(cb);
+  }
+
+  /** Add camera shake (0..1 trauma). */
+  shake(intensity: number): void {
+    this.rig.shake.add(intensity);
+  }
+
+  /**
+   * Latest local look state (called by InputController.sample every frame so
+   * the camera and pick() use this frame's yaw/pitch, not the last snapshot's).
+   */
+  setLookAngles(yaw: number, pitch: number, ads = false, fireHeld = false): void {
+    this.look.yaw = yaw;
+    this.look.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+    this.look.ads = ads;
+    this.look.fire = fireHeld;
+    this.look.fresh = true;
+  }
+
+  /** ADS zoom of the local hero's active weapon when aiming (1 otherwise). UI draws a scope when ≥ 3. */
+  get adsZoom(): number {
+    const local = this.view.local();
+    if (!local || !this.look.ads) return 1;
+    const w = local.weapons[local.activeSlot];
+    return (w && WEAPON_BY_ID[w.id]?.adsZoom) || 1;
+  }
+
+  /** Current (smoothed) zoom applied to the camera FOV. */
+  get currentZoom(): number {
+    return this.zoomNow;
+  }
+
+  /** Project a world point to CSS pixels relative to the canvas (null when behind the camera / off-screen far). */
+  worldToScreen(p: Vec3): { x: number; y: number } | null {
+    _v.set(p.x, p.y, p.z).project(this.camera);
+    if (_v.z < -1 || _v.z > 1) return null;
+    return { x: ((_v.x + 1) / 2) * this.size.w, y: ((1 - _v.y) / 2) * this.size.h };
+  }
+
+  /** Dev / photo mode: fly camera (null returns to normal behaviour). */
+  setFreeCamera(pose: { pos: Vec3; yaw: number; pitch: number } | null): void {
+    this.freeCam = pose ? { pos: { ...pose.pos }, yaw: pose.yaw, pitch: pose.pitch } : null;
+  }
+
+  stats(): RenderStats {
+    const info = this.renderer.info;
+    return {
+      drawCalls: info.render.calls,
+      triangles: info.render.triangles,
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      entities: this.entities.size,
+      particles: this.fx.add.liveCount + this.fx.alpha.liveCount,
+      fps: Math.round(this.fps),
+      worldProps: this.world.stats.props,
+      worldChunks: this.world.stats.chunks,
+    };
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    this.unsubSettings();
+    this.eventSubs.clear();
+    this.fireSubs.clear();
+    this.entities.dispose();
+    this.fx.dispose();
+    this.zone.dispose();
+    this.fires.dispose();
+    this.grass.dispose();
+    this.world.dispose();
+    this.water.dispose();
+    this.terrain.dispose();
+    this.sky.dispose();
+    this.post.dispose();
+    disposeSharedMaterials();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
+  }
+
+  // ── internals ──────────────────────────────────────────────────────────────
+
+  private pixelRatio(): number {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    return Math.min(this.preset.maxPixelRatio, dpr * this.preset.pixelRatioScale);
+  }
+
+  private applyQuality(): void {
+    const p = this.preset;
+    const shadowsChanged = this.renderer.shadowMap.enabled !== p.shadows;
+    this.renderer.shadowMap.enabled = p.shadows;
+    this.lights.setShadows(p.shadows, p.shadowMapSize, p.shadowExtent);
+    if (shadowsChanged) this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (Array.isArray(m)) m.forEach((mm) => (mm.needsUpdate = true));
+      else if (m) m.needsUpdate = true;
+    });
+    this.camera.far = p.drawDistance;
+    this.camera.updateProjectionMatrix();
+    this.fog.near = p.drawDistance * 0.35;
+    this.fog.far = p.drawDistance * 0.95;
+    this.fires.setLightCount(p.brazierLights);
+    this.grass.setDensity(p.grass);
+    this.fx.setBudget(p.particles, p.vfxLights);
+    this.post.configure({ bloom: p.bloom, vignette: p.post, msaa: p.msaa });
+  }
+
+  private onSettings(u: UserSettings): void {
+    if (u.quality !== this.quality) this.setQuality(u.quality);
+    this.rig.baseFov = u.fov;
+  }
+
+  private entityCtx(dt: number, localId: EntityId | null, local: ReturnType<ViewSource['local']>): EntityCtx {
+    return {
+      time: this.time,
+      dt,
+      camPos: this.camera.position,
+      fovDeg: this.camera.fov,
+      localId,
+      local,
+      squad: this.squad,
+      lang: settings.get().lang,
+      fx: this.fx,
+      blocked: (a, b) => this.pickWorld.segmentBlocked(a, b),
+      groundY: (x, z) => this.pickWorld.groundHeight(x, z),
+      characterDistance: this.preset.characterDistance,
+      shadows: this.preset.shadows,
+      frame: this.frameNo,
+    };
+  }
+
+  private updateCamera(dt: number, localEnt: ViewEntity | undefined, localDead: boolean): void {
+    const rig = this.rig;
+    if (this.freeCam) {
+      rig.setPose(this.freeCam.pos, this.freeCam.yaw, this.freeCam.pitch);
+      rig.setZoom(1, dt);
+    } else if (localEnt && !localDead && !(localEnt.flags & VF_DEAD)) {
+      const yaw = this.look.fresh ? this.look.yaw : localEnt.yaw;
+      const pitch = this.look.fresh ? this.look.pitch : localEnt.pitch;
+      rig.mode = 'follow';
+      rig.follow(this.pickWorld, localEnt, yaw, pitch, dt, false, (localEnt.flags & VF_DOWNED) !== 0);
+      rig.setZoom(this.adsZoom, dt);
+    } else {
+      // dead / not spawned: spectate a target or orbit
+      const target = this.spectateId !== null ? this.view.get(this.spectateId) : undefined;
+      if (target && !(target.flags & VF_DEAD)) {
+        rig.mode = 'spectate';
+        rig.follow(this.pickWorld, target, target.yaw, target.pitch * 0.5, dt, true, (target.flags & VF_DOWNED) !== 0);
+      } else {
+        rig.mode = 'orbit';
+        const c = localEnt ?? this.view.map.lordSpawn;
+        rig.orbit({ x: c.x, y: c.y, z: c.z }, localEnt ? 9 : 60, localEnt ? 5 : 32, dt);
+      }
+      rig.setZoom(1, dt);
+    }
+    this.zoomNow = rig.currentZoom;
+    rig.apply(dt);
+  }
+
+  private consumePredictedShot(): boolean {
+    const q = this.predictedQueue;
+    while (q.length && this.time - q[0] > 0.6) q.shift();
+    if (!q.length) return false;
+    q.shift();
+    return true;
+  }
+
+  private shakeAt(pos: THREE.Vector3, intensity: number, radius: number): void {
+    const dist = pos.distanceTo(this.camera.position);
+    const falloff = Math.max(0, 1 - dist / (radius * 6 + 12));
+    if (falloff > 0) this.rig.shake.add(intensity * falloff);
+  }
+
+  private trackLocalDamage(evs: readonly GameEvent[], localId: EntityId | null): void {
+    if (localId === null) return;
+    for (const ev of evs) {
+      if (ev.t === 'hit' && ev.target === localId && !ev.blocked && ev.amount > 0) {
+        this.damagePulse = Math.min(1, this.damagePulse + Math.min(0.6, ev.amount / 120));
+        this.rig.shake.add(Math.min(0.25, ev.amount / 300));
+      }
+    }
+  }
+
+  /** Instant local muzzle flash + tracer while the fire button is held and the weapon has ammo. */
+  private localFire(dt: number, ent: ViewEntity | undefined, local: ReturnType<ViewSource['local']>): void {
+    const held = this.look.fire;
+    const pressed = held && !this.firePrevHeld;
+    this.firePrevHeld = held;
+    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    if (!ent || !local || local.dead || local.downed || local.reloading > 0 || local.channel) return;
+    if (ent.flags & (VF_DEAD | VF_DOWNED | VF_STUNNED | VF_DANCING)) return;
+    const w = local.weapons[local.activeSlot];
+    if (!w) return;
+    const def = WEAPON_BY_ID[w.id];
+    // host magazine is authoritative; count predicted shots until it catches up
+    const key = `${w.id}|${local.activeSlot}`;
+    if (key !== this.lastWeaponKey || w.mag !== this.lastMag) {
+      this.lastWeaponKey = key;
+      this.lastMag = w.mag;
+      this.predictedShots = 0;
+    }
+    if (!held) return;
+    if (w.mag - this.predictedShots <= 0) return;
+    const auto = def?.auto ?? true;
+    if (!auto && !pressed) return;
+    if (this.fireCooldown > 0) return;
+    const rate = Math.max(0.5, def?.fireRate ?? 8);
+    this.fireCooldown = 1 / rate;
+    this.predictedShots++;
+    this.predictedQueue.push(this.time);
+    if (this.predictedQueue.length > 16) this.predictedQueue.shift();
+    // visuals
+    const view = this.entities.character(ent.id);
+    const cls = shotClass(w.id);
+    const aim = this.pick().aimPoint;
+    const muzzle = _v2;
+    if (!view || !view.muzzleWorld(muzzle)) muzzle.set(ent.x, ent.y + 1.4, ent.z);
+    const d = dirFromYawPitch(this.look.fresh ? this.look.yaw : ent.yaw, this.look.fresh ? this.look.pitch : ent.pitch);
+    _dir.set(d.x, d.y, d.z);
+    this.fx.muzzleFlash(muzzle, _dir, cls, true);
+    if (!def?.projectile && !def?.melee) {
+      const pellets = Math.min(4, def?.pellets ?? 1);
+      for (let i = 0; i < pellets; i++) {
+        const spread = pellets > 1 ? 0.6 : 0;
+        _v.set(aim.x + (Math.random() - 0.5) * spread, aim.y + (Math.random() - 0.5) * spread, aim.z + (Math.random() - 0.5) * spread);
+        this.fx.tracer(muzzle, _v, cls);
+      }
+    }
+    view?.onShot();
+    const kick = Math.min(0.05, ((def?.recoil ?? 1) * Math.PI) / 180);
+    this.rig.shake.kick(kick * 0.6, (Math.random() - 0.5) * kick * 0.3);
+    for (const cb of this.fireSubs) {
+      try {
+        cb(w.id);
+      } catch (err) {
+        console.error('[render] onLocalFire subscriber failed', err);
+      }
+    }
+  }
+}
