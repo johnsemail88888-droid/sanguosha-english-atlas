@@ -21,7 +21,9 @@
   },
   "dependencies": {
     "peerjs": "^1.5.5",
-    "three": "^0.186.1"
+    "three": "^0.186.1",
+    "ws": "^8.21.3",
+    "peer": "^1.0.2"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
@@ -30,11 +32,64 @@
     "@types/ws": "^8.18.1",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
-    "peer": "^1.0.2",
     "typescript": "~6.0.3",
     "vite": "^8.3.1",
     "vite-plugin-singlefile": "^2.3.3",
-    "vitest": "^5.0.1",
-    "ws": "^8.21.3"
+    "vitest": "^5.0.1"
+  },
+  "author": "John Jiang",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://github.com/johnsemail88888-droid/sanguosha-english-atlas/tree/main/warlords",
+  "build": {
+    "appId": "com.sanguo.warlords",
+    "productName": "SanguoWarlords",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "server/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build-res"
+    },
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "build-res/icon.png"
+    },
+    "portable": {
+      "artifactName": "SanguoWarlords-${version}-Windows-portable.exe"
+    },
+    "nsis": {
+      "artifactName": "SanguoWarlords-${version}-Windows-setup.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "三国杀·枪火乱世"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.games",
+      "icon": "build-res/icon.png"
+    },
+    "dmg": {
+      "artifactName": "SanguoWarlords-${version}-macOS-${arch}.dmg",
+      "title": "三国杀·枪火乱世"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Game",
+      "icon": "build-res/icon.png"
+    },
+    "appImage": {
+      "artifactName": "SanguoWarlords-${version}-Linux.AppImage"
+    }
   }
 }

@@ -1,0 +1,69 @@
+name: Warlords · Desktop builds
+
+# Push a tag like `warlords-v0.1.0` (or run manually) to build Windows / macOS / Linux
+# apps and attach them to a GitHub Release.
+on:
+  push:
+    tags: ['warlords-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win portable nsis --x64
+          - os: macos-latest
+            target: --mac dmg --arm64 --x64
+          - os: ubuntu-latest
+            target: --linux AppImage --x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: warlords
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: warlords/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder ${{ matrix.target }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: warlords-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            warlords/release/*.exe
+            warlords/release/*.dmg
+            warlords/release/*.AppImage
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('warlords-build-{0}', github.run_number) }}
+          name: 三国杀·枪火乱世 ${{ github.ref_type == 'tag' && github.ref_name || format('build {0}', github.run_number) }}
+          prerelease: ${{ github.ref_type != 'tag' }}
+          files: out/*
+          body: |
+            ## 三国杀·枪火乱世 桌面版
+            - **Windows**：下载 `*-Windows-portable.exe` 双击即玩（免安装），或 `*-setup.exe` 安装版。
+            - **macOS**：下载 `.dmg`（Apple 芯片选 arm64，Intel 选 x64）。首次打开若被拦截：在“应用程序”里按住 Control 点击 → 打开。
+            - **Linux**：下载 `.AppImage`，`chmod +x` 后运行。
+            桌面版内置局域网服务器：菜单「游戏 → 局域网联机地址」把地址发给同一 Wi-Fi 的朋友。
