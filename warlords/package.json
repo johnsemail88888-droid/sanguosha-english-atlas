@@ -1,0 +1,40 @@
+{
+  "name": "sanguo-warlords",
+  "private": true,
+  "version": "0.1.0",
+  "description": "三国杀·枪火乱世 — 三国杀身份局 × 第三人称枪战 × 带兵",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc -b && vite build",
+    "build:single": "vite build --mode single",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "preview": "vite preview --host",
+    "server": "node server/server.mjs",
+    "electron": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win portable nsis --x64",
+    "dist:mac": "npm run build && electron-builder --mac dmg --arm64 --x64",
+    "dist:linux": "npm run build && electron-builder --linux AppImage --x64"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.5",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^24.13.2",
+    "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.1",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "peer": "^1.0.2",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.1",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^5.0.1",
+    "ws": "^8.21.3"
+  }
+}
