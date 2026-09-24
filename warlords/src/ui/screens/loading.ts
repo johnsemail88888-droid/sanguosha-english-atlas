@@ -30,7 +30,7 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
   };
 
   const render = (): void => {
-    const hero = session.heroSelect?.picks[mySeat(session)];
+    const hero = session.heroSelect?.picks[mySeat(session)] ?? ctx.myHero();
     showTip();
     el.replaceChildren(
       h('div', { class: 'load-inner' },

@@ -1,7 +1,7 @@
 // Hero detail panel shared by 选将 and 武将图鉴: header, 勾玉, abilities with
 // key badges, signature weapon, troops, and (gallery) bio / playstyle / quotes.
 import type { AbilityDef, HeroDef, WeaponDef } from '../../data/types';
-import { HERO_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, WEAPON_CLASS_INFO } from '../../data';
+import { HERO_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, WEAPON_CLASS_INFO, isPassiveAbility } from '../../data';
 import type { UiCtx } from '../ctx';
 import { Bag, appendChildren, h } from '../dom';
 import { getLang, heroName, heroTitle, kingdomName, t, tx } from '../i18n';
@@ -15,9 +15,9 @@ export function sortedAbilities(def: HeroDef): AbilityDef[] {
   return [...def.abilities].sort((a, b) => SLOT_ORDER[a.slot] - SLOT_ORDER[b.slot]);
 }
 
-export function slotLabel(slot: AbilityDef['slot']): string {
+export function slotLabel(slot: AbilityDef['slot'], passive = false): string {
   if (slot === 'passive') return t('select.passive');
-  if (slot === 'lord') return `G · ${t('select.lordSkill')}`;
+  if (slot === 'lord') return passive ? `${t('select.lordSkill')} · ${t('select.passive')}` : `G · ${t('select.lordSkill')}`;
   return SLOT_KEY[slot];
 }
 
@@ -28,7 +28,7 @@ export function abilityBlock(a: AbilityDef, opts: { dimLord?: boolean } = {}): H
   const dim = a.slot === 'lord' && opts.dimLord;
   return h('div', { class: `sg-ability slot-${a.slot}${dim ? ' dim' : ''}` },
     h('div', { class: 'ab-head' },
-      h('span', { class: `ab-key k-${a.slot}` }, slotLabel(a.slot)),
+      h('span', { class: `ab-key k-${a.slot}` }, slotLabel(a.slot, isPassiveAbility(a))),
       h('span', { class: 'ab-name' }, tx(a.nameZh, a.nameEn)),
       a.sgsSkill && a.sgsSkill !== a.nameZh ? h('span', { class: 'ab-sgs' }, `〔${a.sgsSkill}〕`) : null,
       meta.length ? h('span', { class: 'ab-meta' }, meta.join(' · ')) : null,
@@ -83,9 +83,9 @@ function stat(label: string, value: string): HTMLElement {
 }
 
 export interface HeroDetailOpts {
-  /** show the lord's +1 勾玉 and do not dim the lord skill */
+  /** show the crown's +1 勾玉 / +100 HP (the Lord, and the 影武者) */
   asLord?: boolean;
-  /** dim the lord skill (hero select as a non-lord) */
+  /** dim the lord skill (hero select as anyone but the real Lord) */
   dimLord?: boolean;
   /** gallery extras: bio / playstyle / quotes */
   lore?: boolean;
@@ -139,7 +139,7 @@ export function heroDetail(ctx: UiCtx, heroId: string, opts: HeroDetailOpts = {}
         ),
       ),
     ),
-    h('div', { class: 'hd-abilities' }, sortedAbilities(def).map((a) => abilityBlock(a, { dimLord: opts.dimLord && !opts.asLord }))),
+    h('div', { class: 'hd-abilities' }, sortedAbilities(def).map((a) => abilityBlock(a, { dimLord: opts.dimLord }))),
     h('div', { class: 'hd-gear' },
       weapon ? h('div', { class: 'hd-sec' }, h('h4', null, t('select.signature')), weaponBlock(weapon)) : null,
       troop

@@ -187,8 +187,9 @@ export const SCREENS_CSS = /* css */ `
 .sg-roles .announce { text-align: center; display: flex; flex-direction: column; gap: 0.3em; align-items: center; }
 .sg-roles .lordline { font-family: var(--font-display); font-size: 1.35em; color: var(--gold-hi); text-shadow: 0 2px 0 #000; }
 .sg-roles .crown, .sg-select .crown { color: #f2c14e; margin-right: 0.3em; }
+.sg-select .crown.decoy { color: #c9d1dc; }
 .sg-roles .bounty { display: inline-flex; align-items: center; gap: 0.3em; color: #ffc38a; }
-.sg-roles .crown-secret { display: inline-flex; align-items: center; gap: 0.3em; max-width: min(40em, 94vw); text-align: left; padding: 0.2em 0.8em 0.2em 0.3em; border-radius: 999px; background: rgba(0, 0, 0, 0.45); border: 1px dashed #c9d1dc; color: #e6ecf5; }
+.sg-roles .crown-secret { display: inline-flex; align-items: center; gap: 0.3em; max-width: min(40em, 94vw); text-align: left; padding: 0.2em 0.8em 0.2em 0.3em; border-radius: 1em; background: rgba(0, 0, 0, 0.45); border: 1px dashed #c9d1dc; color: #e6ecf5; }
 .sg-roles .crown-secret.trueLord { border-color: #f2c14e; color: var(--gold-hi); }
 .seat-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5em; max-width: 60em; }
 .seat-chip { display: flex; align-items: center; gap: 0.45em; padding: 0.3em 0.8em 0.3em 0.4em; border-radius: 999px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(214, 173, 82, 0.35); }

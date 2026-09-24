@@ -50,6 +50,8 @@ export interface UiCtx {
   leaveSession(goTitle?: boolean): void;
   /** single player: go back to the lobby and immediately start again */
   playAgain(): void;
+  /** the hero you picked this match (still known after the hero-select phase ends), if any */
+  myHero(): string | null;
   /** room code from `?room=` (consumed once) */
   pendingRoom(): string | null;
 }

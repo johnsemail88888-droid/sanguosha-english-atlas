@@ -15,7 +15,7 @@ import { createTitleScreen } from './screens/title';
 import { createSingleScreen } from './screens/single';
 import { createOnlineScreen } from './screens/online';
 import { createLobbyScreen } from './screens/lobby';
-import { createRolesScreen } from './screens/roles';
+import { createRolesScreen, mySeat } from './screens/roles';
 import { createHeroSelectScreen } from './screens/heroSelect';
 import { createLoadingScreen } from './screens/loading';
 import { createGameOverScreen } from './screens/gameOver';
@@ -113,6 +113,8 @@ class App implements UiCtx {
   private settingsPanel: Screen | null = null;
   private sessionBag: Bag | null = null;
   private lastPhase: MatchPhase | null = null;
+  /** your hero this match: sessions stop exposing `heroSelect` once that phase ends */
+  private pickedHero: string | null = null;
   private autoRestart = false;
   private match: { handle: GameHandle; hud: Hud; container: HTMLElement; view: ViewSource } | null = null;
   private music: MusicTrack | undefined = undefined;
@@ -259,6 +261,12 @@ class App implements UiCtx {
     return name;
   }
 
+  myHero(): string | null {
+    const s = this.session;
+    if (!s) return null;
+    return s.heroSelect?.picks[mySeat(s)] ?? this.pickedHero ?? s.view?.local()?.heroId ?? null;
+  }
+
   pendingRoom(): string | null {
     const r = this.roomCode;
     this.roomCode = null;
@@ -326,6 +334,7 @@ class App implements UiCtx {
     this.session = null;
     this.sessionKind = null;
     this.lastPhase = null;
+    this.pickedHero = null;
     this.autoRestart = false;
     this.unmountMatch();
     if (s) {
@@ -355,8 +364,15 @@ class App implements UiCtx {
     this.session = s;
     this.sessionKind = kind;
     this.lastPhase = s.phase;
+    this.pickedHero = s.heroSelect?.picks[mySeat(s)] ?? null;
     const bag = new Bag();
     this.sessionBag = bag;
+    bag.add(
+      s.on('heroSelect', (v) => {
+        const hero = v.picks[mySeat(s)];
+        if (hero) this.pickedHero = hero;
+      }),
+    );
     bag.add(s.on('phase', (p) => this.onPhase(p)));
     bag.add(
       s.on('matchStart', (view) => {
@@ -378,6 +394,7 @@ class App implements UiCtx {
     if (!s) return;
     switch (phase) {
       case 'lobby':
+        this.pickedHero = null;
         this.unmountMatch();
         if (this.sessionKind === 'single') {
           if (this.autoRestart) {
@@ -391,6 +408,7 @@ class App implements UiCtx {
         }
         break;
       case 'roles':
+        this.pickedHero = null;
         this.go('roles');
         break;
       case 'heroSelect':
