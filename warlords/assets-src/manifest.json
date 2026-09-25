@@ -651,13 +651,13 @@
   },
   {
    "kind": "glb",
-   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052404_0fb3904f-ecb3-4f7a-8a89-487fcad2fa5e.glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053858_1dbad108-6a18-4ecb-b5ce-836a219b98e9.glb",
    "out": "public/assets/models/troops/npc_yellowTurban.glb",
    "texSize": 512
   },
   {
    "kind": "glb",
-   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052406_7cb3cb67-e612-45ba-b28b-8bb147dfc5f7.glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053900_6d596330-fb81-435d-9e89-3893370afb0c.glb",
    "out": "public/assets/models/troops/npc_barbarian.glb",
    "texSize": 512
   },
@@ -931,6 +931,87 @@
    "kind": "image",
    "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_9d4fe754-b57c-4d59-b390-b25cf56f3b03.png",
    "out": "public/assets/tex/plaster.webp",
+   "maxSize": 1024,
+   "quality": 85
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053902_b2f11e55-6d17-4b87-ae78-02613abf305d.glb",
+   "out": "public/assets/models/props/tent.glb",
+   "texSize": 1024
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053904_f955b626-c65c-4727-83c3-013962141beb.glb",
+   "out": "public/assets/models/props/crateStack.glb",
+   "texSize": 512
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053909_f8b14153-76ea-45c8-9b0f-6d21ce32df4a.glb",
+   "out": "public/assets/models/props/barricade.glb",
+   "texSize": 512
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053911_8fe3861e-6d77-4c07-be93-270efb0ee468.glb",
+   "out": "public/assets/models/props/rock.glb",
+   "texSize": 512
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053913_0441cd96-f896-41cf-af27-363786b56e5b.glb",
+   "out": "public/assets/models/props/tree.glb",
+   "texSize": 1024
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053914_fbff9180-ef58-4ac5-9f19-54df441ca21f.glb",
+   "out": "public/assets/models/props/pine.glb",
+   "texSize": 1024
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053919_42bf4268-ca53-4347-a21c-542b7b26f031.glb",
+   "out": "public/assets/models/props/bamboo.glb",
+   "texSize": 1024
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053921_8dcbdab1-6247-4365-8a62-76683057e503.glb",
+   "out": "public/assets/models/props/brazier.glb",
+   "texSize": 512
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053923_03d3dd2b-c81e-43b8-a6f8-550aa2d8d519.glb",
+   "out": "public/assets/models/props/statue.glb",
+   "texSize": 1024
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053546_e4fd0753-541f-4e65-8c37-8db5ee6918fc.glb",
+   "out": "public/assets/anim/knockdown.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053548_7d6cd661-2d30-4ea8-9d19-5b1a4260128f.glb",
+   "out": "public/assets/anim/crawl.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053551_d0e219a8-c01a-4dd4-a287-66daeaa4988c.glb",
+   "out": "public/assets/anim/melee_thrust.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053553_75c19957-e843-4c14-a6ce-eaf630677081.glb",
+   "out": "public/assets/anim/bow_shot.glb"
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_1162ab7d-fb51-437a-ad84-b6882bb74651.png",
+   "out": "public/assets/tex/mud.webp",
    "maxSize": 1024,
    "quality": 85
   }

@@ -391,12 +391,12 @@
    "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052402_f714dc2d-8b2a-4e36-9b2e-11f275048569.glb"
   },
   "npc_yellowTurban": {
-   "job": "0fb3904f-ecb3-4f7a-8a89-487fcad2fa5e",
-   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052404_0fb3904f-ecb3-4f7a-8a89-487fcad2fa5e.glb"
+   "job": "1dbad108-6a18-4ecb-b5ce-836a219b98e9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053858_1dbad108-6a18-4ecb-b5ce-836a219b98e9.glb"
   },
   "npc_barbarian": {
-   "job": "7cb3cb67-e612-45ba-b28b-8bb147dfc5f7",
-   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052406_7cb3cb67-e612-45ba-b28b-8bb147dfc5f7.glb"
+   "job": "6d596330-fb81-435d-9e89-3893370afb0c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053900_6d596330-fb81-435d-9e89-3893370afb0c.glb"
   },
   "caocao": {
    "job": "03b59058-000d-4384-b9c6-67c80a30594c",
@@ -519,6 +519,26 @@
    "action": 128,
    "job": "7605e3ea-2a4d-4a66-afa0-e2a58dfabe7d",
    "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052749_7605e3ea-2a4d-4a66-afa0-e2a58dfabe7d.glb"
+  },
+  "knockdown": {
+   "action": 187,
+   "job": "e4fd0753-541f-4e65-8c37-8db5ee6918fc",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053546_e4fd0753-541f-4e65-8c37-8db5ee6918fc.glb"
+  },
+  "crawl": {
+   "action": 622,
+   "job": "7d6cd661-2d30-4ea8-9d19-5b1a4260128f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053548_7d6cd661-2d30-4ea8-9d19-5b1a4260128f.glb"
+  },
+  "melee_thrust": {
+   "action": 240,
+   "job": "d0e219a8-c01a-4dd4-a287-66daeaa4988c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053551_d0e219a8-c01a-4dd4-a287-66daeaa4988c.glb"
+  },
+  "bow_shot": {
+   "action": 224,
+   "job": "75c19957-e843-4c14-a6ce-eaf630677081",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053553_75c19957-e843-4c14-a6ce-eaf630677081.glb"
   }
  },
  "concept_extra": {
@@ -599,6 +619,48 @@
   "plaster": {
    "job": "9d4fe754-b57c-4d59-b390-b25cf56f3b03",
    "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_9d4fe754-b57c-4d59-b390-b25cf56f3b03.png"
+  },
+  "mud": {
+   "job": "1162ab7d-fb51-437a-ad84-b6882bb74651",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_1162ab7d-fb51-437a-ad84-b6882bb74651.png"
+  }
+ },
+ "prop": {
+  "tent": {
+   "job": "b2f11e55-6d17-4b87-ae78-02613abf305d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053902_b2f11e55-6d17-4b87-ae78-02613abf305d.glb"
+  },
+  "crateStack": {
+   "job": "f955b626-c65c-4727-83c3-013962141beb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053904_f955b626-c65c-4727-83c3-013962141beb.glb"
+  },
+  "barricade": {
+   "job": "f8b14153-76ea-45c8-9b0f-6d21ce32df4a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053909_f8b14153-76ea-45c8-9b0f-6d21ce32df4a.glb"
+  },
+  "rock": {
+   "job": "8fe3861e-6d77-4c07-be93-270efb0ee468",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053911_8fe3861e-6d77-4c07-be93-270efb0ee468.glb"
+  },
+  "tree": {
+   "job": "0441cd96-f896-41cf-af27-363786b56e5b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053913_0441cd96-f896-41cf-af27-363786b56e5b.glb"
+  },
+  "pine": {
+   "job": "fbff9180-ef58-4ac5-9f19-54df441ca21f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053914_fbff9180-ef58-4ac5-9f19-54df441ca21f.glb"
+  },
+  "bamboo": {
+   "job": "42bf4268-ca53-4347-a21c-542b7b26f031",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053919_42bf4268-ca53-4347-a21c-542b7b26f031.glb"
+  },
+  "brazier": {
+   "job": "8dcbdab1-6247-4365-8a62-76683057e503",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053921_8dcbdab1-6247-4365-8a62-76683057e503.glb"
+  },
+  "statue": {
+   "job": "03d3dd2b-c81e-43b8-a6f8-550aa2d8d519",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053923_03d3dd2b-c81e-43b8-a6f8-550aa2d8d519.glb"
   }
  }
 }
