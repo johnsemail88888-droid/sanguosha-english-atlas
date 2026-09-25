@@ -49,6 +49,35 @@ describe('squad brain', () => {
     expect(withHuman.loyal.hp).toBeLessThan(withHuman.loyal.maxHp);
   });
 
+  it("借刀杀人 on a bot lord: his hijacked squad hurts the loyalist but never downs him (the lord's mercy holds)", () => {
+    // Seed 1000 of the balance sample: a rebel's 借刀杀人 turned 主公 刘备's riflemen on his own
+    // escorting loyalist; they downed and finished him, and the kill was the lord's.
+    const hijack = (lordIsBot: boolean): { downed: boolean; minHp: number; start: number } => {
+      const { w, loyal } = scenario(lordIsBot);
+      const lord = hero(w, 0);
+      loyal.hp = loyal.maxHp * 0.45;
+      const start = loyal.hp;
+      let downed = false;
+      let minHp = loyal.hp;
+      // the card re-issues the hijacked order every 0.5 s for 6 s (items/tricks.ts jiedao)
+      for (let i = 0; i < 12; i++) {
+        w.setSquadOrder(lord.id, { kind: 'attack', targetId: loyal.id });
+        for (let k = 0; k < 15; k++) {
+          stepN(w, 1);
+          downed ||= loyal.hero!.downed || loyal.hero!.dead;
+          minHp = Math.min(minHp, loyal.hp);
+        }
+      }
+      return { downed, minHp, start };
+    };
+    const bot = hijack(true);
+    expect(bot.minHp, 'the hijack still works: the soldiers open fire').toBeLessThan(bot.start - 20);
+    expect(bot.downed).toBe(false);
+    expect(bot.minHp).toBeGreaterThan(0);
+    // control: a human lord's soldiers obey the hijack to the end
+    expect(hijack(false).downed).toBe(true);
+  });
+
   it('soldiers step out of an enemy fire field', () => {
     const w = makeWorld(STD5, { squads: true, heroes: ['caocao', 'guanyu', 'guanyu', 'guanyu', 'guanyu'] });
     const cmd = hero(w, 1);

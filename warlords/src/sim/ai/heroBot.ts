@@ -1270,14 +1270,27 @@ export class HeroBot implements BotBrain, BotView {
   }
 
   /**
+   * The lord side never downs / finishes a hero that claimed 忠 and has not done it real harm
+   * (a loyalist killed by the 主公 — his soldiers' kills are his — costs him all his gear).
+   */
+  private lordSideMercy(t: Entity): boolean {
+    if (t.kind !== 'hero' || (!t.hero?.downed && t.hp > t.maxHp * 0.35)) return false;
+    return (this.role === 'lord' || this.role === 'loyalist' || this.role === 'double') && !this.beliefs.mayFinish(t);
+  }
+
+  /** CommanderMind: the squad spares whom this bot spares (the lord side's mercy, see lordSideMercy). */
+  spares(e: Entity): boolean {
+    return this.lordSideMercy(e);
+  }
+
+  /**
    * 主公 mercy: a hero we are not sure about is left alive when nearly beaten
    * (killing — or downing — a loyalist costs the lord all his gear).
    */
   private mercy(t: Entity): boolean {
     if (t.kind !== 'hero') return false;
     if (!t.hero?.downed && t.hp > t.maxHp * 0.35) return false;
-    // the lord side never finishes a hero that claimed 忠 and has not done it real harm
-    if ((this.role === 'lord' || this.role === 'loyalist' || this.role === 'double') && !this.beliefs.mayFinish(t)) return true;
+    if (this.lordSideMercy(t)) return true;
     const { sim, self } = this;
     // a rebel only finishes the lord side: half the strangers are fellow rebels, and a rebel who
     // kills one looks loyal to the others — the civil war that follows loses the match. Mid-game it

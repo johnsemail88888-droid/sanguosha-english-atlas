@@ -13,6 +13,12 @@ export interface CommanderMind {
   hostility(e: Entity): number;
   /** would the commander open fire on `e` himself? */
   wouldEngage(e: Entity): boolean;
+  /**
+   * would the commander hold fire on `e` to spare it (the lord side's mercy: a 忠-claimer who
+   * has not done it real harm is never downed / finished)? Its soldiers hold fire too — under
+   * an order, a mark or a hijacked order (借刀杀人) as well.
+   */
+  spares(e: Entity): boolean;
 }
 
 const minds = new WeakMap<SimApi, Map<EntityId, CommanderMind>>();

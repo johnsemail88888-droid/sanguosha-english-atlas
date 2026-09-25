@@ -4,7 +4,9 @@
 //    the commander's focus / mark, then the nearest real threat (low HP and
 //    heroes preferred), with stickiness so soldiers don't flicker between targets;
 //  - a bot commander's own beliefs veto shooting at its believed allies
-//    (a stray friendly bullet must not start a feud between allied squads);
+//    (a stray friendly bullet must not start a feud between allied squads),
+//    and its mercy holds for them too: a lord-side squad never downs / finishes
+//    a clean 忠-claimer, not even under an order, a mark or 借刀杀人;
 //  - leashed engagement around the order point, nav paths for long trips
 //    (steer.ts), catch-up speed when far behind the formation;
 //  - cover while reloading (budgeted per tick), stepping out of harmful hazards.
@@ -92,7 +94,13 @@ export class BasicTroopBrain implements TroopBrain {
     } else if (tr.targetId !== undefined && !this.validTarget(sim, self, tr.targetId, Math.max(def.aggroRange, CHARGE_RANGE) + 10)) {
       tr.targetId = undefined;
     }
-    const target = tr.targetId !== undefined ? sim.get(tr.targetId) : undefined;
+    let target = tr.targetId !== undefined ? sim.get(tr.targetId) : undefined;
+    // a bot commander's mercy holds for its soldiers the moment the hero drops that low: the lord
+    // side never downs / finishes a clean 忠-claimer (the soldiers' kills are the lord's)
+    if (target && mindOf(sim, cmd)?.spares(target)) {
+      tr.targetId = undefined;
+      target = undefined;
+    }
 
     // ── movement goal from the order ──
     const squadSize = cmd!.hero!.squad.length;
@@ -213,12 +221,13 @@ export class BasicTroopBrain implements TroopBrain {
   private chooseTarget(sim: SimApi, self: Entity, cmd: Entity, aggro: number, attackRange: number): Entity | undefined {
     const order = cmd.hero!.order;
     const x = ext(sim);
-    // explicit attack order on a target
+    const mind = mindOf(sim, cmd);
+    // explicit attack order on a target (also a hijacked one — 借刀杀人 — but never past the
+    // bot commander's mercy)
     if (order.kind === 'attack' && order.targetId !== undefined) {
       const t = sim.get(order.targetId);
-      if (t && isTargetable(sim, self, t) && dist2d(self.pos, t.pos) < 120) return t;
+      if (t && isTargetable(sim, self, t) && dist2d(self.pos, t.pos) < 120 && !mind?.spares(t)) return t;
     }
-    const mind = mindOf(sim, cmd);
     const cur = self.troop!.targetId;
     const attackers = new Set<EntityId>();
     for (const a of x.recentAttackers(cmd.id, 5)) attackers.add(a);
@@ -231,6 +240,7 @@ export class BasicTroopBrain implements TroopBrain {
       (e) => {
         if (!sim.isHostileTo(self, e)) return false;
         if (!mind) return true;
+        if (mind.spares(e)) return false;
         // a bot commander's believed allies are off limits unless marked / ordered
         const owner = x.commanderOf(e);
         if (!owner || owner === cmd) return true;
