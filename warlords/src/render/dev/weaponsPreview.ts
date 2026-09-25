@@ -1,19 +1,21 @@
 // Dev-only: AI-art weapon calibration bench (render-dev.html?mode=models&set=weapons).
-// One row per weapon (models/weaponGlb.ts WEAPON_GLB_CAL), four views:
+// One row per weapon (models/weaponGlb.ts WEAPON_GLB_CAL), one cell per view:
 //   bench  the calibrated weapon alone from its right side (barrel → right), with
 //          the calibration grid (u every 0.1 along the barrel, v every 0.05 up;
-//          brighter: u = 0 / 0.5 / 1, v = 0) and the points: grip (red, the
+//          darker: u = 0 / 0.5 / 1, v = 0) and the points: grip (red, the
 //          weapon origin = wrist target), fore (blue), mag (green), muzzle (yellow);
-//          the 2D weapon art in the corner for reference
+//          the 2D weapon art in the corner for reference; label: hold, size, tris (full / far LOD)
 //   side   a GLB hero holding it in the aimed pose, from the right
-//   top    the same from above (barrel along the aim, nothing inside the body)
 //   hand   close-up of the weapon hand from the right (grip in the fist?)
+//   top    the same from above (barrel along the aim, nothing inside the body)
+//   front  from the front-left
 //   tps    the player's over-the-shoulder camera (sim/aim cameraRig), cropped
 //          around the crosshair; the yellow line leaves the muzzle along the barrel
 //   game   the same camera at the game's default 75° field of view
-// Params: ids=a,b (default: every calibrated weapon), hero=<id> (default
-// zhaoyun; 'owner' = the weapon's hero), pitch=<rad>, anim=ads|reload|sprint,
-// cell=<px width>, views=bench,side,top,tps.
+// Params: ids=a,b (default: every calibrated weapon), views=bench,side,top,tps
+// (default), hero=<id> (default zhaoyun; 'owner' = the weapon's hero),
+// pitch=<rad>, anim=ads|reload|sprint, cell=<px width>, bones=1 (hand joint
+// markers), noweapon=1.
 import * as THREE from 'three';
 import { HEROES, WEAPON_BY_ID } from '../../data';
 import { VF_ADS, VF_RELOADING, VF_SPRINTING } from '../../core/types';

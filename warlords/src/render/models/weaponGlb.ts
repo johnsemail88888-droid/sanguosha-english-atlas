@@ -76,7 +76,7 @@ export const WEAPON_GLB_CAL: Readonly<Record<string, WeaponGlbCal>> = {
   fangtian: { fwd: '+z', up: '+y', roll: Math.PI / 2, size: 1.4, grip: [0.4, 0.0], fore: [0.55, 0.0], mag: [0.5, 0.0], muzzle: [0.9, 0.0] },
   qilin: { fwd: '+z', up: '+y', size: 1.2, grip: [0.22, 0.0], fore: [0.45, 0.0], mag: [0.3, -0.05], muzzle: [0.95, 0.02] },
   longdan: { fwd: '+z', up: '+y', size: 1.0, grip: [0.09, 0.04], fore: [0.45, 0.02], mag: [0.25, -0.04], muzzle: [0.62, 0.06] },
-  liegong: { fwd: '-z', up: '+x', size: 1.3, fit: 'height', grip: [0.47, 0.0], fore: [0.3, 0.0], mag: null, muzzle: [0.55, 0.0] },
+  liegong: { fwd: '-z', up: '+x', size: 1.3, fit: 'height', grip: [0.45, 0.0], fore: [0.3, 0.0], mag: null, muzzle: [0.55, 0.0] },
   jinfan: { fwd: '+z', up: '+y', size: 0.5, grip: [0.3, 0.0], fore: [0.6, 0.0], mag: [0.4, -0.1], muzzle: [1, 0.1] },
   xiaoji: { fwd: '+z', up: '+x', size: 1.12, fit: 'height', grip: [0.61, 0.0], fore: [0.3, 0.0], mag: null, muzzle: [0.72, 0.0] },
   taiping: { fwd: '-x', up: '+y', size: 1.6, grip: [0.4, 0.0], fore: [0.62, 0.0], mag: null, muzzle: [0.98, 0.0] },
