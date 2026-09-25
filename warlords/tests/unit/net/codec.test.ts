@@ -107,6 +107,31 @@ describe('snapshot codec', () => {
     expect(out.you!.moveMods).toEqual(snap.you!.moveMods); // flags byte shared with moveMods
   });
 
+  it('carries sprintAds (夏侯渊 神速) and "until consumed" statuses (-1 from the sim) as Infinity', () => {
+    const snap = bigSnapshot();
+    snap.you!.moveMods = { speedMul: 1.15, canSprint: true, canJump: true, rooted: false, sprintAds: true };
+    snap.you!.statuses = [
+      { id: 'thorns', remaining: -1 },
+      { id: 'haste', remaining: 2.5 },
+    ];
+    const st = tableFor();
+    const out = decodeSnapshotMsg(encodeSnapshotMsg(snap, st), st);
+    expect(out.you!.moveMods?.sprintAds).toBe(true);
+    expect(out.you!.statuses[0]).toEqual({ id: 'thorns', remaining: Infinity });
+    expect(out.you!.statuses[1].remaining).toBeCloseTo(2.5, 2);
+    snap.you!.moveMods = { speedMul: 1, canSprint: true, canJump: true, rooted: false };
+    const out2 = decodeSnapshotMsg(encodeSnapshotMsg(snap, st), st);
+    expect(out2.you!.moveMods?.sprintAds).toBeUndefined();
+  });
+
+  it('forced remaining 0 (end-of-dash brake pending) survives the wire', () => {
+    const snap = bigSnapshot();
+    snap.you!.forced = { vel: { x: 5, y: 0, z: 0 }, remaining: 0 };
+    const st = tableFor();
+    const out = decodeSnapshotMsg(encodeSnapshotMsg(snap, st), st);
+    expect(out.you!.forced).toEqual({ vel: { x: 5, y: 0, z: 0 }, remaining: 0 });
+  });
+
   it('stays under 3 KB for 8 heroes + 60 troops + 30 NPCs + 20 misc', () => {
     const snap = bigSnapshot();
     expect(snap.ents.length).toBe(118);

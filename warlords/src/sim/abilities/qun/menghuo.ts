@@ -35,7 +35,7 @@ registerAbility({
     setState(ctx, 'used', used + 1);
     self.hp = Math.max(1, Math.min(self.maxHp, Math.round(self.maxHp * param(ctx, 'hpFrac', 0.5))));
     // passives have no activation event: announce the resurgence (VFX / audio / kill feed)
-    sim.emit({ t: 'ability', src: self.id, ability: ctx.def.id, pos: chestOf(self) });
+    sim.emit({ t: 'ability', src: self.id, ability: ctx.def.id, pos: chestOf(self), proc: true });
     sim.emit({ t: 'revived', target: self.id, by: self.id });
     return true;
   },

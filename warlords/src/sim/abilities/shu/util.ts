@@ -65,7 +65,8 @@ function copyCast(info: CastInfo): CastInfo {
  * `privateTo` keeps hidden information to the caster's own client.
  */
 export function emitAbility(sim: SimApi, src: Entity, ability: string, info: CastInfo & { privateTo?: EntityId } = {}): void {
-  const ev = { t: 'ability' as const, src: src.id, ability, ...copyCast(info) };
+  // a passive proc, not an activation (WEI-10): no cast gesture, a lighter cue on clients
+  const ev = { t: 'ability' as const, src: src.id, ability, ...copyCast(info), proc: true };
   sim.emit(info.privateTo !== undefined ? { ...ev, privateTo: info.privateTo } : ev);
 }
 

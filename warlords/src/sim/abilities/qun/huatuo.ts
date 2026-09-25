@@ -40,7 +40,7 @@ registerAbility({
     if (!free && ready && !sim.giveItem(self.id, 'tao')) sim.spawnLoot({ ...self.pos }, { itemId: 'tao', count: 1 });
     if (free || ready) sim.setCooldown(self.id, ctx.def.id, param(ctx, 'freeReviveCd', 30));
     // the passive has no activation: announce the (fast / free) rescue for VFX + audio
-    sim.emit({ t: 'ability', src: self.id, ability: ctx.def.id, target: target.id, pos: chestOf(target) });
+    sim.emit({ t: 'ability', src: self.id, ability: ctx.def.id, target: target.id, pos: chestOf(target), proc: true });
   },
 });
 
