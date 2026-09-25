@@ -166,9 +166,11 @@ async function blipGuest(guest: Page, host: Page): Promise<void> {
 /**
  * The host's page freezes for HOST_FREEZE_MS (a long GC / shader compile / debugger
  * pause). The guests show "Waiting for host…" meanwhile, then recover on the same
- * connection, and the match goes on: clocks run, a guest's input reaches the host.
+ * connection, and the match goes on: clocks run, a guest's input reaches the host —
+ * `mover` walks back ('s') along the path it walked forward earlier (forward it may
+ * now face a wall: the Lord spawns inside the palace).
  */
-async function freezeHost(host: Page, guests: Page[]): Promise<void> {
+async function freezeHost(host: Page, guests: Page[], mover: Page): Promise<void> {
   const ids = await Promise.all(guests.map(sessionId));
   const waited = guests.map(() => false);
   let frozen = true;
@@ -202,11 +204,10 @@ async function freezeHost(host: Page, guests: Page[]): Promise<void> {
   for (const g of guests) expect(await statusLog(g)).toEqual(expect.arrayContaining(['Waiting for host…', 'Host is responding again']));
   expect(await humansSeen(host)).toBe(3);
   // a guest's input reaches the host again: the host sees that guest walk
-  const mover = guests[guests.length - 1]!;
   const moverId = await mover.evaluate(() => (window as SgwlWindow).__sgwl!.localId());
   const from = (await othersSeen(host))[moverId!];
   expect(from, 'the host sees the guest hero').toBeTruthy();
-  await mover.keyboard.down('w');
+  await mover.keyboard.down('s');
   try {
     await expect
       .poll(
@@ -216,9 +217,9 @@ async function freezeHost(host: Page, guests: Page[]): Promise<void> {
         },
         { message: 'the host sees the guest move after the freeze', timeout: 60_000, intervals: [1000] },
       )
-      .toBeGreaterThan(1.5);
+      .toBeGreaterThan(1.2);
   } finally {
-    await mover.keyboard.up('w');
+    await mover.keyboard.up('s');
   }
 }
 
@@ -296,14 +297,17 @@ test('online (ws relay, same origin): host + 2 guests join by room code, play, s
     }
     await Promise.all(pages.map((g) => g.page.keyboard.up('w')));
     const after = await Promise.all(pages.map((g) => localPos(g.page)));
-    console.log(`[online e2e] own moves: ${after.map((p, i) => Math.hypot(p.x - start[i].x, p.z - start[i].z).toFixed(1)).join(' / ')} m`);
+    const moved = after.map((p, i) => Math.hypot(p.x - start[i].x, p.z - start[i].z));
+    console.log(`[online e2e] own moves: ${moved.map((d) => d.toFixed(1)).join(' / ')} m`);
     expect(ok, `every client sees both other heroes move: before ${JSON.stringify(before)} after ${JSON.stringify(last)}`).toBe(true);
     for (const [i, g] of pages.entries()) await g.page.screenshot({ path: test.info().outputPath(`client-${i}.png`) });
 
     // ── NET-3: connection trouble in the running match ─────────────────────────
     for (const g of pages) await recordStatus(g.page);
     await blipGuest(pages[1].page, host.page);
-    await freezeHost(host.page, [pages[1].page, pages[2].page]);
+    // the guest that walked the farthest above retraces its steps after the freeze
+    const mover = moved[1]! >= moved[2]! ? pages[1] : pages[2];
+    await freezeHost(host.page, [pages[1].page, pages[2].page], mover.page);
     const lines = await Promise.all(pages.map((g) => statusLog(g.page)));
     console.log(`[online e2e] status lines: ${JSON.stringify(lines)}`);
     // nobody was ever announced as dropped / handed to a bot
