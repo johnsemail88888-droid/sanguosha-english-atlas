@@ -88,7 +88,7 @@ import {
   warnOnce,
   weaponDef,
 } from './defs';
-import type { AbilityCast, HitscanOptions, PublicEventEntry, ResolvedModifiers, SimExt, StripOptions } from './ext';
+import type { AbilityCast, HitscanOptions, ResolvedModifiers, SimExt, StripOptions } from './ext';
 import { DEBUFF_STATUSES, defaultModifiers } from './ext';
 import { hazardIsHarmful, hazardRuntimeFrom, updateHazards } from './hazards';
 import type { HazardRuntime } from './hazards';
@@ -280,8 +280,9 @@ export class World implements SimExt, SimHost {
   readonly projPierced = new Map<EntityId, Set<EntityId>>();
   /** projectiles whose kind's onDetonate already ran (combat.ts registerProjectileKind) */
   readonly projDetonated = new Set<EntityId>();
-  /** hits being resolved right now (combat.ts dealDamage; SimExt.redirectDamage) */
+  /** hits being resolved right now: dmgStack[0 … dmgDepth − 1] (combat.ts dealDamage; SimExt.redirectDamage) */
   readonly dmgStack: DamageFrame[] = [];
+  dmgDepth = 0;
   readonly projHoming = new Map<EntityId, { targetId: EntityId; turnRate: number }>();
   readonly freezeStacks = new Map<EntityId, { stacks: number; until: number; immuneUntil: number }>();
   readonly scratchHits = new Map<EntityId, { amount: number; head: boolean; pos: Vec3; dist: number }>();
@@ -306,8 +307,9 @@ export class World implements SimExt, SimHost {
   private kindLists: Map<EntityKind, Entity[]> | null = null;
   private hittableList: Entity[] | null = null;
   private events: GameEvent[] = [];
-  /** ring buffer of public events (SimExt.publicEventsSince) */
-  private readonly pubLog: (PublicEventEntry | undefined)[] = new Array<PublicEventEntry | undefined>(PUBLIC_EVENT_LOG);
+  /** ring buffer of public events (SimExt.publicEventsSince): event + its seq per slot */
+  private readonly pubLog: (GameEvent | undefined)[] = new Array<GameEvent | undefined>(PUBLIC_EVENT_LOG);
+  private readonly pubLogSeq = new Float64Array(PUBLIC_EVENT_LOG);
   private pubSeq = 0;
   private slotByPlayer = new Map<PlayerId, PlayerSlot>();
   private slotByEntity = new Map<EntityId, PlayerSlot>();
@@ -2010,7 +2012,9 @@ export class World implements SimExt, SimHost {
     if (this.events.length > 20000) this.events.splice(0, this.events.length - 20000);
     if (ev.privateTo === undefined) {
       const seq = ++this.pubSeq;
-      this.pubLog[seq % PUBLIC_EVENT_LOG] = { seq, ev };
+      const i = seq % PUBLIC_EVENT_LOG;
+      this.pubLog[i] = ev;
+      this.pubLogSeq[i] = seq;
     }
   }
 
@@ -2020,8 +2024,9 @@ export class World implements SimExt, SimHost {
     const from = Math.max((Number.isFinite(seq) ? Math.floor(seq) : 0) + 1, newest - PUBLIC_EVENT_LOG + 1, 1);
     const events: GameEvent[] = [];
     for (let q = from; q <= newest; q++) {
-      const en = this.pubLog[q % PUBLIC_EVENT_LOG];
-      if (en && en.seq === q) events.push(en.ev);
+      const i = q % PUBLIC_EVENT_LOG;
+      const ev = this.pubLog[i];
+      if (ev && this.pubLogSeq[i] === q) events.push(ev);
     }
     return { seq: newest, events };
   }

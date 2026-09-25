@@ -123,14 +123,32 @@ export function ridesForHits(e: Entity): boolean {
 /** Hit-test radius of an entity (riders are wider than their physics capsule). */
 export const hitRadius = (e: Entity): number => (ridesForHits(e) ? MOUNTED_HIT.radius : e.radius);
 
-/** Hitbox geometry of an entity: body cylinder + (optional) head sphere. */
-export function hitbox(e: Entity): { bodyTop: number; headY: number; headR: number; height: number } {
+export interface Hitbox {
+  bodyTop: number;
+  headY: number;
+  headR: number;
+  height: number;
+}
+
+/** Hitbox geometry of an entity: body cylinder + (optional) head sphere (into `out` when given). */
+export function hitbox(e: Entity, out: Hitbox = { bodyTop: 0, headY: 0, headR: 0, height: 0 }): Hitbox {
   const downed = e.hero?.downed === true;
   const height = downed ? 0.6 : ridesForHits(e) ? MOUNTED_HIT.height : e.height;
-  if (e.kind === 'turret') return { bodyTop: height, headY: -1, headR: 0, height };
+  out.height = height;
+  if (e.kind === 'turret') {
+    out.bodyTop = height;
+    out.headY = -1;
+    out.headR = 0;
+    return out;
+  }
   const headR = downed ? 0.2 : Math.max(0.15, 0.22 * (height / 1.8));
-  return { bodyTop: height - headR * 1.6, headY: height - headR, headR, height };
+  out.bodyTop = height - headR * 1.6;
+  out.headY = height - headR;
+  out.headR = headR;
+  return out;
 }
+
+const hbTmp: Hitbox = { bodyTop: 0, headY: 0, headR: 0, height: 0 };
 
 /** Ray vs every hittable entity (optionally rewound to `rewindTick`). */
 export function raycastEntities(
@@ -156,7 +174,7 @@ export function raycastEntities(
     if (skip && skip(e)) continue;
     if (findStatus(e, 'untargetable', w.time)) continue;
     const p = rewindTick !== undefined ? w.history.posAt(e, rewindTick, tmpPos) : e.pos;
-    const hb = hitbox(e);
+    const hb = hitbox(e, hbTmp);
     const r = hitRadius(e) + inflate;
     // bounding-sphere reject
     const cy = p.y + hb.height * 0.5;
@@ -250,12 +268,28 @@ const chainDedupKey = (req: DamageRequest, creditId: EntityId | undefined): stri
   (req.type === 'fire' || req.type === 'thunder') && req.weaponId === undefined && creditId !== undefined ? `${creditId}|${req.abilityId ?? ''}` : undefined;
 
 export function dealDamage(w: World, reqIn: DamageRequest): DamageResult {
-  const depth = w.dmgStack.length;
+  const depth = w.dmgDepth;
   try {
     return resolveDamage(w, reqIn);
   } finally {
-    w.dmgStack.length = depth;
+    w.dmgDepth = depth;
   }
+}
+
+/** Push a frame for the hit being resolved (frames are pooled per depth: no garbage per hit). */
+function pushFrame(w: World, reqIn: DamageRequest, req: DamageRequest, outgoing: number): DamageFrame {
+  const d = w.dmgDepth++;
+  let f = w.dmgStack[d];
+  if (!f) {
+    f = { reqIn, req, outgoing, redirected: false };
+    w.dmgStack[d] = f;
+  } else {
+    f.reqIn = reqIn;
+    f.req = req;
+    f.outgoing = outgoing;
+    f.redirected = false;
+  }
+  return f;
 }
 
 function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
@@ -282,10 +316,9 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   }
   // 铁索连环: a chained unit that already took this strike through the chain this tick
   // is not hit again by the same strike directly (an area blast over N chained units)
-  const chainKey = chainDedupKey(req, creditId);
-  if (chainKey !== undefined && !w.chainSpreading && w.chainHitThisTick(chainKey)?.has(target.id) && findStatus(target, 'chained', now)) {
-    return res;
-  }
+  const chained = (type === 'fire' || type === 'thunder') && findStatus(target, 'chained', now) !== undefined;
+  const chainKey = chained ? chainDedupKey(req, creditId) : undefined;
+  if (chainKey !== undefined && !w.chainSpreading && w.chainHitThisTick(chainKey)?.has(target.id)) return res;
   if (creditId !== undefined && creditId !== target.id) w.recordAttack(target.id, creditId, req.sourceId);
 
   // attacker pre-hook (may mutate req: canDodge, ignoreArmor, amount)
@@ -346,8 +379,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
     if (req.weaponId) amount *= weaponOutgoingMul(w, weaponDef(req.weaponId), src, target);
     if (src.kind === 'hero') amount = w.hooks.modifyOutgoing(src, target, req, amount);
   }
-  const frame: DamageFrame = { reqIn, req, outgoing: amount, redirected: false };
-  w.dmgStack.push(frame);
+  const frame = pushFrame(w, reqIn, req, amount);
 
   // 4. incoming modifiers
   let armorBlocked = false;
@@ -466,7 +498,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   }
 
   // 9. chained spread (铁索连环): every other chained unit takes the hit once
-  if ((type === 'fire' || type === 'thunder') && !w.chainSpreading && findStatus(target, 'chained', now)) {
+  if (chained && !w.chainSpreading && findStatus(target, 'chained', now)) {
     const seen = chainKey !== undefined ? w.chainHitSet(chainKey) : undefined;
     seen?.add(target.id);
     w.chainSpreading = true;
@@ -557,7 +589,7 @@ function isNullifiableHit(req: DamageRequest, isZone: boolean): boolean {
  */
 export function redirectDamage(w: World, req: DamageRequest, newTargetId: EntityId): DamageResult {
   let frame: DamageFrame | undefined;
-  for (let i = w.dmgStack.length - 1; i >= 0; i--) {
+  for (let i = w.dmgDepth - 1; i >= 0; i--) {
     const f = w.dmgStack[i];
     if (f.req === req || f.reqIn === req) {
       frame = f;

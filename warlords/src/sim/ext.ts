@@ -231,11 +231,6 @@ export interface StripOptions {
   lock?: number;
 }
 
-/** A public event with its sequence number (SimExt.publicEventsSince). */
-export interface PublicEventEntry {
-  seq: number;
-  ev: GameEvent;
-}
 
 /** SimApi + helpers the world offers to abilities, items and AI. */
 export interface SimExt extends SimApi {
