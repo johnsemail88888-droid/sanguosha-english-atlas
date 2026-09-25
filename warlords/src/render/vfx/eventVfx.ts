@@ -161,6 +161,10 @@ export function handleEvents(evs: readonly GameEvent[], deps: EventVfxDeps): voi
             fx,
             src: src?.last,
             srcPos,
+            muzzle: () => {
+              const m = new THREE.Vector3();
+              return src && src.muzzleWorld(m) ? m : null;
+            },
             targetPos,
             point,
             dir,

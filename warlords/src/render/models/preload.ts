@@ -9,6 +9,7 @@ import { CLIP_IDS, clipFilePath, CLIP_SPECS, loadClip } from '../anim/glbClips';
 import { heroModelPath, loadCharTemplate, troopModelPath } from './glb';
 import { loadMountTemplate, mountModelPath } from './mountGlb';
 import { mountSeatHeight } from './mounts';
+import { preloadWeaponArt } from './weaponGlb';
 import type { CharacterArt } from '../quality';
 
 /** Give up waiting (the loading bar moves on; late files still swap in when they arrive). */
@@ -32,6 +33,8 @@ export function matchModelPaths(heroIds: Iterable<string>, art: CharacterArt = '
  * ships no art.
  */
 export async function preloadCharacterArt(heroIds: Iterable<string>, onProgress?: (f: number) => void, art: CharacterArt = 'all'): Promise<void> {
+  // AI-art weapons (every tier: pickups show them too), alongside; a late one still swaps in
+  const weapons = preloadWeaponArt(heroIds);
   const list = await assetList();
   const models = matchModelPaths(heroIds, art).filter((p) => list.has(p));
   const clips = CLIP_IDS.filter((id) => {
@@ -59,7 +62,7 @@ export async function preloadCharacterArt(heroIds: Iterable<string>, onProgress?
   const budget = new Promise<void>((res) => {
     timer = setTimeout(res, PRELOAD_BUDGET_MS);
   });
-  await Promise.race([all, budget]);
+  await Promise.race([Promise.all([all, weapons]), budget]);
   if (timer !== undefined) clearTimeout(timer);
   onProgress?.(1);
 }

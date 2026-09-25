@@ -2,6 +2,9 @@
 // (WeaponModelSpec). Local frame: origin = right-hand wrist target (just above
 // and behind the pistol grip), barrel along −Z, up = +Y. Unknown ids fall back
 // to a spec guessed from the id so new DATA entries always render something.
+// The AI-art weapons (models/weaponGlb.ts) register themselves here once
+// loaded and are calibrated into the same frame: buildWeapon() returns them
+// when available, buildProceduralWeapon() never does.
 import * as THREE from 'three';
 import type { WeaponDef, WeaponModelSpec } from '../../data/types';
 import { WEAPON_BY_ID } from '../../data';
@@ -27,6 +30,14 @@ export interface WeaponModelInfo {
 export interface WeaponModel {
   mesh: THREE.Mesh;
   info: WeaponModelInfo;
+  /**
+   * AI-art weapon (models/weaponGlb.ts): its material when held by a GLB body
+   * (the textured look + the character fog clamp), shared by every instance.
+   * Absent for procedural weapons (heldWeaponMaterial()).
+   */
+  heldMaterial?: THREE.MeshStandardMaterial;
+  /** AI-art weapon: its far LOD (fewer triangles, same vertices) and full geometry, for a far GLB body; absent otherwise */
+  lod?: { near: THREE.BufferGeometry; far: THREE.BufferGeometry | null };
 }
 
 /** Ids rendered as a pair of guns (one per hand). */
@@ -133,8 +144,46 @@ export function releaseWeaponGeometryCache(): void {
   cache.clear();
 }
 
-/** Create a weapon mesh (geometry cached per id; shared material). */
+// ── AI-art weapons ──────────────────────────────────────────────────────────
+
+/** Loaded AI-art weapons (models/weaponGlb.ts): a factory per weapon id. */
+const artFactories = new Map<string, () => WeaponModel>();
+let artEpoch = 0;
+
+/** models/weaponGlb.ts: this weapon's art finished loading (or was released: null). */
+export function registerWeaponArt(id: string, factory: (() => WeaponModel) | null): void {
+  if (factory) artFactories.set(id, factory);
+  else if (!artFactories.delete(id)) return;
+  artEpoch++;
+}
+
+/** Bumped whenever a weapon's art arrives or goes: views holding a procedural stand-in compare it to swap in late art. */
+export function weaponArtEpoch(): number {
+  return artEpoch;
+}
+
+/** True when buildWeapon(id) returns the AI-art model. */
+export function hasWeaponArt(id: string): boolean {
+  return artFactories.has(id);
+}
+
+/**
+ * Create a weapon mesh: the AI-art model once it is loaded (models/weaponGlb.ts,
+ * textured, calibrated into the procedural frame), else the procedural one.
+ * Synchronous; geometry / material shared per id.
+ */
 export function buildWeapon(id: string): WeaponModel {
+  const art = artFactories.get(id);
+  return art ? art() : buildProceduralWeapon(id);
+}
+
+/** The material a GLB body's hand holds this weapon with (shared; see WeaponModel.heldMaterial). */
+export function heldMaterialOf(w: WeaponModel): THREE.MeshStandardMaterial {
+  return w.heldMaterial ?? heldWeaponMaterial();
+}
+
+/** Create a procedural weapon mesh (geometry cached per id; shared vertex-coloured material). */
+export function buildProceduralWeapon(id: string): WeaponModel {
   let hit = cache.get(id);
   if (!hit) {
     const { spec, def } = weaponSpecOf(id);

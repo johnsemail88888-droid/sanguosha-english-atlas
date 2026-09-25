@@ -17,6 +17,10 @@
 // overrides a hero's file (mods, tests, blob: URLs). The single-file build has
 // no listing → no templates → every character stays procedural.
 //
+// A file without the auto-rig (a static / unrigged model: a mod's statue, a
+// test box) is not a CharTemplate; it becomes a RigidTemplate instead, shown
+// as a rigid body that rides the procedural rig (models/glbRigid.ts).
+//
 // Preparation per file (the rig quirks the animation code relies on):
 //   - the Hips joint of each auto-rig has an arbitrary rest orientation (it has
 //     three children, so the rigger picks any frame); it is re-oriented to the
@@ -142,10 +146,18 @@ const registered = new Map<string, string>();
 
 /** Use this GLB (any URL, incl. blob:) for a hero from now on. Affects models created afterwards. */
 export function registerHeroGlb(heroId: string, url: string): void {
-  const path = heroModelPath(heroId);
+  registerModelGlb(heroModelPath(heroId), url);
+}
+
+/**
+ * Serve a model path ('assets/models/…') from this URL from now on (mods,
+ * tests, blob: URLs), whether or not the deploy ships the file.
+ */
+export function registerModelGlb(path: string, url: string): void {
   registered.set(path, url);
   templates.delete(path);
   ready.delete(path);
+  rigidReady.delete(path);
 }
 
 /** URL of a model file, synchronously: a registered override, or the shipped file once the listing is loaded (else null). */
@@ -585,6 +597,14 @@ export function remapClothWeights(mesh: THREE.SkinnedMesh, refScale = 1): number
   return moved;
 }
 
+function hasSkin(scene: THREE.Object3D): boolean {
+  let skinned = false;
+  scene.traverse((o) => {
+    if ((o as THREE.SkinnedMesh).isSkinnedMesh) skinned = true;
+  });
+  return skinned;
+}
+
 function prepare(url: string, gltf: GLTF, clone: (o: THREE.Object3D) => THREE.Object3D): CharTemplate | null {
   const scene = gltf.scene;
   let found: THREE.SkinnedMesh | null = null;
@@ -676,7 +696,57 @@ export async function buildLod(geo: THREE.BufferGeometry, ratio = LOD_RATIO): Pr
   return lod;
 }
 
-/** Load and prepare a character model once (null when absent / broken). */
+// ── rigid (unrigged) models ──────────────────────────────────────────────────
+
+/** A character model without the auto-rig: one rigid body (see models/glbRigid.ts). */
+export interface RigidTemplate {
+  readonly url: string;
+  /** prepared scene, feet at y = 0 (never added to a scene itself; instances are clones) */
+  readonly scene: THREE.Object3D;
+  /** bounding-box height at load scale */
+  readonly height: number;
+}
+
+const rigidReady = new Map<string, RigidTemplate>();
+
+/** Static / unrigged file → a RigidTemplate (null when it has no visible mesh or no height). */
+export function prepareRigid(url: string, scene: THREE.Object3D): RigidTemplate | null {
+  let meshes = 0;
+  scene.traverse((o) => {
+    if (!(o as THREE.Mesh).isMesh) return;
+    meshes++;
+    o.castShadow = true;
+    o.receiveShadow = false;
+  });
+  if (!meshes) return null;
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  const height = box.max.y - box.min.y;
+  if (!(height > 1e-3) || !Number.isFinite(height)) return null;
+  // feet on the ground
+  scene.position.y -= box.min.y;
+  scene.updateMatrixWorld(true);
+  return { url, scene, height };
+}
+
+/** The rigid template of a path whose file turned out to have no rig (after loadCharTemplate settled), else undefined. */
+export function rigidTemplateSync(path: string): RigidTemplate | undefined {
+  return rigidReady.get(path);
+}
+
+const rigidRefs = new Map<RigidTemplate, number>();
+
+/** A rigid body instance started / stopped using the template. */
+export function retainRigid(t: RigidTemplate): void {
+  rigidRefs.set(t, (rigidRefs.get(t) ?? 0) + 1);
+}
+export function releaseRigid(t: RigidTemplate): void {
+  const n = (rigidRefs.get(t) ?? 0) - 1;
+  if (n > 0) rigidRefs.set(t, n);
+  else rigidRefs.delete(t);
+}
+
+/** Load and prepare a character model once (null when absent / broken, or unrigged: see rigidTemplateSync). */
 export function loadCharTemplate(path: string): Promise<CharTemplate | null> {
   let p = templates.get(path);
   if (!p) {
@@ -687,6 +757,11 @@ export function loadCharTemplate(path: string): Promise<CharTemplate | null> {
         const [{ clone }, gltf] = await Promise.all([sharedGltf(), loadGltf(url)]);
         const t = prepare(url, gltf, clone);
         if (t) t.lod = await buildLod(t.mesh.geometry).catch(() => null);
+        else if (!hasSkin(gltf.scene)) {
+          // no auto-rig at all: a rigid body (a rig that is merely incomplete stays procedural)
+          const r = prepareRigid(url, gltf.scene);
+          if (r && templates.get(path) === p) rigidReady.set(path, r);
+        }
         return t;
       } catch (err) {
         if (!warnedOnce) {
@@ -744,6 +819,24 @@ export function evictUnusedTemplates(): number {
     templates.delete(path);
     n++;
   }
+  for (const [path, t] of rigidReady) {
+    if (rigidRefs.has(t)) continue;
+    const mats = new Set<THREE.Material>();
+    t.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.geometry.dispose();
+      for (const mt of Array.isArray(m.material) ? m.material : [m.material]) mats.add(mt);
+    });
+    for (const mt of mats) {
+      for (const v of Object.values(mt)) if ((v as THREE.Texture | null)?.isTexture) (v as THREE.Texture).dispose();
+      mt.dispose();
+    }
+    rigidReady.delete(path);
+    ready.delete(path);
+    templates.delete(path);
+    n++;
+  }
   return n;
 }
 
@@ -753,4 +846,6 @@ export function resetGlbCacheForTests(): void {
   ready.clear();
   registered.clear();
   refs.clear();
+  rigidReady.clear();
+  rigidRefs.clear();
 }
