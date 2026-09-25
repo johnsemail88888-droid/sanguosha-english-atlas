@@ -252,6 +252,251 @@
    "out": "assets-src/previews/concept/npc_barbarian.webp",
    "maxSize": 640,
    "quality": 80
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_0d59ba13-b99f-49eb-87ea-974568c14db9.png",
+   "out": "public/assets/portraits/liubei.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_5e164580-e927-4027-b2d4-093f6d76fd5b.png",
+   "out": "public/assets/portraits/guanyu.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_822815b7-0b7d-449b-a8a6-695562026301.png",
+   "out": "public/assets/portraits/zhangfei.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_ce439f21-8c09-4bb8-a7bb-7b1d83c1d62c.png",
+   "out": "public/assets/portraits/zhugeliang.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_67dc3fef-ef8b-4fab-9406-b5a8f1500f72.png",
+   "out": "public/assets/portraits/zhaoyun.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_af14486a-5c2b-47c4-ac1b-1dee8898787e.png",
+   "out": "public/assets/portraits/machao.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_72b4d915-ef03-43fc-83aa-d53587bcd117.png",
+   "out": "public/assets/portraits/huangyueying.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_3030010d-ebca-456a-882c-68d9fbc954f4.png",
+   "out": "public/assets/portraits/huangzhong.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_a94eba49-b664-4de1-a7a0-6690064ef52d.png",
+   "out": "public/assets/portraits/caocao.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_577bfb14-3ce6-476e-9667-b829db6308d1.png",
+   "out": "public/assets/portraits/simayi.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_8440346f-abac-4e28-8f07-374b047e9304.png",
+   "out": "public/assets/portraits/xiahoudun.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_5977b877-14d2-49df-be1a-5ccc42d936f0.png",
+   "out": "public/assets/portraits/zhangliao.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_b7412b61-4820-4f72-a364-0a93f75da372.png",
+   "out": "public/assets/portraits/xuchu.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_e83e7d11-1a25-4080-8b47-37c000604892.png",
+   "out": "public/assets/portraits/guojia.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_2a3c3c93-764d-4c95-a2fc-79400e8682c5.png",
+   "out": "public/assets/portraits/zhenji.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051735_33a8ffbd-2562-4be8-9728-2b57b5d503ee.png",
+   "out": "public/assets/portraits/xiahouyuan.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_5c6db5a0-8a6a-4e8b-8fe4-d727e4aee4b8.png",
+   "out": "public/assets/portraits/sunquan.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051735_9ea5c3c0-bc05-49c6-ba79-df79392de3c9.png",
+   "out": "public/assets/portraits/ganning.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_1f62aa65-3e80-44b8-bf51-b39d64e8cb41.png",
+   "out": "public/assets/portraits/lumeng.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_5205b373-3919-4904-ad1f-032ca1468c13.png",
+   "out": "public/assets/portraits/huanggai.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_87e7b3d4-f195-471e-ac61-2067a5bc86d4.png",
+   "out": "public/assets/portraits/zhouyu.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_708e15b0-8c83-4081-a783-9fde995e0944.png",
+   "out": "public/assets/portraits/daqiao.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_ba09a719-9c13-4c59-ba29-59f7162e2245.png",
+   "out": "public/assets/portraits/luxun.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051735_eed442c3-f67d-47d3-a8ce-46ebcc880679.png",
+   "out": "public/assets/portraits/sunshangxiang.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051821_26451fd7-eb8f-496f-bf91-c0acf3bef354.png",
+   "out": "public/assets/portraits/huatuo.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_b3fac582-863f-4dd5-aa20-2624195bbcb2.png",
+   "out": "public/assets/portraits/lubu.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_da154380-7bc7-4a11-8da8-a9dd4606c127.png",
+   "out": "public/assets/portraits/diaochan.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_df56d998-f126-496e-b5b7-9e213a8d2efe.png",
+   "out": "public/assets/portraits/zhangjiao.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_f6963ac8-d63b-4a58-a334-643ceb61b15e.png",
+   "out": "public/assets/portraits/menghuo.webp",
+   "maxSize": 768,
+   "quality": 82
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_b393e0cf-a3a9-45a8-957c-bd937c65e267.png",
+   "out": "public/assets/ui/title.webp",
+   "maxSize": 1920,
+   "quality": 80
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051821_047fe63e-915c-498f-9fba-0beba13f476b.png",
+   "out": "public/assets/ui/loading_shu.webp",
+   "maxSize": 1600,
+   "quality": 78
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051821_3e1d9a21-8c8c-4dd5-9f0d-1b9c738ec6fc.png",
+   "out": "public/assets/ui/loading_wei.webp",
+   "maxSize": 1600,
+   "quality": 78
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_a1d22e82-3e33-448b-a1a5-aa48e5260563.png",
+   "out": "public/assets/ui/loading_wu.webp",
+   "maxSize": 1600,
+   "quality": 78
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_095b0b1b-daa4-4c88-ad66-6a6d3c0560de.png",
+   "out": "public/assets/ui/loading_qun.webp",
+   "maxSize": 1600,
+   "quality": 78
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_e78028db-c200-4413-ad2e-39889cd55e4b.png",
+   "out": "public/assets/env/sky.webp",
+   "maxSize": 2560,
+   "quality": 85
   }
  ]
 }
