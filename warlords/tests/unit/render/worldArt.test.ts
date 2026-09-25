@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import type { MapData, MapProp } from '../../../src/core/map';
+import { terrainHeight } from '../../../src/core/map';
 import { generateMap } from '../../../src/sim/map/generate';
 import {
   GROUND_LAYERS,
@@ -36,7 +37,9 @@ import {
   fullyReplacedTypes,
   glbPropKind,
   normaliseGeometry,
-  PropLodCell,
+  PropBatch,
+  PropCuller,
+  propBasePlan,
   propLodPlan,
   propTint,
   clothMasks,
@@ -46,6 +49,7 @@ import {
   type PropModel,
 } from '../../../src/render/world/propModels';
 import { buildPropGeometry, buildWorld } from '../../../src/render/world/world';
+import { FARM_EDGE_M, FARM_TEX, FARM_TILE_M, buildFarmArt, buildFarmGeometry, farmEdgeWeight, farmLook } from '../../../src/render/world/farmFields';
 import { disposeWorldArt, setWorldArtPossibleForTests, worldTexturesSettled } from '../../../src/render/core/worldArt';
 import { terrainMaterial } from '../../../src/render/scene/terrain';
 import { buildTerrain } from '../../../src/render/scene/terrain';
@@ -359,14 +363,17 @@ describe('world art: prop models', () => {
 
   it('maps prop types / variants to shipped models', () => {
     expect(glbPropKind(prop('tree'))).toBe('tree');
-    expect(glbPropKind(prop('tent', 2))).toBeNull(); // Nanman cone tent keeps its shape
+    expect(glbPropKind(prop('tent', 2))).toBe('nanmanTent'); // the Nanman camp's hut
     expect(glbPropKind(prop('tent', 0))).toBe('tent');
     expect(glbPropKind(prop('barricade', 1))).toBe('barricade');
-    expect(glbPropKind(prop('barricade', 0))).toBeNull();
+    expect(glbPropKind(prop('barricade', 0))).toBe('sandbags');
+    expect(glbPropKind(prop('barricade', 2))).toBeNull(); // the plank palisade keeps its textured stakes
     expect(glbPropKind(prop('statue', 1))).toBe('statue');
     expect(glbPropKind(prop('wall'))).toBeNull();
     for (const k of GLB_PROP_TYPES) expect(k.length).toBeGreaterThan(0);
     expect([...fullyReplacedTypes(new Set(['tree', 'tent', 'rock']))].sort()).toEqual(['rock', 'tree']);
+    // tents / barricades are split between several models (or keep a procedural variant)
+    expect([...fullyReplacedTypes(new Set(['tent', 'nanmanTent', 'barricade', 'sandbags']))]).toEqual([]);
   });
 
   // a normalised model: unit height, pivot at the base centre
@@ -379,8 +386,9 @@ describe('world art: prop models', () => {
 
   it('fits man-made props inside their footprint (rotated with the prop)', () => {
     const m = new THREE.Matrix4();
-    for (const kind of ['crateStack', 'tent', 'barricade', 'brazier'] as const) {
-      const p = prop(kind === 'tent' ? 'tent' : kind, kind === 'barricade' ? 1 : 0);
+    for (const kind of ['crateStack', 'tent', 'barricade', 'brazier', 'sandbags', 'nanmanTent'] as const) {
+      const type = kind === 'sandbags' ? 'barricade' : kind === 'nanmanTent' ? 'tent' : kind;
+      const p = prop(type, kind === 'barricade' ? 1 : kind === 'nanmanTent' ? 2 : 0);
       const b = box(0.8, 1, 0.5);
       fitPropMatrix(kind, p, b, m);
       // back into the prop's frame
@@ -508,54 +516,114 @@ describe('world art: prop models', () => {
     expect(c.r).toBeLessThan(1.15);
   });
 
-  it('splits a LOD cell between near and far meshes as the camera moves', () => {
+  const testModel = (kind: PropModel['kind'], withLod: boolean): PropModel => {
     const geometry = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-    const lod = geometry.clone();
-    const model: PropModel = {
-      kind: 'tree',
+    return {
+      kind,
       geometry,
-      lod,
-      lodDistance: 50,
+      lod: withLod ? geometry.clone() : null,
+      lodDistance: withLod ? 50 : Infinity,
       material: new THREE.MeshStandardMaterial(),
       bounds: { w: 1, h: 1, d: 1 },
       dispose: () => undefined,
     };
-    // a row of trees along X, 10 m apart: x = 0, 10, …, 90
-    const list = Array.from({ length: 10 }, (_, i) => prop('tree', 0, { x: i * 10, z: 0, sx: 4, sy: 6, sz: 0 }));
-    const cell = new PropLodCell(model, lod, list);
-    const cam = new THREE.PerspectiveCamera();
-    const at = (x: number, z: number): void => {
-      cam.position.set(x, 20, z);
-      cam.updateMatrixWorld(true);
-      cell.update(cam);
-    };
-    at(0, 0);
-    // |x| < 50 → near: 0, 10, 20, 30, 40
-    expect(cell.near.count).toBe(5);
-    expect(cell.far.count).toBe(5);
-    expect(cell.near.visible && cell.far.visible).toBe(true);
-    // the near mesh holds exactly the near instances' transforms
+  };
+  /** a camera at (x, 2, z) looking along −Z (or `yaw`), far plane 400 m */
+  const camAt = (x: number, z: number, yaw = 0): THREE.PerspectiveCamera => {
+    const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 400);
+    cam.position.set(x, 2, z);
+    cam.rotation.set(0, yaw, 0);
+    cam.updateMatrixWorld(true);
+    return cam;
+  };
+  const xsOf = (mesh: THREE.InstancedMesh): number[] => {
     const m = new THREE.Matrix4();
     const p = new THREE.Vector3();
-    for (let i = 0; i < cell.near.count; i++) {
-      cell.near.getMatrixAt(i, m);
-      p.setFromMatrixPosition(m);
-      expect(Math.abs(p.x)).toBeLessThan(50);
+    const out: number[] = [];
+    for (let i = 0; i < mesh.count; i++) {
+      mesh.getMatrixAt(i, m);
+      out.push(Math.round(p.setFromMatrixPosition(m).z));
     }
-    // a small move is ignored (no re-split, no upload)
-    const v = cell.near.instanceMatrix.version;
-    at(1, 0);
-    expect(cell.near.instanceMatrix.version).toBe(v);
-    // far away: everything far, the near mesh hidden
-    at(1000, 0);
-    expect(cell.near.count).toBe(0);
-    expect(cell.near.visible).toBe(false);
-    expect(cell.far.count).toBe(10);
-    // right in the middle of the row: everything near
-    at(45, 0);
-    expect(cell.near.count).toBe(10);
-    expect(cell.far.visible).toBe(false);
-    cell.dispose();
+    return out.sort((a, b) => a - b);
+  };
+
+  it('packs the visible instances of a kind into its near / far meshes (one draw each for the whole map)', () => {
+    const model = testModel('tree', true);
+    // a row of trees straight ahead (−Z) 10 m apart, and one behind the camera
+    const list = [...Array.from({ length: 10 }, (_, i) => prop('tree', 0, { x: 0, z: -5 - i * 10, sx: 4, sy: 6, sz: 0 })), prop('tree', 0, { x: 0, z: 40, sx: 4, sy: 6, sz: 0 })];
+    const culler = new PropCuller();
+    const batch = new PropBatch(model, list);
+    culler.addBatch(batch);
+    // colour-pass meshes, shadow-pass meshes, and the gate that reveals the latter last
+    expect(culler.children.map((c) => c.name)).toEqual(['prop_tree', 'prop_tree_far', 'prop_tree_shadow', 'prop_tree_far_shadow', 'propShadowGate']);
+    expect(batch.near.frustumCulled).toBe(false);
+    expect(batch.near.castShadow).toBe(false);
+    expect(batch.nearShadow.castShadow).toBe(true);
+    culler.update(camAt(0, 0));
+    // within 50 m: z = -5 … -45 near, -55 … -95 far; the tree behind the camera is not drawn
+    expect(xsOf(batch.near)).toEqual([-45, -35, -25, -15, -5]);
+    expect(xsOf(batch.far!)).toEqual([-95, -85, -75, -65, -55]);
+    expect(batch.near.visible && batch.far!.visible).toBe(true);
+    // colours travel with their instances
+    expect(batch.near.instanceColor!.getX(0)).toBeGreaterThan(0.5);
+    // an unchanged set is not uploaded again
+    const v = batch.near.instanceMatrix.version;
+    culler.update(camAt(0.2, 0));
+    expect(batch.near.instanceMatrix.version).toBe(v);
+    // turned around: only the tree behind, near
+    culler.update(camAt(0, 0, Math.PI));
+    expect(xsOf(batch.near)).toEqual([40]);
+    expect(batch.far!.count).toBe(0);
+    expect(batch.far!.visible).toBe(false);
+    // far away: nothing in the frustum
+    culler.update(camAt(1000, 0));
+    expect(batch.near.visible || batch.far!.visible).toBe(false);
+    culler.dispose();
+  });
+
+  it('draws the shadow frustum\'s instances into the shadow map only', () => {
+    const model = testModel('rock', false);
+    const list = [prop('rock', 0, { x: 0, z: 30, sx: 2, sy: 2, sz: 2 }), prop('rock', 0, { x: 0, z: 300, sx: 2, sy: 2, sz: 2 })];
+    const scene = new THREE.Scene();
+    const sun = new THREE.DirectionalLight();
+    sun.castShadow = true;
+    const sc = sun.shadow.camera;
+    sc.left = sc.bottom = -40;
+    sc.right = sc.top = 40;
+    sc.near = 1;
+    sc.far = 400;
+    sc.updateProjectionMatrix();
+    sun.position.set(-100, 100, 0);
+    sun.target.position.set(0, 0, 0);
+    scene.add(sun, sun.target);
+    const culler = new PropCuller();
+    const batch = new PropBatch(model, list);
+    culler.addBatch(batch);
+    scene.add(culler);
+    scene.updateMatrixWorld(true);
+    // the rock 30 m behind the camera is outside the view but inside the ±40 m shadow box
+    culler.update(camAt(0, 0));
+    expect(batch.near.count).toBe(0);
+    expect(batch.near.visible).toBe(false);
+    expect(xsOf(batch.nearShadow)).toEqual([30]);
+    expect(batch.far).toBeNull();
+    // hidden while the colour pass is projected, revealed by the gate before the shadow pass
+    expect(batch.nearShadow.visible).toBe(false);
+    (culler.getObjectByName('propShadowGate') as THREE.LOD).update(camAt(0, 0));
+    expect(batch.nearShadow.visible).toBe(true);
+    // looking at it: in both passes (the one 300 m out only in the view)
+    culler.update(camAt(0, 0, Math.PI));
+    expect(xsOf(batch.near)).toEqual([30, 300]);
+    expect(xsOf(batch.nearShadow)).toEqual([30]);
+    // no shadows cast: view frustum only, and the shadow meshes stay hidden
+    sun.castShadow = false;
+    culler.update(camAt(0, 0));
+    expect(batch.near.count).toBe(0);
+    batch.showShadows();
+    expect(batch.nearShadow.visible).toBe(false);
+    batch.showAll();
+    expect(batch.near.count).toBe(2);
+    culler.dispose();
   });
 
   it('plans a cheaper far LOD for dense kinds', () => {
@@ -565,6 +633,89 @@ describe('world art: prop models', () => {
     expect(plan!.distance).toBeGreaterThan(30);
     expect(propLodPlan('statue', 5000)).toBeNull();
     expect(propLodPlan('tree', 300)).toBeNull(); // already cheap
+    // the dense Nanman hut: simplified near model, cheap far one
+    const base = propBasePlan('nanmanTent', 56815);
+    expect(base).not.toBeNull();
+    expect(56815 * base!.ratio).toBeLessThan(10000);
+    expect(propBasePlan('tree', 5000)).toBeNull();
+    expect(propLodPlan('nanmanTent', 9000)).not.toBeNull();
+  });
+});
+
+describe('world art: farm fields', () => {
+  const map = generateMap(20260924);
+  const fields = map.props.filter((p) => p.type === 'farmField');
+
+  it('fades the field edge over FARM_EDGE_M, ragged', () => {
+    expect(farmEdgeWeight(0, 0)).toBe(0);
+    expect(farmEdgeWeight(-1, 0)).toBe(0);
+    expect(farmEdgeWeight(FARM_EDGE_M, 0)).toBe(1);
+    expect(farmEdgeWeight(FARM_EDGE_M * 0.5, 0)).toBeCloseTo(0.5, 6);
+    // a positive jag pulls the border inwards
+    expect(farmEdgeWeight(0.5, 0.5)).toBe(0);
+    expect(farmLook(0).ripe).toBeGreaterThan(farmLook(2).ripe); // wheat ripens, vegetables stay green
+    expect(farmLook(1).paddy).toBe(1);
+  });
+
+  it('lays every field as a terrain-hugging corrugated sheet, rows along its long axis', () => {
+    expect(fields.length).toBeGreaterThanOrEqual(4);
+    const g = buildFarmGeometry(map)!;
+    const pos = g.getAttribute('position');
+    const uv = g.getAttribute('uv');
+    const col = g.getAttribute('color');
+    const nrm = g.getAttribute('normal');
+    expect(col.itemSize).toBe(4); // rgb + edge alpha
+    expect(g.getAttribute('aCrop').itemSize).toBe(2);
+    let above = 0;
+    let crest = 0;
+    let edge0 = 0;
+    for (let i = 0; i < pos.count; i++) {
+      const ground = terrainHeightAt(pos.getX(i), pos.getZ(i));
+      const h = pos.getY(i) - ground;
+      // never under the ground, never a slab standing over it
+      expect(h).toBeGreaterThan(0.02);
+      expect(h).toBeLessThan(0.75);
+      if (h > 0.3) crest++;
+      above++;
+      expect(nrm.getY(i)).toBeGreaterThan(0);
+      if (col.getW(i) < 0.01) edge0++;
+    }
+    expect(crest).toBeGreaterThan(above * 0.1); // wheat ridges
+    expect(edge0).toBeGreaterThan(0); // faded border
+    // rows follow the long axis: along it only v changes (the painted rows run along v)
+    const f = fields[0];
+    const alongX = f.sx >= f.sz;
+    const dir = alongX ? new THREE.Vector2(Math.cos(f.rot), -Math.sin(f.rot)) : new THREE.Vector2(Math.sin(f.rot), Math.cos(f.rot));
+    // two vertices of the same row (same u), consecutive along the field
+    let checked = 0;
+    for (let i = 0; i + 1 < pos.count && checked < 5; i++) {
+      for (let j = i + 1; j < Math.min(pos.count, i + 80); j++) {
+        if (Math.abs(uv.getX(i) - uv.getX(j)) > 1e-6) continue;
+        const d = new THREE.Vector2(pos.getX(j) - pos.getX(i), pos.getZ(j) - pos.getZ(i));
+        if (d.length() < 0.2 || d.length() > 2) continue;
+        expect(Math.abs(d.normalize().dot(dir))).toBeGreaterThan(0.99);
+        expect(Math.abs(uv.getY(j) - uv.getY(i))).toBeGreaterThan(0.1 / FARM_TILE_M);
+        checked++;
+        break;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+    g.dispose();
+  });
+
+  const terrainHeightAt = (x: number, z: number): number => terrainHeight(map, x, z);
+
+  it('draws all fields as one transparent mesh, early in the transparent pass, casting no shadow', () => {
+    const art = buildFarmArt(map, null)!;
+    expect(art.mesh.name).toBe('farmFields');
+    expect(art.stats.fields).toBe(fields.length);
+    const m = art.mesh.material as THREE.MeshStandardMaterial;
+    expect(m.transparent).toBe(true);
+    expect(m.vertexColors).toBe(true);
+    expect(art.mesh.castShadow).toBe(false);
+    expect(art.mesh.renderOrder).toBeLessThan(0);
+    art.dispose();
+    expect(buildFarmArt({ ...map, props: [] }, null)).toBeNull();
   });
 });
 
@@ -672,19 +823,37 @@ describe('world art: art paths (models and textures listed)', () => {
     const models = w.group.getObjectByName('propModels');
     expect(models).toBeDefined();
     const kinds = new Set<string>();
-    let lodCells = 0;
+    let farMeshes = 0;
     models!.traverse((o) => {
-      const m = /^prop_([a-zA-Z]+)_/.exec(o.name);
+      const m = /^prop_([a-zA-Z]+)/.exec(o.name);
       if (m) kinds.add(m[1]);
-      if (o instanceof PropLodCell) lodCells++;
+      if (o.name.endsWith('_far')) farMeshes++;
     });
+    expect(models).toBeInstanceOf(PropCuller);
     expect(kinds.has('tent')).toBe(true);
     expect(kinds.has('tree')).toBe(true);
     expect(kinds.has('barricade')).toBe(false);
-    expect(lodCells).toBeGreaterThan(0);
+    // one mesh per kind (+ one far LOD for the dense kinds), not one per map cell
+    const perKind = new Map<string, number>();
+    models!.children.forEach((c) => perKind.set(c.name, (perKind.get(c.name) ?? 0) + 1));
+    for (const n of perKind.values()) expect(n).toBe(1);
+    expect(farMeshes).toBeGreaterThan(0);
     // trees / rocks left the procedural nature meshes
     expect(w.stats.instanced).not.toBe(instancedBefore);
     expect(w.stats.failed).toBe(0);
+    w.dispose();
+  });
+
+  it('keeps the procedural farm fields in a swap mesh until the farm texture is in (and when it fails)', async () => {
+    setAssetListForTests([FARM_TEX]);
+    await assetList();
+    const map = generateMap(20260924);
+    const w = buildWorld(map);
+    expect(meshNames(w.group).some((n) => n.startsWith('chunk_swap_farm_'))).toBe(true);
+    await w.artReady;
+    // node cannot decode the image: the procedural fields stay
+    expect(meshNames(w.group).some((n) => n.startsWith('chunk_swap_farm_'))).toBe(true);
+    expect(w.group.getObjectByName('farmFields')).toBeUndefined();
     w.dispose();
   });
 

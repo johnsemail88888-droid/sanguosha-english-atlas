@@ -1,7 +1,10 @@
 // AI-art prop models (assets/models/props/<type>.glb): textured static meshes
-// drawn instead of the procedural props when the deploy ships them. One
-// InstancedMesh per (model, 64 m cell) — vegetation and rocks number in the
-// hundreds and per-cell meshes keep frustum / shadow-camera culling useful.
+// drawn instead of the procedural props when the deploy ships them. ONE
+// InstancedMesh per model (+ one for its simplified far LOD) for the whole map:
+// vegetation and rocks number in the hundreds, and each frame the visible
+// instances (camera frustum ∪ sun shadow frustum) are packed into those meshes
+// on the CPU (PropCuller) — two draws per kind and pass instead of one per
+// 64 m cell, with the same culling.
 //
 // Each model is normalised once (dequantised, node transform baked, pivot at
 // the base: trunk foot for vegetation, footprint centre otherwise) and every
@@ -18,23 +21,25 @@ import { sharedUniforms } from '../core/materials';
 import { hashString } from '../core/noise';
 import { texSizesFor, worldArtQuality } from '../core/worldArt';
 import { applySkyArtFog, skyArtFogKey } from '../core/skyArtFog';
+import { capTexture, sharedGltfLoader, type GltfLoaderLike } from '../core/gltfLoader';
 
-export const GLB_PROP_TYPES = ['tent', 'crateStack', 'barricade', 'rock', 'tree', 'pine', 'bamboo', 'brazier', 'statue'] as const;
+export const GLB_PROP_TYPES = ['tent', 'crateStack', 'barricade', 'rock', 'tree', 'pine', 'bamboo', 'brazier', 'statue', 'sandbags', 'nanmanTent'] as const;
 export type GlbPropType = (typeof GLB_PROP_TYPES)[number];
 
 export const propModelPath = (t: GlbPropType): string => `assets/models/props/${t}.glb`;
 
 /**
  * The model that replaces a prop, or null when its variant has a different
- * silhouette than the shipped model (Nanman cone tents, sandbag / plank
- * barricades, the non-lion statues keep their procedural shapes).
+ * silhouette than every shipped model. Barricades: v0 sandbag wall → sandbags,
+ * v1 拒马 → barricade; the v2 plank palisade keeps its procedural (textured)
+ * stakes. Tents: v2 南蛮 hut → nanmanTent. Only the lion statue has a model.
  */
 export function glbPropKind(p: MapProp): GlbPropType | null {
   switch (p.type) {
     case 'tent':
-      return p.variant === 2 ? null : 'tent';
+      return p.variant === 2 ? 'nanmanTent' : 'tent';
     case 'barricade':
-      return p.variant === 1 ? 'barricade' : null;
+      return p.variant === 1 ? 'barricade' : p.variant === 0 ? 'sandbags' : null;
     case 'statue':
       return p.variant === 1 ? 'statue' : null;
     case 'crateStack':
@@ -67,6 +72,8 @@ interface FitRule {
   yaw: number;
   /** per-instance random yaw (vegetation / rocks) */
   randomYaw: boolean;
+  /** half the instances turned 180° (a curved sandbag wall bows either way) */
+  flip?: boolean;
   /** use the prop width for depth too (round plants) */
   round: boolean;
   /** tint mask: 0 whole model, 1 leaves (green texels), 2 cloth recolour (canvas → tint, crimson frame → dark tint) */
@@ -87,6 +94,12 @@ const FIT: Record<GlbPropType, FitRule> = {
   barricade: { trunkPivot: false, w: 1.0, d: 1.0, h: 1.0, uniform: false, maxStretch: 0, sink: 0.03, yaw: 0, randomYaw: false, round: false, mask: 0, wind: 0, doubleSided: false },
   brazier: { trunkPivot: false, w: 1.0, d: 1.0, h: 1.0, uniform: false, maxStretch: 0, sink: 0, yaw: 0, randomYaw: false, round: true, mask: 0, wind: 0, doubleSided: false },
   statue: { trunkPivot: false, w: 1.0, d: 1.0, h: 1.0, uniform: true, maxStretch: 0, sink: 0.01, yaw: Math.PI, randomYaw: false, round: false, mask: 0, wind: 0, doubleSided: false },
+  // a bowed wall of three bag courses (1 × 0.24 × 0.4): the arc fills the collider's depth,
+  // the courses its height (bags ≈ 0.6 × 0.37 m at the usual 3.2 × 1.1 m footprint)
+  sandbags: { trunkPivot: false, w: 1.0, d: 1.0, h: 1.0, uniform: false, maxStretch: 0, sink: 0.04, yaw: 0, randomYaw: false, flip: true, round: false, mask: 0, wind: 0, doubleSided: false },
+  // bamboo hut on a raft floor, door on the model's +Z (the procedural cone tent's door is at −Z);
+  // the thatch eaves (≈ 1.4 m up) reach the collider's sides, the walls stand ~0.5 m inside
+  nanmanTent: { trunkPivot: false, w: 1.0, d: 1.0, h: 1.0, uniform: false, maxStretch: 0, sink: 0.03, yaw: Math.PI, randomYaw: false, round: false, mask: 0, wind: 0, doubleSided: true },
 };
 
 /** Model extents after normalisation (pivot at the origin, base at y = 0). */
@@ -111,7 +124,8 @@ export function fitPropMatrix(kind: GlbPropType, p: MapProp, b: ModelBounds, out
   const h32 = hashString(`${kind}|${p.x.toFixed(2)}|${p.z.toFixed(2)}`);
   const j1 = ((h32 & 0xff) / 255) * 2 - 1; // -1..1
   const j2 = (((h32 >>> 8) & 0xff) / 255) * 2 - 1;
-  const yawJ = f.randomYaw ? ((h32 >>> 16) / 65536) * Math.PI * 2 : j2 * 0.06; // small jitter on man-made props
+  let yawJ = f.randomYaw ? ((h32 >>> 16) / 65536) * Math.PI * 2 : j2 * 0.06; // small jitter on man-made props
+  if (f.flip && (h32 >>> 16) & 1) yawJ += Math.PI;
   // footprint: turn the model 90° when that fits the prop's proportions better (tents / crates)
   let turn = 0;
   let pw = p.sx;
@@ -174,11 +188,22 @@ export interface PropModel {
  * that is already cheap). Vegetation and rocks stand in the hundreds.
  */
 export function propLodPlan(kind: GlbPropType, tris: number): { ratio: number; distance: number } | null {
-  const dense = kind === 'tree' || kind === 'pine' || kind === 'bamboo' || kind === 'rock';
+  const dense = kind === 'tree' || kind === 'pine' || kind === 'bamboo' || kind === 'rock' || kind === 'nanmanTent';
   if (!dense) return null;
-  const target = kind === 'rock' ? 260 : 800;
+  const target = kind === 'rock' ? 260 : kind === 'nanmanTent' ? 1500 : 800;
   if (tris < target * 2) return null;
-  return { ratio: Math.max(0.04, target / tris), distance: kind === 'rock' ? 38 : 52 };
+  return { ratio: Math.max(0.04, target / tris), distance: kind === 'rock' ? 38 : kind === 'nanmanTent' ? 45 : 52 };
+}
+
+/**
+ * Simplification of the NEAR model itself, for a model far denser than it is
+ * ever seen (the Nanman hut ships with ~57k triangles of thatch): the index
+ * ratio and error bound, or null. Seams are kept (no 'Permissive').
+ */
+export function propBasePlan(kind: GlbPropType, tris: number): { ratio: number; error: number } | null {
+  const cap = kind === 'nanmanTent' ? 9000 : 0;
+  if (!cap || tris < cap * 1.5) return null;
+  return { ratio: cap / tris, error: 0.02 };
 }
 
 type Simplifier = (typeof import('three/addons/libs/meshopt_simplifier.module.js'))['MeshoptSimplifier'];
@@ -200,8 +225,9 @@ function simplifier(): Promise<Simplifier | null> {
  * Simplified index buffer over the same vertices (null when it would not save
  * much). 'Permissive' lets collapses cross UV seams (auto-unwrapped meshes are
  * all seams); 'Prune' drops specks of foliage that vanish at a distance.
+ * `keepSeams`: neither (a near model must keep its texture seams).
  */
-async function buildPropLod(geo: THREE.BufferGeometry, ratio: number): Promise<THREE.BufferGeometry | null> {
+async function buildPropLod(geo: THREE.BufferGeometry, ratio: number, error = 0.05, keepSeams = false): Promise<THREE.BufferGeometry | null> {
   const index = geo.getIndex();
   const pos = geo.getAttribute('position');
   if (!index || !pos) return null;
@@ -217,9 +243,9 @@ async function buildPropLod(geo: THREE.BufferGeometry, ratio: number): Promise<T
   for (let i = 0; i < index.count; i++) indices[i] = index.getX(i);
   const target = Math.max(3, Math.floor((index.count * ratio) / 3) * 3);
   let out: Uint32Array | null = null;
-  for (const flags of [['Permissive', 'Prune'], ['Prune'], []]) {
+  for (const flags of keepSeams ? [[]] : [['Permissive', 'Prune'], ['Prune'], []]) {
     try {
-      out = s.simplify(indices, positions, 3, target, 0.05, flags)[0];
+      out = s.simplify(indices, positions, 3, target, error, flags)[0];
       break;
     } catch {
       /* flag not supported by this simplifier build: try the next set */
@@ -234,8 +260,7 @@ async function buildPropLod(geo: THREE.BufferGeometry, ratio: number): Promise<T
   return lod;
 }
 
-export type GltfLoaderLike = { loadAsync(url: string): Promise<{ scene: THREE.Object3D }> };
-let loaderP: Promise<GltfLoaderLike> | null = null;
+export type { GltfLoaderLike } from '../core/gltfLoader';
 let testLoader: GltfLoaderLike | null = null;
 
 /** Tests: load prop models through `l` instead of GLTFLoader (null: the real loader). */
@@ -244,17 +269,7 @@ export function setPropModelLoaderForTests(l: GltfLoaderLike | null): void {
 }
 
 function loader(): Promise<GltfLoaderLike> {
-  if (testLoader) return Promise.resolve(testLoader);
-  if (!loaderP) {
-    loaderP = Promise.all([import('three/addons/loaders/GLTFLoader.js'), import('three/addons/libs/meshopt_decoder.module.js')]).then(
-      ([{ GLTFLoader }, { MeshoptDecoder }]) => {
-        const l = new GLTFLoader();
-        l.setMeshoptDecoder(MeshoptDecoder);
-        return l;
-      },
-    );
-  }
-  return loaderP;
+  return testLoader ? Promise.resolve(testLoader) : sharedGltfLoader();
 }
 
 /** Float copy of a (possibly quantised / normalised / interleaved) attribute. */
@@ -465,35 +480,7 @@ varying vec3 vTint;`,
   return m;
 }
 
-/**
- * The model's texture at most `max` texels on a side (GPU memory on lower tiers):
- * a smaller copy replaces the decoded image, the original is released.
- */
-function capTexture(tex: THREE.Texture, max: number): THREE.Texture {
-  const img = tex.image as { width?: number; height?: number } | null;
-  const w = img?.width ?? 0;
-  const h = img?.height ?? 0;
-  if (!w || !h || Math.max(w, h) <= max || typeof document === 'undefined') return tex;
-  const k = max / Math.max(w, h);
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(w * k));
-  canvas.height = Math.max(1, Math.round(h * k));
-  const g = canvas.getContext('2d');
-  if (!g) return tex;
-  g.imageSmoothingQuality = 'high';
-  g.drawImage(tex.image as CanvasImageSource, 0, 0, canvas.width, canvas.height);
-  const out = new THREE.CanvasTexture(canvas);
-  // same sampling as the glTF texture (glTF UVs: no flip)
-  out.flipY = tex.flipY;
-  out.colorSpace = tex.colorSpace;
-  out.wrapS = tex.wrapS;
-  out.wrapT = tex.wrapT;
-  out.minFilter = THREE.LinearMipmapLinearFilter;
-  out.generateMipmaps = true;
-  (tex.image as { close?: () => void } | null)?.close?.();
-  tex.dispose();
-  return out;
-}
+export { capTexture } from '../core/gltfLoader';
 
 async function loadModel(kind: GlbPropType): Promise<PropModel | null> {
   try {
@@ -513,7 +500,15 @@ async function loadModel(kind: GlbPropType): Promise<PropModel | null> {
     // the loader's own geometry / material are no longer needed
     found.geometry.dispose();
     srcMat.dispose();
-    const tris = (geometry.index ? geometry.index.count : geometry.getAttribute('position').count) / 3;
+    let tris = (geometry.index ? geometry.index.count : geometry.getAttribute('position').count) / 3;
+    const base = propBasePlan(kind, tris);
+    if (base) {
+      const simple = await buildPropLod(geometry, base.ratio, base.error, true).catch(() => null);
+      if (simple?.index) {
+        geometry.setIndex(simple.index);
+        tris = simple.index.count / 3;
+      }
+    }
     const plan = propLodPlan(kind, tris);
     const lod = plan ? await buildPropLod(geometry, plan.ratio).catch(() => null) : null;
     return {
@@ -556,132 +551,295 @@ export function propTint(kind: GlbPropType, p: MapProp, out: THREE.Color): THREE
 }
 
 export interface PropModelSet {
-  group: THREE.Group;
+  group: THREE.Object3D;
   /** which prop kinds are now drawn by models */
   kinds: Set<GlbPropType>;
   triangles: number;
   instances: number;
-  /** current near / far split of the LOD cells (dev overlay / perf reports) */
+  /** instances drawn with the full / the far model after the last cull (dev overlay / perf reports) */
   lodStats(): { near: number; far: number; nearTris: number; farTris: number };
   dispose(): void;
 }
 
-const CELL = 64;
+const _sphere = new THREE.Sphere();
+const _mat = new THREE.Matrix4();
 
-/** Camera travel (m) before the near / far split of LOD cells is re-evaluated. */
-const LOD_STEP = 3;
+/** True when the sphere (cx, cy, cz, r) is not entirely outside one of the frustum's planes. */
+function sphereInFrustum(f: THREE.Frustum, cx: number, cy: number, cz: number, r: number): boolean {
+  const planes = f.planes;
+  for (let i = 0; i < 6; i++) {
+    const p = planes[i];
+    if (p.normal.x * cx + p.normal.y * cy + p.normal.z * cz + p.constant < -r) return false;
+  }
+  return true;
+}
 
 /**
- * One cell of one prop kind with a far LOD: the near instances draw the full
- * model, the far ones the simplified one. It is a THREE.LOD so the renderer
- * calls update(camera) while projecting the scene (before culling its
- * children and before the shadow pass): instances are re-split between the two
- * meshes only after the camera moved a few metres, with no allocation.
+ * One InstancedMesh drawing a packed subset of a batch's instances. The
+ * buffers are re-uploaded (the used prefix only) when the subset changes.
  */
-export class PropLodCell extends THREE.LOD {
+class PackedMesh {
+  readonly mesh: THREE.InstancedMesh;
+  readonly ids: Int32Array;
+  n = 0;
+  private uploaded = -1;
+  private dirty = true;
+
+  constructor(geo: THREE.BufferGeometry, material: THREE.Material, capacity: number, name: string, shadow: boolean) {
+    const mesh = new THREE.InstancedMesh(geo, material, capacity);
+    mesh.name = name;
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    // culled per instance by the batch: the whole-map mesh is never culled as one object
+    mesh.frustumCulled = false;
+    mesh.castShadow = shadow;
+    mesh.receiveShadow = !shadow;
+    mesh.count = 0;
+    mesh.visible = false;
+    this.mesh = mesh;
+    this.ids = new Int32Array(capacity);
+  }
+
+  /** Start a new subset. */
+  reset(): void {
+    this.dirty = false;
+    this.n = 0;
+  }
+
+  push(i: number): void {
+    if (this.n >= this.uploaded || this.ids[this.n] !== i) this.dirty = true;
+    this.ids[this.n++] = i;
+  }
+
+  /** Upload the subset if it changed; true when drawn. */
+  commit(mats: Float32Array, cols: Float32Array): boolean {
+    const n = this.n;
+    if (this.dirty || n !== this.uploaded) {
+      this.uploaded = n;
+      const mesh = this.mesh;
+      const m = mesh.instanceMatrix.array as Float32Array;
+      const c = mesh.instanceColor!.array as Float32Array;
+      for (let k = 0; k < n; k++) {
+        const i = this.ids[k];
+        for (let j = 0; j < 16; j++) m[k * 16 + j] = mats[i * 16 + j];
+        c[k * 3] = cols[i * 3];
+        c[k * 3 + 1] = cols[i * 3 + 1];
+        c[k * 3 + 2] = cols[i * 3 + 2];
+      }
+      mesh.count = n;
+      if (n) {
+        mesh.instanceMatrix.clearUpdateRanges();
+        mesh.instanceMatrix.addUpdateRange(0, n * 16);
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.instanceColor!.clearUpdateRanges();
+        mesh.instanceColor!.addUpdateRange(0, n * 3);
+        mesh.instanceColor!.needsUpdate = true;
+      }
+    }
+    return n > 0;
+  }
+}
+
+/**
+ * Every instance of one prop kind on the map: the full model near the camera,
+ * the simplified one (if any) beyond its LOD distance — each as a colour-pass
+ * mesh (instances in the view frustum) and a shadow-pass mesh (instances in
+ * the sun's shadow frustum), so neither pass draws the other's instances. No
+ * allocation after construction.
+ */
+export class PropBatch {
+  readonly kind: GlbPropType;
+  readonly count: number;
+  /** colour pass: full / far model */
   readonly near: THREE.InstancedMesh;
-  readonly far: THREE.InstancedMesh;
+  readonly far: THREE.InstancedMesh | null;
+  /** shadow pass (drawn only into the shadow map, see PropCuller) */
+  readonly nearShadow: THREE.InstancedMesh;
+  readonly farShadow: THREE.InstancedMesh | null;
+  private readonly packs: PackedMesh[];
   private readonly mats: Float32Array;
   private readonly cols: Float32Array;
-  private readonly xz: Float32Array;
-  private readonly cx: number;
-  private readonly cz: number;
-  private readonly radius: number;
+  /** world bounding sphere per instance: x, y, z, r */
+  private readonly spheres: Float32Array;
   private readonly dist2: number;
-  private lastX = Infinity;
-  private lastZ = Infinity;
-  /** 0 mixed, 1 all near, 2 all far, -1 never split */
-  private state = -1;
+  private shadowOn = false;
 
-  constructor(model: PropModel, lod: THREE.BufferGeometry, list: readonly MapProp[]) {
-    super();
-    this.autoUpdate = true;
+  constructor(model: PropModel, list: readonly MapProp[]) {
+    this.kind = model.kind;
     const n = list.length;
+    this.count = n;
     this.mats = new Float32Array(n * 16);
     this.cols = new Float32Array(n * 3);
-    this.xz = new Float32Array(n * 2);
-    const m4 = new THREE.Matrix4();
+    this.spheres = new Float32Array(n * 4);
+    if (!model.geometry.boundingSphere) model.geometry.computeBoundingSphere();
+    const bs = model.geometry.boundingSphere!;
     const tint = new THREE.Color();
-    let sx = 0;
-    let sz = 0;
     list.forEach((p, i) => {
-      fitPropMatrix(model.kind, p, model.bounds, m4).toArray(this.mats, i * 16);
+      fitPropMatrix(model.kind, p, model.bounds, _mat).toArray(this.mats, i * 16);
       propTint(model.kind, p, tint).toArray(this.cols, i * 3);
-      this.xz[i * 2] = p.x;
-      this.xz[i * 2 + 1] = p.z;
-      sx += p.x;
-      sz += p.z;
+      _sphere.copy(bs).applyMatrix4(_mat);
+      this.spheres[i * 4] = _sphere.center.x;
+      this.spheres[i * 4 + 1] = _sphere.center.y;
+      this.spheres[i * 4 + 2] = _sphere.center.z;
+      this.spheres[i * 4 + 3] = _sphere.radius;
     });
-    this.cx = sx / n;
-    this.cz = sz / n;
-    let r = 0;
-    for (let i = 0; i < n; i++) r = Math.max(r, Math.hypot(this.xz[i * 2] - this.cx, this.xz[i * 2 + 1] - this.cz));
-    this.radius = r;
-    this.dist2 = model.lodDistance * model.lodDistance;
-    const make = (geo: THREE.BufferGeometry): THREE.InstancedMesh => {
-      const mesh = new THREE.InstancedMesh(geo, model.material, n);
-      // every instance in both meshes for the (conservative) culling sphere
-      (mesh.instanceMatrix.array as Float32Array).set(this.mats);
-      mesh.instanceColor = new THREE.InstancedBufferAttribute(Float32Array.from(this.cols), 3);
-      mesh.computeBoundingSphere();
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-      this.add(mesh);
-      return mesh;
-    };
-    this.near = make(model.geometry);
-    this.far = make(lod);
-    this.far.count = 0; // until the first update: everything near (warm-up compiles both)
+    this.dist2 = model.lod ? model.lodDistance * model.lodDistance : Infinity;
+    const k = model.kind;
+    const lod = model.lod;
+    this.packs = [
+      new PackedMesh(model.geometry, model.material, n, `prop_${k}`, false),
+      new PackedMesh(lod ?? model.geometry, model.material, lod ? n : 0, `prop_${k}_far`, false),
+      new PackedMesh(model.geometry, model.material, n, `prop_${k}_shadow`, true),
+      new PackedMesh(lod ?? model.geometry, model.material, lod ? n : 0, `prop_${k}_far_shadow`, true),
+    ];
+    this.near = this.packs[0].mesh;
+    this.far = lod ? this.packs[1].mesh : null;
+    this.nearShadow = this.packs[2].mesh;
+    this.farShadow = lod ? this.packs[3].mesh : null;
+  }
+
+  /** The meshes to add to the scene (colour pass first, then shadow pass). */
+  meshes(): THREE.InstancedMesh[] {
+    return [this.near, this.far, this.nearShadow, this.farShadow].filter((m): m is THREE.InstancedMesh => m !== null);
+  }
+
+  /**
+   * Pack the instances in `view` into the colour-pass meshes and those in
+   * `shadow` (null: no shadows) into the shadow-pass ones; (cx, cz) is the
+   * camera position for the LOD split. Leaves the shadow meshes hidden: see
+   * showShadows().
+   */
+  cull(view: THREE.Frustum, shadow: THREE.Frustum | null, cx: number, cz: number): void {
+    const s = this.spheres;
+    const [vn, vf, sn, sf] = this.packs;
+    for (const p of this.packs) p.reset();
+    for (let i = 0; i < this.count; i++) {
+      const x = s[i * 4];
+      const y = s[i * 4 + 1];
+      const z = s[i * 4 + 2];
+      const r = s[i * 4 + 3];
+      const inView = sphereInFrustum(view, x, y, z, r);
+      const inShadow = shadow !== null && sphereInFrustum(shadow, x, y, z, r);
+      if (!inView && !inShadow) continue;
+      const dx = x - cx;
+      const dz = z - cz;
+      const near = dx * dx + dz * dz < this.dist2;
+      if (inView) (near ? vn : vf).push(i);
+      if (inShadow) (near ? sn : sf).push(i);
+    }
+    this.near.visible = vn.commit(this.mats, this.cols);
+    if (this.far) this.far.visible = vf.commit(this.mats, this.cols);
+    this.shadowOn = shadow !== null;
+    sn.commit(this.mats, this.cols);
+    if (this.farShadow) sf.commit(this.mats, this.cols);
+    this.nearShadow.visible = false;
+    if (this.farShadow) this.farShadow.visible = false;
+  }
+
+  /** Called once the colour pass has been projected: the shadow meshes draw into the shadow map only. */
+  showShadows(): void {
+    this.nearShadow.visible = this.shadowOn && this.nearShadow.count > 0;
+    if (this.farShadow) this.farShadow.visible = this.shadowOn && this.farShadow.count > 0;
+  }
+
+  /** Draw every instance with the full model in both passes (tests / tools). */
+  showAll(): void {
+    const [vn, vf, sn, sf] = this.packs;
+    for (const p of this.packs) p.reset();
+    for (let i = 0; i < this.count; i++) {
+      vn.push(i);
+      sn.push(i);
+    }
+    this.near.visible = vn.commit(this.mats, this.cols);
+    if (this.far) this.far.visible = vf.commit(this.mats, this.cols);
+    this.nearShadow.visible = sn.commit(this.mats, this.cols);
+    if (this.farShadow) this.farShadow.visible = sf.commit(this.mats, this.cols);
+  }
+
+  dispose(): void {
+    for (const m of this.meshes()) m.dispose();
+  }
+}
+
+const _view = new THREE.Frustum();
+
+/**
+ * Last child of the PropCuller: projected after the colour-pass meshes (which
+ * the renderer has listed by then) and before the shadow pass, it reveals the
+ * shadow-pass meshes — so they are drawn into the shadow map only.
+ */
+class ShadowGate extends THREE.LOD {
+  constructor(private readonly culler: PropCuller) {
+    super();
+    this.autoUpdate = true;
+    this.name = 'propShadowGate';
+  }
+
+  override update(): this {
+    for (const b of this.culler.batches) b.showShadows();
+    return this;
+  }
+}
+
+/**
+ * The prop-model group: a THREE.LOD only so the renderer calls update(camera)
+ * while projecting the scene (before its own culling and before the shadow
+ * pass), where every batch is culled against the camera and the sun's shadow
+ * frustum (the scene's shadow-casting directional light, found once).
+ */
+export class PropCuller extends THREE.LOD {
+  readonly batches: PropBatch[] = [];
+  private readonly gate = new ShadowGate(this);
+  private sun: THREE.DirectionalLight | null = null;
+  private sunLooked = false;
+
+  constructor() {
+    super();
+    this.autoUpdate = true;
+    this.add(this.gate);
+  }
+
+  addBatch(b: PropBatch): void {
+    this.batches.push(b);
+    for (const m of b.meshes()) this.add(m);
+    // keep the gate last in the traversal order
+    this.remove(this.gate);
+    this.add(this.gate);
+  }
+
+  private shadowLight(): THREE.DirectionalLight | null {
+    if (this.sunLooked) return this.sun;
+    let root: THREE.Object3D = this;
+    while (root.parent) root = root.parent;
+    if (!(root as THREE.Scene).isScene) return null; // not in a scene yet: look again next time
+    this.sunLooked = true;
+    for (const o of root.children) {
+      if ((o as THREE.DirectionalLight).isDirectionalLight) {
+        this.sun = o as THREE.DirectionalLight;
+        break;
+      }
+    }
+    return this.sun;
   }
 
   override update(camera: THREE.Camera): this {
-    const e = camera.matrixWorld.elements;
-    const x = e[12];
-    const z = e[14];
-    const dx0 = x - this.lastX;
-    const dz0 = z - this.lastZ;
-    if (dx0 * dx0 + dz0 * dz0 < LOD_STEP * LOD_STEP) return this;
-    this.lastX = x;
-    this.lastZ = z;
-    // the whole cell on one side of the switch distance: a single mesh
-    const dc = Math.hypot(x - this.cx, z - this.cz);
-    const D = Math.sqrt(this.dist2);
-    const whole = dc + this.radius < D ? 1 : dc - this.radius > D ? 2 : 0;
-    if (whole !== 0 && whole === this.state) return this;
-    this.state = whole;
-    const n = this.xz.length / 2;
-    const nm = this.near.instanceMatrix.array as Float32Array;
-    const fm = this.far.instanceMatrix.array as Float32Array;
-    const nc = this.near.instanceColor!.array as Float32Array;
-    const fc = this.far.instanceColor!.array as Float32Array;
-    let a = 0;
-    let b = 0;
-    for (let i = 0; i < n; i++) {
-      const dx = this.xz[i * 2] - x;
-      const dz = this.xz[i * 2 + 1] - z;
-      const isNear = whole === 1 || (whole === 0 && dx * dx + dz * dz < this.dist2);
-      const m = isNear ? nm : fm;
-      const c = isNear ? nc : fc;
-      const o = isNear ? a++ : b++;
-      for (let k = 0; k < 16; k++) m[o * 16 + k] = this.mats[i * 16 + k];
-      for (let k = 0; k < 3; k++) c[o * 3 + k] = this.cols[i * 3 + k];
+    _mat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _view.setFromProjectionMatrix(_mat);
+    const sun = this.shadowLight();
+    let shadow: THREE.Frustum | null = null;
+    if (sun && sun.castShadow) {
+      // the shadow pass computes the same matrices right after this projection
+      sun.shadow.updateMatrices(sun);
+      shadow = sun.shadow.getFrustum();
     }
-    this.near.count = a;
-    this.far.count = b;
-    this.near.visible = a > 0;
-    this.far.visible = b > 0;
-    this.near.instanceMatrix.needsUpdate = true;
-    this.near.instanceColor!.needsUpdate = true;
-    this.far.instanceMatrix.needsUpdate = true;
-    this.far.instanceColor!.needsUpdate = true;
+    const e = camera.matrixWorld.elements;
+    for (const b of this.batches) b.cull(_view, shadow, e[12], e[14]);
     return this;
   }
 
   override dispose(): void {
-    this.near.dispose();
-    this.far.dispose();
+    for (const b of this.batches) b.dispose();
   }
 }
 
@@ -689,7 +847,7 @@ export class PropLodCell extends THREE.LOD {
  * Load the listed models and instance every replaceable prop. Resolves with the
  * built set (kinds whose file failed are simply absent → procedural stays).
  */
-export async function buildPropModels(props: readonly MapProp[], mapSize: number, files: ReadonlySet<string>, isDisposed: () => boolean): Promise<PropModelSet | null> {
+export async function buildPropModels(props: readonly MapProp[], _mapSize: number, files: ReadonlySet<string>, isDisposed: () => boolean): Promise<PropModelSet | null> {
   const wanted = new Set<GlbPropType>();
   for (const p of props) {
     const k = glbPropKind(p);
@@ -701,75 +859,42 @@ export async function buildPropModels(props: readonly MapProp[], mapSize: number
     for (const m of models) m?.dispose();
     return null;
   }
-  const group = new THREE.Group();
-  group.name = 'propModels';
-  const half = mapSize / 2;
+  const culler = new PropCuller();
+  culler.name = 'propModels';
   const kinds = new Set<GlbPropType>();
   let triangles = 0;
   let instances = 0;
-  const m4 = new THREE.Matrix4();
-  const tint = new THREE.Color();
   const live: PropModel[] = [];
+  const tris = (g: THREE.BufferGeometry): number => (g.index ? g.index.count : g.getAttribute('position').count) / 3;
   for (const model of models) {
     if (!model) continue;
     live.push(model);
     kinds.add(model.kind);
-    // bucket this kind's props into cells
-    const cells = new Map<string, MapProp[]>();
-    for (const p of props) {
-      if (glbPropKind(p) !== model.kind) continue;
-      const key = `${Math.floor((p.x + half) / CELL)},${Math.floor((p.z + half) / CELL)}`;
-      let arr = cells.get(key);
-      if (!arr) cells.set(key, (arr = []));
-      arr.push(p);
-    }
-    const tris = (model.geometry.index ? model.geometry.index.count : model.geometry.getAttribute('position').count) / 3;
-    for (const [key, list] of cells) {
-      if (model.lod) {
-        const cell = new PropLodCell(model, model.lod, list);
-        cell.name = `prop_${model.kind}_${key}`;
-        group.add(cell);
-        triangles += tris * list.length;
-        instances += list.length;
-        continue;
-      }
-      const mesh = new THREE.InstancedMesh(model.geometry, model.material, list.length);
-      mesh.name = `prop_${model.kind}_${key}`;
-      list.forEach((p, i) => {
-        mesh.setMatrixAt(i, fitPropMatrix(model.kind, p, model.bounds, m4));
-        mesh.setColorAt(i, propTint(model.kind, p, tint));
-      });
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      group.add(mesh);
-      triangles += tris * list.length;
-      instances += list.length;
-    }
+    const list = props.filter((p) => glbPropKind(p) === model.kind);
+    if (!list.length) continue;
+    culler.addBatch(new PropBatch(model, list));
+    triangles += tris(model.geometry) * list.length;
+    instances += list.length;
   }
   return {
-    group,
+    group: culler,
     kinds,
     triangles,
     instances,
     dispose(): void {
-      group.traverse((o) => {
-        if (o instanceof THREE.InstancedMesh) o.dispose();
-      });
+      culler.dispose();
       for (const m of live) m.dispose();
     },
     lodStats(): { near: number; far: number; nearTris: number; farTris: number } {
       const st = { near: 0, far: 0, nearTris: 0, farTris: 0 };
-      group.traverse((o) => {
-        if (!(o instanceof PropLodCell)) return;
-        const t = (g: THREE.BufferGeometry): number => (g.index ? g.index.count : 0) / 3;
-        st.near += o.near.count;
-        st.far += o.far.count;
-        st.nearTris += o.near.count * t(o.near.geometry);
-        st.farTris += o.far.count * t(o.far.geometry);
-      });
+      for (const b of culler.batches) {
+        st.near += b.near.count;
+        st.nearTris += b.near.count * tris(b.near.geometry);
+        if (b.far) {
+          st.far += b.far.count;
+          st.farTris += b.far.count * tris(b.far.geometry);
+        }
+      }
       return st;
     },
   };
