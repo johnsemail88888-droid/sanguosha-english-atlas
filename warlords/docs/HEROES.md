@@ -149,7 +149,7 @@
 |---|---|---|---|
 | 被动<br>Passive | **观星**<br>Stargazing<br><sub>三国杀：观星</sub> | — | 每 20 秒，45 米内其他武将对你显形 3 秒（仅你的小地图与描边可见）。<br>Every 20 s, other heroes within 45 m are revealed to you alone for 3 s (your minimap + outline). |
 | Q | **八阵图**<br>Eight Trigrams Maze<br><sub>三国杀：八阵</sub> | 18 s | 在准星处布下 7 米石阵 8 秒：敌人减速 40% 并沉默；你与士兵获得 30% 闪避。<br>Raise a 7 m stone maze at the crosshair for 8 s: enemies are slowed 40% and silenced; you and your squad gain 30% evasion. |
-| E | **空城**<br>Empty Fort<br><sub>三国杀：空城</sub> | 35 s | 抚琴 3 秒：无敌且无法被选中，不能攻击、移速 -30%；15 米内士兵与 NPC 脱离仇恨。<br>Play the guqin for 3 s: invulnerable and untargetable, but no attacks and 30% slower. Soldiers/NPCs within 15 m lose aggro. |
+| E | **空城**<br>Empty Fort<br><sub>三国杀：空城</sub> | 35 s | 抚琴 3 秒：无敌且无法被选中，不能攻击、移速 -30%；15 米内敌对士兵与 NPC 脱离仇恨。<br>Play the guqin 3 s: invulnerable and untargetable, but no attacks and 30% slower. Hostile soldiers/NPCs within 15 m lose aggro. |
 
 **台词 Quotes**
 
@@ -519,7 +519,7 @@
 |---|---|---|---|
 | 被动<br>Passive | **锦帆**<br>Brocade Sails<br><sub>三国杀：奇袭</sub> | — | 移速 +10%；击杀任意单位后立即装满弹匣。<br>+10% move speed. Killing any unit instantly refills your magazine. |
 | Q | **奇袭**<br>Surprise Raid<br><sub>三国杀：奇袭</sub> | 18 s | 向准星处敌人射出电磁弩：其护甲与坐骑掉落、护盾清空，并沉默 2.5 秒。<br>Fire an EMP bolt at the crosshair enemy: it drops its armor and mount, loses all shield, and is silenced 2.5 s. |
-| E | **百骑劫营**<br>Hundred Riders Raid<br><sub>三国杀：奇袭</sub> | 28 s | 你与士兵潜行 8 秒；潜行中的首次攻击伤害 +60%。<br>You and your squad turn stealthy for 8 s. Your first attack from stealth deals +60% damage. |
+| E | **百骑劫营**<br>Hundred Riders Raid<br><sub>三国杀：奇袭</sub> | 28 s | 你与士兵潜行 8 秒；潜行中的首轮攻击（至多 1 秒连射）伤害 +60%。<br>You and your squad turn stealthy for 8 s. Your first attack from stealth (a burst of up to 1 s) deals +60% damage. |
 
 **台词 Quotes**
 
@@ -596,7 +596,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **英姿**<br>Heroic Bearing<br><sub>三国杀：英姿</sub> | — | 换弹速度 +25%；技能冷却 -15%。<br>Reload 25% faster. Ability cooldowns -15%. |
-| Q | **反间**<br>Sow Discord<br><sub>三国杀：反间</sub> | 20 s | 魅惑准星处敌人 2 秒：它攻击 30 米内离它最近的另一名武将（不会是你）；若无则缴械它 2 秒。<br>Charm the crosshair enemy for 2 s: it attacks the nearest other hero within 30 m of it (never you). None: disarm it 2 s. |
+| Q | **反间**<br>Sow Discord<br><sub>三国杀：反间</sub> | 20 s | 魅惑准星处敌人 2 秒：它攻击 30 米内离它最近、它看得见的另一名武将（不会是你）；若无则缴械它 2 秒。<br>Charm the crosshair enemy for 2 s: it attacks the nearest other hero it can see within 30 m (never you). None: disarm it 2 s. |
 | E | **火烧赤壁**<br>Red Cliffs Inferno<br><sub>三国杀：英姿</sub><br><sub>火焰伤害 · Fire damage</sub> | 28 s | 1.5 秒后沿前方 25 米直线投下 5 枚凝固汽油弹：100 火焰伤害，燃烧地面 6 秒（每秒 15）。<br>After 1.5 s, 5 napalm bombs hit a 25 m line ahead: 100 fire damage and burning ground for 6 s (15/s). |
 
 **台词 Quotes**
@@ -621,7 +621,7 @@
 
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
-| 被动<br>Passive | **流离**<br>Displacement<br><sub>三国杀：流离</sub> | — | 被子弹击中时，30% 几率将该伤害转移给 8 米内另一个单位（攻击者除外）。<br>When hit by a bullet, 30% chance to redirect that damage to another unit within 8 m (not the attacker). |
+| 被动<br>Passive | **流离**<br>Displacement<br><sub>三国杀：流离</sub> | — | 被子弹击中时，30% 几率将该伤害转移给 8 米内你看得见的另一单位（优先敌人，己方士兵最后，攻击者除外）。<br>When hit by a bullet, 30% chance to pass it to a unit in sight within 8 m: enemies first, your soldiers last, never the attacker. |
 | Q | **国色**<br>National Beauty<br><sub>三国杀：国色</sub> | 16 s | 向准星处敌人掷出乐不思蜀：其跳舞 2.5 秒，无法射击与使用技能。<br>Throw Indulgence at the crosshair enemy: it dances for 2.5 s, unable to shoot or use abilities. |
 | E | **安娴**<br>Serenity<br><sub>三国杀：安娴</sub> | 18 s | 为你、你的士兵及 8 米内其他武将回复 80 生命。<br>Heal yourself, your soldiers and other heroes within 8 m for 80. |
 
@@ -889,20 +889,20 @@ DPS = one trigger pull × fire rate (no reloads); TTK counts from the first shot
 | 桃 | **桃** Peach (Medkit) | 基本牌 Basic | 回复 120 生命；对濒死角色按住 F 1.5 秒可将其以 100 生命救起。<br>Restore 120 HP. Hold F on a downed hero for 1.5 s to revive them with 100 HP. |
 | 酒 | **酒** Wine | 基本牌 Basic | 8 秒内你的下一次武器命中伤害 ×2（技能与锦囊伤害不受影响）；濒死时可饮用，以 50 生命自救。<br>Your next weapon hit within 8 s deals ×2 (ability and item damage are unaffected). While downed, drink it to revive with 50 HP. |
 | 无 | **无中生有** Something from Nothing | 锦囊 Trick | 立即获得 2 个随机锦囊。<br>Instantly gain 2 random items. |
-| 拆 | **过河拆桥** Dismantle (EMP Grenade) | 锦囊 Trick | 投掷电磁手雷（1.2 秒后于 4 米内生效）：敌人的护甲与坐骑掉落在地，护盾清空。<br>Throw an EMP grenade (4 m, 1.2 s fuse): enemies drop their armor and mount on the ground and lose all shield. |
+| 拆 | **过河拆桥** Dismantle (EMP Grenade) | 锦囊 Trick | 投掷电磁手雷（1.2 秒后于 4 米内生效）：敌人的护甲与坐骑被震落到 2.5 米外（本人 5 秒内无法拾回），护盾清空。<br>Throw an EMP grenade (4 m, 1.2 s fuse): enemies lose all shield, and their armor and mount are knocked 2.5 m away (they cannot pick them back up for 5 s). |
 | 顺 | **顺手牵羊** Steal (Grapple) | 锦囊 Trick | 用钩索从 8 米内的敌方武将处偷取 1 个随机锦囊或装备。<br>Grapple-steal 1 random item or piece of equipment from an enemy hero within 8 m. |
 | 斗 | **决斗** Duel | 锦囊 Trick | 与 20 米内敌方武将决斗 8 秒，双方士兵集火对方；结束（或相距超过 35 米）时，期间失血较多的一方再受 80 伤害。<br>Duel an enemy hero within 20 m for 8 s; each side's soldiers focus the other. When it ends (or you're 35 m+ apart), whoever lost more HP meanwhile takes 80 damage. |
-| 借 | **借刀杀人** Borrowed Blade (Hack) | 锦囊 Trick | 入侵 40 米内敌方武将的士兵：6 秒内它们围攻离其主人最近的另一名武将（不会是你）；附近没有则无法使用。<br>Hack an enemy hero's soldiers (40 m): for 6 s they attack the hero nearest their commander (never you). Fails if there is none. |
+| 借 | **借刀杀人** Borrowed Blade (Hack) | 锦囊 Trick | 入侵 40 米内敌方武将的士兵与炮台：6 秒内它们围攻离其主人最近的另一名武将（不会是你）；对方无兵或附近无人时无法使用。<br>Hack an enemy hero's soldiers and turrets (40 m): for 6 s they attack the hero nearest their commander (never you). Fails if they have none, or nobody is near. |
 | 懈 | **无懈可击** Impeccable | 锦囊 Trick | 20 秒内，下一个针对你的负面状态或技能效果被抵消。<br>For 20 s, the next hostile status or ability effect aimed at you is cancelled. |
-| 蛮 | **南蛮入侵** Barbarian Invasion | 锦囊 Trick | 召唤 5 名南蛮勇士冲向准星处（20 秒），它们攻击除你以外的所有人。<br>Summon 5 barbarian warriors (20 s) that rush the aim point and attack everyone but you. |
+| 蛮 | **南蛮入侵** Barbarian Invasion | 锦囊 Trick | 召唤 5 名南蛮勇士冲向准星处（20 秒），它们攻击除你和你的士兵以外的所有人。<br>Summon 5 barbarian warriors (20 s) that rush the aim point and attack everyone but you and your soldiers. |
 | 箭 | **万箭齐发** Arrow Barrage | 锦囊 Trick | 0.8 秒后，准星处 8 米范围箭如雨下 3 秒：每 0.5 秒造成 18 伤害。<br>After 0.8 s, arrows rain on an 8 m area at the aim point for 3 s: 18 damage every 0.5 s. |
 | 园 | **桃园结义** Peach Garden Oath | 锦囊 Trick | 为 15 米内所有武将（包括敌人）与士兵回复 80 生命。<br>Heal every hero (enemies included) and soldier within 15 m for 80. |
 | 谷 | **五谷丰登** Bountiful Harvest | 锦囊 Trick | 在身边 3 米内撒出 4 个随机锦囊，先到先得。<br>Burst 4 random items onto the ground within 3 m of you — first come, first served. |
 | 火 | **火攻** Fire Attack (Incendiary) | 锦囊 Trick | 投掷燃烧弹（1.5 秒后爆炸）：4 米内 40 火焰伤害并点燃，留下火海 6 秒（每秒 15）。<br>Throw an incendiary (1.5 s fuse): 40 fire damage in 4 m and ignites, leaving a fire field for 6 s (15/s). |
 | 锁 | **铁索连环** Iron Chains | 锦囊 Trick | 锁住准星处 6 米内至多 3 个敌人 10 秒：火焰与雷电伤害在被锁者之间传导。<br>Chain up to 3 enemies within 6 m of the aim point for 10 s: fire and thunder damage spreads between them. |
-| 乐 | **乐不思蜀** Indulgence (Trap) | 延时锦囊 Delayed Trick | 布置陷阱（1 秒后生效，存在 60 秒）：首个踏入的敌方武将跳舞 3 秒，无法射击与使用技能。<br>Place a trap (arms in 1 s, lasts 60 s): the first enemy hero to step in dances for 3 s, unable to shoot or use abilities. |
-| 粮 | **兵粮寸断** Supply Shortage (Trap) | 延时锦囊 Delayed Trick | 布置陷阱（1 秒后生效，存在 60 秒）：首个踏入的敌方武将定身 2.5 秒并失去 50% 备弹。<br>Place a trap (arms in 1 s, lasts 60 s): the first enemy hero to step in is rooted 2.5 s and loses 50% reserve ammo. |
-| 电 | **闪电** Lightning (Storm Cloud) | 延时锦囊 Delayed Trick | 在准星处召出雷云（18 秒）：以 3.5 米/秒飘向最近的武将（可能是你！），每 3 秒劈下 70 雷电伤害（3 米）。<br>Summon a storm cloud (18 s) that drifts at 3.5 m/s toward the nearest hero — maybe you! — striking for 70 thunder (3 m) every 3 s. |
+| 乐 | **乐不思蜀** Indulgence (Trap) | 延时锦囊 Delayed Trick | 布置隐蔽陷阱（敌人靠近才能发现；1 秒后生效，存在 60 秒）：首个踏入的敌方武将跳舞 3 秒，无法射击与使用技能。<br>Place a hidden trap (enemies only spot it up close; arms in 1 s, lasts 60 s): the first enemy hero to step in dances for 3 s, unable to shoot or use abilities. |
+| 粮 | **兵粮寸断** Supply Shortage (Trap) | 延时锦囊 Delayed Trick | 布置隐蔽陷阱（敌人靠近才能发现；1 秒后生效，存在 60 秒）：首个踏入的敌方武将定身 2.5 秒并失去 50% 备弹。<br>Place a hidden trap (enemies only spot it up close; arms in 1 s, lasts 60 s): the first enemy hero to step in is rooted 2.5 s and loses 50% reserve ammo. |
+| 电 | **闪电** Lightning (Storm Cloud) | 延时锦囊 Delayed Trick | 在准星处召出雷云（18 秒）：以 3.5 米/秒飘向最近的武将（可能是你！），每 3 秒对其下方 3 米内所有人劈下 70 雷电伤害。<br>Summon a storm cloud (18 s) that drifts at 3.5 m/s toward the nearest hero — maybe you! — striking everyone within 3 m below it for 70 thunder every 3 s. |
 | 兵 | **征兵令** Conscription Order | 军令 Utility | 引导 1.5 秒，征召 2 名本国士兵（最多超出带兵上限 2 名）。<br>Channel 1.5 s to recruit 2 soldiers of your kingdom (up to 2 over your squad cap). |
 
 ### 防具与坐骑 · Armor & Mounts

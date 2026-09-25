@@ -2,9 +2,10 @@
 // `?room=CODE` links pre-fill the join code.
 import { settings } from '../../game/settings';
 import type { Screen, UiCtx } from '../ctx';
-import { Bag, h } from '../dom';
+import { Bag, copyText, h } from '../dom';
 import { t, tx } from '../i18n';
 import { button, segmented } from '../widgets';
+import { desktopInfo, detectLocalServer, servedByLocalServer } from '../desktop';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
 export function normalizeRoomCode(raw: string): string {
@@ -35,16 +36,21 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   const el = h('div', { class: 'sg-screen sg-menu-screen sg-online', data: { screen: 'online' } });
   const invited = ctx.pendingRoom();
   let code = invited ? normalizeRoomCode(invited) : '';
-  let mode: 'peer' | 'ws' = settings.get().net.mode;
+  const desktop = desktopInfo();
+  // the desktop app (embedded server) and pages served by `npm run server` relay on
+  // the same origin: default to server mode there (the player can still pick P2P)
+  let mode: 'peer' | 'ws' = desktop ? 'ws' : settings.get().net.mode;
+  let modeTouched = false;
   let busy: 'host' | 'join' | null = null;
   let errorText = '';
+  const sameOrigin = (): boolean => servedByLocalServer() && !settings.get().net.wsUrl.trim();
 
   const render = (): void => {
     const status = h('div', { class: 'sg-online-status', aria: { live: 'polite' } });
     if (busy) status.append(h('span', { class: 'sg-spinner' }), ' ', busy === 'host' ? t('online.hosting') : t('online.connecting'));
     else if (errorText) status.append(h('span', { class: 'err' }, errorText));
 
-    const wsMissing = mode === 'ws' && !settings.get().net.wsUrl.trim();
+    const wsMissing = mode === 'ws' && !settings.get().net.wsUrl.trim() && !servedByLocalServer();
     const codeInput = h('input', {
       class: 'sg-input sg-code-input',
       value: code,
@@ -100,6 +106,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
             { value: 'ws' as const, label: t('online.ws') },
           ], mode, (v) => {
             mode = v;
+            modeTouched = true;
             settings.update({ net: { ...settings.get().net, mode: v } });
             errorText = '';
             render();
@@ -108,6 +115,10 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
           button(t('online.serverSettings'), () => ctx.openSettings('network'), { cls: 'ghost small' }),
         ),
         wsMissing ? h('div', { class: 'sg-warn' }, t('online.noWsUrl')) : null,
+        mode === 'ws' && sameOrigin()
+          ? h('div', { class: 'sg-note' }, tx(`使用本机服务器中继：${location.host}/ws`, `Relaying through this server: ${location.host}/ws`))
+          : null,
+        lanBox(),
         h('div', { class: 'sg-online-cols' },
           h('section', { class: 'col' },
             h('h2', { class: 'sg-h2' }, t('online.host')),
@@ -127,7 +138,36 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     if (invited && !busy) queueMicrotask(() => codeInput.focus());
   };
 
+  /** Desktop app: the LAN addresses friends open in their browser, with copy buttons. */
+  function lanBox(): HTMLElement | null {
+    const urls = desktop?.lanUrls ?? [];
+    if (!desktop) return null;
+    const rows = urls.map((u) =>
+      h('li', { class: 'lan-row' },
+        h('code', { class: 'lan-url' }, u),
+        button(tx('复制', 'Copy'), () => {
+          void copyText(u).then((ok) => ctx.toast(ok ? `${t('common.copied')} · ${u}` : u));
+        }, { cls: 'small dark' }),
+      ),
+    );
+    return h('div', { class: 'sg-lan' },
+      h('h2', { class: 'sg-h2' }, tx('局域网联机', 'LAN play')),
+      h('p', { class: 'sg-mute' }, urls.length
+        ? tx('同一局域网（同一 Wi-Fi / 路由器）的朋友用浏览器打开下面的地址，选择「服务器」模式输入房间码即可加入：', 'Friends on the same network open one of these addresses in a browser, choose Server mode and enter your room code:')
+        : tx('未检测到局域网地址（请检查网络连接）。', 'No LAN address found (check your network connection).')),
+      urls.length ? h('ul', { class: 'lan-list' }, rows) : null,
+    );
+  }
+
   render();
+  // a page served by our own server (LAN / self-host): same-origin relay → default to server mode
+  if (!desktop) {
+    void detectLocalServer().then((ok) => {
+      if (!ok || !el.isConnected) return;
+      if (!modeTouched && !busy && !settings.get().net.wsUrl.trim()) mode = 'ws';
+      if (!busy) render();
+    });
+  }
   // re-evaluate when the server URL is configured from the settings modal
   let lastWs = settings.get().net.wsUrl;
   bag.add(

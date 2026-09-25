@@ -7,6 +7,7 @@ import { Bag, appendChildren, copyText, h } from '../dom';
 import { t, tx } from '../i18n';
 import { button, field, segmented, toggle } from '../widgets';
 import { rolePreview } from './single';
+import { shareBase } from '../desktop';
 
 export interface ChatLine {
   from: string;
@@ -16,8 +17,8 @@ export interface ChatLine {
 
 /** Invite link for a room code, based on the current page URL. */
 export function inviteLink(code: string, loc: { origin: string; pathname: string } = location): string {
-  const origin = loc.origin && loc.origin !== 'null' ? loc.origin : '';
-  return `${origin}${loc.pathname}?room=${encodeURIComponent(code)}`;
+  // desktop app: the page is http://127.0.0.1:<port>/ — friends need the LAN address
+  return `${shareBase(loc)}?room=${encodeURIComponent(code)}`;
 }
 
 export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {

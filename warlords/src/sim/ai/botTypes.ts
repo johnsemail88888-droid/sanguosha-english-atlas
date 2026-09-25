@@ -8,7 +8,8 @@ import type { SimApi } from '../api';
 import type { SimExt } from '../ext';
 import type { Beliefs } from './beliefs';
 import type { DifficultyProfile } from './difficulty';
-import type { WorldObserver } from './observer';
+import type { Sight } from './sight';
+import type { Witness } from './witness';
 
 export interface Threat {
   e: Entity;
@@ -44,7 +45,10 @@ export interface BotView {
   readonly rng: Rng;
   readonly role: RoleId;
   readonly beliefs: Beliefs;
-  readonly obs: WorldObserver;
+  /** what this seat witnessed (per-pair damage memory, quick-chat) */
+  readonly obs: Witness;
+  /** last-seen memory of the other heroes */
+  readonly sight: Sight;
   /** current combat target (may be out of LOS) */
   readonly target: Entity | undefined;
   readonly targetDist: number;
@@ -60,8 +64,17 @@ export interface BotView {
   hostility(e: Entity): number;
   /** 0..1 how much this bot treats `e` (a hero) as an ally */
   allyScore(e: Entity): number;
-  /** believed allied heroes (alive, not downed unless asked) */
-  allies(includeDowned?: boolean): Entity[];
+  /**
+   * believed allied heroes (alive, not downed unless asked) whose position this
+   * seat knows (seen / on the minimap within `maxAge` s, default 2)
+   */
+  allies(includeDowned?: boolean, maxAge?: number): Entity[];
+  /** where this seat last knew hero `e` to be, if within `maxAge` s (self: exact) */
+  posOf(e: Entity, maxAge?: number): Vec3 | undefined;
+  /** HP fraction of `e` as last seen (1 = never seen / assume healthy; self: exact) */
+  hpFrac(e: Entity): number;
+  /** is hero `e` in plain sight right now? */
+  seesNow(e: Entity): boolean;
   /** position this bot wants to be at for the zone (null = already fine) */
   zoneGoal(): Vec3 | null;
 }
