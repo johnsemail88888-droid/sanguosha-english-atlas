@@ -16,6 +16,7 @@ import type {
   RoleId,
   StatusId,
   SquadOrder,
+  WeaponInstance,
 } from '../core/types';
 import type { AbilityDef, HeroDef, ItemDef } from '../data/types';
 
@@ -35,14 +36,23 @@ export interface DamageRequest {
   /** prevents reflect/thorns loops */
   noReflect?: boolean;
   knockback?: number;
-  /** internal: damage already redirected once (流离) */
+  /**
+   * damage handed over from another victim (曹操 护驾, 大乔 流离 via SimExt.redirectDamage):
+   * `amount` already includes the attacker's outgoing multipliers, so the attacker's
+   * beforeDamageDealt hooks and outgoing step are skipped, and 无懈可击 never cancels it.
+   * Incoming modifiers (armor, dmgTaken*, the new victim's hooks), shield, reflect and
+   * lifesteal apply as usual.
+   */
   redirected?: boolean;
+  /** 无懈可击 cannot cancel this hit (决斗's penalty: the duel itself was already nullify-checked) */
+  noNullify?: boolean;
 }
 
 export interface DamageResult {
   dealt: number; // hp lost
   absorbed: number; // shield absorbed
-  blocked?: 'dodge' | 'armor' | 'invuln' | 'shield' | 'nullify';
+  /** 'redirect' = the victim handed the hit to another unit (SimExt.redirectDamage, 流离) */
+  blocked?: 'dodge' | 'armor' | 'invuln' | 'shield' | 'nullify' | 'redirect';
   killed: boolean; // downed or died
 }
 
@@ -164,6 +174,11 @@ export interface ItemCtx {
   /** resolved target (for ally/enemy targeting) */
   target?: Entity;
   point?: Vec3;
+  /**
+   * set by use(): where the card really took effect (a thrown grenade stopped by a
+   * wall) — the world's { t: 'itemUse' } event carries it instead of `point`
+   */
+  eventPos?: Vec3;
 }
 
 export interface ItemImpl {
@@ -228,7 +243,16 @@ export interface SimApi {
   spawnTroops(commanderId: EntityId, troopType: string, count: number, pos?: Vec3, opts?: { temporary?: number }): Entity[];
   spawnNpc(npcType: string, pos: Vec3, opts?: { summonerId?: EntityId; lifetime?: number; leash?: number }): Entity;
   spawnTurret(ownerId: EntityId, pos: Vec3, kind: string, weaponId: string, lifetime: number, hp: number): Entity;
-  spawnLoot(pos: Vec3, what: { itemId?: string; weaponId?: string; count?: number }): Entity;
+  /**
+   * Drop loot. `ammo`: the magazine / reserve of a dropped weapon; `lock`: the given
+   * hero cannot pick it up (walk-over or F) for `seconds` (过河拆桥 knocks gear away).
+   */
+  spawnLoot(
+    pos: Vec3,
+    what: { itemId?: string; weaponId?: string; count?: number },
+    ammo?: WeaponInstance,
+    lock?: { heroId: EntityId; seconds: number },
+  ): Entity;
   removeEntity(id: EntityId): void;
 
   /** add to first free item slot / stack; returns false if full (then drops as loot) */

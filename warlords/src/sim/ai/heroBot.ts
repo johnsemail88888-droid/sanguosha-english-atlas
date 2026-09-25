@@ -136,6 +136,9 @@ export class HeroBot implements BotBrain, BotView {
   private splashBlockedUntil = 0;
   private hazardAt = 0;
   private attackersTick = -1;
+  private memoAt = -1;
+  private readonly hstMemo = new Map<EntityId, number>();
+  private readonly allyMemo = new Map<EntityId, number>();
   private readonly attackersCache = new Set<EntityId>();
   private hazardDir: { x: number; z: number } | null = null;
   readonly stats: BotStats = { abilities: 0, items: 0, shotsFired: 0, revivesStarted: 0, cratesOpened: 0, claims: 0, quickchats: 0, stuckEvents: 0 };
@@ -217,12 +220,34 @@ export class HeroBot implements BotBrain, BotView {
 
   // ── BotView helpers ─────────────────────────────────────────────────────
   hostility(e: Entity): number {
-    if (e.kind === 'hero') return this.strategy!.heroHostility(this, e);
-    return this.unitHostility(e);
+    if (e.kind !== 'hero') return this.unitHostility(e);
+    // memoised per tick: scans, soldiers' target filters and area checks ask about the same heroes
+    this.memoTick();
+    let v = this.hstMemo.get(e.id);
+    if (v === undefined) {
+      v = this.strategy!.heroHostility(this, e);
+      this.hstMemo.set(e.id, v);
+    }
+    return v;
   }
 
   allyScore(e: Entity): number {
-    return this.strategy!.allyScore(this, e);
+    this.memoTick();
+    let v = this.allyMemo.get(e.id);
+    if (v === undefined) {
+      v = this.strategy!.allyScore(this, e);
+      this.allyMemo.set(e.id, v);
+    }
+    return v;
+  }
+
+  private memoTick(): void {
+    const t = this.sim.tick;
+    if (t !== this.memoAt) {
+      this.memoAt = t;
+      this.hstMemo.clear();
+      this.allyMemo.clear();
+    }
   }
 
   wouldEngage(e: Entity): boolean {

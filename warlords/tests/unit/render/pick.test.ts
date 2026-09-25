@@ -4,7 +4,7 @@ import type { Entity, ViewEntity } from '../../../src/core/types';
 import { VF_DEAD, VF_DOWNED, VF_MOUNTED } from '../../../src/core/types';
 import { HEROES, TROOPS } from '../../../src/data';
 import { MOUNTED_HERO_SIZE, PickWorld, colliderAabb, entityShape, rayCollider, unitSizeOf } from '../../../src/render/camera/pick';
-import { hitbox } from '../../../src/sim/combat';
+import { hitRadius, hitbox } from '../../../src/sim/combat';
 import { CHAR_HEIGHT, CHAR_RADIUS } from '../../../src/sim/physics';
 import { unitSize } from '../../../src/sim/troops';
 
@@ -157,7 +157,8 @@ describe('PickWorld', () => {
   });
 
   it('mirrors the sim hitbox (body cylinder + head sphere) for heroes, standing and downed', () => {
-    const fake = (height: number, downed: boolean): Entity => ({ kind: 'hero', height, hero: { downed } }) as unknown as Entity;
+    const fake = (height: number, downed: boolean, mount: string | null = null): Entity =>
+      ({ kind: 'hero', height, radius: CHAR_RADIUS, hero: { downed, heroId: 'guanyu', mount } }) as unknown as Entity;
     for (const [flags, downed] of [
       [0, false],
       [VF_DOWNED, true],
@@ -170,12 +171,17 @@ describe('PickWorld', () => {
       expect(s.headY).toBeCloseTo(hb.headY, 9);
       expect(s.headR).toBeCloseTo(hb.headR, 9);
     }
-    // a unit of the mounted size gets the same formula
-    const mounted = hitbox(fake(MOUNTED_HERO_SIZE.height, false));
+    // riders: the sim's own mounted hit box (SIM_REQUESTS RENDER-1) == what pick() uses == where the rider is drawn
+    const rider = fake(CHAR_HEIGHT, false, 'chitu');
+    const mounted = hitbox(rider);
     const ms = entityShape({ ...ent(1, 0, 0, VF_MOUNTED), mount: 'chitu' })!;
+    expect(ms.r).toBe(hitRadius(rider));
     expect(ms.r).toBe(MOUNTED_HERO_SIZE.radius);
+    expect(ms.h).toBeCloseTo(mounted.height, 9);
     expect(ms.headY).toBeCloseTo(mounted.headY, 9);
     expect(ms.bodyTop).toBeCloseTo(mounted.bodyTop, 9);
+    // a downed rider is a prone foot capsule on both sides
+    expect(entityShape({ ...ent(1, 0, 0, VF_MOUNTED | VF_DOWNED), mount: 'chitu' })!.h).toBeCloseTo(hitbox(fake(CHAR_HEIGHT, true, 'chitu')).height, 9);
   });
 
   it('always-mounted heroes (HeroVisual.mount) use the mounted capsule; the head sphere is a head shot target', () => {
@@ -184,12 +190,26 @@ describe('PickWorld', () => {
     const e = { ...ent(1, 0, -10), sub: rider!.id };
     const s = entityShape(e)!;
     expect(s.h).toBe(MOUNTED_HERO_SIZE.height);
+    // same box as the sim for the innate mount (no mount item, no VF_MOUNTED)
+    const simRider = { kind: 'hero', height: CHAR_HEIGHT, radius: CHAR_RADIUS, hero: { downed: false, heroId: rider!.id, mount: null } } as unknown as Entity;
+    expect(s.headY).toBeCloseTo(hitbox(simRider).headY, 9);
+    expect(s.r).toBe(hitRadius(simRider));
     const w = new PickWorld(flatMap([]));
     // a ray at the rider's head height (2.0 m) hits; on foot the same ray would pass over the head
     const o = { x: 0, y: s.headY, z: 0 };
     const d = { x: 0, y: 0, z: -1 };
     expect(w.raycast(o, d, 100, { entities: [e] })?.entityId).toBe(1);
     expect(w.raycast(o, d, 100, { entities: [{ ...ent(1, 0, -10) }] })?.entityId).toBeUndefined();
+  });
+
+  it('does not lock onto troops the renderer hides (beyond maxUnitDist); heroes always pickable', () => {
+    const w = new PickWorld(flatMap([]));
+    const o = { x: 0, y: 1, z: 0 };
+    const d = { x: 0, y: 0, z: -1 };
+    const troop = { ...ent(5, 0, -50, 0, 'troop'), sub: 'shu_rifleman' };
+    expect(w.raycast(o, d, 100, { entities: [troop] })?.entityId).toBe(5);
+    expect(w.raycast(o, d, 100, { entities: [troop], maxUnitDist: 40 })?.entityId).toBeUndefined();
+    expect(w.raycast(o, d, 100, { entities: [ent(6, 0, -50)], maxUnitDist: 40 })?.entityId).toBe(6);
   });
 
   it('crates and airdrops use the sim sizes (aimTargetId steers F-interact)', () => {

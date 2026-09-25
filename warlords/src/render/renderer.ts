@@ -10,11 +10,11 @@ import type { Vec3 } from '../core/math';
 import { dirFromYawPitch } from '../core/math';
 import type { EntityId, GameEvent, ViewEntity } from '../core/types';
 import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
-import { LocalFirePredictor, type LocalFireGate } from './localFire';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { ViewSource } from './view';
 import { HERO_VIEW_RANGE, qualityPreset, type QualityPreset } from './quality';
+import { LocalFirePredictor, type LocalFireGate } from './localFire';
 import { sharedUniforms, disposeSharedMaterials } from './core/materials';
 import { SKY } from './palette';
 import { createSkyLayer, type SkyLayer } from './scene/sky';
@@ -331,6 +331,7 @@ export class GameRenderer {
       entities: this.view.entities(),
       ignore: localId,
       minDist,
+      maxUnitDist: this.preset.characterDistance,
     });
     if (!hit) return { aimPoint: { x: origin.x + dir.x * maxDist, y: origin.y + dir.y * maxDist, z: origin.z + dir.z * maxDist } };
     return hit.entityId !== undefined ? { aimPoint: hit.point, aimTargetId: hit.entityId } : { aimPoint: hit.point };

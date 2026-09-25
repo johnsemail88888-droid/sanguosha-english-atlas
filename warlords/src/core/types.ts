@@ -234,6 +234,11 @@ export interface HazardState {
   params: Record<string, number>;
   /** entity that follows (lightning cloud following a hero) */
   followId?: EntityId;
+  /**
+   * the field hurts / hinders units not on its owner's side (damage, strikes, slow,
+   * a debuff status, or a custom kind registered as harmful). Absent on old snapshots.
+   */
+  harmful?: boolean;
 }
 
 export interface Entity {
@@ -253,8 +258,11 @@ export interface Entity {
   kingdom?: Kingdom;
   ownerId?: EntityId;
   statuses: StatusInstance[];
-  /** forced movement (dash/knockback) overrides input movement until `until` */
-  forced?: { vel: Vec3; until: number; invuln?: boolean };
+  /**
+   * forced movement (dash/knockback) overrides input movement on every tick with
+   * time < `until`; `dash` marks the unit's own dash (not a knockback / pull)
+   */
+  forced?: { vel: Vec3; until: number; invuln?: boolean; dash?: boolean };
   lastDamagedBy?: EntityId;
   lastDamagedAt?: number;
   hero?: HeroState;
@@ -340,11 +348,21 @@ export type GameEvent = EventRouting &
         dtype: DamageType;
         pos: Vec3;
         head?: boolean;
-        blocked?: 'dodge' | 'armor' | 'invuln' | 'shield' | 'nullify';
+        /** 'redirect': the victim handed the hit to another unit (大乔 流离) — the shooter sees "deflected" */
+        blocked?: 'dodge' | 'armor' | 'invuln' | 'shield' | 'nullify' | 'redirect';
       }
     | { t: 'explosion'; pos: Vec3; radius: number; kind: string }
     | { t: 'melee'; src: EntityId; pos: Vec3; dir: Vec3; range: number; arc: number }
-    | { t: 'ability'; src: EntityId; ability: string; pos?: Vec3; target?: EntityId; dir?: Vec3 }
+    | {
+        t: 'ability';
+        src: EntityId;
+        ability: string;
+        pos?: Vec3;
+        target?: EntityId;
+        dir?: Vec3;
+        /** a passive trigger (奸雄, 流离, 连营 …), not an activation: no cast gesture, a lighter cue */
+        proc?: boolean;
+      }
     | { t: 'status'; target: EntityId; status: StatusId; on: boolean }
     | { t: 'heal'; target: EntityId; amount: number; src?: EntityId }
     | { t: 'downed'; target: EntityId; src?: EntityId }

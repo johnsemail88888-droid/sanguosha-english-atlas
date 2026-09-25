@@ -10,7 +10,11 @@
 //   HazardSpec.status  status applied to every affected unit
 //   HazardSpec.triggerOnce  first enemy unit inside triggers everything once, then it expires
 //   HazardSpec.followId     hazard follows that entity
+//   group    fields of one cast that share (owner, group) do not stack: a unit
+//            standing where several overlap is damaged by one of them per tick
 // Owner-side units are unaffected by damage/status unless affectsOwner.
+// A field only reaches units on its own floor: nobody under a roof it burns on,
+// nobody on a roof above it (see onFieldFloor).
 // Wave-2 code can register custom per-kind logic with registerHazardKind().
 // 无懈可击: lingering field ticks (damage / slow / status, custom kind ticks)
 // neither consume nor are blocked by nullify; discrete effects — a trap
@@ -18,6 +22,8 @@
 import type { DamageType, Entity, StatusId } from '../core/types';
 import type { HazardSpec, SimApi } from './api';
 import { warnOnce } from './defs';
+import { isDebuff } from './ext';
+import { groundAt } from './physics';
 import type { World } from './world';
 
 export interface HazardRuntime {
@@ -27,10 +33,29 @@ export interface HazardRuntime {
   triggerOnce: boolean;
 }
 
+/** What a custom kind's tick may need from the hazard's spec (private runtime otherwise). */
+export interface HazardTickInfo {
+  dtype: DamageType;
+  status?: { id: StatusId; duration: number; params?: Record<string, number> };
+  affectsOwner: boolean;
+  triggerOnce: boolean;
+}
+
 export interface HazardKindImpl {
   kind: string;
-  /** called each hazard tick with the units inside; return true to skip the generic behaviour */
-  tick?(sim: SimApi, hazard: Entity, affected: Entity[]): boolean | void;
+  /**
+   * called each hazard tick with the units inside (on the field's floor); return
+   * true to skip the generic behaviour. Runs as a periodic area tick (never
+   * consumes 无懈可击) unless `discrete`.
+   */
+  tick?(sim: SimApi, hazard: Entity, affected: Entity[], rt: HazardTickInfo): boolean | void;
+  /**
+   * the tick is a discrete trick (a trap springing, a lightning bolt): its hostile
+   * effects consume / are cancelled by 无懈可击 like an ability's
+   */
+  discrete?: boolean;
+  /** units stepping in are hurt / hindered (HazardState.harmful for brains) even without generic params */
+  harmful?: boolean;
   /** called every sim tick (movement etc.) */
   update?(sim: SimApi, hazard: Entity, dt: number): void;
   onExpire?(sim: SimApi, hazard: Entity): void;
@@ -47,6 +72,44 @@ export function getHazardKind(kind: string): HazardKindImpl | undefined {
 }
 
 const UNIT_KINDS: Entity['kind'][] = ['hero', 'troop', 'npc', 'turret'];
+
+/**
+ * Does a field of this spec hurt / hinder units (HazardState.harmful, AI-3)?
+ * damage / strike / slow params, a debuff status, or a custom kind flagged harmful.
+ */
+export function hazardIsHarmful(spec: HazardSpec): boolean {
+  const p = spec.params ?? {};
+  if ((p.damage ?? 0) > 0 || (p.strike ?? 0) > 0 || (p.slow ?? 0) > 0 || (p.dps ?? 0) > 0) return true;
+  if (spec.status && isDebuff(spec.status.id)) return true;
+  return KINDS.get(spec.kind)?.harmful === true;
+}
+
+/**
+ * Is `u` on the field's own floor? The surface the field would lie on at the
+ * unit's spot (terrain, or a roof / deck no higher than the field + 2 m) must be
+ * under the unit's feet: nobody under a burning roof, nobody on a roof above a
+ * ground fire, while hillsides and low crates stay inside.
+ */
+function onFieldFloor(w: World, h: Entity, u: Entity): boolean {
+  const surf = groundAt(w.cw, u.pos.x, u.pos.z, h.pos.y + 2);
+  return u.pos.y >= surf - 0.6 && u.pos.y <= surf + 2.5;
+}
+
+/** Per world: units already damaged this tick by a field of (owner, group). */
+const groupHits = new WeakMap<World, { tick: number; hit: Set<string> }>();
+
+function groupHitSet(w: World): Set<string> {
+  let g = groupHits.get(w);
+  if (!g) {
+    g = { tick: w.tick, hit: new Set() };
+    groupHits.set(w, g);
+  }
+  if (g.tick !== w.tick) {
+    g.tick = w.tick;
+    g.hit.clear();
+  }
+  return g.hit;
+}
 
 export function hazardRuntimeFrom(spec: HazardSpec): HazardRuntime {
   return {
@@ -109,15 +172,18 @@ export function updateHazards(w: World, list: readonly Entity[], dt: number): vo
     const rt = w.hazardRt.get(h.id) ?? { dtype: 'fire' as DamageType, affectsOwner: false, triggerOnce: false };
     const owner = h.ownerId;
     const ownerCredit = w.creditOf(owner);
-    const inside = w.queryRadius(h.pos, hz.radius, { kinds: UNIT_KINDS }).filter((u) => !u.hero?.dead);
+    const inside = w.queryRadius(h.pos, hz.radius, { kinds: UNIT_KINDS }).filter((u) => !u.hero?.dead && onFieldFloor(w, h, u));
     const enemies = inside.filter(
       (u) => rt.affectsOwner || ownerCredit === undefined || w.creditOf(u.id) !== ownerCredit,
     );
     if (impl?.tick) {
       let skip: boolean | void | undefined;
-      periodic(w, () => {
-        skip = safeKind(w, h, impl, () => impl.tick!(w, h, inside));
-      });
+      const info: HazardTickInfo = { dtype: rt.dtype, status: rt.status, affectsOwner: rt.affectsOwner, triggerOnce: rt.triggerOnce };
+      const run = (): void => {
+        skip = safeKind(w, h, impl, () => impl.tick!(w, h, inside, info));
+      };
+      if (impl.discrete) run();
+      else periodic(w, run);
       if (skip) continue;
     }
     if (rt.triggerOnce) {
@@ -153,7 +219,16 @@ function fieldEffects(w: World, h: Entity, rt: HazardRuntime, enemies: Entity[],
   const p = hz.params;
   const owner = h.ownerId;
   if ((p.damage ?? 0) > 0) {
+    // fields of one cast (same owner + params.group) don't stack where they overlap
+    const group = p.group;
+    const seen = group !== undefined ? groupHitSet(w) : undefined;
+    const gk = seen ? `${owner ?? -1}|${group}|` : '';
     for (const u of enemies) {
+      if (seen) {
+        const k = gk + u.id;
+        if (seen.has(k)) continue;
+        seen.add(k);
+      }
       w.dealDamage({ targetId: u.id, sourceId: owner, amount: p.damage, type: rt.dtype, canDodge: false, abilityId: hz.kind, pos: w.centerOf(u) });
     }
   }

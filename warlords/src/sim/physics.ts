@@ -488,6 +488,19 @@ function approach(v: number, target: number, maxDelta: number): number {
   return target;
 }
 
+/**
+ * When forced movement (dash / knockback) ends, the unit keeps at most `maxSpeed`
+ * of its horizontal velocity instead of sliding on for v²/(2·GROUND_ACCEL) m
+ * (SHU-1). Shared by the host (world / troops) and client prediction.
+ */
+export function brakeForcedEnd(vel: { x: number; z: number }, maxSpeed: number): void {
+  const v = Math.hypot(vel.x, vel.z);
+  if (!(v > maxSpeed) || v < 1e-9) return;
+  const k = maxSpeed / v;
+  vel.x *= k;
+  vel.z *= k;
+}
+
 /** Forced movement (dash / knockback): move with the given horizontal velocity, sliding along walls. */
 export function forcedMove(
   cw: CollisionWorld,

@@ -28,6 +28,12 @@ export interface PickOptions {
   minDist?: number;
   /** include the water surface (default true) */
   water?: boolean;
+  /**
+   * troops / NPCs farther than this from the ray origin are skipped (the
+   * renderer hides them beyond the preset's characterDistance, so the
+   * crosshair must not lock onto them); heroes are always pickable
+   */
+  maxUnitDist?: number;
 }
 
 /**
@@ -198,10 +204,12 @@ export class PickWorld {
     // 4. entities
     if (opts.entities) {
       const ign = opts.ignore;
+      const maxUnit2 = opts.maxUnitDist !== undefined ? opts.maxUnitDist * opts.maxUnitDist : Infinity;
       for (const e of opts.entities) {
         if (ign !== undefined && ign !== null) {
           if (typeof ign === 'number' ? e.id === ign : ign.has(e.id)) continue;
         }
+        if ((e.kind === 'troop' || e.kind === 'npc') && (e.x - origin.x) ** 2 + (e.y - origin.y) ** 2 + (e.z - origin.z) ** 2 > maxUnit2) continue;
         const s = entityShape(e);
         if (!s) continue;
         const t = rayEntityShape(origin, dir, e.x, e.y, e.z, s);

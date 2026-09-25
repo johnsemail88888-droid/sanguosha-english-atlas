@@ -29,10 +29,12 @@ import type {
   SquadOrder,
   SquadOrderKind,
   StatusId,
+  StatusInstance,
   WeaponInstance,
   ZoneView,
 } from '../core/types';
 import { BTN_ADS, BTN_FIRE, SIM_DT, emptyInput } from '../core/types';
+import type { GameMode } from '../core/types';
 import { ROLE_BY_ID, isPassiveAbility } from '../data';
 import type { AbilityDef, HeroDef, WeaponDef } from '../data/types';
 import { NAV_MAIN, buildNavGrid, locateNode, findPath as navFindPath } from './map/nav';
@@ -71,10 +73,12 @@ import {
   heroFire,
   makeProjectileState,
   raycastAll,
+  redirectDamage as redirectDamageImpl,
   startReload,
   tickReload,
   updateProjectiles,
 } from './combat';
+import type { DamageFrame } from './combat';
 import {
   heroDef,
   maxReserve,
@@ -84,9 +88,9 @@ import {
   warnOnce,
   weaponDef,
 } from './defs';
-import type { HitscanOptions, ResolvedModifiers, SimExt } from './ext';
+import type { AbilityCast, HitscanOptions, PublicEventEntry, ResolvedModifiers, SimExt, StripOptions } from './ext';
 import { DEBUFF_STATUSES, defaultModifiers } from './ext';
-import { hazardRuntimeFrom, updateHazards } from './hazards';
+import { hazardIsHarmful, hazardRuntimeFrom, updateHazards } from './hazards';
 import type { HazardRuntime } from './hazards';
 import { isHostile, knownRoleFor } from './hostility';
 import './items';
@@ -103,6 +107,8 @@ import type { CollisionWorld, MoveMods, MoveState } from './physics';
 import {
   CHAR_HEIGHT,
   CHAR_RADIUS,
+  WALK_SPEED,
+  brakeForcedEnd,
   buildCollisionWorld,
   findFreeSpot,
   findOpenGround,
@@ -131,6 +137,7 @@ import {
   findStatus,
   nullifyEffect,
   removeStatusFrom,
+  removeStatusIf,
   revealedTo,
   statusParamOf,
   statusSpeedMul,
@@ -194,6 +201,8 @@ export interface HeroRuntime {
   channelItem?: { id: string; point?: Vec3; revive: boolean };
   /** locomotion state wrapper (shares pos/vel with the entity) */
   move: MoveState;
+  /** tick of the last movement step (dashes / knockbacks started later in a tick begin next tick) */
+  movedTick: number;
 }
 
 export interface PlayerSlot {
@@ -219,7 +228,10 @@ interface Scheduled {
 
 const UNIT_KINDS: EntityKind[] = ['hero', 'troop', 'npc', 'turret'];
 const MAX_ACTIONS_PER_TICK = 24;
-const BASE_DODGE_CHARGES = 2;
+/** dodge-roll charges of every hero (+ modifiers().extraDodgeCharges) — SimExt.maxDodgeCharges */
+export const BASE_DODGE_CHARGES = 2;
+/** public events kept for SimExt.publicEventsSince (AI-1) */
+export const PUBLIC_EVENT_LOG = 2048;
 const DODGE_RECHARGE = 8;
 const DODGE_DISTANCE = 4.5;
 const DODGE_TIME = 0.35;
@@ -266,10 +278,17 @@ export class World implements SimExt, SimHost {
   readonly slots: PlayerSlot[] = [];
   readonly hazardRt = new Map<EntityId, HazardRuntime>();
   readonly projPierced = new Map<EntityId, Set<EntityId>>();
+  /** projectiles whose kind's onDetonate already ran (combat.ts registerProjectileKind) */
+  readonly projDetonated = new Set<EntityId>();
+  /** hits being resolved right now (combat.ts dealDamage; SimExt.redirectDamage) */
+  readonly dmgStack: DamageFrame[] = [];
   readonly projHoming = new Map<EntityId, { targetId: EntityId; turnRate: number }>();
   readonly freezeStacks = new Map<EntityId, { stacks: number; until: number; immuneUntil: number }>();
   readonly scratchHits = new Map<EntityId, { amount: number; head: boolean; pos: Vec3; dist: number }>();
   chainSpreading = false;
+  /** 铁索连环 dedupe (QUN-7): strike key → units that took that strike this tick */
+  private readonly chainHits = new Map<string, Set<EntityId>>();
+  private chainHitsTick = -1;
   viewDirty = false;
   /**
    * Hero whose ability / item / scheduled code is running right now. Effects
@@ -287,6 +306,9 @@ export class World implements SimExt, SimHost {
   private kindLists: Map<EntityKind, Entity[]> | null = null;
   private hittableList: Entity[] | null = null;
   private events: GameEvent[] = [];
+  /** ring buffer of public events (SimExt.publicEventsSince) */
+  private readonly pubLog: (PublicEventEntry | undefined)[] = new Array<PublicEventEntry | undefined>(PUBLIC_EVENT_LOG);
+  private pubSeq = 0;
   private slotByPlayer = new Map<PlayerId, PlayerSlot>();
   private slotByEntity = new Map<EntityId, PlayerSlot>();
   private heroRts = new Map<EntityId, HeroRuntime>();
@@ -311,6 +333,8 @@ export class World implements SimExt, SimHost {
   private pathDebt = 0;
   private readonly pathCache = new Map<string, { path: Vec3[] | null; at: number }>();
   private zoneDamageAt = ZONE_DAMAGE_PERIOD;
+  /** tick in which troops / NPCs already ran their movement step */
+  private unitsMovedTick = -1;
   private readonly cs: ControlState = { stunned: false, rooted: false, silenced: false, disarmed: false, dancing: false, frozen: false };
   private readonly moveMods: MoveMods = { speedMul: 1, canSprint: true, canJump: true, rooted: false, ads: false, downed: false };
 
@@ -425,6 +449,7 @@ export class World implements SimExt, SimHost {
         lastArmor: null,
         lastMount: null,
         move: { pos: e.pos, vel: e.vel, onGround: true },
+        movedTick: -1,
       };
       this.heroRts.set(e.id, rt);
       const slot: PlayerSlot = {
@@ -449,12 +474,7 @@ export class World implements SimExt, SimHost {
     for (const e of heroes) {
       const seat = seats.find((s) => s.seat === e.hero!.seat)!;
       const def = this.heroRts.get(e.id)!.def;
-      if (this.opts.squads !== false) {
-        // 影武者 also gets the lord's +2 so the disguise holds (its tell is the missing lord skill)
-        const lordBonus = seat.role === 'lord' || seat.role === 'double' ? 2 : 0;
-        const count = Math.max(0, this.settings.troopsPerHero + def.troopBonus + lordBonus + this.modifiers(e.id).squadBonus);
-        spawnSquad(this, e, def.troopType, count);
-      }
+      if (this.opts.squads !== false) spawnSquad(this, e, def.troopType, this.squadCap(e.id));
       if (seat.role === 'bounty') this.assignInitialBounty(e, seat, heroes);
     }
   }
@@ -647,6 +667,7 @@ export class World implements SimExt, SimHost {
     updateTroops(this, this.kindList('troop'), this.troopBrain, dt);
     if (prof) t = this.lap('troops', t);
     updateNpcs(this, this.kindList('npc'), this.npcBrain, dt);
+    this.unitsMovedTick = this.tick;
     if (prof) t = this.lap('npcs', t);
     updateTurrets(this, this.kindList('turret'), dt);
     this.rebuildGrid();
@@ -902,7 +923,10 @@ export class World implements SimExt, SimHost {
       h.sprinting = false;
     } else {
       if (e.forced) {
+        // forced movement over: stop at walking speed instead of sliding on (SHU-1);
+        // net/clientView brakes on the same tick (you.forced remaining 0 = brake pending)
         e.forced = undefined;
+        brakeForcedEnd(e.vel, WALK_SPEED);
       }
       const mm = this.heroMoveMods(e, rt, cs, wantAds);
       const mv = jump ? { ...input, actions: [{ a: 'jump' } as InputAction] } : input;
@@ -911,6 +935,7 @@ export class World implements SimExt, SimHost {
       h.sprinting = st.sprinting === true;
       rt.lastMoveMods = { speedMul: mm.speedMul, canSprint: mm.canSprint, canJump: mm.canJump, rooted: mm.rooted, sprintAds: mm.sprintAds === true };
     }
+    rt.movedTick = this.tick;
     // aiming state (spread, VF_ADS): same precedence rule as predictMove
     h.ads = wantAds && !h.downed && !cs.stunned && !cs.dancing && (!h.sprinting || rt.mods.sprintAds);
     if (!cs.stunned) {
@@ -1063,8 +1088,10 @@ export class World implements SimExt, SimHost {
       return;
     }
     const before = h.cooldowns[id];
-    const ctx = this.abilityCtx(e, entry.def);
+    const ctx: AbilityCtx & { cast?: AbilityCast } = this.abilityCtx(e, entry.def);
     const impl = entry.impl;
+    // decided before the cast: casting 白衣渡江 from plain sight stays public (the puff where he vanished)
+    const hidden = findStatus(e, 'stealth', this.time) !== undefined && !revealedTo(e, undefined, this.time);
     let ok = false;
     const prevActor = this.actorId;
     this.actorId = e.id;
@@ -1084,15 +1111,18 @@ export class World implements SimExt, SimHost {
     } else if (h.cooldowns[id] === before) {
       h.cooldowns[id] = this.time + cd;
     }
-    const ray = this.aimRay(e);
-    this.emit({
+    // where the cast really happened (ctx.cast, SHU-3): copied verbatim, defaults for the rest
+    const c = ctx.cast;
+    const ev: GameEvent = {
       t: 'ability',
       src: e.id,
       ability: id,
-      pos: this.aimPoint(e, 60),
-      target: rt.input.aimTargetId,
-      dir: ray.dir,
-    });
+      pos: c?.pos ? { x: c.pos.x, y: c.pos.y, z: c.pos.z } : this.aimPoint(e, 60),
+      target: c?.target ?? rt.input.aimTargetId,
+      dir: c?.dir ? { x: c.dir.x, y: c.dir.y, z: c.dir.z } : this.aimRay(e).dir,
+    };
+    // a stealthed caster's cast must not give its position away (WU-2)
+    this.emit(hidden ? { ...ev, privateTo: e.id } : ev);
   }
 
   private switchWeapon(e: Entity, slot: number): void {
@@ -1148,12 +1178,14 @@ export class World implements SimExt, SimHost {
     inv.setArmor(this, heroId, id);
   }
 
-  dismount(heroId: EntityId): void {
-    inv.dismount(this, heroId);
+  /** SimExt.dismount: with opts.sourceId an enemy's strip is gated by 无懈可击 (WU-4). */
+  dismount(heroId: EntityId, opts?: StripOptions): boolean {
+    return inv.dismount(this, heroId, opts);
   }
 
-  stripArmor(heroId: EntityId, drop = true): void {
-    inv.stripArmor(this, heroId, drop);
+  /** SimExt.stripArmor: with opts.sourceId an enemy's strip is gated by 无懈可击 (WU-4). */
+  stripArmor(heroId: EntityId, drop = true, opts?: StripOptions): boolean {
+    return inv.stripArmor(this, heroId, drop, opts);
   }
 
   /** 主公误杀忠臣: drop every item, armor, mount and the secondary weapon. */
@@ -1806,6 +1838,7 @@ export class World implements SimExt, SimHost {
       params: { ...spec.params },
       followId: spec.followId,
     };
+    if (hazardIsHarmful(spec)) e.hazard.harmful = true;
     this.hazardRt.set(e.id, hazardRuntimeFrom(spec));
     return e;
   }
@@ -1859,6 +1892,7 @@ export class World implements SimExt, SimHost {
     this.history.remove(id);
     this.hazardRt.delete(id);
     this.projPierced.delete(id);
+    this.projDetonated.delete(id);
     this.projHoming.delete(id);
     this.turretAis.delete(id);
     this.expiries.delete(id);
@@ -1873,14 +1907,47 @@ export class World implements SimExt, SimHost {
   }
 
   // ── movement effects ────────────────────────────────────────────────────
+  /**
+   * Dash (forced movement). It moves on n = ⌈duration / SIM_DT⌉ whole ticks at
+   * distance / (n·SIM_DT) — the same ticks a plain `until = time + duration`
+   * would move on, but covering exactly `distance` (SHU-1): `until` sits half a
+   * tick past the last movement tick, so float rounding can never add or drop
+   * one. A dash started after the unit already moved this tick begins next tick.
+   * When it ends, the unit keeps walking speed at most (no slide).
+   */
   dash(id: EntityId, dir: Vec3, distance: number, duration: number, opts?: { invuln?: boolean }): void {
     const e = this.get(id);
     if (!e || !e.alive || e.hero?.dead || e.kind === 'projectile') return;
     if (this.nullifies(e)) return; // an enemy dragging you (pull) is an ability effect
     const l = Math.hypot(dir.x, dir.z);
-    if (l < 1e-6 || !(duration > 0)) return;
-    const speed = distance / duration;
-    e.forced = { vel: { x: (dir.x / l) * speed, y: 0, z: (dir.z / l) * speed }, until: this.time + duration, invuln: opts?.invuln };
+    if (l < 1e-6 || !(duration > 0) || !Number.isFinite(distance)) return;
+    const n = Math.max(1, Math.ceil(duration / SIM_DT - 1e-6));
+    const speed = distance / (n * SIM_DT);
+    const start = this.movedThisTick(e) ? this.time + SIM_DT : this.time;
+    e.forced = { vel: { x: (dir.x / l) * speed, y: 0, z: (dir.z / l) * speed }, until: start + (n - 0.5) * SIM_DT, invuln: opts?.invuln, dash: true };
+  }
+
+  /** Has `e` already run its movement step this tick? (heroes: their updateHero; units: the troop/NPC phase) */
+  private movedThisTick(e: Entity): boolean {
+    if (e.hero) return this.heroRts.get(e.id)?.movedTick === this.tick;
+    return this.unitsMovedTick === this.tick;
+  }
+
+  /** SimExt.endDash (WEI-6): stop the unit's own dash now, at walking speed at most. */
+  endDash(id: EntityId): void {
+    const e = this.get(id);
+    if (!e?.forced || !e.forced.dash) return;
+    e.forced = undefined;
+    brakeForcedEnd(e.vel, WALK_SPEED);
+  }
+
+  /** SimExt.dropAggro (SHU-4, 空城): drop the unit's target and hold acquisition for `seconds`. */
+  dropAggro(unitId: EntityId, seconds: number): void {
+    const u = this.get(unitId);
+    const st = u?.troop ?? u?.npc;
+    if (!u || !st || !(seconds > 0)) return;
+    st.targetId = undefined;
+    st.ai.aggroHoldUntil = Math.max(st.ai.aggroHoldUntil ?? 0, this.time + seconds);
   }
 
   /** SimApi.knockback (ability code): cancelled by 无懈可击 when the acting hero is an enemy. */
@@ -1903,7 +1970,10 @@ export class World implements SimExt, SimHost {
     const hx = l > 1e-6 ? dir.x / l : 0;
     const hz = l > 1e-6 ? dir.z / l : 0;
     const hs = dir.y > 0.5 ? force * 0.3 : force;
-    e.forced = { vel: { x: (hx * hs) / t, y: 0, z: (hz * hs) / t }, until: this.time + t };
+    // a knockback of `force` travels `force` m (then stops at walking speed, SHU-1)
+    const n = Math.max(1, Math.ceil(t / SIM_DT - 1e-6));
+    const start = this.movedThisTick(e) ? this.time + SIM_DT : this.time;
+    e.forced = { vel: { x: (hx * hs) / (n * SIM_DT), y: 0, z: (hz * hs) / (n * SIM_DT) }, until: start + (n - 0.5) * SIM_DT };
     e.vel.y = Math.max(e.vel.y, up);
     e.onGround = false;
   }
@@ -1938,6 +2008,27 @@ export class World implements SimExt, SimHost {
     this.viewDirty = true; // state changed: invalidate the cached public views
     this.events.push(ev);
     if (this.events.length > 20000) this.events.splice(0, this.events.length - 20000);
+    if (ev.privateTo === undefined) {
+      const seq = ++this.pubSeq;
+      this.pubLog[seq % PUBLIC_EVENT_LOG] = { seq, ev };
+    }
+  }
+
+  /** SimExt.publicEventsSince (AI-1): public events newer than `seq`, oldest first. */
+  publicEventsSince(seq: number): { seq: number; events: readonly GameEvent[] } {
+    const newest = this.pubSeq;
+    const from = Math.max((Number.isFinite(seq) ? Math.floor(seq) : 0) + 1, newest - PUBLIC_EVENT_LOG + 1, 1);
+    const events: GameEvent[] = [];
+    for (let q = from; q <= newest; q++) {
+      const en = this.pubLog[q % PUBLIC_EVENT_LOG];
+      if (en && en.seq === q) events.push(en.ev);
+    }
+    return { seq: newest, events };
+  }
+
+  /** SimExt.matchInfo (AI-2): the public match facts. */
+  matchInfo(): { playerCount: number; mode: GameMode } {
+    return { playerCount: this.slots.length, mode: this.settings.mode };
   }
 
   announce(zh: string, en: string, kind?: 'info' | 'warn' | 'big'): void {
@@ -1990,6 +2081,58 @@ export class World implements SimExt, SimHost {
     const h = this.get(heroId)?.hero;
     const inst = h?.weapons[h.activeSlot];
     return inst ? { inst, def: weaponDef(inst.id) } : undefined;
+  }
+
+  /** SimExt.squadCap (ITEMS-2 / WU-6): the squad size a hero is entitled to — also the spawn rule. */
+  squadCap(heroId: EntityId): number {
+    const e = this.get(heroId);
+    const rt = this.heroRts.get(heroId);
+    if (!e?.hero || !rt) return 0;
+    // 影武者 also gets the lord's +2 so the disguise holds (its tell is the missing lord skill)
+    const lordBonus = e.hero.role === 'lord' || e.hero.role === 'double' ? 2 : 0;
+    return Math.max(0, Math.round(this.settings.troopsPerHero + rt.def.troopBonus + lordBonus + rt.mods.squadBonus));
+  }
+
+  /** SimExt.maxDodgeCharges (WEI-5). */
+  maxDodgeCharges(heroId: EntityId): number {
+    return BASE_DODGE_CHARGES + this.modifiers(heroId).extraDodgeCharges;
+  }
+
+  /** SimExt.removeStatusFrom (ITEMS-5): only the instances applied by `sourceId`. */
+  removeStatusFrom(targetId: EntityId, id: StatusId, sourceId: EntityId): void {
+    const e = this.get(targetId);
+    if (e) removeStatusFrom(this, e, id, sourceId);
+  }
+
+  /** SimExt.removeStatusWhere (WU-3): only the instances matching `pred`. */
+  removeStatusWhere(targetId: EntityId, id: StatusId, pred: (s: StatusInstance) => boolean): void {
+    const e = this.get(targetId);
+    if (e) removeStatusIf(this, e, id, pred);
+  }
+
+  /** SimExt.redirectDamage (WU-10, 流离): see combat.ts redirectDamage. */
+  redirectDamage(req: DamageRequest, newTargetId: EntityId): DamageResult {
+    return redirectDamageImpl(this, req, newTargetId);
+  }
+
+  /** 铁索连环 dedupe set of a strike this tick (combat.ts, QUN-7); undefined when none. */
+  chainHitThisTick(key: string): Set<EntityId> | undefined {
+    if (this.chainHitsTick !== this.tick) return undefined;
+    return this.chainHits.get(key);
+  }
+
+  /** The dedupe set of a strike this tick, created on demand (cleared every tick). */
+  chainHitSet(key: string): Set<EntityId> {
+    if (this.chainHitsTick !== this.tick) {
+      this.chainHits.clear();
+      this.chainHitsTick = this.tick;
+    }
+    let set = this.chainHits.get(key);
+    if (!set) {
+      set = new Set();
+      this.chainHits.set(key, set);
+    }
+    return set;
   }
 
   findPath(from: Vec3, to: Vec3, requesterId?: EntityId): Vec3[] | null {

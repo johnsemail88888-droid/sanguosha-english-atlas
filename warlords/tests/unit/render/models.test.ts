@@ -13,6 +13,8 @@ import {
   heroSpec,
 } from '../../../src/render/models';
 import { CharacterRig } from '../../../src/render/models/character';
+import { B } from '../../../src/render/models/rig';
+import { unitSize } from '../../../src/sim/troops';
 import { GeoBuilder, PRIM, trs } from '../../../src/render/core/geo';
 import type { Headgear, HeroExtra } from '../../../src/data/types';
 import { shotClass } from '../../../src/render/vfx/eventVfx';
@@ -93,6 +95,40 @@ describe('model factories', () => {
       // on foot: head top near the sim's 1.8 m capsule top
       expect((m.userData.rig as CharacterRig).headHeight(), h.id).toBeLessThan(1.95);
       disposeModel(m);
+    }
+  });
+
+  it('troop / NPC silhouettes fit the sim capsule (head top within the unitSize height)', () => {
+    for (const t of TROOPS) {
+      const m = createTroopModel(t.id);
+      const rig = m.userData.rig as CharacterRig;
+      const { height } = unitSize(t);
+      expect(rig.headHeight(), t.id).toBeGreaterThan(height * 0.85);
+      expect(rig.headHeight(), t.id).toBeLessThan(height + 0.15);
+      disposeModel(m);
+    }
+  });
+
+  it('tall head / back ornaments ride their own bones so the local TPS view can shorten them', () => {
+    const usesBone = (rig: CharacterRig, bone: number): boolean => {
+      const si = rig.mesh.geometry.getAttribute('skinIndex');
+      for (let i = 0; i < si.count; i++) if (si.getX(i) === bone) return true;
+      return false;
+    };
+    const plumed = HEROES.find((h) => h.visual.headgear === 'plumeHelmet');
+    const flagged = HEROES.find((h) => h.visual.extras.includes('backFlags'));
+    for (const [h, bone] of [
+      [plumed, B.plume],
+      [flagged, B.backOrn],
+    ] as const) {
+      if (!h) continue;
+      const rig = new CharacterRig(heroSpec(h.id));
+      expect(usesBone(rig, bone), h.id).toBe(true);
+      rig.setLocalView(true);
+      expect(rig.rigBones.bones[bone].scale.x, h.id).toBeLessThan(0.5);
+      rig.setLocalView(false);
+      expect(rig.rigBones.bones[bone].scale.x, h.id).toBe(1);
+      rig.dispose();
     }
   });
 

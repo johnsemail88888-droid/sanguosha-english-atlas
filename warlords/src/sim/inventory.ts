@@ -6,12 +6,13 @@ import type { Entity, EntityId, EntityKind } from '../core/types';
 import { BTN_INTERACT, ITEM_SLOTS } from '../core/types';
 import type { ItemCtx } from './api';
 import { armorDef, itemDef, lootKindOf, maxReserve, maxStackOf, usesAmmo, warnOnce, weaponDef } from './defs';
-import type { ItemImplEx } from './ext';
+import type { ItemImplEx, StripOptions } from './ext';
 import { getItem } from './items/registry';
 import { rollAirdrop, rollCrate, rollRewardItems as rollRewards, scatterAround } from './loot';
 import type { LootRoll } from './loot';
 import { REVIVE_HP, REVIVE_TIME } from './rules';
 import type { ControlState } from './status';
+import { findStatus, revealedTo } from './status';
 import type { HeroRuntime, World } from './world';
 
 /** seconds before you can pick up what you dropped yourself */
@@ -63,7 +64,10 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
       }
       case 'enemy': {
         target = w.aimTarget(e, Math.max(1, def.range), { kinds: UNIT_KINDS, notFriendlyTo: e.id });
-        if (!target) return;
+        if (!target) {
+          itemDenied(w, e);
+          return;
+        }
         break;
       }
       case 'point':
@@ -86,13 +90,27 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
   completeItem(w, e, rt, slot, stack.id, target, point);
 }
 
+/** "Can't use that now" cue for the user's own client (ITEMS-7); bots need no cue. */
+function itemDenied(w: World, e: Entity): void {
+  if (!w.isBotHero(e)) w.emit({ t: 'sfx', name: 'itemDenied', pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z }, privateTo: e.id });
+}
+
 export function completeItem(w: World, e: Entity, rt: HeroRuntime, slot: number, itemId: string, target: Entity | undefined, point: Vec3 | undefined): void {
   const h = e.hero!;
   const stack = h.items[slot];
   if (!stack || stack.id !== itemId) return;
   const def = itemDef(itemId);
-  const impl = getItem(itemId);
+  const impl = getItem(itemId) as ItemImplEx | undefined;
   if (!def || !impl) return;
+  // a revive card (桃) on a downed ally while a free revive is ready (华佗 急救): the free
+  // revive goes first — the card stays in the bag (QUN-6)
+  if (impl.canRevive && target && target !== e && target.hero?.downed && !target.hero.dead && w.hooks.canReviveFree(e)) {
+    const hp = (def.params.reviveHp ?? REVIVE_HP) + rt.mods.reviveHpBonus;
+    w.revive(target.id, hp, e.id, true);
+    return;
+  }
+  // hidden use (ITEMS-3): the card asks for it, or the user is in stealth (not publicly revealed)
+  const hidden = impl.hiddenUse === true || (findStatus(e, 'stealth', w.time) !== undefined && !revealedTo(e, undefined, w.time));
   const ctx: ItemCtx = { sim: w, self: e, def, input: rt.input, target, point };
   let ok = false;
   const prevActor = w.actorId;
@@ -104,13 +122,19 @@ export function completeItem(w: World, e: Entity, rt: HeroRuntime, slot: number,
   } finally {
     w.actorId = prevActor;
   }
-  if (!ok) return;
+  if (!ok) {
+    itemDenied(w, e);
+    return;
+  }
   const cur = h.items[slot];
   if (cur && cur.id === itemId) {
     cur.count--;
     if (cur.count <= 0) h.items[slot] = null;
   }
-  w.emit({ t: 'itemUse', who: e.id, item: itemId, pos: point, target: target?.id });
+  // use() may say where the card really landed (a grenade stopped by a wall): ctx.eventPos
+  const at = ctx.eventPos ?? point;
+  const ev = { t: 'itemUse' as const, who: e.id, item: itemId, pos: at ? { x: at.x, y: at.y, z: at.z } : undefined, target: target?.id };
+  w.emit(hidden ? { ...ev, privateTo: e.id } : ev);
   w.hooks.onItemUsed(e, itemId);
 }
 
@@ -310,22 +334,37 @@ export function setArmor(w: World, heroId: EntityId, id: string | null): void {
   if (old?.special === 'baiyin' && !h.downed && !h.dead) w.heal(e.id, old.params.healOnRemove ?? 100, e.id);
 }
 
-export function dismount(w: World, heroId: EntityId): void {
-  const e = w.get(heroId);
-  const h = e?.hero;
-  if (!e || !h || !h.mount) return;
-  const id = h.mount;
-  h.mount = null;
-  w.spawnLoot(e.pos, { itemId: id });
+/** Drop stripped gear where the strip says (default: at the feet), optionally locked for its old owner. */
+function dropStripped(w: World, e: Entity, itemId: string, opts: StripOptions | undefined): void {
+  const lock = opts?.lock !== undefined && opts.lock > 0 ? { heroId: e.id, seconds: opts.lock } : undefined;
+  w.spawnLoot(opts?.at ?? e.pos, { itemId }, undefined, lock);
 }
 
-export function stripArmor(w: World, heroId: EntityId, drop = true): void {
+/**
+ * Drop the hero's mount as loot. With opts.sourceId an enemy's strip is cancelled
+ * by 无懈可击 (checked only when there is a mount to lose). Returns true when stripped.
+ */
+export function dismount(w: World, heroId: EntityId, opts?: StripOptions): boolean {
   const e = w.get(heroId);
   const h = e?.hero;
-  if (!e || !h || !h.armor) return;
+  if (!e || !h || !h.mount) return false;
+  if (opts?.sourceId !== undefined && w.nullifies(e, opts.sourceId)) return false;
+  const id = h.mount;
+  h.mount = null;
+  dropStripped(w, e, id, opts);
+  return true;
+}
+
+/** Remove the hero's armor (dropped as loot when `drop`); same gate / options as dismount. */
+export function stripArmor(w: World, heroId: EntityId, drop = true, opts?: StripOptions): boolean {
+  const e = w.get(heroId);
+  const h = e?.hero;
+  if (!e || !h || !h.armor) return false;
+  if (opts?.sourceId !== undefined && w.nullifies(e, opts.sourceId)) return false;
   const id = h.armor;
   setArmor(w, heroId, null);
-  if (drop) w.spawnLoot(e.pos, { itemId: id });
+  if (drop) dropStripped(w, e, id, opts);
+  return true;
 }
 
 /** 主公误杀忠臣: drop every item, armor, mount and the secondary weapon. */
@@ -481,16 +520,16 @@ export function updateChannel(w: World, e: Entity, rt: HeroRuntime, cs: ControlS
     }
     if (now >= ch.until) {
       h.channel = null;
+      // a ready free revive (华佗 急救) goes first; the 桃 is kept (QUN-6)
       let free = false;
-      const taoSlot = h.items.findIndex((s) => s?.id === 'tao');
-      if (taoSlot >= 0) {
+      if (w.hooks.canReviveFree(e)) {
+        free = true;
+      } else {
+        const taoSlot = h.items.findIndex((s) => s?.id === 'tao');
+        if (taoSlot < 0) return;
         const s = h.items[taoSlot]!;
         s.count--;
         if (s.count <= 0) h.items[taoSlot] = null;
-      } else if (w.hooks.canReviveFree(e)) {
-        free = true;
-      } else {
-        return;
       }
       const taoDef = itemDef('tao');
       const hp = (taoDef?.params.reviveHp ?? REVIVE_HP) + rt.mods.reviveHpBonus;

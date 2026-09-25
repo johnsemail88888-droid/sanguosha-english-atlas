@@ -11,13 +11,16 @@
 //   HP (or bleed-out time while downed) → hit event → reflect / thorns
 //   (noReflect prevents loops) → lifesteal → 'chained' spread for fire/thunder →
 //   onDamageTaken / onDamageDealt hooks → knockback → downed / death.
+// Redirected hits (护驾, 流离 via SimExt.redirectDamage) and reflect / thorns
+// skip the attacker's beforeDamageDealt hooks and outgoing step (their amount is
+// already final on the attacker's side) and are never cancelled by 无懈可击.
 import type { Vec3 } from '../core/math';
 import type { DamageType, Entity, EntityId, InputFrame, WeaponInstance } from '../core/types';
 import { BTN_FIRE, SIM_DT } from '../core/types';
 import type { WeaponDef } from '../data/types';
-import type { DamageRequest, DamageResult, ProjectileSpec, RayHit } from './api';
+import type { DamageRequest, DamageResult, ProjectileSpec, RayHit, SimApi } from './api';
 import { BULLET_EVASION_CAP } from '../data';
-import { armorDef, mountDef, usesAmmo, weaponDef } from './defs';
+import { armorDef, heroDef, mountDef, usesAmmo, warnOnce, weaponDef } from './defs';
 import type { HitscanOptions } from './ext';
 import { rayCylinder, raycastStatic, raySphere } from './physics';
 import type { StaticHit } from './physics';
@@ -103,12 +106,29 @@ export interface EntityRayHit {
 const tmpPos = { x: 0, y: 0, z: 0 };
 const cylHit: StaticHit = { t: 0, nx: 0, ny: 0, nz: 0 };
 
+/**
+ * Hit-test size of a hero on horseback (= horse cavalry, sim/troops.ts unitSize):
+ * render/camera/pick.ts mirrors it. The physics capsule stays CHAR_RADIUS × CHAR_HEIGHT.
+ */
+export const MOUNTED_HIT = { radius: 0.6, height: 2.3 } as const;
+
+/** A hero drawn on horseback (a mount item, or 马超 / 吕布's permanent mount) — not while downed. */
+export function ridesForHits(e: Entity): boolean {
+  const h = e.hero;
+  if (!h || h.downed) return false;
+  if (h.mount) return true;
+  return heroDef(h.heroId).visual.mount !== undefined;
+}
+
+/** Hit-test radius of an entity (riders are wider than their physics capsule). */
+export const hitRadius = (e: Entity): number => (ridesForHits(e) ? MOUNTED_HIT.radius : e.radius);
+
 /** Hitbox geometry of an entity: body cylinder + (optional) head sphere. */
 export function hitbox(e: Entity): { bodyTop: number; headY: number; headR: number; height: number } {
   const downed = e.hero?.downed === true;
-  const height = downed ? 0.6 : e.height;
+  const height = downed ? 0.6 : ridesForHits(e) ? MOUNTED_HIT.height : e.height;
   if (e.kind === 'turret') return { bodyTop: height, headY: -1, headR: 0, height };
-  const headR = downed ? 0.2 : Math.max(0.15, 0.22 * (e.height / 1.8));
+  const headR = downed ? 0.2 : Math.max(0.15, 0.22 * (height / 1.8));
   return { bodyTop: height - headR * 1.6, headY: height - headR, headR, height };
 }
 
@@ -137,7 +157,7 @@ export function raycastEntities(
     if (findStatus(e, 'untargetable', w.time)) continue;
     const p = rewindTick !== undefined ? w.history.posAt(e, rewindTick, tmpPos) : e.pos;
     const hb = hitbox(e);
-    const r = e.radius + inflate;
+    const r = hitRadius(e) + inflate;
     // bounding-sphere reject
     const cy = p.y + hb.height * 0.5;
     const cx0 = p.x - ox;
@@ -209,7 +229,36 @@ export function raycastAll(
 }
 
 // ── Damage pipeline ─────────────────────────────────────────────────────────
+/**
+ * One hit being resolved (SimExt.redirectDamage): the request as it came in, the
+ * request object the victim's hooks see, and the amount after the attacker's
+ * outgoing step (before any incoming modifier).
+ */
+export interface DamageFrame {
+  reqIn: DamageRequest;
+  req: DamageRequest;
+  outgoing: number;
+  /** the victim handed this hit to another unit */
+  redirected: boolean;
+}
+
+/** Hits that must not trigger the attacker's outgoing step again (their amount is final). */
+const isReflectHit = (req: DamageRequest): boolean => req.abilityId === 'status:reflect' || req.abilityId === 'status:thorns';
+
+/** Is this a fire / thunder ability hit that 铁索连环 spreads and dedupes (QUN-7)? */
+const chainDedupKey = (req: DamageRequest, creditId: EntityId | undefined): string | undefined =>
+  (req.type === 'fire' || req.type === 'thunder') && req.weaponId === undefined && creditId !== undefined ? `${creditId}|${req.abilityId ?? ''}` : undefined;
+
 export function dealDamage(w: World, reqIn: DamageRequest): DamageResult {
+  const depth = w.dmgStack.length;
+  try {
+    return resolveDamage(w, reqIn);
+  } finally {
+    w.dmgStack.length = depth;
+  }
+}
+
+function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   const res: DamageResult = { dealt: 0, absorbed: 0, killed: false };
   const target = w.ents.get(reqIn.targetId);
   if (!target || !target.alive || !DAMAGEABLE[target.kind] || target.hero?.dead) return res;
@@ -223,22 +272,30 @@ export function dealDamage(w: World, reqIn: DamageRequest): DamageResult {
   const creditId = w.creditOf(req.sourceId);
   const credit = creditId !== undefined ? w.ents.get(creditId) : undefined;
   const pos = req.pos ?? w.centerOf(target);
+  // amount already final on the attacker's side: handed over (护驾 / 流离) or reflected back
+  const passThrough = req.redirected === true || isReflectHit(req);
 
   // Own side never hurts itself (commander ⇄ own troops/turrets/summons), except true self-damage.
   if (!isZone && req.sourceId !== undefined && req.sourceId !== target.id && creditId !== undefined) {
     if (creditId === w.creditOf(target.id)) return res;
     if (!w.settings.friendlyFire && w.sameFaction(creditId, target.id)) return res;
   }
+  // 铁索连环: a chained unit that already took this strike through the chain this tick
+  // is not hit again by the same strike directly (an area blast over N chained units)
+  const chainKey = chainDedupKey(req, creditId);
+  if (chainKey !== undefined && !w.chainSpreading && w.chainHitThisTick(chainKey)?.has(target.id) && findStatus(target, 'chained', now)) {
+    return res;
+  }
   if (creditId !== undefined && creditId !== target.id) w.recordAttack(target.id, creditId, req.sourceId);
 
   // attacker pre-hook (may mutate req: canDodge, ignoreArmor, amount)
-  if (src && src.kind === 'hero' && src !== target) w.hooks.beforeDamageDealt(src, target, req);
+  if (src && src.kind === 'hero' && src !== target && !passThrough) w.hooks.beforeDamageDealt(src, target, req);
   let amount = req.amount;
 
   const blockedEvent = (blocked: NonNullable<DamageResult['blocked']>): DamageResult => {
     res.blocked = blocked;
     w.emit({ t: 'hit', target: target.id, src: creditId ?? req.sourceId, amount: 0, dtype: type, pos, head: req.head, blocked });
-    if (src && src.kind === 'hero') w.onShotBlocked(src, req, blocked);
+    if (src && src.kind === 'hero' && blocked !== 'redirect') w.onShotBlocked(src, req, blocked);
     return res;
   };
 
@@ -268,8 +325,8 @@ export function dealDamage(w: World, reqIn: DamageRequest): DamageResult {
     return res;
   }
 
-  // 3. outgoing modifiers
-  if (!isZone && src) {
+  // 3. outgoing modifiers (not for redirected / reflected hits: their amount is final)
+  if (!isZone && src && !passThrough) {
     amount *= statusValue(src, 'dmgBoost', now, 1);
     const direct = !req.noReflect && !(req.abilityId?.startsWith('status:') ?? false);
     if (direct && src.statuses.length > 0) {
@@ -289,6 +346,8 @@ export function dealDamage(w: World, reqIn: DamageRequest): DamageResult {
     if (req.weaponId) amount *= weaponOutgoingMul(w, weaponDef(req.weaponId), src, target);
     if (src.kind === 'hero') amount = w.hooks.modifyOutgoing(src, target, req, amount);
   }
+  const frame: DamageFrame = { reqIn, req, outgoing: amount, redirected: false };
+  w.dmgStack.push(frame);
 
   // 4. incoming modifiers
   let armorBlocked = false;
@@ -314,12 +373,14 @@ export function dealDamage(w: World, reqIn: DamageRequest): DamageResult {
     }
     if (target.kind === 'hero' && amount > 0) amount = w.hooks.modifyIncoming(target, src, req, amount);
   }
-  // negated entirely: by armor (藤甲 vs troops…) or by an ability / multiplier (流离 redirect, 空城…)
+  // handed to another unit (SimExt.redirectDamage — 流离): the shooter sees it deflected
+  if (frame.redirected && !(amount > 0)) return blockedEvent('redirect');
+  // negated entirely: by armor (藤甲 vs troops…) or by an ability / multiplier (空城…)
   if (!(amount > 0)) return blockedEvent(armorBlocked ? 'armor' : 'invuln');
 
-  // 5. shield
+  // 5. shield (无双: only the hero's own hits pierce — not its troops / turrets / summons)
   if (!isZone && !isTrue && target.shield > 0) {
-    const pierceFrac = credit?.hero ? Math.min(1, Math.max(0, w.modifiers(credit.id).shieldPierce)) : 0;
+    const pierceFrac = src?.hero ? Math.min(1, Math.max(0, w.modifiers(src.id).shieldPierce)) : 0;
     const absorbable = amount * (1 - pierceFrac);
     const absorbed = Math.min(target.shield, absorbable);
     target.shield -= absorbed;
@@ -404,12 +465,18 @@ export function dealDamage(w: World, reqIn: DamageRequest): DamageResult {
     if (frac > 0) w.heal(src.id, res.dealt * frac, src.id);
   }
 
-  // 9. chained spread (铁索连环)
+  // 9. chained spread (铁索连环): every other chained unit takes the hit once
   if ((type === 'fire' || type === 'thunder') && !w.chainSpreading && findStatus(target, 'chained', now)) {
+    const seen = chainKey !== undefined ? w.chainHitSet(chainKey) : undefined;
+    seen?.add(target.id);
     w.chainSpreading = true;
     try {
       for (const other of w.unitsWithStatus('chained')) {
         if (other === target || !other.alive) continue;
+        if (seen) {
+          if (seen.has(other.id)) continue;
+          seen.add(other.id);
+        }
         dealDamage(w, { ...req, targetId: other.id, pos: undefined, knockback: undefined, noReflect: true });
       }
     } finally {
@@ -472,10 +539,41 @@ export function bulletEvadeChance(w: World, target: Entity, src: Entity | undefi
   return Math.min(BULLET_EVASION_CAP, Math.max(0, 1 - keep));
 }
 
-/** Hits that 无懈可击 can cancel: ability / item damage, i.e. not weapons, DoT ticks, reflects or the zone. */
+/**
+ * Hits that 无懈可击 can cancel: ability / item damage, i.e. not weapons, DoT ticks,
+ * reflects, redirected hits, noNullify hits (决斗's penalty) or the zone.
+ */
 function isNullifiableHit(req: DamageRequest, isZone: boolean): boolean {
-  if (isZone || req.sourceId === undefined || req.weaponId !== undefined) return false;
+  if (isZone || req.noNullify || req.redirected || req.sourceId === undefined || req.weaponId !== undefined) return false;
   return !(req.abilityId?.startsWith('status:') ?? false);
+}
+
+/**
+ * SimExt.redirectDamage (WU-10): inside a modifyIncoming hook for `req`, hand the
+ * hit to `newTargetId` — the amount after the attacker's outgoing step, as the
+ * request came in (flags set by pre-hooks for the old victim do not ride along),
+ * marked `redirected`; weapon on-hit specials apply to the new victim; the
+ * original hit then reports blocked 'redirect' (the hook returns 0).
+ */
+export function redirectDamage(w: World, req: DamageRequest, newTargetId: EntityId): DamageResult {
+  let frame: DamageFrame | undefined;
+  for (let i = w.dmgStack.length - 1; i >= 0; i--) {
+    const f = w.dmgStack[i];
+    if (f.req === req || f.reqIn === req) {
+      frame = f;
+      break;
+    }
+  }
+  if (!frame) return dealDamage(w, { ...req, targetId: newTargetId, pos: undefined, head: false });
+  if (newTargetId === frame.req.targetId) return { dealt: 0, absorbed: 0, killed: false };
+  frame.redirected = true;
+  const r = dealDamage(w, { ...frame.reqIn, targetId: newTargetId, amount: frame.outgoing, redirected: true, pos: undefined, head: false });
+  const wid = frame.reqIn.weaponId;
+  const src = frame.reqIn.sourceId !== undefined ? w.ents.get(frame.reqIn.sourceId) : undefined;
+  const t = w.ents.get(newTargetId);
+  // like every weapon hit: specials skip a hit fully soaked by a shield
+  if (wid && src && t && !r.blocked) applyWeaponSpecialOnHit(w, src, weaponDef(wid), t, r.dealt + r.absorbed);
+  return r;
 }
 
 function weaponOutgoingMul(w: World, def: WeaponDef, src: Entity, target: Entity): number {
@@ -1073,6 +1171,8 @@ export function fireHitscanShot(w: World, srcId: EntityId, origin: Vec3, dir: Ve
       ignoreArmor: o.ignoreArmor,
       knockback: o.knockback,
     });
+    // fired with the held weapon (params.weaponHit): its on-hit special applies like a normal shot
+    if (wdef && src && !res.blocked && o.weaponSpecials !== false) applyWeaponSpecialOnHit(w, src, wdef, target, res.dealt + res.absorbed);
     // a shield soaks damage, not the ability's status
     if ((!res.blocked || res.blocked === 'shield') && o.status && target.alive) {
       w.applyStatus(target.id, o.status.id, o.status.duration, { sourceId: srcId, params: o.status.params });
@@ -1126,9 +1226,9 @@ export function updateProjectiles(w: World, list: readonly Entity[], dt: number)
     const d = { x: vx / (len / dt), y: vy / (len / dt), z: vz / (len / dt) };
     const owner = p.ownerId;
     const ownerCredit = w.creditOf(owner);
-    const pierced = w.projPierced.get(p.id);
+    // the pierced set is read live: a unit pierced earlier in this very step is not hit again
     const skip = (x: Entity): boolean =>
-      x.id === owner || (ownerCredit !== undefined && w.creditOf(x.id) === ownerCredit) || (pierced !== undefined && pierced.has(x.id));
+      x.id === owner || (ownerCredit !== undefined && w.creditOf(x.id) === ownerCredit) || (w.projPierced.get(p.id)?.has(x.id) ?? false);
     let from = { x: p.pos.x, y: p.pos.y, z: p.pos.z };
     let remaining = len;
     let done = false;
@@ -1160,7 +1260,7 @@ export function updateProjectiles(w: World, list: readonly Entity[], dt: number)
           }
         }
         if (pr.explodeRadius > 0) {
-          detonate(w, p, hp);
+          detonate(w, p, hp, t.id);
           done = true;
           break;
         }
@@ -1176,6 +1276,7 @@ export function updateProjectiles(w: World, list: readonly Entity[], dt: number)
           from = hp;
           continue;
         }
+        projectileGone(w, p, hp, t.id);
         w.removeEntity(p.id);
         done = true;
         break;
@@ -1196,7 +1297,50 @@ export function updateProjectiles(w: World, list: readonly Entity[], dt: number)
     p.yaw = Math.atan2(-d.x, -d.z);
     p.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
     // out of the world
-    if (Math.abs(p.pos.x) > w.map.size / 2 + 20 || Math.abs(p.pos.z) > w.map.size / 2 + 20 || p.pos.y < -100) w.removeEntity(p.id);
+    if (Math.abs(p.pos.x) > w.map.size / 2 + 20 || Math.abs(p.pos.z) > w.map.size / 2 + 20 || p.pos.y < -100) {
+      projectileGone(w, p, p.pos);
+      w.removeEntity(p.id);
+    }
+  }
+}
+
+// ── custom projectile kinds (WU-7) ──────────────────────────────────────────
+export interface ProjectileKindImpl {
+  kind: string;
+  /**
+   * Called once when a projectile of this kind ends: it explodes, hits a unit
+   * (`hitId`; before it is removed), hits a wall / the ground or expires
+   * (`hitId` undefined). `at` is where it went off.
+   */
+  onDetonate?(sim: SimApi, proj: Entity, at: Vec3, hitId?: EntityId): void;
+}
+
+const PROJECTILE_KINDS = new Map<string, ProjectileKindImpl>();
+
+/** Register per-kind projectile logic (黄盖 诈降火船: blast + fire field where the ship went off). */
+export function registerProjectileKind(impl: ProjectileKindImpl): void {
+  PROJECTILE_KINDS.set(impl.kind, impl);
+}
+
+export function getProjectileKind(kind: string): ProjectileKindImpl | undefined {
+  return PROJECTILE_KINDS.get(kind);
+}
+
+/** Fire the kind's onDetonate once (isolated; the owner is the acting hero meanwhile). */
+function projectileGone(w: World, p: Entity, at: Vec3, hitId?: EntityId): void {
+  const pr = p.proj;
+  if (!pr || w.projDetonated.has(p.id)) return;
+  const impl = PROJECTILE_KINDS.get(pr.kind);
+  if (!impl?.onDetonate) return;
+  w.projDetonated.add(p.id);
+  const prev = w.actorId;
+  w.actorId = w.creditOf(p.ownerId);
+  try {
+    impl.onDetonate(w, p, { x: at.x, y: at.y, z: at.z }, hitId);
+  } catch (err) {
+    warnOnce(`projectile:${pr.kind}`, `projectile kind '${pr.kind}' onDetonate threw: ${String(err)}`);
+  } finally {
+    w.actorId = prev;
   }
 }
 
@@ -1240,8 +1384,9 @@ function steerProjectile(w: World, p: Entity, targetId: EntityId, maxAngle: numb
   p.vel.z = nz * speed;
 }
 
-function detonate(w: World, p: Entity, at: Vec3): void {
+function detonate(w: World, p: Entity, at: Vec3, hitId?: EntityId): void {
   const pr = p.proj!;
+  projectileGone(w, p, at, hitId);
   if (pr.explodeRadius > 0) {
     const src = p.ownerId !== undefined ? w.ents.get(p.ownerId) : undefined;
     explodeAt(w, at, pr.explodeRadius, pr.explodeDamage, pr.dtype === 'normal' ? 'explosive' : pr.dtype, p.ownerId, {
