@@ -12,6 +12,7 @@
 // back the same way.
 import { assetList, assetListSync } from '../game/assets';
 import type { RoleId } from '../core/types';
+import { ARMORS, HERO_BY_ID, ITEMS, MOUNTS } from '../data';
 import { abilityIconPath, cutoutAlpha, cutoutFloor, cutoutGain, gearArt, roleCardPath, shippedPath, type ArtRef, type ArtShape } from './cardArt';
 import { h } from './dom';
 import { roleName } from './i18n';
@@ -135,6 +136,16 @@ export function prewarmWeapons(ids: readonly (string | null | undefined)[]): voi
   }
 }
 
+/** The emblems of every card / armor / mount a match can hand out (prefetched while the identities are dealt). */
+export function matchCardArt(): ArtRef[] {
+  return [...ITEMS, ...ARMORS, ...MOUNTS].map((x) => gearArt(x.id)).filter((r): r is ArtRef => !!r);
+}
+
+/** The ability emblems of these heroes (the options on hero select). */
+export function heroAbilityArt(heroIds: readonly string[]): ArtRef[] {
+  return heroIds.flatMap((id) => HERO_BY_ID[id]?.abilities.map((a) => abilityArt(a.id)) ?? []);
+}
+
 // ── art elements ─────────────────────────────────────────────────────────────
 
 export interface ArtElOpts {
@@ -144,34 +155,83 @@ export interface ArtElOpts {
   lazy?: boolean;
   /** the file did not load: the caller puts its procedural look back */
   onFail?: () => void;
+  /** the picture has arrived (the span is `ready`: CSS keeps it invisible until then) */
+  onLoad?: () => void;
 }
 
-/** `<span class="sg-art {shape}"><img></span>` for a shipped file (callers check artUrl() first). */
+/**
+ * `<span class="sg-art {shape}"><img></span>` for a shipped file (callers check artUrl() first).
+ * The span gets `ready` once its picture has loaded — until then it keeps its size but
+ * paints nothing (no dark placeholder disc while a slow connection fetches the file).
+ */
 export function artEl(ref: ArtRef, opts: ArtElOpts = {}): HTMLElement {
   const img = h('img', { alt: '', draggable: false });
   img.decoding = 'async';
   if (opts.lazy) img.loading = 'lazy';
   const el = h('span', { class: `sg-art ${ref.shape}${opts.cls ? ` ${opts.cls}` : ''}`, aria: { hidden: 'true' } }, img);
+  let done = false;
+  const ready = (): void => {
+    if (done) return;
+    done = true;
+    el.classList.add('ready');
+    opts.onLoad?.();
+  };
   const fail = (): void => {
+    if (done) return;
+    done = true;
     markBroken(ref.path);
     el.remove();
     opts.onFail?.();
   };
+  const load = (src: string): void => {
+    img.addEventListener('load', ready, { once: true });
+    img.src = src;
+    // already in the memory cache (prefetched, shown before): no frame without the art
+    if (img.complete && img.naturalWidth > 0) ready();
+  };
   if (ref.shape === 'weapon') {
     void weaponCutout(ref.path).then((c) => {
       if (!c) {
+        done = true;
         el.remove();
         opts.onFail?.();
         return;
       }
       if (!c.cut) el.classList.add('blend');
-      img.src = c.url;
+      load(c.url);
     });
   } else {
     img.addEventListener('error', fail, { once: true });
-    img.src = ref.path;
+    load(ref.path);
   }
   return el;
+}
+
+/** Files already asked for by prefetchArt() (kept referenced: the images stay in the memory cache). */
+const prefetched = new Map<string, HTMLImageElement>();
+
+/**
+ * Warm the cache with art that is about to be shown (low priority, nothing decoded):
+ * the match's card emblems while the identities are dealt, the offered heroes' ability
+ * emblems on hero select — so a picked-up card shows its emblem at once.
+ */
+export function prefetchArt(refs: readonly (ArtRef | null | undefined)[]): void {
+  if (typeof Image === 'undefined') return;
+  // asked before the listing arrived: decide once it is known
+  if (!artKnown()) {
+    void whenArtKnown().then(() => prefetchArt(refs));
+    return;
+  }
+  for (const ref of refs) {
+    if (!ref || ref.shape === 'weapon') continue; // weapon renders: prewarmWeapons() (cut-out queue)
+    const path = artUrl(ref.path);
+    if (!path || prefetched.has(path)) continue;
+    const img = new Image();
+    img.decoding = 'async';
+    (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = 'low';
+    img.src = path;
+    prefetched.set(path, img);
+  }
 }
 
 interface Shown {
@@ -189,10 +249,11 @@ export interface SetArtOpts extends ArtElOpts {
 }
 
 /**
- * Show `ref` inside `host` (the host gets the class `art-on`, which its CSS uses to
- * hide the glyph under the art), or take the art out again (null / not shipped).
+ * Show `ref` inside `host`, or take the art out again (null / not shipped). The host
+ * gets the class `art-on` — which its CSS uses to hide the glyph under the art — once
+ * the picture has loaded: until then the glyph stays (no blank disc on a slow link).
  * Idempotent — the HUD calls it whenever a slot's content may have changed.
- * Returns whether the art is shown now.
+ * Returns whether the art is shown (or on its way).
  */
 export function setArt(host: HTMLElement, ref: ArtRef | null, opts: SetArtOpts = {}): boolean {
   const cur = hosted.get(host);
@@ -216,24 +277,30 @@ export function setArt(host: HTMLElement, ref: ArtRef | null, opts: SetArtOpts =
     cur.el.remove();
     hosted.delete(host);
   }
-  if (!ref || !path) {
-    host.classList.remove('art-on');
-    return false;
-  }
-  const el = artEl(ref, {
+  // the previous picture is gone: the glyph shows until the new one has loaded
+  host.classList.remove('art-on');
+  if (!ref || !path) return false;
+  // (a cached picture calls onLoad from inside artEl(): `el` is still null then — handled below)
+  let el: HTMLElement | null = null;
+  el = artEl(ref, {
     ...opts,
     onFail: () => {
-      if (hosted.get(host)?.el === el) {
+      if (el && hosted.get(host)?.el === el) {
         hosted.delete(host);
         host.classList.remove('art-on');
       }
       opts.onFail?.();
     },
+    onLoad: () => {
+      if (el && hosted.get(host)?.el === el) host.classList.add('art-on');
+      opts.onLoad?.();
+    },
   });
   hosted.set(host, { path, el });
   if (opts.first) host.prepend(el);
   else host.appendChild(el);
-  host.classList.add('art-on');
+  // a cached picture is ready at once: artEl() fired onLoad before `hosted` knew the span
+  if (el.classList.contains('ready')) host.classList.add('art-on');
   return true;
 }
 

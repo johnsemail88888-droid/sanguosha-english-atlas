@@ -303,6 +303,7 @@ const DICT = {
   'over.waitHost': ['等待房主返回大厅…', 'Waiting for the host…'],
   'over.won': ['胜', 'Won'],
   'over.lost': ['败', 'Lost'],
+  'over.drawn': ['平', 'Draw'],
   'faction.lord': ['主公阵营', 'Lord & Loyalists'],
   'faction.rebel': ['反贼', 'Rebels'],
   'faction.traitor': ['内奸', 'Traitor'],

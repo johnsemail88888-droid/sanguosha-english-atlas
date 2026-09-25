@@ -20,6 +20,8 @@ export interface OverRow {
   role: RoleId | undefined;
   kills: number;
   won: boolean;
+  /** the result column: 胜 / 败, or 平 for everyone who did not win a draw */
+  res: 'won' | 'lost' | 'draw';
   mvp: boolean;
   isMe: boolean;
   isBot: boolean;
@@ -32,6 +34,12 @@ export function outcomeFor(result: GameResult, me: EntityId | null | undefined):
   return me !== null && me !== undefined && result.winners.includes(me) ? 'victory' : 'defeat';
 }
 
+/** A seat's result: a draw is nobody's defeat (neutral roles may still win theirs). */
+export function rowResult(result: GameResult, entityId: EntityId): OverRow['res'] {
+  if (result.winners.includes(entityId)) return 'won';
+  return result.winner === 'draw' ? 'draw' : 'lost';
+}
+
 export function buildOverRows(result: GameResult, players: readonly PublicPlayerView[], me: EntityId | null | undefined): OverRow[] {
   const rows: OverRow[] = players.map((p) => ({
     entityId: p.entityId,
@@ -41,6 +49,7 @@ export function buildOverRows(result: GameResult, players: readonly PublicPlayer
     role: result.roles[p.entityId] ?? p.role,
     kills: p.kills,
     won: result.winners.includes(p.entityId),
+    res: rowResult(result, p.entityId),
     mvp: result.mvp === p.entityId,
     isMe: p.entityId === me,
     isBot: p.isBot,
@@ -49,7 +58,7 @@ export function buildOverRows(result: GameResult, players: readonly PublicPlayer
   for (const [idStr, role] of Object.entries(result.roles)) {
     const id = Number(idStr);
     if (!rows.some((r) => r.entityId === id)) {
-      rows.push({ entityId: id, seat: rows.length, name: `#${id}`, heroId: '', role, kills: 0, won: result.winners.includes(id), mvp: result.mvp === id, isMe: id === me, isBot: true });
+      rows.push({ entityId: id, seat: rows.length, name: `#${id}`, heroId: '', role, kills: 0, won: result.winners.includes(id), res: rowResult(result, id), mvp: result.mvp === id, isMe: id === me, isBot: true });
     }
   }
   return rows.sort((a, b) => a.seat - b.seat);
@@ -109,7 +118,7 @@ export function createGameOverScreen(ctx: UiCtx, session: GameSession, view: Vie
           h('td', null, r.name, r.isBot ? h('span', { class: 'sg-chip bot' }, t('common.bot')) : null, r.isMe ? h('span', { class: 'you' }, tx(`（${t('common.you')}）`, ` (${t('common.you')})`)) : null),
           h('td', null, r.role ? roleCell(r.role) : '—'),
           h('td', { class: 'num' }, String(r.kills)),
-          h('td', null, h('span', { class: `res ${r.won ? 'w' : 'l'}` }, r.won ? t('over.won') : t('over.lost')), r.mvp ? h('span', { class: 'mvp' }, 'MVP') : null),
+          h('td', null, h('span', { class: `res ${r.res === 'won' ? 'w' : r.res === 'draw' ? 'd' : 'l'}` }, t(r.res === 'won' ? 'over.won' : r.res === 'draw' ? 'over.drawn' : 'over.lost')), r.mvp ? h('span', { class: 'mvp' }, 'MVP') : null),
         );
         return tr;
       })),

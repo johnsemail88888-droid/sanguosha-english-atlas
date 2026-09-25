@@ -19,7 +19,7 @@ import {
   shippedPath,
   weaponArtPath,
 } from '../../../src/ui/cardArt';
-import { abilityArt, abilityIcon, artKnown, artOr, artUrl, gearIcon, roleArt, roleCardBadge, setArt } from '../../../src/ui/artIcons';
+import { abilityArt, abilityIcon, artKnown, artOr, artUrl, gearIcon, heroAbilityArt, matchCardArt, prefetchArt, roleArt, roleCardBadge, setArt } from '../../../src/ui/artIcons';
 import { causeIcon } from '../../../src/ui/hud/feed';
 
 // ── a DOM just big enough for h() / setArt() / artEl() ───────────────────────
@@ -284,25 +284,36 @@ describe('no art listed: every caller keeps its procedural look', () => {
 });
 
 describe('art listed: the art turns on', () => {
-  it('setArt adds one round art span (first child) and marks the host; clearing takes it out', async () => {
+  it('setArt adds one round art span (first child) and marks the host once it has loaded; clearing takes it out', async () => {
     setAssetListForTests(allArt());
     await assetList();
     const host = el();
     fake(host).appendChild(new FakeText('桃'));
     expect(setArt(host, gearArt('tao'), { first: true, cls: 'it-art' })).toBe(true);
     const f = fake(host);
-    expect(f.classList.contains('art-on')).toBe(true);
     const art = f.children[0];
     expect(art.className).toBe('sg-art disc it-art');
     expect(art.children[0].src).toBe('assets/cards/items/tao.webp');
+    // UX-16: the glyph stays until the picture is in (no blank disc on a slow link)
+    expect(f.classList.contains('art-on')).toBe(false);
+    art.children[0].fire('load');
+    expect(f.classList.contains('art-on')).toBe(true);
+    expect(art.classList.contains('ready')).toBe(true);
     // the same art again: untouched (the HUD calls this whenever a slot may have changed)
     expect(setArt(host, gearArt('tao'))).toBe(true);
     expect(f.children).toHaveLength(1);
     expect(f.children[0]).toBe(art);
-    // another card replaces it; an empty slot clears it
+    expect(f.classList.contains('art-on')).toBe(true);
+    // another card replaces it (its glyph shows until the new picture loads); an empty slot clears it
     setArt(host, gearArt('jiu'));
     expect(f.children).toHaveLength(1);
     expect(f.children[0].children[0].src).toBe('assets/cards/items/jiu.webp');
+    expect(f.classList.contains('art-on')).toBe(false);
+    // the old picture arriving late changes nothing
+    art.children[0].fire('load');
+    expect(f.classList.contains('art-on')).toBe(false);
+    f.children[0].children[0].fire('load');
+    expect(f.classList.contains('art-on')).toBe(true);
     setArt(host, null);
     expect(f.children).toHaveLength(0);
     expect(f.classList.contains('art-on')).toBe(false);
@@ -358,6 +369,8 @@ describe('art listed: the art turns on', () => {
     expect(fake(host).children).toHaveLength(0);
     await assetList();
     await flush();
+    expect(fake(host).children).toHaveLength(1);
+    fake(host).children[0].children[0].fire('load');
     expect(fake(host).classList.contains('art-on')).toBe(true);
     // …but not when it changed its mind meanwhile
     setAssetListForTests(allArt());
@@ -367,5 +380,60 @@ describe('art listed: the art turns on', () => {
     await assetList();
     await flush();
     expect(fake(other).children).toHaveLength(0);
+  });
+});
+
+describe('UX-16: art only replaces the glyph once it has loaded; the match art is prefetched', () => {
+  it('a picture already in the memory cache (complete) turns the art on at once', async () => {
+    setAssetListForTests(allArt());
+    await assetList();
+    const proto = FakeImage.prototype as unknown as { complete?: boolean; naturalWidth?: number };
+    proto.complete = true;
+    proto.naturalWidth = 384;
+    try {
+      const host = el();
+      expect(setArt(host, gearArt('shan'), { first: true })).toBe(true);
+      expect(fake(host).classList.contains('art-on')).toBe(true);
+      expect(fake(host).children[0].classList.contains('ready')).toBe(true);
+    } finally {
+      delete proto.complete;
+      delete proto.naturalWidth;
+    }
+  });
+
+  it('a standalone icon (kill feed / loot line) is `ready` only after its load event', async () => {
+    setAssetListForTests(allArt());
+    await assetList();
+    const ico = fake(gearIcon('wuzhong', 'ann-ico'));
+    expect(ico.classList.contains('ready')).toBe(false);
+    ico.children[0].fire('load');
+    expect(ico.classList.contains('ready')).toBe(true);
+  });
+
+  it('match cards + offered heroes: every emblem named once, low priority, only listed files', async () => {
+    expect(matchCardArt().length).toBe(ITEMS.length + ARMORS.length + MOUNTS.length);
+    const liubei = HEROES.find((x) => x.id === 'liubei')!;
+    expect(heroAbilityArt(['liubei', 'nobody']).map((r) => r.path)).toEqual(liubei.abilities.map((a) => abilityIconPath(a.id)));
+    const made: FakeImage[] = [];
+    const Orig = g.Image;
+    g.Image = class extends FakeImage {
+      constructor() {
+        super();
+        made.push(this);
+      }
+    };
+    try {
+      setAssetListForTests([itemArtPath('tao'), itemArtPath('jiu')]);
+      // before the listing is known nothing is requested; once it is, the listed files are
+      prefetchArt([gearArt('tao'), gearArt('jiu'), gearArt('wuzhong'), gearArt('qinglong')]);
+      expect(made).toHaveLength(0);
+      await assetList();
+      await flush();
+      expect(made.map((i) => i.src).sort()).toEqual([itemArtPath('jiu'), itemArtPath('tao')]);
+      prefetchArt([gearArt('tao')]);
+      expect(made).toHaveLength(2);
+    } finally {
+      g.Image = Orig;
+    }
   });
 });

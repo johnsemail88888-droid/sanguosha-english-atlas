@@ -7,10 +7,10 @@ import type { AbilityDef } from '../../data/types';
 import { h, setClass, setText } from '../dom';
 import { colon, fmtTime, gearName, getLang, heroName, roleName, t, tx, type I18nKey } from '../i18n';
 import { displayName } from '../../game/names';
-import { abilityShort, itemShort } from '../short';
+import { abilityShort, itemLabel } from '../short';
 import { gearArt } from '../cardArt';
 import { abilityArt, roleCardBadge, setArt } from '../artIcons';
-import { ORDER_GLYPH, ORDER_KEYS, ORDER_SEQUENCE, RARITY_COLOR, ROLE_GLYPH, kingdomColor, roleColor, statusInfo } from '../theme';
+import { ORDER_GLYPH, ORDER_KEYS, ORDER_SEQUENCE, RARITY_COLOR, ROLE_GLYPH, inkOn, kingdomColor, roleColor, statusInfo } from '../theme';
 import { magatama, type PortraitCache } from '../widgets';
 import { abilityReady, aliveCount, cooldownFraction, filledTicks, hpTicks, hudAbilities, maxDodgeCharges, zoneStatus, type AbilitySlotView } from './logic';
 import type { HudFrame } from './types';
@@ -418,9 +418,12 @@ export class AbilityBar {
       if (it) {
         const def = ITEM_BY_ID[it.id];
         setText(rec.glyph, def?.icon ?? gearName(it.id).slice(0, 1));
-        const short = itemShort(it.id, f.lang);
-        setText(rec.name, short !== def?.icon ? short : '');
+        // always labelled under the painted emblem (it hides the glyph); a label that only repeats the glyph shows with the art only
+        const label = itemLabel(it.id, f.lang);
+        setText(rec.name, label.text);
+        setClass(rec.name, 'dup', label.dup);
         rec.root.style.setProperty('--ic', def?.color ?? '#e8d8b0');
+        rec.root.style.setProperty('--in', inkOn(def?.color ?? '#6d5639'));
         rec.root.title = def ? `${tx(def.nameZh, def.nameEn)}\n${tx(def.descZh, def.descEn)}` : it.id;
         setText(rec.count, it.count > 1 ? String(it.count) : '');
       } else {

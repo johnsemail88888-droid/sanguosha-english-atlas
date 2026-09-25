@@ -461,6 +461,7 @@ export const SCREENS_CSS = /* css */ `
 .res { font-weight: 800; }
 .res.w { color: #1f7a3a; }
 .res.l { color: #8a3a2a; }
+.res.d { color: #6d5639; }
 .mvp { margin-left: 0.4em; padding: 0.05em 0.4em; background: linear-gradient(#f6d886, #c89b3c); color: #3a220e; font-weight: 800; border-radius: 3px; font-size: 0.75em; }
 .over-side { display: flex; flex-direction: column; gap: 1em; }
 .over-mvp { display: flex; gap: 0.8em; align-items: center; }
@@ -529,11 +530,21 @@ export const SCREENS_CSS = /* css */ `
 .rr-head .sg-chip { font-family: var(--font-body); font-size: 0.7em; color: var(--paper-mute); }
 .seal-row { display: inline-flex; gap: 0.2em; flex-wrap: wrap; }
 .variants { display: flex; flex-direction: column; gap: 0.3em; }
-.item-glyph { display: inline-grid; place-items: center; width: 2em; height: 2.6em; border-radius: 4px; font-family: var(--font-display); font-weight: 900; color: var(--ic); background: linear-gradient(#fbf3de, #e9d7ae); border: 1px solid color-mix(in srgb, var(--ic) 70%, #000 20%); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
+.item-glyph { position: relative; display: inline-grid; place-items: center; width: 2em; height: 2.6em; border-radius: 4px; font-family: var(--font-display); font-weight: 900; color: var(--ic); background: linear-gradient(#fbf3de, #e9d7ae); border: 1px solid color-mix(in srgb, var(--ic) 70%, #000 20%); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
 .sg-table.controls .keys { white-space: nowrap; width: 1%; }
 .help-sec .sg-table td.num:first-child, .help-sec .sg-table th:first-child { width: 4.5em; text-align: center; }
 .keys .sg-key { margin-right: 0.25em; }
 .sg-table.weapons td.desc, .sg-table.items td:nth-child(4) { font-size: 0.88em; min-width: 14em; }
+/* names never break mid-word: 黄巾力士 / 南蛮勇士, 无双战铳, 「专属」 below the name */
+.sg-table.weapons td.wname { width: auto; text-align: left; }
+.sg-table.weapons td.wname > b, .sg-table.items td > b { white-space: nowrap; }
+.sg-table.weapons td.wname .sg-chip { margin-top: 0.2em; font-size: 0.78em; }
+.sg-table.troops { width: auto; min-width: min(100%, 34em); }
+.help-sec .sg-table.troops th:first-child { width: auto; text-align: left; }
+.sg-table.troops :is(td, th):nth-child(-n + 2) { white-space: nowrap; }
+.sg-table.troops td:last-child, .sg-table.troops th:last-child { white-space: nowrap; }
+.sg-table.orders { width: auto; }
+.sg-table.orders td:nth-child(-n + 2) { white-space: nowrap; width: 1%; }
 @media (max-width: 640px) {
   .sg-help { padding: 0.7em; }
   .help-body { padding: 1em; }

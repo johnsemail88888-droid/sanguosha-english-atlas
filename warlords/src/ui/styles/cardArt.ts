@@ -9,6 +9,8 @@ const u = (n: number): string => `calc(var(--u) * ${n})`;
 export const CARD_ART_CSS = /* css */ `
 /* ── the art span ──────────────────────────────────────── */
 .sg-art { position: relative; display: block; flex: none; overflow: hidden; pointer-events: none; user-select: none; -webkit-user-select: none; }
+/* until its picture has loaded the span keeps its size but paints nothing (its host keeps the glyph: artIcons.ts) */
+.sg-art:not(.ready) { visibility: hidden; }
 .sg-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
 /* round emblems: the ink circle stops short of the file's edge (white corners on some) — mask and crop in */
 .sg-art.disc { border-radius: 50%; aspect-ratio: 1; background: #140d08; }
@@ -68,20 +70,20 @@ export const CARD_ART_CSS = /* css */ `
 .hud-abilities .item .card.art-on .g { visibility: hidden; }
 
 /* armor / mount chips */
-.v-gear .gchip.art-on { display: inline-flex; align-items: center; gap: ${u(4)}; padding-left: ${u(2)}; }
+.v-gear .gchip:has(> .gc-ico) { display: inline-flex; align-items: center; gap: ${u(4)}; padding-left: ${u(2)}; }
 .v-gear .gchip > .gc-ico { width: 1.45em; margin: -0.25em 0; box-shadow: 0 0 0 1px var(--gc); }
 
 /* ── HUD: weapon panel ─────────────────────────────────── */
-.w-main.art-on { position: relative; min-width: ${u(340)}; padding-left: ${u(168)}; }
+.w-main:has(> .w-art) { position: relative; min-width: ${u(340)}; padding-left: ${u(168)}; }
 .w-main > .w-art { position: absolute; left: ${u(6)}; top: 50%; width: ${u(158)}; transform: translateY(-50%); filter: drop-shadow(0 ${u(2)} ${u(3)} rgba(0, 0, 0, 0.7)); }
 .wslot .k { order: 0; }
 .wslot > .ws-art { order: 1; width: ${u(40)}; margin: ${u(-5)} 0; }
 .wslot .n { order: 2; }
-.sg-hud.touch .w-main.art-on { min-width: 0; padding-left: ${u(118)}; }
+.sg-hud.touch .w-main:has(> .w-art) { min-width: 0; padding-left: ${u(118)}; }
 .sg-hud.touch .w-main > .w-art { width: ${u(108)}; }
 
 /* ── HUD: prompts, loot popups, kill feed ──────────────── */
-.hud-interact .ip-art:not(.art-on) { display: none; }
+.hud-interact .ip-art:not(:has(> .sg-art)) { display: none; }
 .hud-interact .ip-art { flex: none; width: ${u(34)}; margin: ${u(-5)} 0; }
 .hud-interact .ip-art.weapon { width: ${u(70)}; margin: ${u(-10)} 0; }
 .hud-interact .ip-art > .sg-art { width: 100%; }
@@ -123,13 +125,14 @@ export const CARD_ART_CSS = /* css */ `
 .sg-table.weapons .wt-art { width: 7.4em; margin: -0.3em 0 0.1em -0.2em; filter: drop-shadow(0 1px 1px rgba(40, 25, 10, 0.35)); }
 
 /* ── hero detail: skill icons, signature weapon render ─── */
-.sg-ability > .ab-ico:not(.art-on), .sg-weapon-card > .wc-art:not(.art-on) { display: none; }
+/* the art's room is kept while the file loads (lazy): the layout never jumps when it arrives */
+.sg-ability > .ab-ico:not(:has(> .sg-art)), .sg-weapon-card > .wc-art:not(:has(> .sg-art)) { display: none; }
 /* floated: the name sits beside the icon, the description flows under it at full width (no extra lines) */
-.sg-ability:has(> .ab-ico.art-on) { display: flow-root; }
+.sg-ability:has(> .ab-ico > .sg-art) { display: flow-root; }
 .sg-ability > .ab-ico { float: left; width: 2.6em; margin: 0.1em 0.6em 0.1em 0; }
 .sg-ability > .ab-ico > .sg-art { width: 100%; box-shadow: 0 0 0 1.5px #c9a04a, 0 1px 3px rgba(0, 0, 0, 0.35); }
 .sg-ability.dim > .ab-ico { filter: grayscale(0.8); }
-.sg-weapon-card:has(> .wc-art.art-on) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 0.6em; }
+.sg-weapon-card:has(> .wc-art > .sg-art) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 0.6em; }
 .sg-weapon-card > .wc-art { grid-column: 2; grid-row: 1 / span 2; width: 7em; align-self: center; }
 .sg-weapon-card > :not(.wc-art) { grid-column: 1; }
 .sg-weapon-card > .wc-desc { grid-column: 1 / -1; }

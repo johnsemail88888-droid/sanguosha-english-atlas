@@ -13,6 +13,7 @@ import { applyRootVars, injectStyles } from './styles';
 import { PortraitCache, button, type SfxName } from './widgets';
 import { TITLE_ART } from './art';
 import { artBackdrop, type ArtBackdrop } from './keyart';
+import { heroAbilityArt, matchCardArt, prefetchArt } from './artIcons';
 import { HEROES } from '../data';
 import { createTitleScreen } from './screens/title';
 import { createSingleScreen } from './screens/single';
@@ -546,6 +547,8 @@ class App implements UiCtx {
       s.on('heroSelect', (v) => {
         const hero = v.picks[mySeat(s)];
         if (hero) this.pickedHero = hero;
+        // the offered heroes' ability emblems: the detail panel shows them without a blank wait
+        prefetchArt(heroAbilityArt(v.options));
       }),
     );
     bag.add(s.on('phase', (p) => this.onPhase(p)));
@@ -584,6 +587,8 @@ class App implements UiCtx {
         break;
       case 'roles':
         this.pickedHero = null;
+        // every card emblem of the match while the identities are dealt: pickups show their art at once
+        prefetchArt(matchCardArt());
         this.go('roles');
         break;
       case 'heroSelect':

@@ -82,12 +82,44 @@ export function roleInk(role: RoleId | undefined | null): string {
   return l > 0.3 ? shade(c, 0.45) : l > 0.18 ? shade(c, 0.25) : c;
 }
 
+/** WCAG contrast ratio (1..21) of two #rrggbb colors. */
+export function contrastRatio(a: string, b: string): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/** Rarity tones for dark backgrounds (the HUD). */
 export const RARITY_COLOR: Record<Rarity, string> = {
   common: '#b9b2a2',
   rare: '#4f9fe0',
   epic: '#b06ae0',
   legendary: '#f0a530',
 };
+
+/** The darkest parchment a light panel paints (.sg-panel gradient bottom): text inks are checked against it. */
+export const PARCHMENT_DARK = '#d6bd8a';
+
+/** Rarity inks for text on parchment (玩法说明 tables): ≥ 4.5:1 even on the panel's darkest tone. */
+export const RARITY_INK: Record<Rarity, string> = {
+  common: '#524b3f',
+  rare: '#1a4f86',
+  epic: '#6a2f94',
+  legendary: '#7a3e00',
+};
+
+/**
+ * `color` darkened just enough to read as text on `bg` (≥ `min`:1), keeping its hue:
+ * card labels on the HUD's parchment cards (pale gold 无中生有, silver 铁索…).
+ */
+export function inkOn(color: string, bg = PARCHMENT_DARK, min = 4.5): string {
+  if (!/^#?[0-9a-f]{6}$/i.test(color.trim())) return '#2b1d12';
+  for (let k = 0; k <= 1.0001; k += 0.02) {
+    const c = shade(color, k);
+    if (contrastRatio(c, bg) >= min) return c;
+  }
+  return '#000000';
+}
 
 export const ORDER_KEYS: Record<SquadOrderKind, string> = {
   follow: 'Z',
