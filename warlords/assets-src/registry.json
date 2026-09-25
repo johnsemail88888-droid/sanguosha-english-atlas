@@ -623,6 +623,9 @@
   "mud": {
    "job": "1162ab7d-fb51-437a-ad84-b6882bb74651",
    "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_1162ab7d-fb51-437a-ad84-b6882bb74651.png"
+  },
+  "farm": {
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151905_283d2376-08fb-418f-b721-149b12bc7575.png"
   }
  },
  "prop": {
@@ -661,6 +664,12 @@
   "statue": {
    "job": "03d3dd2b-c81e-43b8-a6f8-550aa2d8d519",
    "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053923_03d3dd2b-c81e-43b8-a6f8-550aa2d8d519.glb"
+  },
+  "sandbags": {
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151953_cb7902b7-54c9-4c90-86f3-a55dc3ed0e01.glb"
+  },
+  "nanmanTent": {
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151956_ce61a0a7-cd07-486e-b4d8-ef9bb16d6cf6.glb"
   }
  },
  "ui_roles": {

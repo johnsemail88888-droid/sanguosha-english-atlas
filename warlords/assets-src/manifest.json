@@ -2303,6 +2303,53 @@
    "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062421_ff8eeca8-9e40-4fef-a0b8-4eca4bb430a3.glb",
    "out": "public/assets/models/weapons/jiguan.glb",
    "texSize": 512
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151953_cb7902b7-54c9-4c90-86f3-a55dc3ed0e01.glb",
+   "out": "public/assets/models/props/sandbags.glb",
+   "texSize": 512
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151956_ce61a0a7-cd07-486e-b4d8-ef9bb16d6cf6.glb",
+   "out": "public/assets/models/props/nanmanTent.glb",
+   "texSize": 512
+  },
+  {
+   "kind": "image",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151905_283d2376-08fb-418f-b721-149b12bc7575.png",
+   "out": "public/assets/tex/farm.webp",
+   "maxSize": 1024,
+   "quality": 85
+  },
+  {
+   "kind": "preview",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151908_22595fb5-2e6f-4d64-988b-d033f1242e73.png",
+   "out": "assets-src/previews/mounts/horse.webp",
+   "maxSize": 640,
+   "quality": 80
+  },
+  {
+   "kind": "preview",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151904_5a23300a-2a5b-440c-8fa0-bff5d9773741.png",
+   "out": "assets-src/previews/mounts/elephant.webp",
+   "maxSize": 640,
+   "quality": 80
+  },
+  {
+   "kind": "preview",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151904_52b2f924-ff05-4f63-b739-33efa4c0973c.png",
+   "out": "assets-src/previews/props/sandbags.webp",
+   "maxSize": 640,
+   "quality": 80
+  },
+  {
+   "kind": "preview",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151905_a249bb05-6fc3-40d2-b180-bc50e1200277.png",
+   "out": "assets-src/previews/props/nanmanTent.webp",
+   "maxSize": 640,
+   "quality": 80
   }
  ]
 }
