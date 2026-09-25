@@ -4,11 +4,15 @@
 //   1. registerHeroGlb(id, url)       explicit override (mods, tests)
 //   2. dev server                     import.meta.glob over public/assets/heroes
 //                                     (no 404 probes, updates when files change)
-//   3. production over http(s)        one HEAD probe of assets/heroes/<id>.glb
-//                                     relative to the page (dist/, Electron's
-//                                     embedded server, any static host), so a
-//                                     GLB dropped into a built game works; the
-//                                     negative result is cached
+//   3. production over http(s)        the build's manifest assets/heroes/index.json
+//                                     ({ heroes: [ids] }, written by vite.config.ts
+//                                     from public/assets/heroes) is fetched once and
+//                                     is authoritative — no per-hero 404 probes (and
+//                                     no red console errors) on Pages / the relay
+//                                     server / Electron. To drop a GLB into an
+//                                     already-built game, also add its id there.
+//                                     Without a manifest (older / hand-made deploys):
+//                                     one HEAD probe of assets/heroes/<id>.glb
 // The single-file build (file://) cannot fetch side files, so it only honours
 // registerHeroGlb. Loading / parsing failures are swallowed: the procedural
 // hero stays. The model is scaled to 1.8 m (the sim's hero capsule).
@@ -47,6 +51,25 @@ export function registerHeroGlb(heroId: string, url: string): void {
   cache.delete(heroId);
 }
 
+let manifest: Promise<ReadonlySet<string> | null> | null = null;
+
+/** The build's GLB manifest (null when the host serves none). Fetched once per page. */
+function heroManifest(): Promise<ReadonlySet<string> | null> {
+  if (!manifest) {
+    manifest = (async () => {
+      try {
+        const r = await fetch('assets/heroes/index.json', { cache: 'no-cache' });
+        if (!r.ok || /text\/html/i.test(r.headers.get('content-type') ?? '')) return null;
+        const j = (await r.json()) as { heroes?: unknown };
+        return Array.isArray(j.heroes) ? new Set(j.heroes.filter((x): x is string => typeof x === 'string')) : null;
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return manifest;
+}
+
 /** Where the GLB for a hero lives, or null when there is none (cached per id). */
 export function resolveHeroGlbUrl(heroId: string): Promise<string | null> {
   let p = urlCache.get(heroId);
@@ -72,6 +95,8 @@ async function resolveNow(heroId: string): Promise<string | null> {
   if (!/^[\w-]+$/.test(heroId)) return null;
   if (typeof location === 'undefined' || !/^https?:$/.test(location.protocol) || typeof fetch !== 'function') return null;
   const url = `assets/heroes/${heroId}.glb`;
+  const listed = await heroManifest();
+  if (listed) return listed.has(heroId) ? url : null;
   try {
     const r = await fetch(url, { method: 'HEAD', cache: 'no-cache' });
     // SPA-style servers answer unknown paths with index.html (200 text/html)

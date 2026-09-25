@@ -1,8 +1,9 @@
 // Real app, single player (production build served by `vite preview` on :5186):
 // title → setup → roles → hero select → loading → match; HUD up; W moves the
 // hero; firing uses ammo; Q / E start cooldowns; Tab scoreboard; Esc pause (and
-// losing the pointer lock pauses too); bots fight each other (kill feed within a
-// few sim-minutes, sped up with the debug time scale); leave back to the title.
+// losing the pointer lock pauses too); bots fight each other (a hero death within a
+// few sim-minutes, sped up with the debug time scale — shown in the kill feed, or,
+// when the Lord fell first, on the game-over screen); leave back to the title.
 import { expect, test, type Browser } from '@playwright/test';
 import {
   SELF_CAST_HEROES,

@@ -232,7 +232,7 @@ export class CharacterView {
     // revealed (观星 / 狼顾 / 鬼谋): red silhouette through walls
     this.rig.setXray((e.flags & VF_EXPOSED) !== 0 && !isLocal && (e.flags & VF_DEAD) === 0);
     this.rig.setShadows(ctx.shadows && dist < (isHero ? HERO_SHADOW_DIST : TROOP_SHADOW_DIST));
-    this.applyTint(e.flags, dt, ctx.time);
+    this.applyTint(e.flags, dt, ctx.time, isLocal);
     const inSquad = ctx.squad.has(e.id);
     // characters hugging the camera, your own soldiers filling the view, and anyone
     // standing between the camera and the followed hero turn translucent / hide
@@ -326,7 +326,8 @@ export class CharacterView {
     this.occlusion += (target - this.occlusion) * (1 - Math.exp(-ctx.dt * 8));
   }
 
-  private applyTint(flags: number, dt: number, time: number): void {
+  /** `local`: your own hero sits in the middle of the view — status glows are a hint there, not a gold statue */
+  private applyTint(flags: number, dt: number, time: number, local = false): void {
     const m = this.rig.material;
     this.hitFlash = Math.max(0, this.hitFlash - dt);
     let em = EMISSIVE.none;
@@ -347,6 +348,7 @@ export class CharacterView {
       em = EMISSIVE.stealth;
       ei = 0.8 + 0.4 * Math.sin(time * 4);
     }
+    if (local) ei *= 0.12;
     if (this.hitFlash > 0) {
       em = EMISSIVE.hit;
       ei = this.hitFlash / 0.14;

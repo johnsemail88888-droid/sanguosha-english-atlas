@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
@@ -19,10 +19,35 @@ function inlineFavicon(): Plugin {
   };
 }
 
+/**
+ * Multi-file builds: `assets/heroes/index.json` lists the optional hero GLB
+ * overrides in public/assets/heroes, so the game fetches one manifest instead of
+ * probing (and 404-ing) `assets/heroes/<id>.glb` for every hero it meets
+ * (src/render/models/glb.ts).
+ */
+function heroGlbManifest(): Plugin {
+  return {
+    name: 'sgwl-hero-glb-manifest',
+    apply: 'build',
+    generateBundle() {
+      let heroes: string[] = [];
+      try {
+        heroes = readdirSync(fileURLToPath(new URL('./public/assets/heroes/', import.meta.url)))
+          .filter((f) => /^[\w-]+\.glb$/.test(f))
+          .map((f) => f.slice(0, -4))
+          .sort();
+      } catch {
+        /* no overrides */
+      }
+      this.emitFile({ type: 'asset', fileName: 'assets/heroes/index.json', source: `${JSON.stringify({ heroes })}\n` });
+    },
+  };
+}
+
 // `vite build --mode single` produces one self-contained HTML file (double-click to play).
 export default defineConfig(({ mode }) => ({
   base: './',
-  plugins: mode === 'single' ? [viteSingleFile(), inlineFavicon()] : [],
+  plugins: mode === 'single' ? [viteSingleFile(), inlineFavicon()] : [heroGlbManifest()],
   // the single-file build is exactly one file: nothing from public/ is copied next to it
   publicDir: mode === 'single' ? false : 'public',
   build: {
