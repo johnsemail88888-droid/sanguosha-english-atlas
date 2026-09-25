@@ -488,7 +488,8 @@ function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   w.u8(statuses.length);
   for (const s of statuses) {
     writeStr(w, st, s.id);
-    w.u16(csQ(s.remaining));
+    // statusRows reports "until consumed" (Infinity) as -1: send it as 0xffff (decodes to Infinity)
+    w.u16(s.remaining < 0 ? 0xffff : csQ(s.remaining));
   }
   const squad = y.squad.slice(0, 255);
   w.u8(squad.length);
@@ -507,7 +508,7 @@ function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   if (y.vel) writeVec(w, y.vel);
   if (y.moveMods) {
     w.f32(y.moveMods.speedMul);
-    w.u8((y.moveMods.canSprint ? 1 : 0) | (y.moveMods.canJump ? 2 : 0) | (y.moveMods.rooted ? 4 : 0));
+    w.u8((y.moveMods.canSprint ? 1 : 0) | (y.moveMods.canJump ? 2 : 0) | (y.moveMods.rooted ? 4 : 0) | (y.moveMods.sprintAds ? 8 : 0));
   }
   if (y.forced) {
     writeVec(w, y.forced.vel);
@@ -599,6 +600,8 @@ function readYou(r: ByteReader, st: StringTable): PrivateHeroView {
     const speedMul = r.f32();
     const b = r.u8();
     y.moveMods = { speedMul, canSprint: (b & 1) !== 0, canJump: (b & 2) !== 0, rooted: (b & 4) !== 0 };
+    // 夏侯渊 神速: sprint keeps winning over ADS (absent on the wire = false)
+    if (b & 8) y.moveMods.sprintAds = true;
   }
   if (f2 & Y2_FORCED) {
     const vel = readVec(r);

@@ -43,7 +43,16 @@ import { HERO_BY_ID } from '../data/heroes';
 import { MOUNT_BY_ID } from '../data/items';
 import { WEAPON_BY_ID } from '../data/weapons';
 import type { ViewSource } from '../render/view';
-import { buildCollisionWorld, forcedMove, predictMove, type CollisionWorld, type MoveMods, type MoveState } from '../sim/physics';
+import {
+  WALK_SPEED,
+  brakeForcedEnd,
+  buildCollisionWorld,
+  forcedMove,
+  predictMove,
+  type CollisionWorld,
+  type MoveMods,
+  type MoveState,
+} from '../sim/physics';
 import { quantizeInput } from './codec';
 import { copyEntityInto, emptyZone, lerpEntityInto, lerpZoneInto, MAX_QUEUED_EVENTS, ViewEntityPool } from './interp';
 import { INPUT_REDUNDANCY, type InputPacket } from './protocol';
@@ -97,8 +106,10 @@ interface PendingInput {
 interface ForcedPrediction {
   vx: number;
   vz: number;
-  /** seconds of forced movement left */
+  /** seconds of forced movement left (host: (n − ½) ticks; 0 = only the end brake is pending) */
   left: number;
+  /** the end-of-forced brake (SHU-1: speed capped at walking speed) was replayed */
+  braked: boolean;
 }
 
 const cloneState = (s: MoveState): MoveState => ({
@@ -271,6 +282,11 @@ export class ClientView implements ViewSource {
       forced.left -= SIM_DT;
       return;
     }
+    if (forced && !forced.braked) {
+      // first tick after the forced movement: the host caps the speed here (sim/world.ts updateHero)
+      forced.braked = true;
+      brakeForcedEnd(state.vel, WALK_SPEED);
+    }
     predictMove(this.cw, state, frame, SIM_DT, this.moveMods(frame));
   }
 
@@ -324,7 +340,9 @@ export class ClientView implements ViewSource {
     }
     const f = s.you?.forced;
     const forced: ForcedPrediction | null =
-      f && f.remaining > 0 && Number.isFinite(f.vel.x) && Number.isFinite(f.vel.z) ? { vx: f.vel.x, vz: f.vel.z, left: f.remaining } : null;
+      f && f.remaining >= 0 && Number.isFinite(f.vel.x) && Number.isFinite(f.vel.z)
+        ? { vx: f.vel.x, vz: f.vel.z, left: f.remaining, braked: false }
+        : null;
     const state: MoveState = { pos: { ...authPos }, vel: { ...vel }, onGround };
     let prev = cloneState(state);
     for (const p of this.pending) {
@@ -333,7 +351,7 @@ export class ClientView implements ViewSource {
     }
     this.pred = state;
     this.predPrev = this.pending.length > 0 ? prev : cloneState(state);
-    this.forced = forced && forced.left > 1e-6 ? forced : null;
+    this.forced = forced && (forced.left > 1e-6 || !forced.braked) ? forced : null;
 
     if (had) {
       const after = this.displayPos(false);
@@ -399,7 +417,7 @@ export class ClientView implements ViewSource {
     if (this.pred) {
       this.predPrev = cloneState(this.pred);
       this.stepPrediction(this.pred, frame, this.forced);
-      if (this.forced && this.forced.left <= 1e-6) this.forced = null;
+      if (this.forced && this.forced.left <= 1e-6 && this.forced.braked) this.forced = null;
     }
   }
 
@@ -649,7 +667,8 @@ export class ClientView implements ViewSource {
 /** Fallback MoveMods when the host does not send `you.moveMods`. */
 export function estimateMoveMods(you: PrivateHeroView | null, ads: boolean): MoveMods {
   if (!you) return { speedMul: 1, canSprint: true, canJump: true, rooted: false, ads, downed: false };
-  const has = (id: string): boolean => you.statuses.some((s) => s.id === id && s.remaining > 0);
+  // remaining: seconds, Infinity / -1 = until consumed (both active), 0 = expiring now
+  const has = (id: string): boolean => you.statuses.some((s) => s.id === id && s.remaining !== 0);
   let speedMul = HERO_BY_ID[you.heroId]?.speedMul ?? 1;
   if (you.mount) speedMul *= MOUNT_BY_ID[you.mount]?.speedMul ?? 1;
   const w = you.weapons[you.activeSlot];

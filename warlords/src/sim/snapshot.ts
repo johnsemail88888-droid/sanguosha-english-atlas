@@ -13,6 +13,7 @@ import type {
   Snapshot,
   ViewEntity,
 } from '../core/types';
+import { SIM_DT } from '../core/types';
 import {
   VF_ADS,
   VF_AIRBORNE,
@@ -49,6 +50,8 @@ import type { World } from './world';
 export const VF_EXPOSED = 1 << 26;
 /** Enemy stealthed units farther than this are not sent at all. */
 export const STEALTH_SEND_RANGE = 8;
+/** Hidden hazards (traps carrying a keep-stealth instance) are sent to enemies only this close (ITEMS-4). */
+export const HIDDEN_HAZARD_SEND_RANGE = 6;
 const FIRING_FLAG_TIME = 0.15;
 
 function statusFlags(e: Entity, now: number): number {
@@ -221,7 +224,22 @@ export function hiddenFrom(w: World, viewer: Entity | undefined, e: Entity): boo
   if (!stealth || revealedTo(e, viewer.id, now)) return false;
   if (w.isOwnSide(viewer, e)) return false;
   const d = Math.hypot(e.pos.x - viewer.pos.x, e.pos.y - viewer.pos.y, e.pos.z - viewer.pos.z);
-  return d > STEALTH_SEND_RANGE;
+  return d > (e.kind === 'hazard' ? HIDDEN_HAZARD_SEND_RANGE : STEALTH_SEND_RANGE);
+}
+
+/**
+ * Forced movement of the receiving hero as the client replays it (net/clientView):
+ * `remaining` covers exactly the ticks AFTER this snapshot's tick that still move
+ * under `forced` ((n − ½) ticks, robust to the wire's rounding), and 0 means "no
+ * forced tick left, but the end-of-forced brake (SHU-1) happens next tick".
+ * Undefined when nothing is pending.
+ */
+export function forcedForClient(e: Entity, tick: number): { vel: Entity['vel']; remaining: number } | undefined {
+  const f = e.forced;
+  if (!f) return undefined;
+  let n = 0;
+  while (n < 600 && (tick + n + 1) * SIM_DT < f.until) n++;
+  return { vel: { x: f.vel.x, y: f.vel.y, z: f.vel.z }, remaining: n > 0 ? Math.round((n - 0.5) * SIM_DT * 1000) / 1000 : 0 };
 }
 
 export function privateView(w: World, e: Entity): PrivateHeroView {
@@ -276,9 +294,8 @@ export function privateView(w: World, e: Entity): PrivateHeroView {
     vel: { x: e.vel.x, y: e.vel.y, z: e.vel.z },
     onGround: e.onGround,
   };
-  if (e.forced && now < e.forced.until) {
-    view.forced = { vel: { ...e.forced.vel }, remaining: Math.round((e.forced.until - now) * 1000) / 1000 };
-  }
+  const forced = forcedForClient(e, w.tick);
+  if (forced) view.forced = forced;
   if (h.role === 'bounty' && h.bountyTargetId !== undefined) view.bountyTargetId = h.bountyTargetId;
   if (knownAllies.length) view.knownAllies = knownAllies;
   if (rt?.lastMoveMods) view.moveMods = { ...rt.lastMoveMods };
