@@ -4,7 +4,8 @@
 // the results back to the branch.
 //
 // manifest entry kinds:
-//   image   → resized WebP (maxSize px on the long edge, quality)
+//   image   → resized WebP (maxSize px on the long edge, quality; circleMask: true
+//             makes everything outside the inscribed circle transparent)
 //   preview → small WebP kept under assets-src/previews for art review only (not shipped)
 //   glb     → optimised GLB: textures resized + WebP, meshopt compression
 //   anim    → animation-only GLB (meshes/materials/textures stripped, skeleton kept)
@@ -47,9 +48,25 @@ async function download(url) {
 
 async function processImage(buf, e) {
   const max = e.maxSize ?? 512;
-  return sharp(buf)
-    .resize({ width: max, height: max, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: e.quality ?? 82 })
+  const img = sharp(buf).resize({ width: max, height: max, fit: 'inside', withoutEnlargement: true });
+  if (!e.circleMask) return img.webp({ quality: e.quality ?? 82 }).toBuffer();
+  // round emblems (item cards, ability icons): everything outside the inscribed
+  // circle becomes transparent, with a ~2 % soft edge, so no painted corner (some
+  // came back white) can ever show around the disc
+  const { data, info } = await img.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width: w, height: h } = info;
+  const r = Math.min(w, h) / 2;
+  const feather = Math.max(1, r * 0.02);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const d = Math.hypot(x + 0.5 - w / 2, y + 0.5 - h / 2);
+      const a = Math.min(1, Math.max(0, (r - d) / feather));
+      const i = (y * w + x) * 4 + 3;
+      data[i] = Math.round(data[i] * a);
+    }
+  }
+  return sharp(data, { raw: { width: w, height: h, channels: 4 } })
+    .webp({ quality: e.quality ?? 82, alphaQuality: 90 })
     .toBuffer();
 }
 
