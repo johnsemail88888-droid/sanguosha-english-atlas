@@ -77,6 +77,32 @@ describe('setPaused (single player)', () => {
     }
   });
 
+  it('a pause asked for while "playing" is being entered (the HUD\'s 点击进入战场) holds: the match starts frozen (UX-11)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance', 'Date'] });
+    const { host, sims } = localHost();
+    // the HUD mounts on the phase change and immediately opens "click to play"
+    host.on('phase', (p) => {
+      if (p === 'playing') host.setPaused(true);
+    });
+    try {
+      host.start();
+      for (let i = 0; i < 300 && host.phase !== 'playing'; i++) vi.advanceTimersByTime(20);
+      expect(host.phase).toBe('playing');
+      const sim = sims[0];
+      const t0 = sim.time;
+      vi.advanceTimersByTime(3000);
+      expect(host.isPaused).toBe(true);
+      expect(host.debugState()).toMatchObject({ phase: 'playing', paused: true, loopRunning: true });
+      expect(sim.time).toBe(t0); // bots, zone and clock wait for the click
+      host.setPaused(false); // clicked in
+      vi.advanceTimersByTime(1000);
+      expect(sim.time - t0).toBeGreaterThan(0.85);
+      expect(sim.time - t0).toBeLessThan(1.15);
+    } finally {
+      host.leave();
+    }
+  });
+
   it('is ignored outside "playing"; a phase change resumes the match', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance', 'Date'] });
     const { host } = localHost();

@@ -1592,7 +1592,9 @@ export class HostSession implements GameSession {
     this.waitingLoad.clear();
     this.localLoading = false;
     this.setPhase('playing');
-    this.loop.start();
+    // the HUD mounted by the phase change may already have asked to pause (「点击进入战场」):
+    // setPaused could not freeze a loop that was not running yet, so it starts frozen (UX-11)
+    this.loop.start(this.paused);
   }
 
   /** One authoritative tick. */
