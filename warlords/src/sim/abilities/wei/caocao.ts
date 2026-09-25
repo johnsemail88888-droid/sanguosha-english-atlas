@@ -17,8 +17,7 @@ registerAbility({
     const amount = Math.min(dealt * param(ctx, 'frac', 0.25), room);
     if (!(amount > 0.05)) return;
     sim.addShield(self.id, amount, param(ctx, 'duration', 5));
-    // clients still play a cast gesture + cast sound for procs (docs/SIM_REQUESTS.md WEI-10):
-    // at most one every 8 s so sustained fire does not read as constant casting
+    // a proc event (no cast gesture, lighter cue — WEI-10); still at most one every 8 s
     emitProc(ctx, JIANXIONG_PROC_GAP);
   },
 });
@@ -130,11 +129,12 @@ registerAbility({
     const guard = pickGuard(ctx);
     if (!guard) return amount;
     const moved = amount * Math.min(1, Math.max(0, param(ctx, 'redirectFrac', 0.5)));
-    // source-less on purpose: the attacker's outgoing multipliers were already applied to
-    // `amount`, and it must not count as the attacker's (nullifiable) ability hit. See
-    // docs/SIM_REQUESTS.md (redirected damage) for the proper pipeline fix.
+    // `redirected`: the attacker's outgoing multipliers are already in `amount`, so the
+    // world skips them and never treats it as a (nullifiable) ability hit (WEI-1); the
+    // attacker keeps the credit / attack memory
     sim.dealDamage({
       targetId: guard.id,
+      sourceId: req.sourceId,
       amount: moved,
       type: req.type,
       redirected: true,

@@ -9,8 +9,8 @@ import { rollRewardItems } from '../../loot';
 import { WALK_SPEED } from '../../physics';
 import { UNIT_KINDS, alive, blink } from '../common';
 
-/** World default (sim/world.ts BASE_DODGE_CHARGES); extra charges come from modifiers(). */
-export const BASE_DODGE_CHARGES = 2;
+/** World default (sim/world.ts BASE_DODGE_CHARGES); a hero's full count is ext(sim).maxDodgeCharges(id). */
+export { BASE_DODGE_CHARGES } from '../../world';
 
 /** Units that carry a kingdom and can soak / deal damage. */
 export const LIVING_KINDS: EntityKind[] = UNIT_KINDS;
@@ -121,8 +121,7 @@ export function stealOne(sim: SimApi, thief: Entity, victim: Entity): string | n
 /**
  * Passive trigger feedback for the renderer / audio (the world only emits
  * 'ability' events for activations). Throttled per ability via abilityState.
- * Clients cannot tell it from a cast yet (the cast gesture + cast sound play):
- * docs/SIM_REQUESTS.md WEI-10 — keep procs rare (minGap) until that lands.
+ * Marked `proc` (WEI-10): clients play no cast gesture and a lighter cue.
  */
 export function emitProc(ctx: AbilityCtx, minGap: number, extra: { target?: EntityId; pos?: Vec3 } = {}): void {
   const h = ctx.self.hero;
@@ -131,7 +130,7 @@ export function emitProc(ctx: AbilityCtx, minGap: number, extra: { target?: Enti
   const last = h.abilityState[key];
   if (last !== undefined && ctx.sim.time - last < minGap) return;
   h.abilityState[key] = ctx.sim.time;
-  const ev = { t: 'ability' as const, src: ctx.self.id, ability: ctx.def.id, pos: extra.pos ?? chestOf(ctx.self), target: extra.target };
+  const ev = { t: 'ability' as const, src: ctx.self.id, ability: ctx.def.id, pos: extra.pos ?? chestOf(ctx.self), target: extra.target, proc: true };
   // a stealthed hero's proc must not give its position away (cf. docs/SIM_REQUESTS.md WU-2)
   ctx.sim.emit(ctx.sim.hasStatus(ctx.self.id, 'stealth') ? { ...ev, privateTo: ctx.self.id } : ev);
 }
