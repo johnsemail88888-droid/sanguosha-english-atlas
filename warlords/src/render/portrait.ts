@@ -27,6 +27,7 @@ import { HERO_BY_ID } from '../data';
 import { CharacterRig } from './models/character';
 import { heroSpec } from './models';
 import { heroModelPath, loadCharTemplate, modelUrl } from './models/glb';
+import { loadWeaponArt } from './models/weaponGlb';
 import { loadAllClips } from './anim/glbClips';
 import { CALLIGRAPHY_FONT, inkBackdropCanvas, makeCanvas } from './core/textures';
 import { KINGDOM_COLORS } from './palette';
@@ -232,7 +233,9 @@ function scheduleIdleRelease(): void {
 async function prepareGlb(heroId: string): Promise<void> {
   try {
     if (!(await modelUrl(heroModelPath(heroId)))) return;
-    await Promise.all([loadCharTemplate(heroModelPath(heroId)), loadAllClips()]);
+    // the held AI-art weapon too, so the portrait never bakes the procedural one
+    const weapon = HERO_BY_ID[heroId]?.signatureWeapon;
+    await Promise.all([loadCharTemplate(heroModelPath(heroId)), loadAllClips(), weapon ? loadWeaponArt(weapon) : null]);
   } catch {
     /* procedural portrait */
   }
