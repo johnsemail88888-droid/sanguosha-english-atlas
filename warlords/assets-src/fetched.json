@@ -316,5 +316,7 @@
  "public/assets/icons/abilities/menghuo_huoshou.webp": "b33f20eb801058a78764af246269ee447440d82a",
  "public/assets/icons/abilities/menghuo_zaiqi.webp": "fcdb9f6cb85acac25f906eec3d76e58f9ef56559",
  "public/assets/icons/abilities/menghuo_nanman.webp": "310cb6834a3164e322cb508c548327951be3175a",
- "public/assets/icons/abilities/menghuo_xiangbing.webp": "a6a5262038e79ae9dc99b1ae905eb0fd7c37c412"
+ "public/assets/icons/abilities/menghuo_xiangbing.webp": "a6a5262038e79ae9dc99b1ae905eb0fd7c37c412",
+ "assets-src/previews/weapons3d/qinglong.glb": "e596ed8a077653eee31f4322f46d6cd3fc382f78",
+ "assets-src/previews/weapons3d/pistol.glb": "16de9d2ee6f8ff37bbaf55e520f4ae11be7231be"
 }
