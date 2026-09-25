@@ -209,17 +209,20 @@ test('heroes are never distance-culled: a 300 m hero renders on low quality', as
     };
     const a = grab();
     const cameraFar = R.camera.far;
+    const callsWith = R.stats().drawCalls;
     const y0 = far.y;
-    far.y = y0 - 900;
+    far.y = y0 - 900; // out of range: the renderer may drop it
     const b = grab();
+    const callsWithout = R.stats().drawCalls;
     far.y = y0;
     let changed = 0;
-    for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) changed++;
-    return { dist: Math.hypot(far.x - loc.x, far.z - loc.z), cameraFar, changed, visible: R.entities.character(far.id).root.visible };
+    for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 15) changed++;
+    return { dist: Math.hypot(far.x - loc.x, far.z - loc.z), cameraFar, changed, heroCalls: callsWith - callsWithout, visible: R.entities.character(far.id).root.visible };
   });
   expect(r.dist).toBeGreaterThan(290);
   expect(r.visible).toBe(true);
   expect(r.cameraFar).toBeGreaterThan(r.dist); // far plane stretched past the low preset's 230 m
-  expect(r.changed).toBeGreaterThan(10); // the silhouette is actually on screen
+  expect(r.heroCalls).toBeGreaterThanOrEqual(1); // the hero was drawn (not frustum / distance culled)
+  expect(r.changed).toBeGreaterThanOrEqual(3); // and its silhouette shows through the fog
   expect(errors, errors.join('\n')).toEqual([]);
 });

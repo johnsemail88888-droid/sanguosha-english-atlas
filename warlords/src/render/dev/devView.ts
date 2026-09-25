@@ -57,6 +57,8 @@ interface Actor {
   mode: 'idle' | 'walk' | 'circle' | 'state';
   stateFlags: number;
   phase: number;
+  /** excluded from the random synthetic events (deterministic tests) */
+  quiet?: boolean;
 }
 
 const DEMO_FLAGS = [
@@ -165,7 +167,7 @@ export class DevView implements ViewSource {
       const far = this.makeHero(HERO_BY_ID.huangzhong ? 'huangzhong' : lh, fx, fz, FAR_HERO_YAW + Math.PI);
       far.name = 'Sniper';
       far.flags |= VF_ADS;
-      this.actors.push({ e: far, home: { x: fx, y: far.y, z: fz }, mode: 'idle', stateFlags: VF_ADS, phase: 0 });
+      this.actors.push({ e: far, home: { x: fx, y: far.y, z: fz }, mode: 'idle', stateFlags: VF_ADS, phase: 0, quiet: true });
     }
     // troops lineup (left side)
     TROOPS.forEach((t, i) => {
@@ -562,7 +564,7 @@ export class DevView implements ViewSource {
   }
 
   private heroActors(): Actor[] {
-    return this.actors.filter((a) => a.e.kind === 'hero' && !(a.e.flags & (VF_DEAD | VF_DOWNED)));
+    return this.actors.filter((a) => a.e.kind === 'hero' && !a.quiet && !(a.e.flags & (VF_DEAD | VF_DOWNED)));
   }
 
   private updateEvents(dt: number): void {

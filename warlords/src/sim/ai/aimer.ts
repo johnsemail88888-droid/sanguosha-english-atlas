@@ -156,7 +156,7 @@ export class Aimer {
   }
 
   /** Look toward a world point (no target): used while moving, reviving, looting. */
-  lookAt(sim: SimApi, self: Entity, point: Vec3, dt: number, tau = 0.25): AimOut {
+  lookAt(self: Entity, point: Vec3, dt: number, tau = 0.25): AimOut {
     this.ensure(self);
     this.targetId = undefined;
     const want = aimAnglesFor(self.pos, point, self.hero?.downed === true);
@@ -169,7 +169,6 @@ export class Aimer {
     o.point = { x: rig.origin.x + rig.dir.x * along, y: rig.origin.y + rig.dir.y * along, z: rig.origin.z + rig.dir.z * along };
     o.errAngle = Math.PI;
     o.targetAngle = 0;
-    void sim;
     return o;
   }
 

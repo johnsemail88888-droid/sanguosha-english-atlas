@@ -660,7 +660,7 @@ export class HeroBot implements BotBrain, BotView {
             sprint = d > 8;
           }
           if (d < INTERACT_RANGE) {
-            this.aimer.lookAt(this.sim, self, aimPointOf(e), dt, 0.1);
+            this.aimer.lookAt(self, aimPointOf(e), dt, 0.1);
             aimed = true;
             f.aimTargetId = e.id;
             f.aimPoint = aimPointOf(e);
@@ -679,7 +679,7 @@ export class HeroBot implements BotBrain, BotView {
           sprint = this.sprintOk && n.straight;
           if (needsInteract(e) && d < INTERACT_RANGE && Math.abs(e.pos.y - self.pos.y) < 1.6) {
             mv = { x: 0, z: 0 };
-            this.aimer.lookAt(this.sim, self, e.pos, dt, 0.12);
+            this.aimer.lookAt(self, e.pos, dt, 0.12);
             aimed = true;
             if (!h.channel && now >= this.interactAt) {
               this.interactAt = now + 0.8;
@@ -718,7 +718,7 @@ export class HeroBot implements BotBrain, BotView {
     if (!shooting && !aimed) {
       // face where we are going (or glance at a nearby threat)
       const look = this.threats.find((x) => x.los && x.dist < 40);
-      if (look && this.mode !== 'zone') this.aimer.lookAt(this.sim, self, aimPointOf(look.e), dt, 0.3);
+      if (look && this.mode !== 'zone') this.aimer.lookAt(self, aimPointOf(look.e), dt, 0.3);
       else if (Math.hypot(mv.x, mv.z) > 0.1) this.aimer.face(self, Math.atan2(-mv.x, -mv.z), dt, 0.15);
     }
     if (!shooting) {
@@ -879,7 +879,7 @@ export class HeroBot implements BotBrain, BotView {
       if (t && !this.targetLos && this.mode === 'fight') {
         const seen = this.seen.get(t.id);
         const p = seen ? { x: seen.pos.x, y: seen.pos.y + 1.2, z: seen.pos.z } : aimPointOf(t);
-        const o = this.aimer.lookAt(sim, self, p, dt, prof.trackTau * 2);
+        const o = this.aimer.lookAt(self, p, dt, prof.trackTau * 2);
         f.yaw = o.yaw;
         f.pitch = o.pitch;
         f.aimPoint = o.point;
