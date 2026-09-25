@@ -58,6 +58,25 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     },
   };
   const offDebug = debug?.attachGame({ view, session, handle, gameHandle });
+  if (debug) {
+    // TEMP profiling
+    const r = handle.renderer as unknown as Record<string, any>;
+    let n = 0;
+    const wrap = (obj: any, key: string, label: string) => {
+      const orig = obj[key].bind(obj);
+      obj[key] = (...a: unknown[]) => {
+        const t = performance.now();
+        const res = orig(...a);
+        if (n < 4) console.log(`[prof] frame${n} ${label} ${(performance.now() - t).toFixed(0)}ms`);
+        return res;
+      };
+    };
+    wrap(r.entities, 'sync', 'entities.sync');
+    wrap(r.post, 'render', 'post.render');
+    wrap(r, 'frame', 'frame');
+    const origFrame = r.frame;
+    r.frame = (d: number) => { origFrame(d); if (n < 4) console.log(`[prof] programs ${r.renderer.info.programs.length}`); n++; };
+  }
   return gameHandle;
 }
 
