@@ -68,7 +68,8 @@ describe('乐不思蜀 lebusishu (trap)', () => {
     const sees = (player: string): boolean => w.snapshotFor(player).ents.some((v) => v.id === trap.id);
     expect(sees(a.hero!.playerId)).toBe(true);
     expect(sees(b.hero!.playerId)).toBe(false); // b is ~50 m away
-    place(w, b, 0, 33); // 7 m from the trap, outside its radius
+    // hidden hazards are revealed to enemies within 6 m (ITEMS-4): 5.5 m away, still outside the trigger radius
+    place(w, b, trap.pos.x, trap.pos.z + 5.5);
     w.step();
     expect(sees(b.hero!.playerId)).toBe(true);
     place(w, a, -40, -40);
