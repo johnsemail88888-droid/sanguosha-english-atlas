@@ -437,10 +437,13 @@ export const HUD_CSS = /* css */ `
 .hud-cardinfo { position: absolute; left: 50%; bottom: calc(clamp(44px, 12vmin, 62px) * 1.15 + 16px); transform: translateX(-50%); width: min(24em, 80vw); z-index: 24; pointer-events: auto; font-size: ${fs(14, 12)}; text-shadow: none; animation: sg-fade 0.15s ease-out; }
 .hud-cardinfo.off { display: none; }
 .hud-cardinfo .pc-card { background: rgba(250, 242, 222, 0.96); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55); }
-.hud-guide { position: absolute; right: ${u(16)}; top: 50%; transform: translateY(-50%); width: min(22em, 42vw); max-height: calc(100% - 2em); overflow: auto; z-index: 22; pointer-events: none; padding: 0.9em 1.1em 0.8em; font-size: clamp(12px, calc(0.4vw + 0.4vh + 5px), 15px); text-shadow: none; color: var(--paper-ink); animation: sg-pop 0.2s ease-out; }
+.sg-hud { --guide-w: min(clamp(250px, 26vw, 330px), 42vw); }
+.hud-guide { position: absolute; right: ${u(16)}; top: 50%; transform: translateY(-50%); width: var(--guide-w); max-height: calc(100% - 2em); overflow: auto; z-index: 22; pointer-events: none; padding: 0.9em 1.1em 0.8em; font-size: clamp(12px, calc(0.4vw + 0.4vh + 5px), 15px); text-shadow: none; color: var(--paper-ink); animation: sg-pop 0.2s ease-out; }
 /* the card itself lets touches through to the stick / look zone: only its buttons are targets */
 .hud-guide button { pointer-events: auto; }
-/* menus and panels cover it; the "click to play" prompt does not */
+/* menus and panels cover it; the "click to play" prompt moves left of it instead of under it */
+.sg-hud:not(.touch):has(.hud-guide) .hud-pause[data-mode="click"] { padding-right: calc(var(--guide-w) + ${u(16)} + 0.5em); }
+.sg-hud:not(.touch):has(.hud-guide) .hud-pause[data-mode="click"] .click-prompt { max-width: calc(100% - 1em); flex-wrap: wrap; justify-content: center; }
 .sg-hud:is([data-overlay="map"], [data-overlay="wheel"], [data-overlay="chat"], [data-overlay="controls"], .show-score, .dead) .hud-guide,
 .sg-hud[data-overlay="pause"][data-pause-mode="menu"] .hud-guide { display: none; }
 .hud-guide h3 { color: var(--red-lo); margin: 0 0 0.4em; }

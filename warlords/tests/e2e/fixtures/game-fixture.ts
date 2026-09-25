@@ -207,11 +207,23 @@ export async function pickHero(page: Page, prefer: readonly string[] = []): Prom
   const t0 = Date.now();
   await chosen.click();
   const clicked = { ms: Date.now() - t0, ...((await selectState(page)) as object) };
+  // Confirm — unless the page is too slow and the countdown already ran out: the
+  // host then locks in the clicked card (focusHero hint), the screen shows 已锁定
+  // and the confirm button is disabled on purpose.
   const confirm = page.locator('.detail-actions .sg-btn');
-  try {
-    await confirm.click({ timeout: 60_000 });
-  } catch (err) {
-    throw new Error(`hero select: cannot confirm ${hero}: after the card click ${JSON.stringify(clicked)}, now ${JSON.stringify(await selectState(page))}\n${(err as Error).message}`);
+  const end = Date.now() + 60_000;
+  for (;;) {
+    const st = await page
+      .evaluate(() => {
+        const sel = document.querySelector('.sg-select');
+        const btn = document.querySelector<HTMLButtonElement>('.detail-actions .sg-btn');
+        return { gone: !sel, locked: !!sel?.classList.contains('locked'), enabled: !!btn && !btn.disabled };
+      })
+      .catch(() => ({ gone: true, locked: false, enabled: false }));
+    if (st.gone || st.locked) break;
+    if (st.enabled && (await confirm.click({ timeout: 10_000 }).then(() => true, () => false))) break;
+    if (Date.now() > end) throw new Error(`hero select: cannot confirm ${hero}: after the card click ${JSON.stringify(clicked)}, now ${JSON.stringify(await selectState(page))}`);
+    await page.waitForTimeout(250);
   }
   return hero;
 }
