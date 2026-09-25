@@ -20,6 +20,7 @@ import type {
   MatchPhase,
   MatchSettings,
   PlayerId,
+  PublicPlayerView,
   RoleDealView,
 } from '../core/types';
 
@@ -47,6 +48,11 @@ export type ClientMsg =
   | { t: 'setName'; name: string }
   | { t: 'ready'; ready: boolean }
   | { t: 'pick'; heroId: string }
+  /**
+   * The hero this player is looking at on hero select (not a pick): if the pick
+   * timer runs out, the host auto-picks it instead of a bot choice. Additive.
+   */
+  | { t: 'pickHint'; hero: string }
   | { t: 'chat'; text: string }
   /** map built, view mounted: the host may start stepping */
   | { t: 'loaded' }
@@ -79,16 +85,28 @@ export type HostMsg =
       /** per-match string table used by the binary snapshot codec */
       strings: string[];
       tick: number;
+      /**
+       * Identifies the match (additive, optional): a rejoin that receives the
+       * matchStart of the match it already shows keeps its view and renderer.
+       */
+      matchId?: number;
     }
   /** GameEvents produced by host tick `tick` (reliable channel) */
   | { t: 'events'; tick: number; events: GameEvent[] }
   | { t: 'chat'; from: string; text: string }
   | { t: 'ping'; id: number; ts: number }
   | { t: 'pong'; id: number; ts: number }
-  | { t: 'gameOver'; result: GameResult }
+  /**
+   * `players` (optional): the final public player list — sent to a player who
+   * (re)joins after the match ended, when no snapshots follow any more.
+   */
+  | { t: 'gameOver'; result: GameResult; players?: PublicPlayerView[] }
   | { t: 'returnToLobby'; lobby: LobbyState }
-  /** informational line (player joined / disconnected / reconnected) */
-  | { t: 'notice'; zh: string; en: string }
+  /**
+   * informational line (player joined / disconnected / reconnected); `log`:
+   * a lobby event (join / leave / kick) the UI keeps as a system chat line
+   */
+  | { t: 'notice'; zh: string; en: string; log?: boolean }
   /** non-fatal flow error (e.g. match creation failed) */
   | { t: 'error'; code: string; zh: string; en: string }
   /** the host closed the room */
@@ -102,6 +120,7 @@ const CLIENT_TYPES: ReadonlySet<string> = new Set<ClientMsgType>([
   'setName',
   'ready',
   'pick',
+  'pickHint',
   'chat',
   'loaded',
   'ping',
@@ -154,6 +173,8 @@ export const MAX_CHAT_LEN = 200;
 export const MAX_NAME_LEN = 16;
 /** Max reclaim token length (characters). */
 export const MAX_TOKEN_LEN = 64;
+/** Max hero id length accepted in client messages (characters). */
+export const MAX_HERO_ID_LEN = 32;
 
 export function sanitizeName(name: string, fallback = '玩家'): string {
   // strip control chars, collapse whitespace

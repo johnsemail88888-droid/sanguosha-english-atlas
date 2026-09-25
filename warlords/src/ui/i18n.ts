@@ -83,6 +83,11 @@ const DICT = {
   'online.badCode': ['请输入有效的房间号', 'Please enter a valid room code'],
   'online.failed': ['连接失败：{msg}', 'Connection failed: {msg}'],
   'online.invited': ['你收到了房间 {code} 的邀请', 'You were invited to room {code}'],
+  'online.invitedMode': ['邀请链接使用「{mode}」连接', 'The invite link uses {mode}'],
+  'online.notFoundHint': ['房主可能使用的是「{mode}」连接方式。', 'The host may be using {mode}.'],
+  'online.switchRetry': ['切换为「{mode}」并重试', 'Switch to {mode} and retry'],
+  'online.rejoin': ['重新加入房间 {code}', 'Rejoin room {code}'],
+  'online.rejoinHint': ['刷新前你在房间 {code} 中（{mode}）。', 'Before the reload you were in room {code} ({mode}).'],
 
   // ── lobby ──
   'lobby.title': ['房间大厅', 'Lobby'],
@@ -109,6 +114,12 @@ const DICT = {
   'lobby.friendlyFire': ['友军伤害', 'Friendly fire'],
   'lobby.troops': ['每人兵力', 'Troops per hero'],
   'lobby.players': ['{n}/{max} 名玩家', '{n}/{max} players'],
+  'lobby.leaveConfirm': ['确定离开房间？', 'Leave this room?'],
+  'lobby.hostLeaveConfirm': ['你是房主，离开将解散房间，所有玩家都会退出。确定离开？', 'You are the host — leaving closes the room for everyone. Leave anyway?'],
+  'lobby.joined': ['{name} 加入了房间', '{name} joined the room'],
+  'lobby.left': ['{name} 离开了房间', '{name} left the room'],
+  'lobby.kicked': ['{name} 被请出了房间', '{name} was removed from the room'],
+  'lobby.tabSeats': ['座次', 'Seats'],
 
   // ── roles ──
   'roles.title': ['身份分配', 'Roles'],
@@ -145,6 +156,8 @@ const DICT = {
   'select.picking': ['选将中', 'Picking'],
   'select.pickHint': ['请从 {n} 名武将中选择一名，其他玩家同时选将', 'Pick one of {n} heroes — everyone else is choosing too'],
   'select.freeHint': ['自由选将：可选择任意未被选择的武将', 'Free pick: choose any hero nobody has taken'],
+  'select.autoPick': ['时间到，已为你选定 {hero}', 'Time is up — locked in {hero}'],
+  'select.backHint': ['返回单人设置（Esc）', 'Back to the setup (Esc)'],
 
   // ── loading ──
   'loading.title': ['战场加载中', 'Preparing the battlefield'],
@@ -216,6 +229,12 @@ const DICT = {
   'hud.lord': ['主公技', 'Lord'],
   'hud.armor': ['防具', 'Armor'],
   'hud.mount': ['坐骑', 'Mount'],
+  'hud.pickupDesc': ['获得「{name}」', 'Got {name}'],
+  'hud.duel': ['决斗 vs {name}', 'Duel vs {name}'],
+  'hud.cardHint': ['长按查看说明', 'Long-press for details'],
+  'feed.kill': ['斩', 'killed'],
+  'feed.down': ['倒', 'downed'],
+  'feed.zone': ['烽火圈', 'The zone'],
 
   // ── scoreboard / map / chat / wheel / pause ──
   'score.title': ['战况', 'Scoreboard'],
@@ -247,10 +266,24 @@ const DICT = {
   'map.legend.airdrop': ['天降锦囊', 'Airdrop'],
   'map.legend.known': ['已知身份', 'Known role'],
   'chat.placeholder': ['按 Enter 发送，Esc 取消', 'Enter to send, Esc to cancel'],
+  'chat.placeholderTouch': ['输入消息后点「发送」', 'Type a message, then tap Send'],
   'chat.system': ['系统', 'System'],
   'wheel.title': ['跳身份 · 快捷喊话', 'Claims & quick chat'],
   'wheel.hint': ['点击或按数字键选择，T / Esc 关闭', 'Click or press a number; T / Esc to close'],
+  'wheel.hintTouch': ['点选一项；再点「令」或空白处关闭', 'Tap a line; tap Call or outside to close'],
   'pause.title': ['暂停', 'Paused'],
+  'pause.menu': ['菜单', 'Menu'],
+  'pause.onlineNote': ['对局仍在进行', 'The match keeps running'],
+  'pause.endMatch': ['结束对局 · 返回大厅', 'End match · back to lobby'],
+  'pause.endConfirm': ['结束本局，让所有人返回大厅？', 'End this match and bring everyone back to the lobby?'],
+  'pause.hostLeaveConfirm': ['你是房主，离开将解散房间，所有玩家都会退出对局。确定离开？', 'You are the host — leaving closes the room and ends the match for everyone. Leave anyway?'],
+  'pause.cards': ['锦囊说明', 'Card guide'],
+  'pause.cardsHeld': ['你的锦囊', 'Your cards'],
+  'pause.cardsAll': ['全部锦囊', 'All cards'],
+  'pause.cardsNone': ['锦囊栏是空的', 'No cards in your slots'],
+  'guide.title': ['新手提示', 'Quick tips'],
+  'guide.dismiss': ['知道了', 'Got it'],
+  'guide.never': ['不再显示', "Don't show again"],
   'pause.resume': ['继续战斗', 'Resume'],
   'pause.settings': ['设置', 'Settings'],
   'pause.leave': ['离开对局', 'Leave match'],
@@ -339,6 +372,7 @@ const DICT = {
 
   // ── errors ──
   'error.title': ['出错了', 'Something went wrong'],
+  'notice.title': ['提示', 'Notice'],
   'error.generic': ['发生未知错误', 'An unknown error occurred'],
 } as const satisfies Record<string, readonly [string, string]>;
 
@@ -438,6 +472,11 @@ export function fmtTime(sec: number): string {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${r < 10 ? '0' : ''}${r}`;
+}
+
+/** Label/value separator: full-width '：' in Chinese, ': ' in English. */
+export function colon(): string {
+  return getLang() === 'en' ? ': ' : '：';
 }
 
 export function seatLabel(seat: number): string {

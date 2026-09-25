@@ -2,9 +2,9 @@
 // with the touch HUD — virtual stick moves the hero, fire button shoots, no
 // pointer-lock "click to play" prompt.
 import { expect, test, type Browser } from '@playwright/test';
-import { launchBrowser, localPos, openGame, playSingle, relevantErrors, startPreview, type GamePage, type Server, type SgwlWindow } from './fixtures/game-fixture';
+import { PORT_OFFSET, launchBrowser, localPos, openGame, playSingle, relevantErrors, startPreview, type GamePage, type Server, type SgwlWindow } from './fixtures/game-fixture';
 
-const PORT = 5187;
+const PORT = 5187 + PORT_OFFSET;
 let server: Server;
 let browser: Browser;
 

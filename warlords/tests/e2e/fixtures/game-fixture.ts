@@ -9,7 +9,10 @@ import type { SgwlDebug } from '../../../src/game/debug';
 import { chromium, expect, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from '@playwright/test';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-export const CACHE = path.join(ROOT, 'node_modules', '.cache', 'sgwl-e2e');
+/** build cache (SGWL_E2E_CACHE overrides it, e.g. to keep concurrent runs of different checkouts apart) */
+export const CACHE = process.env.SGWL_E2E_CACHE ? path.resolve(process.env.SGWL_E2E_CACHE) : path.join(ROOT, 'node_modules', '.cache', 'sgwl-e2e');
+/** added to every game spec's server ports (SGWL_E2E_PORT_OFFSET) so parallel runs on one machine never collide */
+export const PORT_OFFSET = Number(process.env.SGWL_E2E_PORT_OFFSET ?? 0) || 0;
 export const DIST = path.join(CACHE, 'dist');
 export const DIST_SINGLE = path.join(CACHE, 'dist-single');
 const CHROMIUM = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';

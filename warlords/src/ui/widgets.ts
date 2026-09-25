@@ -218,7 +218,9 @@ export function slider(
     input.style.setProperty('--p', `${((v - min) / (max - min)) * 100}%`);
     out.textContent = format(v);
   };
-  paint(value);
+  // knob, fill (--p) and label all follow the value the browser kept (clamped to min..max)
+  const kept = Number(input.value);
+  paint(Number.isFinite(kept) ? kept : value);
   input.addEventListener('input', () => {
     const v = Number(input.value);
     paint(v);

@@ -6,6 +6,7 @@
 // when the Lord fell first, on the game-over screen); leave back to the title.
 import { expect, test, type Browser } from '@playwright/test';
 import {
+  PORT_OFFSET,
   SELF_CAST_HEROES,
   enterGame,
   holdKeyUntilMoved,
@@ -19,7 +20,7 @@ import {
   type SgwlWindow,
 } from './fixtures/game-fixture';
 
-const PORT = 5186;
+const PORT = 5186 + PORT_OFFSET;
 let server: Server;
 let browser: Browser;
 

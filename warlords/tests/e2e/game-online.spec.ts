@@ -5,6 +5,7 @@
 // everyone picks a hero, reaches 'playing' and sees the other players' heroes move.
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import {
+  PORT_OFFSET,
   enterGame,
   launchBrowser,
   localPos,
@@ -18,7 +19,7 @@ import {
   type SgwlWindow,
 } from './fixtures/game-fixture';
 
-const RELAY_PORT = 8792;
+const RELAY_PORT = 8792 + PORT_OFFSET;
 const VIEWPORT = { width: 640, height: 360 };
 let relay: Server;
 let browser: Browser;
