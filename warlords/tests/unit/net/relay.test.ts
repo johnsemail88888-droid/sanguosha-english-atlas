@@ -223,7 +223,7 @@ describe('WsTransport over the relay', () => {
       transport: hostT,
       roomCode: hostT.roomCode,
       heroes: testHeroPool(),
-      timings: { roleReveal: 0.02, lordPick: 0.5, pick: 0.5, pickReveal: 0.01, pingInterval: 0.3 },
+      timings: { roleReveal: 0.02, lordPick: 0.5, pick: 0.5, pickReveal: 0.01, pingInterval: 0.3, dropGrace: 0 },
       preferWorkerTicker: false,
       seed: 5,
       createMatch: (init) => {

@@ -5,9 +5,13 @@ import type { InputSink } from '../game/input-types';
 import { HERO_BY_ID, ITEM_BY_ID, isPassiveAbility } from '../data';
 import type { AbilityDef } from '../data/types';
 import { h, setClass, setText } from './dom';
-import { t, tx, type I18nKey } from './i18n';
+import { getLang, t, tx, type I18nKey } from './i18n';
 import { ORDER_GLYPH, ORDER_SEQUENCE } from './theme';
 import { abilityReady, cooldownFraction } from './hud/logic';
+import { abilityShort, itemShort, touchLabel, type TouchKey } from './short';
+
+/** Hold an item slot this long (ms) to read the card instead of using it. */
+export const LONG_PRESS_MS = 450;
 
 /** Pixels of finger drag → look delta multiplier (mouse-equivalent pixels). */
 export const TOUCH_LOOK_SCALE = 1.6;
@@ -42,19 +46,27 @@ export interface TouchControls {
   /** refresh cooldowns, items, lord button, order */
   update(me: PrivateHeroView | null): void;
   setVisible(on: boolean): void;
+  /** re-label the buttons after a language change */
+  relabel(): void;
   dispose(): void;
 }
 
 export interface TouchOptions {
   /** called when the interact button is tapped (HUD may use it for prompts) */
   onInteract?(): void;
+  /** long-press on an item slot: show that card's description (slot index, item id) */
+  onItemInfo?(slot: number, itemId: string): void;
 }
 
 interface AbilityBtn {
   el: HTMLElement;
   cd: HTMLElement;
+  label: HTMLElement;
+  secs: HTMLElement;
   lastP: number;
+  lastSecs: number;
   state: string;
+  labelKey: string;
 }
 
 export function mountTouchControls(container: HTMLElement, sink: InputSink, opts: TouchOptions = {}): TouchControls {
@@ -81,8 +93,19 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
   };
 
   // ── buttons ────────────────────────────────────────────────────────────────
-  const btn = (cls: string, label: string, onDown: (ev: PointerEvent) => void, onUp?: () => void, title?: string): HTMLElement => {
+  /** static buttons re-labelled on a language change */
+  const labelled: { el: HTMLElement; key: TouchKey }[] = [];
+  const labelFor = (el: HTMLElement, key: TouchKey): void => {
+    const text = touchLabel(key, getLang());
+    setText(el.firstElementChild as HTMLElement, text);
+    setClass(el, 'word', text.length > 1 && /^[\x20-\x7e]+$/.test(text));
+  };
+  const btn = (cls: string, label: string | TouchKey, onDown: (ev: PointerEvent) => void, onUp?: () => void, title?: string, key?: TouchKey): HTMLElement => {
     const b = h('div', { class: `tbtn ${cls}`, role: 'button', title }, h('span', { class: 'l' }, label));
+    if (key) {
+      labelled.push({ el: b, key });
+      labelFor(b, key);
+    }
     let pid: number | null = null;
     b.addEventListener('pointerdown', (ev) => {
       ev.preventDefault();
@@ -110,14 +133,14 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
   // fire: hold + drag to aim
   let firePid: number | null = null;
   let fireLast = { x: 0, y: 0 };
-  const fire = btn('fire', '射', (ev) => {
+  const fire = btn('fire', 'fire', (ev) => {
     firePid = ev.pointerId;
     fireLast = { x: ev.clientX, y: ev.clientY };
     sink.setHeld('fire', true);
   }, () => {
     firePid = null;
     sink.setHeld('fire', false);
-  }, tx('开火', 'Fire'));
+  }, tx('开火', 'Fire'), 'fire');
   fire.addEventListener('pointermove', (ev) => {
     if (ev.pointerId !== firePid) return;
     sink.addLook((ev.clientX - fireLast.x) * TOUCH_LOOK_SCALE, (ev.clientY - fireLast.y) * TOUCH_LOOK_SCALE);
@@ -129,22 +152,25 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
     setClass(ads, 'on', on);
     sink.setHeld('ads', on);
   };
-  const ads = btn('ads', '镜', () => setAds(!adsOn), undefined, tx('开镜', 'Aim'));
-  const jump = btn('jump', '跃', () => push({ a: 'jump' }), undefined, tx('跳跃', 'Jump'));
-  const dodge = btn('dodge', '闪', () => push({ a: 'dodge' }), undefined, tx('闪避', 'Dodge'));
-  const reload = btn('reload', '装', () => push({ a: 'reload' }), undefined, tx('换弹', 'Reload'));
-  const swap = btn('swap', '换', () => push({ a: 'weapon', slot: activeSlot === 0 ? 1 : 0 }), undefined, tx('切换武器', 'Swap weapon'));
-  const interact = btn('interact', 'F', () => {
+  const ads = btn('ads', 'ads', () => setAds(!adsOn), undefined, tx('开镜', 'Aim'), 'ads');
+  const jump = btn('jump', 'jump', () => push({ a: 'jump' }), undefined, tx('跳跃', 'Jump'), 'jump');
+  const dodge = btn('dodge', 'dodge', () => push({ a: 'dodge' }), undefined, tx('闪避', 'Dodge'), 'dodge');
+  const reload = btn('reload', 'reload', () => push({ a: 'reload' }), undefined, tx('换弹', 'Reload'), 'reload');
+  const swap = btn('swap', 'swap', () => push({ a: 'weapon', slot: activeSlot === 0 ? 1 : 0 }), undefined, tx('切换武器', 'Swap weapon'), 'swap');
+  const interact = btn('interact', 'interact', () => {
     push({ a: 'interact' });
     sink.setHeld('interact', true);
     opts.onInteract?.();
-  }, () => sink.setHeld('interact', false), tx('互动', 'Interact'));
+  }, () => sink.setHeld('interact', false), tx('互动', 'Interact'), 'interact');
 
-  const abilityBtn = (slot: AbilitySlot, label: string): AbilityBtn => {
+  /** Q / E / G: short skill name, the key letter in a corner, cooldown sweep + seconds */
+  const abilityBtn = (slot: AbilitySlot, key: string): AbilityBtn => {
     const cd = h('i', { class: 'cd' });
-    const b = btn(`ab ab-${slot}`, label, () => push({ a: 'ability', slot }));
-    b.appendChild(cd);
-    return { el: b, cd, lastP: -1, state: '' };
+    const b = btn(`ab ab-${slot}`, key, () => push({ a: 'ability', slot }));
+    const label = b.firstElementChild as HTMLElement;
+    const secs = h('b', { class: 'cs' });
+    b.append(cd, h('span', { class: 'k' }, key), secs);
+    return { el: b, cd, label, secs, lastP: -1, lastSecs: -1, state: '', labelKey: '' };
   };
   const abQ = abilityBtn('q', 'Q');
   const abE = abilityBtn('e', 'E');
@@ -154,17 +180,50 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
     orderIdx = (orderIdx + 1) % ORDER_SEQUENCE.length;
     const o: SquadOrderKind = ORDER_SEQUENCE[orderIdx];
     push({ a: 'command', order: o });
-    setText(order.firstElementChild as HTMLElement, ORDER_GLYPH[o]);
+    setOrderLabel(o);
     order.title = t(`hud.order.${o}` as I18nKey);
   }, undefined, t('hud.squad'));
-  const mark = btn('mark', '标', () => push({ a: 'mark' }), undefined, tx('标记', 'Mark'));
+  function setOrderLabel(o: SquadOrderKind): void {
+    const en = getLang() === 'en';
+    setText(order.firstElementChild as HTMLElement, en ? t(`hud.order.${o}` as I18nKey) : ORDER_GLYPH[o]);
+    setClass(order, 'word', en);
+  }
+  setOrderLabel('follow');
+  const mark = btn('mark', 'mark', () => push({ a: 'mark' }), undefined, tx('标记', 'Mark'), 'mark');
 
+  // item slots: tap uses the card (on release), a long press shows what it does instead
   const items = [0, 1, 2, 3].map((i) => {
     const g = h('span', { class: 'g' });
     const c = h('b', { class: 'c' });
-    const b = btn('item empty', '', () => push({ a: 'item', slot: i }));
-    b.replaceChildren(g, c, h('span', { class: 'k' }, String(4 + i)));
-    return { el: b, g, c, key: '' };
+    const n = h('span', { class: 'n' });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let long = false;
+    let itemId = '';
+    const cancel = (): void => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+    };
+    const b = btn('item empty', '', () => {
+      long = false;
+      cancel();
+      if (!itemId) return;
+      const id = itemId;
+      timer = setTimeout(() => {
+        timer = null;
+        long = true;
+        b.classList.remove('down');
+        opts.onItemInfo?.(i, id);
+      }, LONG_PRESS_MS);
+    }, () => {
+      const wasPending = timer !== null;
+      cancel();
+      if (wasPending && !long) push({ a: 'item', slot: i });
+      long = false;
+    });
+    b.addEventListener('pointercancel', cancel);
+    cleanup.push(cancel);
+    b.replaceChildren(g, n, c, h('span', { class: 'k' }, String(4 + i)));
+    return { el: b, g, c, n, key: '', setId: (id: string) => (itemId = id) };
   });
 
   el.append(
@@ -263,6 +322,14 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
 
   let lordKey = '';
   const updateAbility = (b: AbilityBtn, def: AbilityDef, me: PrivateHeroView): void => {
+    const lang = getLang();
+    const lk = `${def.id}|${lang}`;
+    if (lk !== b.labelKey) {
+      b.labelKey = lk;
+      setText(b.label, abilityShort(def, lang));
+      setClass(b.el, 'word', lang === 'en');
+      b.el.title = tx(def.nameZh, def.nameEn);
+    }
     const rem = me.cooldowns[def.id] ?? 0;
     const p = Math.round(cooldownFraction(rem, def.cooldown) * 100) / 100;
     if (p !== b.lastP) {
@@ -277,7 +344,14 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
       setClass(b.el, 'cooling', state === 'cooling');
       setClass(b.el, 'recharging', state === 'recharging');
     }
+    // seconds left while the button is unusable
+    const secs = state === 'cooling' && rem > 0 ? Math.ceil(rem) : 0;
+    if (secs !== b.lastSecs) {
+      b.lastSecs = secs;
+      setText(b.secs, secs > 0 ? String(secs) : '');
+    }
   };
+  let itemLang = getLang();
 
   return {
     el,
@@ -299,21 +373,29 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
         setClass(abG.el, 'sg-hidden', !showLord);
       }
       if (g && showLord) updateAbility(abG, g, me);
+      const lang = getLang();
+      if (lang !== itemLang) {
+        itemLang = lang;
+        for (const it of items) it.key = '';
+      }
       items.forEach((it, i) => {
         const st = me.items[i];
         const key = st ? `${st.id}:${st.count}` : '';
         if (key === it.key) return;
         it.key = key;
+        it.setId(st?.id ?? '');
         setClass(it.el, 'empty', !st);
         const idef = st ? ITEM_BY_ID[st.id] : undefined;
         setText(it.g, st ? idef?.icon ?? st.id.slice(0, 1) : '');
+        setText(it.n, st ? itemShort(st.id, lang) : '');
         setText(it.c, st && st.count > 1 ? String(st.count) : '');
+        it.el.title = idef ? `${tx(idef.nameZh, idef.nameEn)} · ${t('hud.cardHint')}` : '';
         it.el.style.setProperty('--ic', idef?.color ?? '#e8d8b0');
       });
       const oi = ORDER_SEQUENCE.indexOf(me.order.kind);
       if (oi >= 0 && oi !== orderIdx) {
         orderIdx = oi;
-        setText(order.firstElementChild as HTMLElement, ORDER_GLYPH[me.order.kind]);
+        setOrderLabel(me.order.kind);
       }
       setClass(el, 'downed', me.downed);
       setClass(el, 'dead', me.dead);
@@ -332,6 +414,14 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
         resetStick();
         for (const b of el.querySelectorAll('.tbtn.down')) b.classList.remove('down');
       }
+    },
+    relabel() {
+      for (const l of labelled) labelFor(l.el, l.key);
+      abQ.labelKey = abE.labelKey = abG.labelKey = '';
+      for (const it of items) it.key = '';
+      order.title = t(`hud.order.${ORDER_SEQUENCE[orderIdx]}` as I18nKey);
+      setOrderLabel(ORDER_SEQUENCE[orderIdx]);
+      mark.title = tx('标记', 'Mark');
     },
     dispose() {
       for (const c of cleanup) c();

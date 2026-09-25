@@ -1,7 +1,7 @@
 // Combat feedback: crosshair (per weapon class, spread-aware), hit markers,
 // floating damage numbers, damage direction arcs, sniper scope, interaction
 // prompt, channel bar, downed overlay, spectate bar, outside-zone warning.
-import type { Vec3 } from '../../core/types';
+import type { EntityId, Vec3 } from '../../core/types';
 import { VF_ADS, VF_AIRBORNE, VF_FIRING, VF_RELOADING } from '../../core/types';
 import { HERO_BY_ID, ITEM_BY_ID, WEAPON_BY_ID } from '../../data';
 import { h, setClass, setText } from '../dom';
@@ -396,6 +396,9 @@ export class DownedOverlay {
 
 // ── Death / spectate bar ─────────────────────────────────────────────────────
 
+/** Who killed you: an entity (translated when shown, in the current language) or the zone. */
+export type KillerRef = { entityId: EntityId } | { zone: true } | null;
+
 export class SpectateBar {
   readonly el: HTMLElement;
   private readonly killerEl: HTMLElement;
@@ -403,9 +406,10 @@ export class SpectateBar {
   private readonly titleEl: HTMLElement;
   private on = false;
   private key = '';
-  killer: string | null = null;
+  killer: KillerRef = null;
 
-  constructor(private readonly cycle: (dir: 1 | -1) => void) {
+  /** `label(id)` names an entity as "hero·player" in the current language (null = unknown) */
+  constructor(private readonly cycle: (dir: 1 | -1) => void, private readonly label: (id: EntityId) => string | null = () => null) {
     this.killerEl = h('div', { class: 'killer' });
     this.targetEl = h('span', { class: 'target' });
     this.titleEl = h('div', { class: 'dead-title' }, t('hud.dead'));
@@ -424,12 +428,14 @@ export class SpectateBar {
     }
     if (!on) return;
     const target = f.players.find((p) => p.entityId === f.spectateId);
-    const k = `${this.killer}|${target?.entityId ?? ''}|${f.lang}`;
+    const kr = this.killer;
+    const k = `${kr ? ('zone' in kr ? 'zone' : kr.entityId) : ''}|${target?.entityId ?? ''}|${f.lang}`;
     if (k === this.key) return;
     this.key = k;
     setText(this.titleEl, t('hud.dead'));
-    setText(this.killerEl, this.killer ? t('hud.killedBy', { name: this.killer }) : '');
-    setText(this.targetEl, target ? t('hud.spectating', { name: `${heroName(target.heroId)}·${target.name}` }) : '—');
+    const killerName = !kr ? '' : 'zone' in kr ? t('hud.zoneDeath') : this.label(kr.entityId) ?? '';
+    setText(this.killerEl, killerName ? t('hud.killedBy', { name: killerName }) : '');
+    setText(this.targetEl, target ? t('hud.spectating', { name: `${heroName(target.heroId)}·${displayName(target.name, f.lang)}` }) : '—');
   }
 
   relabel(): void {
@@ -487,4 +493,50 @@ export function pickupName(id: string): string {
 
 export function heroNameOf(id: string | undefined): string {
   return id && HERO_BY_ID[id] ? heroName(id) : id ?? '';
+}
+
+// ── 决斗 indicator ────────────────────────────────────────────────────────────
+
+/** abilityState keys the sim sets on both duellists (sim/items/tricks.ts) */
+export const DUEL_VS_KEY = 'item:juedou:vs';
+export const DUEL_UNTIL_KEY = 'item:juedou:until';
+
+/** The running duel of `me` (opponent id + seconds left), or null. */
+export function duelState(me: { abilityState: Record<string, number> } | null | undefined, elapsed: number): { vs: EntityId; secs: number } | null {
+  const st = me?.abilityState;
+  if (!st) return null;
+  const vs = st[DUEL_VS_KEY];
+  const until = st[DUEL_UNTIL_KEY];
+  if (typeof vs !== 'number' || typeof until !== 'number') return null;
+  const secs = until - elapsed;
+  return secs > 0 ? { vs, secs } : null;
+}
+
+export class DuelBar {
+  readonly el: HTMLElement;
+  private readonly text: HTMLElement;
+  private readonly secs: HTMLElement;
+  private key = '';
+
+  constructor(private readonly label: (id: EntityId) => string | null) {
+    this.text = h('span', { class: 'dl-text' });
+    this.secs = h('b', { class: 'dl-secs' });
+    this.el = h('div', { class: 'hud-duel off' }, h('span', { class: 'sg-seal', style: '--sz:1.6em;--seal:#b3261e' }, h('span', null, '决')), this.text, this.secs);
+  }
+
+  update(f: HudFrame): void {
+    const d = f.me && !f.me.dead ? duelState(f.me, f.elapsed) : null;
+    const k = d ? `${d.vs}|${Math.ceil(d.secs)}|${f.lang}` : '';
+    if (k === this.key) return;
+    this.key = k;
+    setClass(this.el, 'off', !d);
+    if (!d) return;
+    setText(this.text, t('hud.duel', { name: this.label(d.vs) ?? '?' }));
+    setText(this.secs, t('common.seconds', { n: Math.ceil(d.secs) }));
+    setClass(this.el, 'ending', d.secs <= 3);
+  }
+
+  relabel(): void {
+    this.key = '';
+  }
 }

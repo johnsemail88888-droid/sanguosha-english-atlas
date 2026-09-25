@@ -1,13 +1,31 @@
 // In-match overlays: scoreboard (Tab), big map (M), claim / quick-chat wheel
 // (T), pause menu (Esc).
 import type { MapData } from '../../core/map';
-import type { EntityId, PrivateHeroView, PublicPlayerView, RoleId } from '../../core/types';
+import type { EntityId, ItemStack, PrivateHeroView, PublicPlayerView, RoleId } from '../../core/types';
+import { ITEMS, ITEM_BY_ID } from '../../data';
 import { h, setText } from '../dom';
 import { getLang, heroName, roleName, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
 import { CLAIMABLE_ROLES, CLAIM_TEXT, QUICKCHAT, ROLE_GLYPH, roleColor, roleInk } from '../theme';
+import { itemShort } from '../short';
 import { button, kingdomBadge, roleSeal } from '../widgets';
 import { drawBigMap, type MarkerInput } from './minimap';
+
+/**
+ * Close button of an in-match overlay: the key that toggles it on desktop
+ * (keycap, still clickable), a big ✕ on touch (`.sg-hud.touch` swaps them).
+ */
+export function overlayClose(key: string, onClose: () => void, cls = ''): HTMLButtonElement {
+  const b = h('button', { class: `hud-close ${cls}`.trim(), type: 'button', title: `${t('common.close')} (${key})`, aria: { label: t('common.close') } },
+    h('span', { class: 'sg-key k' }, key),
+    h('span', { class: 'x' }, '✕'),
+  );
+  b.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    onClose();
+  });
+  return b;
+}
 
 // ── Scoreboard ───────────────────────────────────────────────────────────────
 
@@ -18,12 +36,12 @@ export class Scoreboard {
   private readonly titleEl: HTMLElement;
   private lastKey = '';
 
-  constructor() {
+  constructor(onClose: () => void = () => undefined) {
     this.body = h('tbody');
     this.statsEl = h('div', { class: 'sb-stats' });
     this.titleEl = h('h2', { class: 'sg-h2' }, t('score.title'));
     this.el = h('div', { class: 'hud-scoreboard sg-panel sg-corners', role: 'dialog', aria: { label: t('score.title') } },
-      h('div', { class: 'sb-head' }, this.titleEl, this.statsEl),
+      h('div', { class: 'sb-head' }, this.titleEl, this.statsEl, overlayClose('Tab', onClose, 'sb-close')),
       h('div', { class: 'sg-table-wrap' }, h('table', { class: 'sg-table' }, this.headRow(), this.body)),
     );
   }
@@ -103,12 +121,12 @@ export class BigMap {
   private cssSize = 0;
   private readonly ro: ResizeObserver | null;
 
-  constructor(private readonly map: MapData) {
+  constructor(private readonly map: MapData, onClose: () => void = () => undefined) {
     this.canvas = h('canvas', { class: 'bm-canvas' });
     this.title = h('h2', { class: 'sg-h2' });
     this.legend = h('div', { class: 'bm-legend' });
     this.el = h('div', { class: 'hud-bigmap sg-dark', role: 'dialog' },
-      h('div', { class: 'bm-head' }, this.title, h('span', { class: 'sg-key' }, 'M')),
+      h('div', { class: 'bm-head' }, this.title, overlayClose('M', onClose, 'bm-close')),
       h('div', { class: 'bm-frame' }, this.canvas),
       this.legend,
     );
@@ -180,7 +198,11 @@ export class Wheel {
   readonly el: HTMLElement;
   private choices: WheelChoice[] = wheelChoices();
 
-  constructor(private readonly onPick: (c: WheelChoice) => void, private readonly onClose: () => void) {
+  constructor(
+    private readonly onPick: (c: WheelChoice) => void,
+    private readonly onClose: () => void,
+    private readonly isTouch: () => boolean = () => false,
+  ) {
     this.el = h('div', { class: 'hud-wheel', role: 'dialog' });
     this.render();
   }
@@ -199,12 +221,18 @@ export class Wheel {
         c.kind === 'claim' ? h('span', { class: 'glyph', style: `--seal:${roleColor(c.role)}` }, ROLE_GLYPH[c.role]) : null,
         h('span', { class: 'lbl' }, wheelLabel(c)),
       );
-      b.addEventListener('click', () => this.onPick(c));
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this.onPick(c);
+      });
       return b;
     });
-    const close = h('button', { class: 'wh-center', type: 'button', aria: { label: t('common.close') } }, h('span', null, t('wheel.title')));
-    close.addEventListener('click', () => this.onClose());
-    this.el.replaceChildren(h('div', { class: 'wh-ring' }, close, ...items), h('div', { class: 'wh-hint' }, t('wheel.hint')));
+    const close = h('button', { class: 'wh-center', type: 'button', aria: { label: t('common.close') } }, h('span', { class: 'x' }, '✕'), h('span', { class: 'lbl' }, t('wheel.title')));
+    close.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.onClose();
+    });
+    this.el.replaceChildren(h('div', { class: 'wh-ring' }, close, ...items), h('div', { class: 'wh-hint' }, t(this.isTouch() ? 'wheel.hintTouch' : 'wheel.hint')));
   }
 
   /** number key 1..n → choice */
@@ -218,11 +246,42 @@ export class Wheel {
 
 // ── Pause menu ───────────────────────────────────────────────────────────────
 
+export interface PauseActions {
+  resume(): void;
+  settings(): void;
+  leave(): void;
+  help(): void;
+  /** online host only: end the match and bring everyone back to the lobby */
+  endMatch?(): void;
+}
+
+export interface PauseContext {
+  /** online match: the game keeps running behind the menu ("Menu", not "Paused") */
+  online(): boolean;
+  isHost(): boolean;
+  /** your item slots (for the card guide) */
+  items(): readonly (ItemStack | null)[];
+}
+
+/** One card row of the 锦囊说明 list: glyph, name (+ count), one-line effect. */
+export function cardRow(id: string, count?: number): HTMLElement {
+  const def = ITEM_BY_ID[id];
+  const el = h('li', { class: 'pc-card', data: { item: id } },
+    h('span', { class: 'item-glyph', style: `--ic:${def?.color ?? '#999'}` }, def?.icon ?? id.slice(0, 1)),
+    h('div', { class: 'pc-text' },
+      h('b', null, def ? tx(def.nameZh, def.nameEn) : id, count && count > 1 ? h('span', { class: 'cnt' }, ` ×${count}`) : null),
+      h('span', { class: 'desc' }, def ? tx(def.descZh, def.descEn) : ''),
+    ),
+  );
+  return el;
+}
+
 export class PauseMenu {
   readonly el: HTMLElement;
   private mode: 'menu' | 'click' = 'menu';
+  private showAll = false;
 
-  constructor(private readonly actions: { resume(): void; settings(): void; leave(): void; help(): void }) {
+  constructor(private readonly actions: PauseActions, private readonly ctx: PauseContext = { online: () => false, isHost: () => true, items: () => [] }) {
     this.el = h('div', { class: 'hud-pause', role: 'dialog' });
     // in "click to play" mode a click anywhere grabs the pointer again
     this.el.addEventListener('click', () => {
@@ -236,6 +295,28 @@ export class PauseMenu {
     this.render();
   }
 
+  private cards(): HTMLElement {
+    const held = this.ctx.items().filter((s): s is ItemStack => !!s && !!ITEM_BY_ID[s.id]);
+    const heldList = held.length
+      ? h('ul', { class: 'pc-list held' }, held.map((s) => cardRow(s.id, s.count)))
+      : h('p', { class: 'sg-mute pc-none' }, t('pause.cardsNone'));
+    const allBtn = h('button', { class: 'pc-all-toggle', type: 'button', aria: { expanded: this.showAll } }, `${t('pause.cardsAll')} (${ITEMS.length}) ${this.showAll ? '▴' : '▾'}`);
+    allBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.showAll = !this.showAll;
+      this.render();
+    });
+    return h('section', { class: 'pm-cards sg-panel sg-corners', aria: { label: t('pause.cards') } },
+      h('h3', { class: 'sg-h3' }, t('pause.cards')),
+      h('div', { class: 'pc-scroll' },
+        h('div', { class: 'pc-sub' }, t('pause.cardsHeld')),
+        heldList,
+        allBtn,
+        this.showAll ? h('ul', { class: 'pc-list all' }, ITEMS.map((it) => cardRow(it.id))) : null,
+      ),
+    );
+  }
+
   render(): void {
     if (this.mode === 'click') {
       const prompt = h('button', { class: 'click-prompt', type: 'button' }, h('span', { class: 'sg-seal', style: '--sz:2.4em' }, h('span', null, '战')), h('span', null, t('hud.clickToPlay')));
@@ -243,15 +324,27 @@ export class PauseMenu {
       this.el.dataset.mode = 'click';
       return;
     }
+    const online = this.ctx.online();
     this.el.dataset.mode = 'menu';
+    this.el.dataset.online = String(online);
     this.el.replaceChildren(
-      h('div', { class: 'pm-box sg-panel sg-corners' },
-        h('h2', { class: 'sg-h2 sg-title-bar' }, t('pause.title')),
-        button(t('pause.resume'), () => this.actions.resume(), { cls: 'gold wide', sfx: 'confirm' }),
-        button(t('pause.settings'), () => this.actions.settings(), { cls: 'dark wide' }),
-        button(t('pause.controls'), () => this.actions.help(), { cls: 'dark wide' }),
-        button(t('pause.leave'), () => this.actions.leave(), { cls: 'wide', sfx: 'back' }),
+      h('div', { class: 'pm-wrap' },
+        h('div', { class: 'pm-box sg-panel sg-corners' },
+          h('h2', { class: 'sg-h2 sg-title-bar' }, online ? t('pause.menu') : t('pause.title')),
+          online ? h('p', { class: 'pm-note' }, h('span', { class: 'live' }), t('pause.onlineNote')) : null,
+          button(t('pause.resume'), () => this.actions.resume(), { cls: 'gold wide', sfx: 'confirm' }),
+          button(t('pause.settings'), () => this.actions.settings(), { cls: 'dark wide' }),
+          button(t('pause.controls'), () => this.actions.help(), { cls: 'dark wide' }),
+          online && this.ctx.isHost() && this.actions.endMatch ? button(t('pause.endMatch'), () => this.actions.endMatch?.(), { cls: 'dark wide pm-end' }) : null,
+          button(t('pause.leave'), () => this.actions.leave(), { cls: 'wide', sfx: 'back' }),
+        ),
+        this.cards(),
       ),
     );
   }
+}
+
+/** Short card label under an item glyph (HUD item bar / touch item slots). */
+export function cardLabel(id: string): string {
+  return itemShort(id, getLang());
 }

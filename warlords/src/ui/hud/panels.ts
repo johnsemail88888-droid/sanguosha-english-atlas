@@ -5,13 +5,18 @@ import type { AbilitySlot, PrivateHeroView, SquadOrderKind, StatusId } from '../
 import { ARMOR_BY_ID, HERO_BY_ID, ITEM_BY_ID, MOUNT_BY_ID, ROLE_BY_ID, WEAPON_BY_ID } from '../../data';
 import type { AbilityDef } from '../../data/types';
 import { h, setClass, setText } from '../dom';
-import { fmtTime, gearName, heroName, roleName, t, tx, type I18nKey } from '../i18n';
+import { colon, fmtTime, gearName, getLang, heroName, roleName, t, tx, type I18nKey } from '../i18n';
+import { displayName } from '../../game/names';
+import { abilityShort, itemShort } from '../short';
 import { ORDER_GLYPH, ORDER_KEYS, ORDER_SEQUENCE, RARITY_COLOR, ROLE_GLYPH, kingdomColor, roleColor, statusInfo } from '../theme';
 import { magatama, type PortraitCache } from '../widgets';
 import { abilityReady, aliveCount, cooldownFraction, filledTicks, hpTicks, hudAbilities, maxDodgeCharges, zoneStatus, type AbilitySlotView } from './logic';
 import type { HudFrame } from './types';
 
 const r1 = (v: number): number => Math.round(v * 1000) / 1000;
+
+/** Statuses whose remaining time means nothing to the player (刚烈 reflects for as long as the passive lasts). */
+export const TIMERLESS_STATUSES: ReadonlySet<StatusId> = new Set<StatusId>(['thorns']);
 
 // ── Vitals ───────────────────────────────────────────────────────────────────
 
@@ -30,6 +35,7 @@ export class VitalsPanel {
   private readonly gear: HTMLElement;
   private readonly statuses: HTMLElement;
   private heroId = '';
+  private heroLang = '';
   private maxHp = -1;
   private hp = -1;
   private shield = -1;
@@ -42,11 +48,13 @@ export class VitalsPanel {
   private gearKey = '';
   private statusKey = '';
   private readonly statusEls = new Map<StatusId, { el: HTMLElement; num: HTMLElement; last: number }>();
+  private readonly rawPlayerName: string;
 
   constructor(private readonly portraits: PortraitCache, playerName: string) {
     this.portrait = h('div', { class: 'v-portrait' });
     this.heroEl = h('span', { class: 'hero' });
-    this.playerEl = h('span', { class: 'player' }, playerName);
+    this.playerEl = h('span', { class: 'player' }, displayName(playerName, getLang()));
+    this.rawPlayerName = playerName;
     this.hpFill = h('div', { class: 'fill hp' });
     this.hpLag = h('div', { class: 'fill lag' });
     this.shieldFill = h('div', { class: 'fill shield' });
@@ -73,10 +81,12 @@ export class VitalsPanel {
   update(f: HudFrame): void {
     const me = f.me;
     if (!me) return;
-    if (me.heroId !== this.heroId) {
+    if (me.heroId !== this.heroId || f.lang !== this.heroLang) {
+      if (me.heroId !== this.heroId) this.portrait.replaceChildren(this.portraits.layer(me.heroId, 128));
       this.heroId = me.heroId;
+      this.heroLang = f.lang;
       const def = HERO_BY_ID[me.heroId];
-      this.portrait.replaceChildren(this.portraits.layer(me.heroId, 128));
+      setText(this.playerEl, displayName(this.rawPlayerName, f.lang));
       this.portrait.style.setProperty('--kc', kingdomColor(def?.kingdom));
       setText(this.heroEl, heroName(me.heroId));
       this.dodgeBase = maxDodgeCharges(me.heroId);
@@ -133,11 +143,11 @@ export class VitalsPanel {
       const chips: HTMLElement[] = [];
       if (me.armor) {
         const a = ARMOR_BY_ID[me.armor];
-        chips.push(h('span', { class: 'gchip', style: `--gc:${a?.color ?? '#aaa'}`, title: `${t('hud.armor')}：${gearName(me.armor)}` }, gearName(me.armor)));
+        chips.push(h('span', { class: 'gchip', style: `--gc:${a?.color ?? '#aaa'}`, title: `${t('hud.armor')}${colon()}${gearName(me.armor)}` }, gearName(me.armor)));
       }
       if (me.mount) {
         const m = MOUNT_BY_ID[me.mount];
-        chips.push(h('span', { class: 'gchip', style: `--gc:${m?.color ?? '#aaa'}`, title: `${t('hud.mount')}：${gearName(me.mount)}` }, `${m?.type === 'defense' ? '+1' : '-1'} ${gearName(me.mount)}`));
+        chips.push(h('span', { class: 'gchip', style: `--gc:${m?.color ?? '#aaa'}`, title: `${t('hud.mount')}${colon()}${gearName(me.mount)}` }, `${m?.type === 'defense' ? '+1' : '-1'} ${gearName(me.mount)}`));
       }
       this.gear.replaceChildren(...chips);
     }
@@ -163,7 +173,7 @@ export class VitalsPanel {
     for (const s of list) {
       const rec = this.statusEls.get(s.id);
       if (!rec) continue;
-      const secs = Number.isFinite(s.remaining) && s.remaining < 999 ? Math.ceil(s.remaining) : -1;
+      const secs = !TIMERLESS_STATUSES.has(s.id) && Number.isFinite(s.remaining) && s.remaining < 999 ? Math.ceil(s.remaining) : -1;
       if (secs !== rec.last) {
         rec.last = secs;
         setText(rec.num, secs >= 0 ? String(secs) : '');
@@ -173,7 +183,7 @@ export class VitalsPanel {
   }
 
   relabel(): void {
-    this.heroId = '';
+    this.heroLang = '';
     this.gearKey = '';
     this.statusKey = '';
     this.dodges.title = t('hud.dodge');
@@ -287,6 +297,7 @@ interface ItemEl {
   root: HTMLElement;
   glyph: HTMLElement;
   count: HTMLElement;
+  name: HTMLElement;
   key: string;
 }
 
@@ -306,9 +317,10 @@ export class AbilityBar {
     for (let i = 0; i < 4; i++) {
       const glyph = h('span', { class: 'g' });
       const count = h('b', { class: 'cnt' });
-      const root = h('div', { class: 'item empty', data: { slot: i } }, h('span', { class: 'key' }, String(4 + i)), h('div', { class: 'card' }, glyph, count));
+      const name = h('span', { class: 'nm' });
+      const root = h('div', { class: 'item empty', data: { slot: i } }, h('span', { class: 'key' }, String(4 + i)), h('div', { class: 'card' }, glyph, name, count));
       root.addEventListener('click', () => this.onUse?.('item', i));
-      this.items.push({ root, glyph, count, key: '' });
+      this.items.push({ root, glyph, count, name, key: '' });
       this.itemsEl.appendChild(root);
     }
   }
@@ -323,7 +335,7 @@ export class AbilityBar {
       const charges = h('span', { class: 'charges' });
       const name = tx(v.def.nameZh, v.def.nameEn);
       const root = h('div', { class: `ab slot-${v.def.slot}`, title: `${name}\n${tx(v.def.descZh, v.def.descEn)}` },
-        h('div', { class: 'ico' }, h('span', { class: 'g' }, glyphFor(v.def)), cd, num),
+        h('div', { class: 'ico' }, h('span', { class: `g${lang === 'en' ? ' en' : ''}` }, abilityShort(v.def, lang === 'en' ? 'en' : 'zh')), cd, num),
         v.key ? h('span', { class: 'key' }, v.key) : h('span', { class: 'key passive' }, t(v.def.slot === 'lord' ? 'hud.lord' : 'hud.passive')),
         charges,
       );
@@ -387,11 +399,13 @@ export class AbilityBar {
       if (it) {
         const def = ITEM_BY_ID[it.id];
         setText(rec.glyph, def?.icon ?? gearName(it.id).slice(0, 1));
+        setText(rec.name, itemShort(it.id, f.lang));
         rec.root.style.setProperty('--ic', def?.color ?? '#e8d8b0');
         rec.root.title = def ? `${tx(def.nameZh, def.nameEn)}\n${tx(def.descZh, def.descEn)}` : it.id;
         setText(rec.count, it.count > 1 ? String(it.count) : '');
       } else {
         setText(rec.glyph, '');
+        setText(rec.name, '');
         setText(rec.count, '');
         rec.root.title = '';
       }
@@ -418,6 +432,11 @@ export function glyphFor(def: AbilityDef): string {
   return def.nameZh.slice(0, 2);
 }
 
+/** Squad order button label: 随 / 守 / 攻 / 冲 in Chinese, Follow / Hold / Attack / Charge in English. */
+export function orderLabel(o: SquadOrderKind): string {
+  return getLang() === 'en' ? t(`hud.order.${o}` as I18nKey) : ORDER_GLYPH[o];
+}
+
 // ── Squad ────────────────────────────────────────────────────────────────────
 
 export class SquadPanel {
@@ -429,6 +448,7 @@ export class SquadPanel {
   private order: SquadOrderKind | '' = '';
   private readonly pipEls: HTMLElement[] = [];
   private readonly titleEl: HTMLElement;
+  private lang = '';
 
   constructor(onOrder?: (o: SquadOrderKind) => void) {
     this.pips = h('div', { class: 'sq-pips' });
@@ -436,7 +456,7 @@ export class SquadPanel {
     this.titleEl = h('span', { class: 'sq-title' }, t('hud.squad'));
     const orderRow = h('div', { class: 'sq-orders' });
     for (const o of ORDER_SEQUENCE) {
-      const b = h('span', { class: 'o', title: t(`hud.order.${o}` as I18nKey) }, h('span', { class: 'k' }, ORDER_KEYS[o]), ORDER_GLYPH[o]);
+      const b = h('span', { class: 'o', title: t(`hud.order.${o}` as I18nKey), data: { order: o } }, h('span', { class: 'k' }, ORDER_KEYS[o]), h('span', { class: 'ol' }, orderLabel(o)));
       b.addEventListener('click', () => onOrder?.(o));
       this.orders.set(o, b);
       orderRow.appendChild(b);
@@ -447,6 +467,11 @@ export class SquadPanel {
   update(f: HudFrame): void {
     const me = f.me;
     if (!me) return;
+    if (f.lang !== this.lang) {
+      this.lang = f.lang;
+      setClass(this.el, 'en', f.lang === 'en');
+      for (const [o, el] of this.orders) setText(el.lastElementChild as HTMLElement, orderLabel(o));
+    }
     const key = me.squad.map((s) => s.id).join(',');
     if (key !== this.key) {
       this.key = key;
@@ -489,6 +514,7 @@ export class SquadPanel {
   relabel(): void {
     this.key = '';
     this.order = '';
+    this.lang = '';
     setText(this.titleEl, t('hud.squad'));
     for (const [k, el] of this.orders) el.title = t(`hud.order.${k}` as I18nKey);
   }

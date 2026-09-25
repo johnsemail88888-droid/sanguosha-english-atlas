@@ -2,7 +2,9 @@
 // through GameHandle.onEvents (never drains the view itself). Owns the in-match
 // overlays (scoreboard, big map, wheel, chat, pause) and the touch overlay.
 import type { EntityId, GameEvent, SquadOrderKind, ViewEntity } from '../../core/types';
+import { ARMOR_BY_ID, ITEM_BY_ID, MOUNT_BY_ID } from '../../data';
 import type { GameSession } from '../../game/session';
+import { displayName } from '../../game/names';
 import { settings } from '../../game/settings';
 import type { ViewSource } from '../../render/view';
 import type { GameHandle, UiKey } from '../app';
@@ -10,17 +12,28 @@ import type { UiCtx } from '../ctx';
 import { Bag, h, isTextInput, setClass, setText } from '../dom';
 import { getLang, heroName, roleName, t, tx } from '../i18n';
 import { CLAIM_TEXT, quickChatText, roleColor } from '../theme';
+import { touchLabel, type TouchKey } from '../short';
 import { mountTouchControls, shouldUseTouch, type TouchControls } from '../touch';
 import { button, keyCap } from '../widgets';
 import { CONTROLS } from '../screens/help';
 import { AbilityBar, SquadPanel, TopBar, VitalsPanel, WeaponPanel } from './panels';
-import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, InteractPromptView, KillStamp, Scope, SpectateBar, ZoneWarning, pickupName } from './combat';
+import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, DuelBar, InteractPromptView, KillStamp, Scope, SpectateBar, ZoneWarning, pickupName } from './combat';
 import { Announcer, ChatBox, KillFeed, type FeedParty } from './feed';
+import { createGuideCard, guideCount, shouldShowGuide } from './guide';
 import { drawMinimap, type MarkerInput } from './minimap';
-import { BigMap, PauseMenu, Scoreboard, Wheel, type WheelChoice } from './overlays';
+import { BigMap, PauseMenu, Scoreboard, Wheel, cardRow, type WheelChoice } from './overlays';
 import { UiKeyDeduper, cycleSpectate, deniedText, entityLabel } from './logic';
 import type { HudFrame } from './types';
 import { trackViewport } from './viewport';
+
+/** One-line effect of a card / armor / mount in the current language ('' for anything else). */
+export function pickupDesc(id: string): string {
+  const d = ITEM_BY_ID[id] ?? ARMOR_BY_ID[id] ?? MOUNT_BY_ID[id];
+  return d ? tx(d.descZh, d.descEn) : '';
+}
+
+/** `setPaused` of a local single-player session (GameSession G2 extension; optional). */
+type PausableSession = GameSession & { setPaused?(paused: boolean): void };
 
 export interface HudDeps {
   view: ViewSource;
@@ -30,14 +43,18 @@ export interface HudDeps {
 
 type Overlay = 'none' | 'pause' | 'chat' | 'wheel' | 'map' | 'controls';
 
+/** Phones held upright get the "rotate to landscape" cover (same query as .sg-rotate in styles/hud.ts). */
+export const ROTATE_QUERY = '(orientation: portrait) and (max-width: 820px)';
+
 const MINIMAP_RADIUS = 85;
 
 export class Hud {
   readonly el: HTMLElement;
   private readonly bag = new Bag();
-  private readonly view: ViewSource;
-  private readonly handle: GameHandle;
-  private readonly session: GameSession;
+  // released on dispose(): a disposed HUD must not keep the match (view, renderer handle, session) alive
+  private view: ViewSource;
+  private handle: GameHandle;
+  private session: GameSession;
 
   private readonly vitals: VitalsPanel;
   private readonly weapon: WeaponPanel;
@@ -54,10 +71,11 @@ export class Hud {
   private readonly downed = new DownedOverlay();
   private readonly spectate: SpectateBar;
   private readonly zoneWarn = new ZoneWarning();
+  private readonly duel: DuelBar;
   private readonly feed = new KillFeed();
   private readonly announcer = new Announcer();
   private readonly chat: ChatBox;
-  private readonly scoreboard = new Scoreboard();
+  private readonly scoreboard: Scoreboard;
   private readonly bigmap: BigMap;
   private readonly wheel: Wheel;
   private readonly pause: PauseMenu;
@@ -67,7 +85,16 @@ export class Hud {
   private readonly regionEl: HTMLElement;
   private readonly fpsEl: HTMLElement;
   private readonly touchBar: HTMLElement;
+  private readonly cardInfo: HTMLElement;
+  private cardInfoTimer: ReturnType<typeof setTimeout> | null = null;
+  private guide: HTMLElement | null = null;
+  private guideTimer: ReturnType<typeof setTimeout> | null = null;
   private touch: TouchControls | null = null;
+  /** portrait phone: the rotate-to-landscape cover is up */
+  private rotating = false;
+  /** last value sent to session.setPaused (single player only) */
+  private pausedSent = false;
+  private disposed = false;
 
   private overlay: Overlay = 'none';
   private scoreboardHeld = false;
@@ -103,6 +130,8 @@ export class Hud {
     trackViewport();
 
     this.vitals = new VitalsPanel(ctx.portraits, playerName);
+    this.scoreboard = new Scoreboard(() => this.setScoreboardToggled(false));
+    this.duel = new DuelBar((id) => this.nameOf(id));
     this.weapon = new WeaponPanel();
     this.abilities = new AbilityBar((slot, index) => {
       if (slot === 'item') this.handle.input.pushAction({ a: 'item', slot: index ?? 0 });
@@ -113,26 +142,43 @@ export class Hud {
     this.crosshair = new Crosshair(() => settings.get().fov);
     this.dmg = new DamageNumbers(this.handle.worldToScreen ? (p) => this.handle.worldToScreen?.(p) ?? null : undefined);
     this.interact = new InteractPromptView(() => this.handle.input.pushAction({ a: 'interact' }));
-    this.spectate = new SpectateBar((dir) => this.cycleSpectate(dir));
+    this.spectate = new SpectateBar((dir) => this.cycleSpectate(dir), (id) => this.nameOf(id));
     this.chat = new ChatBox(
       (text) => this.session.sendChat(text),
       () => this.closeOverlay('chat'),
+      () => this.isTouch(),
     );
-    this.bigmap = new BigMap(this.view.map);
+    this.bigmap = new BigMap(this.view.map, () => this.closeOverlay('map'));
     this.wheel = new Wheel(
       (c) => this.pickWheel(c),
       () => this.closeOverlay('wheel'),
+      () => this.isTouch(),
     );
-    this.pause = new PauseMenu({
-      resume: () => this.resume(),
-      settings: () => this.ctx.openSettings('controls'),
-      leave: () => {
-        void this.ctx.confirm(t('pause.leaveConfirm')).then((yes) => {
-          if (yes) this.ctx.leaveSession(true);
-        });
+    const online = (): boolean => this.ctx.sessionKind === 'online';
+    this.pause = new PauseMenu(
+      {
+        resume: () => this.resume(),
+        settings: () => this.ctx.openSettings('controls'),
+        leave: () => {
+          // the host's session is the room: leaving closes it for everyone
+          const host = online() && this.session.isHost;
+          void this.ctx.confirm(t(host ? 'pause.hostLeaveConfirm' : 'pause.leaveConfirm')).then((yes) => {
+            if (yes) this.ctx.leaveSession(true);
+          });
+        },
+        help: () => this.openOverlay('controls'),
+        endMatch: () => {
+          void this.ctx.confirm(t('pause.endConfirm')).then((yes) => {
+            if (yes && !this.disposed) this.session.returnToLobby();
+          });
+        },
       },
-      help: () => this.openOverlay('controls'),
-    });
+      {
+        online,
+        isHost: () => this.session.isHost,
+        items: () => this.view.local()?.items ?? [],
+      },
+    );
     this.controlsBox = h('div', { class: 'hud-controls sg-panel sg-corners', role: 'dialog' });
 
     this.minimapCanvas = h('canvas', { class: 'mm-canvas' });
@@ -140,9 +186,18 @@ export class Hud {
     this.minimapCanvas.height = 256;
     this.regionEl = h('div', { class: 'mm-region' });
     this.minimapWrap = h('div', { class: 'hud-minimap' }, h('div', { class: 'mm-ring' }, this.minimapCanvas, h('span', { class: 'mm-n' }, tx('北', 'N'))), this.regionEl);
-    this.minimapWrap.addEventListener('click', () => this.toggleOverlay('map'));
+    this.bag.listen(this.minimapWrap, 'click', () => this.toggleOverlay('map'));
     this.fpsEl = h('div', { class: 'hud-fps sg-hidden' });
     this.touchBar = h('div', { class: 'hud-touchbar sg-hidden' });
+    this.cardInfo = h('div', { class: 'hud-cardinfo off', role: 'status' });
+    this.bag.listen(this.cardInfo, 'click', () => this.hideCardInfo());
+    // modal overlays close on a tap / click on their backdrop (the empty area around the panel)
+    const wheelSlot = h('div', { class: 'hud-overlay-slot wheel modal' }, this.wheel.el);
+    this.bag.listen(wheelSlot, 'click', (ev) => {
+      if (ev.target === wheelSlot) this.closeOverlay('wheel');
+    });
+    const chatBack = h('div', { class: 'hud-overlay-slot chatback modal' });
+    this.bag.listen(chatBack, 'click', () => this.closeOverlay('chat'));
 
     this.el = h('div', { class: 'sg-hud', data: { overlay: 'none' } },
       this.downed.el,
@@ -156,6 +211,7 @@ export class Hud {
       this.feed.el,
       this.announcer.el,
       this.zoneWarn.el,
+      this.duel.el,
       this.channel.el,
       this.interact.el,
       this.chat.el,
@@ -164,12 +220,16 @@ export class Hud {
       this.weapon.el,
       this.spectate.el,
       this.fpsEl,
+      this.cardInfo,
       this.touchBar,
+      // map + scoreboard let touches through around the panel (stick / fire keep working);
+      // wheel, chat, controls and pause are modal
       h('div', { class: 'hud-overlay-slot score' }, this.scoreboard.el),
       h('div', { class: 'hud-overlay-slot map' }, this.bigmap.el),
-      h('div', { class: 'hud-overlay-slot wheel' }, this.wheel.el),
-      h('div', { class: 'hud-overlay-slot controls' }, this.controlsBox),
-      h('div', { class: 'hud-overlay-slot pause' }, this.pause.el),
+      chatBack,
+      wheelSlot,
+      h('div', { class: 'hud-overlay-slot controls modal' }, this.controlsBox),
+      h('div', { class: 'hud-overlay-slot pause modal' }, this.pause.el),
       h('div', { class: 'sg-rotate' }, h('div', { class: 'phone' }), h('p', null, t('hud.rotate'))),
     );
 
@@ -186,7 +246,7 @@ export class Hud {
     this.applySettings();
     this.bag.add(settings.subscribe(() => this.applySettings()));
     this.bag.add(this.handle.onEvents((evs) => this.onEvents(evs)));
-    this.bag.add(this.session.on('chat', (c) => this.chat.add({ from: c.from, text: c.text }, performance.now() / 1000)));
+    this.bag.add(this.session.on('chat', (c) => this.chat.add({ from: this.speaker(c.from), text: c.text }, performance.now() / 1000)));
     // connection notices (player left / replaced by a bot / reconnected) show as system lines
     this.bag.add(
       this.session.on('status', (st) => {
@@ -196,6 +256,21 @@ export class Hud {
         this.announcer.push(text, 'info', undefined, now);
       }),
     );
+
+    // a phone held upright shows the rotate cover: single player pauses behind it
+    const mq = typeof globalThis.matchMedia === 'function' ? globalThis.matchMedia(ROTATE_QUERY) : null;
+    if (mq) {
+      this.rotating = mq.matches;
+      const onRotate = (): void => {
+        this.rotating = mq.matches;
+        this.syncPause();
+      };
+      mq.addEventListener?.('change', onRotate);
+      this.bag.add(() => mq.removeEventListener?.('change', onRotate));
+    }
+
+    // first two matches: a hint card with the keys that are easy to miss
+    if (shouldShowGuide(guideCount())) this.showGuide();
 
     // initial pointer-lock state: desktop players must click into the game first
     if (!this.isTouch() && !this.safeIsLocked()) this.openPause('click');
@@ -208,6 +283,7 @@ export class Hud {
     this.active = on;
     setClass(this.el, 'inactive', !on);
     this.syncInput();
+    this.syncPause();
   }
 
   setGameOver(on: boolean): void {
@@ -216,18 +292,17 @@ export class Hud {
     if (on) {
       this.closeAllOverlays();
       this.touch?.setVisible(false);
-      try {
-        if (document.pointerLockElement) document.exitPointerLock();
-      } catch {
-        /* ignore */
-      }
+      this.releasePointer();
+      this.closeGuide();
     }
     this.syncInput();
+    this.syncPause();
   }
 
   setSettingsOpen(on: boolean): void {
     this.settingsOpen = on;
     this.syncInput();
+    this.syncPause();
   }
 
   relabel(): void {
@@ -241,6 +316,7 @@ export class Hud {
     this.downed.relabel();
     this.spectate.relabel();
     this.zoneWarn.relabel();
+    this.duel.relabel();
     this.scoreboard.relabel();
     this.bigmap.relabel();
     this.wheel.render();
@@ -251,25 +327,39 @@ export class Hud {
     if (north) north.textContent = tx('北', 'N');
     const rot = this.el.querySelector('.sg-rotate p');
     if (rot) rot.textContent = t('hud.rotate');
+    this.touch?.relabel();
     this.renderTouchBar();
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    // an unmounted HUD never leaves a local match paused
+    if (this.pausedSent) this.sendPaused(false);
+    this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.bag.dispose();
     this.bigmap.dispose();
     this.touch?.dispose();
     this.touch = null;
+    this.hideCardInfo();
+    this.closeGuide();
     try {
       this.handle.input.setEnabled(true);
     } catch {
       /* handle may already be disposed */
     }
+    this.airdrops.clear();
+    this.swallowed.clear();
+    const gone = null as unknown;
+    this.view = gone as ViewSource;
+    this.handle = gone as GameHandle;
+    this.session = gone as GameSession;
   }
 
   // ── per-frame ───────────────────────────────────────────────────────────────
 
   private frame(ts: number): void {
+    if (this.disposed) return;
     this.raf = requestAnimationFrame((t2) => this.frame(t2));
     const now = ts / 1000;
     const dt = this.lastT ? Math.min(0.1, now - this.lastT) : 1 / 60;
@@ -304,6 +394,7 @@ export class Hud {
     this.downed.update(f);
     this.spectate.update(f);
     this.zoneWarn.update(f);
+    this.duel.update(f);
     this.feed.update(now);
     this.announcer.update(now);
     this.chat.update(now);
@@ -454,7 +545,7 @@ export class Hud {
             break;
           }
           case 'chat':
-            this.chat.add({ from: ev.from, text: ev.text }, now);
+            this.chat.add({ from: this.speaker(ev.from), text: ev.text }, now);
             break;
           case 'reward':
             if (ev.who === myId) {
@@ -463,13 +554,14 @@ export class Hud {
             }
             break;
           case 'pickup':
-            if (ev.who === myId) this.announcer.push(t('hud.pickup', { name: pickupName(ev.item) }), 'info', undefined, now);
+            // the card's name plus its one-line effect: players learn what a card does as they get it
+            if (ev.who === myId) this.announcer.push(t('hud.pickup', { name: pickupName(ev.item) }), 'info', pickupDesc(ev.item) || undefined, now);
             break;
           case 'sfx':
             // the sim refused a card / ability of ours: say why when the sim tells us, else stay neutral
             if ((ev.name === 'itemDenied' || ev.name === 'abilityDenied') && (ev.privateTo === undefined || ev.privateTo === myId) && now - this.lastDenied > 1.2) {
               this.lastDenied = now;
-              const msg = deniedText(ev as { reason?: unknown; item?: unknown });
+              const msg = deniedText(ev as { reason?: unknown; item?: unknown; ability?: unknown });
               this.announcer.push(tx(msg.zh, msg.en), 'warn', undefined, now);
             }
             break;
@@ -501,7 +593,8 @@ export class Hud {
       this.crosshair.hit('kill');
     }
     if (aboutMe) {
-      this.spectate.killer = killer ? `${killer.heroId ? `${heroName(killer.heroId)}·` : ''}${killer.name}` : t('hud.zoneDeath');
+      // kept as a reference: the name is rendered (and re-rendered) in the current language
+      this.spectate.killer = killer && ev.killer !== undefined ? { entityId: ev.killer } : { zone: true };
       const killerId = ev.killer !== undefined && this.view.players().some((p) => p.entityId === ev.killer && p.alive) ? ev.killer : null;
       this.setSpectate(killerId ?? cycleSpectate(this.view.players(), null, 1, myId));
     } else if (this.spectateId === ev.target) {
@@ -509,6 +602,22 @@ export class Hud {
     }
     // role reveal banner for important deaths
     if (ev.role === 'lord') this.announcer.push(tx('主公阵亡！', 'The Lord has fallen!'), 'big', undefined, now);
+  }
+
+  /** "hero·player" for an entity (heroes, their troops / turrets), in the current language. */
+  private nameOf(id: EntityId): string | null {
+    const l = entityLabel(this.view, id, getLang());
+    if (!l) return null;
+    return l.heroId ? `${heroName(l.heroId)}·${l.name}` : l.name;
+  }
+
+  /** Typed chat: "hero·player" like claims, resolved through the match's player list. */
+  private speaker(from: string): string {
+    if (!from) return from;
+    const lang = getLang();
+    const p = this.view.players().find((x) => x.name === from);
+    const name = displayName(from, lang);
+    return p?.heroId ? `${heroName(p.heroId)}·${name}` : name;
   }
 
   private party(id: EntityId | undefined, lang: 'zh' | 'en'): FeedParty | null {
@@ -673,6 +782,7 @@ export class Hud {
     this.pauseMode = mode;
     this.pause.setMode(mode);
     this.openOverlay('pause');
+    this.syncPause();
   }
 
   /** Resume from the pause menu. `viaKey` = Esc (cannot grab the pointer lock). */
@@ -706,15 +816,25 @@ export class Hud {
     this.el.dataset.overlay = o;
     if (o === 'chat') this.chat.setOpen(true);
     if (o === 'controls') this.renderControls();
-    if (o === 'wheel' || o === 'pause' || o === 'controls') {
-      try {
-        if (document.pointerLockElement && o !== 'pause') document.exitPointerLock();
-      } catch {
-        /* ignore */
-      }
-    }
+    // every menu needs a free cursor: the pause menu too (its buttons are unclickable
+    // under pointer lock). The pointerlockchange that follows finds the menu already
+    // open and leaves it alone.
+    if (o === 'wheel' || o === 'pause' || o === 'controls') this.releasePointer();
     this.ctx.sfx(o === 'pause' ? 'back' : 'click');
     this.syncInput();
+  }
+
+  private releasePointer(): void {
+    try {
+      if (document.pointerLockElement) document.exitPointerLock();
+    } catch {
+      /* ignore */
+    }
+    try {
+      (this.handle.input as { exitLock?(): void }).exitLock?.();
+    } catch {
+      /* ignore */
+    }
   }
 
   private closeOverlay(o: Overlay, silent = false): void {
@@ -751,6 +871,13 @@ export class Hud {
     this.scoreboardHeld = false;
     this.scoreboardToggled = false;
     this.renderScoreboardVisibility();
+    this.syncPause();
+  }
+
+  private setScoreboardToggled(on: boolean): void {
+    this.scoreboardToggled = on;
+    if (!on) this.scoreboardHeld = false;
+    this.renderScoreboardVisibility();
   }
 
   private renderScoreboardVisibility(): void {
@@ -775,6 +902,76 @@ export class Hud {
     this.ctx.sfx('confirm');
   }
 
+  // ── single-player pause ───────────────────────────────────────────────────
+
+  /**
+   * A local single-player match really pauses while a menu covers it: the pause
+   * menu (or "click to play"), the controls sheet, the settings modal and the
+   * rotate-to-landscape cover. Online matches never pause (other people play on).
+   */
+  private wantsPause(): boolean {
+    if (this.disposed || this.ctx.sessionKind !== 'single' || !this.active || this.gameOver) return false;
+    return this.overlay === 'pause' || this.overlay === 'controls' || this.settingsOpen || this.rotating;
+  }
+
+  private syncPause(): void {
+    const want = this.wantsPause();
+    if (want !== this.pausedSent) this.sendPaused(want);
+  }
+
+  private sendPaused(on: boolean): void {
+    this.pausedSent = on;
+    try {
+      (this.session as PausableSession).setPaused?.(on);
+    } catch (err) {
+      console.warn('[hud] setPaused failed', err);
+    }
+  }
+
+  /** For tests / harness: whether the HUD asked the session to pause. */
+  get pauseRequested(): boolean {
+    return this.pausedSent;
+  }
+
+  // ── card info (touch long-press) / first-match guide ─────────────────────
+
+  private showCardInfo(itemId: string): void {
+    const def = ITEM_BY_ID[itemId];
+    if (!def) return;
+    this.cardInfo.replaceChildren(h('ul', { class: 'pc-list' }, cardRow(itemId)));
+    setClass(this.cardInfo, 'off', false);
+    if (this.cardInfoTimer !== null) clearTimeout(this.cardInfoTimer);
+    this.cardInfoTimer = setTimeout(() => this.hideCardInfo(), 4500);
+    this.ctx.sfx('click');
+  }
+
+  private hideCardInfo(): void {
+    if (this.cardInfoTimer !== null) clearTimeout(this.cardInfoTimer);
+    this.cardInfoTimer = null;
+    setClass(this.cardInfo, 'off', true);
+  }
+
+  private showGuide(): void {
+    const card = createGuideCard(this.isTouch(), () => {
+      if (this.guide === card) this.guide = null;
+      if (this.guideTimer !== null) clearTimeout(this.guideTimer);
+      this.guideTimer = null;
+    });
+    this.guide = card;
+    this.el.appendChild(card);
+    // it never has to be dismissed: it fades out on its own after a while in play
+    this.guideTimer = setTimeout(() => this.closeGuide(), 45_000);
+  }
+
+  private closeGuide(): void {
+    const g = this.guide as (HTMLElement & { closeGuide?: (never: boolean) => void }) | null;
+    if (g?.closeGuide) g.closeGuide(false);
+    else g?.remove();
+    this.guide = null;
+    if (this.guideTimer !== null) clearTimeout(this.guideTimer);
+    this.guideTimer = null;
+  }
+
   private renderControls(): void {
     this.controlsBox.replaceChildren(
       h('div', { class: 'ctl-head' }, h('h2', { class: 'sg-h2' }, t('pause.controls')), button(t('common.back'), () => this.closeOverlay('controls'), { cls: 'small dark', sfx: 'back' })),
@@ -784,6 +981,7 @@ export class Hud {
 
   /** Enable gameplay input only when nothing modal is open. */
   private syncInput(): void {
+    this.syncPause();
     const on = this.active && !this.gameOver && !this.settingsOpen && (this.overlay === 'none' || this.overlay === 'map');
     if (on === this.inputEnabled) return;
     this.inputEnabled = on;
@@ -802,7 +1000,10 @@ export class Hud {
     setClass(this.fpsEl, 'sg-hidden', !st.showFps);
     const wantTouch = this.isTouch();
     if (wantTouch && !this.touch) {
-      this.touch = mountTouchControls(this.el, this.handle.input, { onInteract: () => undefined });
+      this.touch = mountTouchControls(this.el, this.handle.input, {
+        onInteract: () => undefined,
+        onItemInfo: (_slot, itemId) => this.showCardInfo(itemId),
+      });
       this.touch.setVisible(this.inputEnabled !== false && !this.gameOver);
       if (this.overlay === 'pause' && this.pauseMode === 'click') this.closeOverlay('pause', true);
     } else if (!wantTouch && this.touch) {
@@ -817,31 +1018,42 @@ export class Hud {
     setClass(this.el, 'touch', wantTouch);
     // settings change often during a match (sensitivity sliders…): rebuild only when needed
     const tk = `${wantTouch}|${getLang()}`;
-    if (tk !== this.touchBarKey) this.renderTouchBar();
+    if (tk !== this.touchBarKey) {
+      this.renderTouchBar();
+      // touch-aware hints (no Enter / Esc / T on a phone)
+      this.wheel.render();
+      if (this.overlay === 'chat') this.chat.setOpen(true);
+    }
   }
 
   private renderTouchBar(): void {
     const on = this.isTouch();
-    this.touchBarKey = `${on}|${getLang()}`;
+    const lang = getLang();
+    this.touchBarKey = `${on}|${lang}`;
     setClass(this.touchBar, 'sg-hidden', !on);
     if (!on) return;
-    const b = (label: string, title: string, fn: () => void): HTMLElement => {
-      const el = h('button', { class: 'tb', type: 'button', title, aria: { label: title } }, label);
+    const b = (key: TouchKey, title: string, fn: () => void): HTMLElement => {
+      const label = touchLabel(key, lang);
+      const el = h('button', { class: `tb${label.length > 1 && lang === 'en' ? ' word' : ''}`, type: 'button', title, aria: { label: title }, data: { key } }, label);
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();
         fn();
       });
       return el;
     };
+    // every button toggles its own overlay: the second tap closes what the first opened
     this.touchBar.replaceChildren(
-      b('令', t('wheel.title'), () => this.onUiKey('quickchat', true)),
-      b('聊', t('lobby.chat'), () => this.onUiKey('chat', true)),
-      b('图', t('map.title'), () => this.onUiKey('map', true)),
-      b('战', t('score.title'), () => {
-        this.scoreboardToggled = !this.scoreboardToggled;
-        this.renderScoreboardVisibility();
+      b('wheel', t('wheel.title'), () => this.onUiKey('quickchat', true)),
+      b('chat', t('lobby.chat'), () => {
+        if (this.overlay === 'chat') this.closeOverlay('chat');
+        else if (this.overlay !== 'pause' && this.overlay !== 'controls') this.openOverlay('chat');
       }),
-      b('☰', t('pause.title'), () => this.onUiKey('menu', true)),
+      b('map', t('map.title'), () => this.onUiKey('map', true)),
+      b('score', t('score.title'), () => this.setScoreboardToggled(!this.scoreboardToggled)),
+      b('menu', t('pause.title'), () => {
+        if (this.overlay === 'pause') this.resume();
+        else this.openPause('menu');
+      }),
     );
   }
 

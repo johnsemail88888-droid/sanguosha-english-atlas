@@ -17,6 +17,7 @@ import {
   type MatchPhase,
   type MatchSettings,
   type PlayerId,
+  type PublicPlayerView,
   type RoleDealView,
   type ViewEntity,
 } from '../core/types';
@@ -28,6 +29,7 @@ import type { MatchInit, MatchSeatInit, SimHost } from '../sim/host';
 import {
   BIN_INPUT,
   isClientMsg,
+  MAX_HERO_ID_LEN,
   MAX_TOKEN_LEN,
   sanitizeChat,
   sanitizeName,
@@ -72,6 +74,18 @@ export interface FlowTimings {
   pingInterval: number;
   /** no traffic from a peer for this long ⇒ disconnected (s) */
   peerTimeout: number;
+  /**
+   * A player whose connection closed mid-match keeps the seat (hero idle) this
+   * long before a bot takes over: a blip + automatic rejoin never bounces the
+   * seat to a bot and back (s; 0 = immediately).
+   */
+  dropGrace: number;
+  /**
+   * A player who is loading the match (just received matchStart: map build,
+   * shader compilation freeze the page) is exempt from peerTimeout until it
+   * reports 'loaded', at most this long (s).
+   */
+  loadGrace: number;
 }
 
 export const DEFAULT_TIMINGS: FlowTimings = {
@@ -83,6 +97,8 @@ export const DEFAULT_TIMINGS: FlowTimings = {
   postGame: 4,
   pingInterval: 2,
   peerTimeout: 15,
+  dropGrace: 5,
+  loadGrace: 30,
 };
 
 export const MAX_PLAYERS = 8;
@@ -92,9 +108,16 @@ const MAX_INPUT_QUEUE = 3;
 /**
  * A client whose input stream has been silent this long (hidden tab, stall,
  * dying link) gets neutral input: its hero stops instead of repeating the last
- * frame (still running, still firing) indefinitely.
+ * frame (still running, still firing) indefinitely. This is the floor: a client
+ * that renders at a low frame rate sends its inputs in bursts (one render frame
+ * = several input frames), so the threshold adapts to the longest recent gap
+ * between its packets (× 1.5, see staleTicksFor), up to INPUT_STALE_MAX_TICKS.
  */
 export const INPUT_STALE_TICKS = Math.round(0.25 * SIM_HZ);
+/** Upper bound of the adaptive input staleness threshold (1 s). */
+export const INPUT_STALE_MAX_TICKS = SIM_HZ;
+/** Time constant (ms) with which a long input gap is forgotten once packets arrive steadily again. */
+const INPUT_GAP_DECAY_MS = 3000;
 /** Consecutive throwing sim steps before the match is abandoned (1 s). */
 const MAX_STEP_FAILURES = SIM_HZ;
 /**
@@ -102,6 +125,33 @@ const MAX_STEP_FAILURES = SIM_HZ;
  * client whose newest acknowledged snapshot is older gets a full snapshot.
  */
 export const DELTA_HISTORY = 32;
+
+/** Typed debug / e2e cheats (HostSession.debugCheats). */
+export interface HostDebugCheats {
+  /** keep a player's hero invulnerable and at full health (re-applied every tick) */
+  god(playerId: PlayerId, on: boolean): boolean;
+  give(playerId: PlayerId, itemId: string, count?: number): boolean;
+  giveWeapon(playerId: PlayerId, weaponId: string): boolean;
+  /** move a player's hero to (x, ground height, z) */
+  teleport(playerId: PlayerId, x: number, z: number): boolean;
+  /** kill a hero entity (other kinds are refused) */
+  killHero(entityId: EntityId): boolean;
+  setCooldownsReady(playerId: PlayerId): boolean;
+}
+
+/** What the cheats need from the sim (sim/world.ts World has all of it; FakeSim none — structurally optional). */
+interface CheatWorld {
+  get?(id: EntityId): { id: EntityId; kind: string; hp: number; maxHp: number; dead?: boolean } | undefined;
+  applyStatus?(id: EntityId, status: string, duration: number): boolean;
+  removeStatus?(id: EntityId, status: string): void;
+  heal?(id: EntityId, amount: number): number;
+  giveItem?(id: EntityId, itemId: string, count?: number): boolean;
+  giveWeapon?(id: EntityId, weaponId: string): void;
+  teleport?(id: EntityId, pos: { x: number; y: number; z: number }): void;
+  groundHeight?(x: number, z: number): number;
+  killHero?(e: unknown, creditId: EntityId | undefined): void;
+  setCooldown?(id: EntityId, abilityId: string, seconds: number): void;
+}
 
 export interface HostSessionOptions {
   name: string;
@@ -139,6 +189,8 @@ interface SeatRec {
   peer: PeerId | null;
   /** secret handed to the seat's player in 'welcome'; a hello presenting it reclaims the seat */
   token: string | null;
+  /** the (sanitized) name the player joined with, before de-duplication */
+  joinName?: string;
 }
 
 interface PeerRec {
@@ -162,6 +214,12 @@ interface PeerRec {
   snapAck: number;
   loaded: boolean;
   chatTimes: number[];
+  /** exempt from the peerTimeout check until then (loading a match), ms */
+  graceUntil: number;
+  /** arrival time of the previous input packet (ms, 0 = none yet) */
+  lastInputAt: number;
+  /** longest recent gap between input packets (decays), ms */
+  inputGapMs: number;
 }
 
 interface PickState {
@@ -169,6 +227,8 @@ interface PickState {
   pickers: Set<number>;
   options: Map<number, string[]>;
   picks: Map<number, string>;
+  /** hero each picker is looking at (focusHero / 'pickHint'): used by the auto-pick */
+  hints: Map<number, string>;
   deadlineAt: number;
   completing: boolean;
 }
@@ -226,6 +286,28 @@ export class HostSession implements GameSession {
   private extraEvents: GameEvent[] = [];
   private resultValue: GameResult | null = null;
   private unwatchFocus: (() => void) | null = null;
+  /** single-player pause (setPaused) */
+  private paused = false;
+  /** the host's own view is still loading (setLocalLoading) */
+  private localLoading = false;
+  /** bumped for every match created (guards async callbacks) */
+  private matchSerial = 0;
+  /** id of the current match, sent in matchStart (a rejoin keeps its view for the same id) */
+  private matchId = 0;
+  /** debug time scale for the sim loop (setDebugTimeScale) */
+  private debugTimeScale = 1;
+  /** players kept invulnerable + healed every tick (debugCheats.god) */
+  private readonly godPlayers = new Set<PlayerId>();
+  /** the lobby the host asked for: joining humans may displace bots / bump the count, leaving humans restore it */
+  private hostCount: number;
+  private hostBots = 0;
+  /** kicked players: refused for the room's lifetime */
+  private readonly bannedTokens = new Set<string>();
+  private readonly bannedNames = new Set<string>();
+  /** seats whose connection closed mid-match, waiting out timings.dropGrace */
+  private readonly dropTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  /** when the peer-timeout check last ran (stall detection, ms) */
+  private lastPingCheckAt = 0;
 
   constructor(opts: HostSessionOptions) {
     this.transport = opts.transport ?? null;
@@ -238,6 +320,7 @@ export class HostSession implements GameSession {
     this.rng = new Rng(opts.seed ?? randomSeed());
     this.preferWorker = opts.preferWorkerTicker ?? true;
     this.settings = sanitizeSettings({ ...defaultSettings(), ...opts.settings }, 1);
+    this.hostCount = this.settings.playerCount;
     this.seats.set(0, {
       seat: 0,
       playerId: this.myId,
@@ -260,6 +343,7 @@ export class HostSession implements GameSession {
         t.onPeerLeave((p) => this.onPeerLeave(p)),
         t.onClose((err) => this.onTransportClosed(err)),
       );
+      this.lastPingCheckAt = now();
       this.pingTimer = setInterval(() => this.pingPeers(), this.timings.pingInterval * 1000);
       this.status('房间已创建，等待玩家加入…', 'Room created — waiting for players…');
     }
@@ -327,7 +411,11 @@ export class HostSession implements GameSession {
     if (this.phaseValue !== 'lobby') return;
     const before = this.seats.size;
     this.settings = sanitizeSettings({ ...this.settings, ...patch }, this.humanCount());
+    // the host's own choice (humans may raise the actual count while they are here)
+    if (patch.playerCount !== undefined) this.hostCount = sanitizeSettings({ ...this.settings, playerCount: patch.playerCount }, 1).playerCount;
     this.fitSeatsToCount();
+    // bots the host's smaller table no longer has room for are gone for good
+    this.hostBots = Math.min(this.hostBots, this.explicitBotCount());
     this.broadcast({ t: 'settings', settings: { ...this.settings } });
     if (this.seats.size !== before) this.broadcastLobby();
     this.emitter.emit('lobby', this.lobbyState());
@@ -338,10 +426,12 @@ export class HostSession implements GameSession {
     let seat = this.firstFreeSeat(this.settings.playerCount);
     if (seat === null && this.settings.playerCount < MAX_PLAYERS) {
       this.settings = { ...this.settings, playerCount: clampPlayerCount(this.settings.playerCount + 1) };
+      this.hostCount = Math.max(this.hostCount, this.settings.playerCount);
       seat = this.firstFreeSeat(this.settings.playerCount);
     }
     if (seat === null) return;
     this.seats.set(seat, this.botRec(seat, true));
+    this.hostBots = this.explicitBotCount();
     this.lobbyChanged();
   }
 
@@ -350,6 +440,7 @@ export class HostSession implements GameSession {
     const rec = this.seats.get(seat);
     if (!rec || !rec.isBot) return;
     this.seats.delete(seat);
+    if (rec.explicitBot) this.hostBots = Math.max(0, this.hostBots - 1);
     this.lobbyChanged();
   }
 
@@ -360,6 +451,11 @@ export class HostSession implements GameSession {
       this.removeBot(seat);
       return;
     }
+    // banned for the room's lifetime: neither the seat token nor the name get back in
+    if (rec.token) this.bannedTokens.add(rec.token);
+    this.bannedNames.add(rec.name);
+    if (rec.joinName) this.bannedNames.add(rec.joinName);
+    this.cancelDrop(rec.seat);
     const peerId = rec.peer;
     if (peerId) {
       const k = netErrorText('kicked');
@@ -375,8 +471,10 @@ export class HostSession implements GameSession {
     rec.connected = false;
     rec.peer = null;
     rec.token = null;
+    this.notice(`${rec.name} 被房主请出了房间`, `${rec.name} was kicked by the host`, this.phaseValue === 'lobby');
     if (this.phaseValue === 'lobby') {
       this.seats.delete(seat);
+      this.restoreHostLobby();
       this.lobbyChanged();
     } else {
       this.humanLostMidMatch(rec);
@@ -433,9 +531,156 @@ export class HostSession implements GameSession {
     this.pick = null;
     this.resultValue = null;
     this.fitSeatsToCount();
+    this.restoreHostLobby();
     this.setPhase('lobby');
     this.broadcast({ t: 'returnToLobby', lobby: this.lobbyState() });
     this.emitter.emit('lobby', this.lobbyState());
+  }
+
+  // ── optional GameSession capabilities ────────────────────────────────────
+  /**
+   * Single player only: freeze the match while the pause menu is open (no sim
+   * steps, no bot thinking). Ignored online (other people keep playing) and
+   * outside 'playing'; a phase change or leave() resumes by itself.
+   */
+  setPaused(paused: boolean): void {
+    if (this.disposed || this.transport !== null) return;
+    if (paused) {
+      if (this.phaseValue !== 'playing' || !this.loop || this.paused) return;
+      this.paused = true;
+      this.localView?.releaseInput();
+      this.loop.pause();
+    } else {
+      this.unpause();
+    }
+  }
+
+  /** true while the single-player match is paused (setPaused). */
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
+  /** Hero select: remember the hero the host player is looking at (auto-pick uses it). */
+  focusHero(heroId: string): void {
+    this.setPickHint(0, heroId);
+  }
+
+  /**
+   * The host's own 3D view is still loading: keep the match in 'loading' until
+   * `ready` settles (capped by timings.loadTimeout). Called by the UI from its
+   * 'matchStart' handler; without it the match starts as soon as every client
+   * reported 'loaded' (the old behaviour).
+   */
+  setLocalLoading(ready: Promise<void>): void {
+    if (this.disposed || this.phaseValue !== 'loading' || !this.loop || this.loop.isRunning) return;
+    const serial = this.matchSerial;
+    this.localLoading = true;
+    const done = (): void => {
+      if (this.disposed || serial !== this.matchSerial || !this.localLoading) return;
+      this.localLoading = false;
+      this.maybeBeginPlaying();
+    };
+    Promise.resolve(ready).then(done, (err: unknown) => {
+      console.warn('[net] local view failed to load', err);
+      done();
+    });
+  }
+
+  /** Debug / e2e only (INTEGRATION_REQUESTS APP-1): run the sim `scale`× faster than real time (0.1..10). */
+  setDebugTimeScale(scale: number): void {
+    this.debugTimeScale = Number.isFinite(scale) ? Math.max(0.1, Math.min(10, scale)) : 1;
+    this.loop?.setTimeScale(this.debugTimeScale);
+  }
+
+  /**
+   * Debug / e2e cheats on the live sim (INTEGRATION_REQUESTS APP-4). Every
+   * call returns false when there is no match or the sim lacks the hook.
+   * src/game/debug.ts only offers them for local single-player sessions.
+   */
+  readonly debugCheats: HostDebugCheats = {
+    god: (playerId, on) => {
+      const w = this.cheatWorld();
+      const id = w ? this.sim?.entityOf(playerId) ?? null : null;
+      if (!w || id === null || !w.applyStatus) return false;
+      if (on) {
+        this.godPlayers.add(playerId);
+        this.applyGod(w, id);
+      } else {
+        this.godPlayers.delete(playerId);
+        w.removeStatus?.(id, 'invuln');
+      }
+      return true;
+    },
+    give: (playerId, itemId, count = 1) => {
+      const w = this.cheatWorld();
+      const id = w ? this.sim?.entityOf(playerId) ?? null : null;
+      return !!(w?.giveItem && id !== null && w.giveItem(id, itemId, count));
+    },
+    giveWeapon: (playerId, weaponId) => {
+      const w = this.cheatWorld();
+      const id = w ? this.sim?.entityOf(playerId) ?? null : null;
+      if (!w?.giveWeapon || id === null) return false;
+      w.giveWeapon(id, weaponId);
+      return true;
+    },
+    teleport: (playerId, x, z) => {
+      const w = this.cheatWorld();
+      const id = w ? this.sim?.entityOf(playerId) ?? null : null;
+      if (!w?.teleport || id === null || !Number.isFinite(x) || !Number.isFinite(z)) return false;
+      w.teleport(id, { x, y: w.groundHeight ? w.groundHeight(x, z) : 0, z });
+      return true;
+    },
+    killHero: (entityId) => {
+      const w = this.cheatWorld();
+      const e = w?.get?.(entityId);
+      if (!w?.killHero || !e || e.kind !== 'hero' || e.dead) return false;
+      w.killHero(e, undefined);
+      return true;
+    },
+    setCooldownsReady: (playerId) => {
+      const w = this.cheatWorld();
+      const sim = this.sim;
+      const id = sim?.entityOf(playerId) ?? null;
+      if (!w?.setCooldown || !sim || id === null) return false;
+      const cds = sim.snapshotFor(playerId).you?.cooldowns ?? {};
+      for (const abilityId of Object.keys(cds)) w.setCooldown(id, abilityId, 0);
+      return true;
+    },
+  };
+
+  private cheatWorld(): CheatWorld | null {
+    return this.sim ? (this.sim as unknown as CheatWorld) : null;
+  }
+
+  private applyGod(w: CheatWorld, id: EntityId): void {
+    try {
+      w.applyStatus?.(id, 'invuln', 2);
+      const e = w.get?.(id);
+      if (e && e.hp < e.maxHp) w.heal?.(id, e.maxHp);
+    } catch (err) {
+      console.warn('[net] god mode failed', err);
+    }
+  }
+
+  private unpause(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.loop?.resume();
+  }
+
+  private setPickHint(seat: number, heroId: string): void {
+    const pick = this.pick;
+    if (this.phaseValue !== 'heroSelect' || !pick || pick.completing) return;
+    if (typeof heroId !== 'string' || heroId.length === 0 || heroId.length > MAX_HERO_ID_LEN) return;
+    if (!pick.pickers.has(seat) || pick.picks.has(seat)) return;
+    // only a hero this seat could actually pick right now
+    if (!this.availableOptions(seat).includes(heroId) || this.takenByOther(seat, heroId)) return;
+    pick.hints.set(seat, heroId);
+  }
+
+  private takenByOther(seat: number, heroId: string): boolean {
+    for (const [s, h] of this.pick?.picks ?? []) if (s !== seat && h === heroId) return true;
+    return false;
   }
 
   // ── lobby helpers ────────────────────────────────────────────────────────
@@ -466,6 +711,32 @@ export class HostSession implements GameSession {
     let n = 0;
     for (const r of this.seats.values()) if (r.human && (r.isHost || r.connected)) n++;
     return n;
+  }
+
+  private explicitBotCount(): number {
+    let n = 0;
+    for (const r of this.seats.values()) if (r.isBot && r.explicitBot) n++;
+    return n;
+  }
+
+  /**
+   * Lobby: back to what the host chose once the humans who displaced it left —
+   * the host's player count (never below the humans present) and the bots the
+   * host added (re-seated in free seats).
+   */
+  private restoreHostLobby(): void {
+    const count = clampPlayerCount(Math.max(this.hostCount, this.humanCount()));
+    if (count !== this.settings.playerCount) {
+      this.settings = { ...this.settings, playerCount: count };
+      this.fitSeatsToCount();
+    }
+    let bots = this.explicitBotCount();
+    while (bots < this.hostBots) {
+      const seat = this.firstFreeSeat(this.settings.playerCount);
+      if (seat === null) break;
+      this.seats.set(seat, this.botRec(seat, true));
+      bots++;
+    }
   }
 
   private botRec(seat: number, explicit: boolean): SeatRec {
@@ -547,6 +818,9 @@ export class HostSession implements GameSession {
       snapAck: -1,
       loaded: false,
       chatTimes: [],
+      graceUntil: 0,
+      lastInputAt: 0,
+      inputGapMs: 0,
     });
   }
 
@@ -558,16 +832,62 @@ export class HostSession implements GameSession {
     if (peer.seat === null) return;
     const rec = this.seats.get(peer.seat);
     if (!rec || rec.peer !== id) return;
-    rec.connected = false;
     rec.peer = null;
     if (this.phaseValue === 'lobby') {
-      this.seats.delete(rec.seat);
-      this.notice(`${rec.name} 离开了房间`, `${rec.name} left the room`);
-      this.lobbyChanged();
+      rec.connected = false;
+      this.leftLobby(rec);
+      return;
+    }
+    // mid-flow: keep the seat for a moment — a blip rejoins with its token
+    // (auto-rejoin) and must not bounce the hero to a bot and back
+    if (this.sim && peer.lastFrame) {
+      const n = neutralInput(peer.lastFrame);
+      try {
+        if (n) this.sim.setInput(rec.playerId, n);
+      } catch (err) {
+        console.error('[net] releasing a dropped player\'s input failed', err);
+      }
+    }
+    if (this.phaseValue === 'loading') this.maybeBeginPlaying();
+    this.cancelDrop(rec.seat);
+    const grace = Math.max(0, this.timings.dropGrace) * 1000;
+    if (grace <= 0) {
+      this.finishDrop(rec);
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (this.dropTimers.get(rec.seat) !== timer) return;
+      this.dropTimers.delete(rec.seat);
+      if (!this.disposed) this.finishDrop(rec);
+    }, grace);
+    this.dropTimers.set(rec.seat, timer);
+  }
+
+  /** The grace after a mid-match drop ran out without a rejoin: a bot takes over (or the lobby seat is freed). */
+  private finishDrop(rec: SeatRec): void {
+    if (rec.peer !== null || !rec.human || this.seats.get(rec.seat) !== rec) return;
+    rec.connected = false;
+    if (this.phaseValue === 'lobby') {
+      this.leftLobby(rec);
       return;
     }
     this.notice(`${rec.name} 断开连接，由人机接管`, `${rec.name} disconnected — a bot takes over`);
     this.humanLostMidMatch(rec);
+  }
+
+  private cancelDrop(seat: number): void {
+    const timer = this.dropTimers.get(seat);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.dropTimers.delete(seat);
+  }
+
+  /** A lobby player left: free the seat and restore the host's lobby. */
+  private leftLobby(rec: SeatRec): void {
+    this.seats.delete(rec.seat);
+    this.notice(`${rec.name} 离开了房间`, `${rec.name} left the room`, true);
+    this.restoreHostLobby();
+    this.lobbyChanged();
   }
 
   /** A human seat lost its player during the flow: a bot takes over. */
@@ -643,6 +963,9 @@ export class HostSession implements GameSession {
       case 'pick':
         if (typeof msg.heroId === 'string') this.tryPick(rec.seat, msg.heroId);
         break;
+      case 'pickHint':
+        if (typeof msg.hero === 'string') this.setPickHint(rec.seat, msg.hero);
+        break;
       case 'chat': {
         if (typeof msg.text !== 'string') break;
         const t = now();
@@ -655,6 +978,7 @@ export class HostSession implements GameSession {
       }
       case 'loaded':
         peer.loaded = true;
+        peer.graceUntil = 0;
         this.waitingLoad.delete(from);
         this.maybeBeginPlaying();
         break;
@@ -679,11 +1003,20 @@ export class HostSession implements GameSession {
     // not noticed the old connection dying yet
     const token = typeof msg.token === 'string' && msg.token.length > 0 && msg.token.length <= MAX_TOKEN_LEN ? msg.token : null;
     if (token) {
+      if (this.bannedTokens.has(token)) {
+        this.reject(peer.id, 'kicked');
+        return;
+      }
       const owned = [...this.seats.values()].find((r) => r.human && !r.isHost && r.token === token);
       if (owned) {
         this.reclaim(peer, owned);
         return;
       }
+    }
+    // a kicked player stays out for the room's lifetime (also under the same name without the token)
+    if (this.bannedNames.has(name)) {
+      this.reject(peer.id, 'kicked');
+      return;
     }
     if (this.phaseValue === 'lobby') {
       let seat = this.firstFreeSeat(this.settings.playerCount);
@@ -713,6 +1046,7 @@ export class HostSession implements GameSession {
         connected: true,
         peer: peer.id,
         token: randomToken(),
+        joinName: name,
       };
       this.seats.set(seat, rec);
       peer.seat = seat;
@@ -725,7 +1059,7 @@ export class HostSession implements GameSession {
         lobby: this.lobbyState(),
         token: rec.token ?? undefined,
       });
-      this.notice(`${rec.name} 加入了房间`, `${rec.name} joined the room`);
+      this.notice(`${rec.name} 加入了房间`, `${rec.name} joined the room`, true);
       this.lobbyChanged();
       return;
     }
@@ -733,7 +1067,7 @@ export class HostSession implements GameSession {
     // name may be reclaimed if it is disconnected — or if its connection has
     // gone silent (the host has not detected the drop yet)
     const humans = [...this.seats.values()].filter((r) => r.human && !r.isHost && r.name === name);
-    const rec = humans.find((r) => !r.connected) ?? humans.find((r) => this.connectionStale(r));
+    const rec = humans.find((r) => !r.connected || r.peer === null) ?? humans.find((r) => this.connectionStale(r));
     if (!rec) {
       this.reject(peer.id, 'inProgress');
       return;
@@ -762,6 +1096,10 @@ export class HostSession implements GameSession {
       this.waitingLoad.delete(oldPeer);
       this.transport?.disconnect(oldPeer);
     }
+    // back within the drop grace (or replacing a link we still thought alive):
+    // nobody was told it left, nothing to announce
+    this.cancelDrop(rec.seat);
+    const wasBot = !rec.connected;
     rec.playerId = peer.id;
     rec.peer = peer.id;
     rec.connected = true;
@@ -786,14 +1124,28 @@ export class HostSession implements GameSession {
       }
       this.sendMatchStart(peer);
       if (this.phaseValue === 'loading') this.waitingLoad.add(peer.id);
-      this.injectEvent({ t: 'announce', zh: `${rec.name} 重新连接`, en: `${rec.name} reconnected`, kind: 'info' });
+      if (wasBot) this.injectEvent({ t: 'announce', zh: `${rec.name} 重新连接`, en: `${rec.name} reconnected`, kind: 'info' });
     }
-    if (this.phaseValue === 'gameOver' && this.resultValue) this.sendTo(peer.id, { t: 'gameOver', result: this.resultValue });
-    this.notice(`${rec.name} 重新连接`, `${rec.name} reconnected`);
+    // a player who comes back after the match ended gets the real results: the
+    // loop has stopped, so no snapshot will bring the final player list
+    if (this.phaseValue === 'gameOver' && this.resultValue) {
+      this.sendTo(peer.id, { t: 'gameOver', result: this.resultValue, players: this.finalPlayersFor(rec) });
+    }
+    if (wasBot) this.notice(`${rec.name} 重新连接`, `${rec.name} reconnected`);
     this.lobbyChanged();
   }
 
-  private reject(peerId: PeerId, code: 'versionMismatch' | 'roomFull' | 'inProgress'): void {
+  /** Public player list as `rec` sees it (end of match: everything is revealed anyway). */
+  private finalPlayersFor(rec: SeatRec): PublicPlayerView[] | undefined {
+    try {
+      return this.sim?.snapshotFor(rec.playerId).players.map((p) => ({ ...p }));
+    } catch (err) {
+      console.error('[net] final player list failed', err);
+      return undefined;
+    }
+  }
+
+  private reject(peerId: PeerId, code: 'versionMismatch' | 'roomFull' | 'inProgress' | 'kicked'): void {
     const m = netErrorText(code);
     this.sendTo(peerId, { t: 'reject', code, zh: m.zh, en: m.en });
     this.peers.delete(peerId);
@@ -802,14 +1154,28 @@ export class HostSession implements GameSession {
 
   private pingPeers(): void {
     const t = now();
+    const intervalMs = this.timings.pingInterval * 1000;
+    // stall-aware (APP-6): after this page itself was frozen (shader compile,
+    // throttled tab, sleep) the timer may run before the messages that queued up
+    // meanwhile — skip one round of timeout checks so they are processed first
+    const gap = t - this.lastPingCheckAt;
+    this.lastPingCheckAt = t;
+    const stalled = gap > 2 * intervalMs + 1000;
     for (const peer of [...this.peers.values()]) {
-      if (t - peer.lastSeen > this.timings.peerTimeout * 1000) {
+      if (stalled) peer.lastSeen = Math.max(peer.lastSeen, t - intervalMs);
+      else if (t >= peer.graceUntil && t - peer.lastSeen > this.timings.peerTimeout * 1000) {
         this.transport?.disconnect(peer.id);
         this.onPeerLeave(peer.id);
         continue;
       }
       this.sendTo(peer.id, { t: 'ping', id: ++peer.pingSeq, ts: t });
     }
+  }
+
+  /** Neutral-input threshold for `peer`: adapts to how bursty its input stream is (see INPUT_STALE_TICKS). */
+  private staleTicksFor(peer: PeerRec): number {
+    const byGap = Math.ceil((1.5 * peer.inputGapMs * SIM_HZ) / 1000);
+    return Math.max(INPUT_STALE_TICKS, Math.min(INPUT_STALE_MAX_TICKS, byGap));
   }
 
   private onInput(peer: PeerRec, data: Uint8Array): void {
@@ -822,6 +1188,13 @@ export class HostSession implements GameSession {
     } catch {
       return; // malformed packet
     }
+    // how bursty is this client's input? (a low frame rate sends several frames per render frame)
+    const t = now();
+    if (peer.lastInputAt > 0) {
+      const gap = t - peer.lastInputAt;
+      peer.inputGapMs = Math.max(gap, peer.inputGapMs * Math.exp(-gap / INPUT_GAP_DECAY_MS));
+    }
+    peer.lastInputAt = t;
     // delta baseline acknowledgement (only ticks we actually sent this match)
     const ack = pkt.snapAck;
     if (ack !== undefined && ack > peer.snapAck && peer.sent.has(ack)) peer.snapAck = ack;
@@ -868,6 +1241,7 @@ export class HostSession implements GameSession {
       pickers: new Set(crowns),
       options: new Map(crowns.map((s) => [s, options[s]])),
       picks: new Map(),
+      hints: new Map(),
       deadlineAt: now() + this.timings.lordPick * 1000,
       completing: false,
     };
@@ -890,6 +1264,7 @@ export class HostSession implements GameSession {
       pickers: new Set(others),
       options: new Map(others.map((s) => [s, options[s]])),
       picks: prev.picks,
+      hints: new Map(),
       deadlineAt: now() + this.timings.pick * 1000,
       completing: false,
     };
@@ -935,7 +1310,9 @@ export class HostSession implements GameSession {
     if (!pick || !deal) return;
     const opts = this.availableOptions(seat);
     if (opts.length === 0) return;
-    const heroId = botPickHero(opts, deal.roles[seat], this.heroById, this.rng);
+    // the hero the player was looking at when the timer ran out, if still free
+    const hint = pick.hints.get(seat);
+    const heroId = hint !== undefined && opts.includes(hint) && !this.takenByOther(seat, hint) ? hint : botPickHero(opts, deal.roles[seat], this.heroById, this.rng);
     pick.picks.set(seat, heroId);
   }
 
@@ -1037,6 +1414,11 @@ export class HostSession implements GameSession {
 
   private onSimReady(sim: SimHost, init: MatchInit): void {
     this.sim = sim;
+    this.matchSerial++;
+    this.matchId = 1 + Math.floor(Math.random() * 0x7ffffffe);
+    this.localLoading = false;
+    this.paused = false;
+    this.godPlayers.clear();
     // players who dropped / came back while the sim was being created
     for (const s of init.seats) {
       const rec = this.seats.get(s.seat);
@@ -1063,6 +1445,7 @@ export class HostSession implements GameSession {
         if (this.loop === loop && !this.disposed) this.simFailed(err);
       },
     });
+    if (this.debugTimeScale !== 1) loop.setTimeScale(this.debugTimeScale);
     this.loop = loop;
     this.localView = new LocalView(sim, this.myId, () => loop.alpha());
     // host player: release the controls while the tab is hidden / unfocused
@@ -1084,12 +1467,14 @@ export class HostSession implements GameSession {
       this.waitingLoad.add(peer.id);
       this.sendMatchStart(peer);
     }
-    this.emitter.emit('matchStart', this.localView);
     const token = this.flowToken;
     this.after(this.timings.loadTimeout, () => {
       if (token === this.flowToken && this.phaseValue === 'loading') this.beginPlaying();
     });
-    this.maybeBeginPlaying();
+    // the UI mounts the view here and may call setLocalLoading() synchronously:
+    // this must happen before maybeBeginPlaying() can start the clock
+    this.emitter.emit('matchStart', this.localView);
+    if (this.phaseValue === 'loading' && this.sim === sim) this.maybeBeginPlaying();
   }
 
   private sendMatchStart(peer: PeerRec): void {
@@ -1107,6 +1492,8 @@ export class HostSession implements GameSession {
     peer.neutralized = false;
     peer.sent.clear();
     peer.snapAck = -1;
+    // it is building the map / compiling shaders now (a frozen page): no timeout until 'loaded'
+    peer.graceUntil = now() + this.timings.loadGrace * 1000;
     const seats: SeatInfo[] = [...this.seats.values()]
       .sort((a, b) => a.seat - b.seat)
       .map((r) => {
@@ -1131,11 +1518,12 @@ export class HostSession implements GameSession {
       you: sim.entityOf(rec.playerId),
       strings: [...table.strings],
       tick: sim.tick,
+      matchId: this.matchId,
     });
   }
 
   private maybeBeginPlaying(): void {
-    if (this.phaseValue === 'loading' && this.waitingLoad.size === 0) this.beginPlaying();
+    if (this.phaseValue === 'loading' && this.waitingLoad.size === 0 && !this.localLoading) this.beginPlaying();
   }
 
   private beginPlaying(): void {
@@ -1143,6 +1531,7 @@ export class HostSession implements GameSession {
     this.flowToken++;
     this.clearTimers();
     this.waitingLoad.clear();
+    this.localLoading = false;
     this.setPhase('playing');
     this.loop.start();
   }
@@ -1151,6 +1540,13 @@ export class HostSession implements GameSession {
   private tick(): void {
     const sim = this.sim;
     if (!sim) return;
+    if (this.godPlayers.size > 0) {
+      const w = this.cheatWorld();
+      for (const pid of this.godPlayers) {
+        const id = sim.entityOf(pid);
+        if (w && id !== null) this.applyGod(w, id);
+      }
+    }
     for (const peer of this.peers.values()) {
       if (peer.seat === null) continue;
       const rec = this.seats.get(peer.seat);
@@ -1168,7 +1564,7 @@ export class HostSession implements GameSession {
         continue;
       }
       // silent client (hidden tab, stall, dying link): let go of its controls
-      if (!peer.neutralized && peer.lastFrame && ++peer.starvedTicks >= INPUT_STALE_TICKS) {
+      if (!peer.neutralized && peer.lastFrame && ++peer.starvedTicks >= this.staleTicksFor(peer)) {
         const n = neutralInput(peer.lastFrame);
         if (n) sim.setInput(rec.playerId, n);
         peer.neutralized = true;
@@ -1305,6 +1701,9 @@ export class HostSession implements GameSession {
   private stopMatch(): void {
     this.unwatchFocus?.();
     this.unwatchFocus = null;
+    this.paused = false;
+    this.localLoading = false;
+    this.godPlayers.clear();
     this.loop?.stop();
     this.loop = null;
     this.localView?.dispose();
@@ -1320,9 +1719,11 @@ export class HostSession implements GameSession {
     this.emitter.emit('chat', { from, text });
   }
 
-  private notice(zh: string, en: string): void {
-    this.broadcast({ t: 'notice', zh, en });
+  /** Tell everyone; `log`: a lobby event (join / leave / kick) that the UI keeps as a system chat line. */
+  private notice(zh: string, en: string, log = false): void {
+    this.broadcast(log ? { t: 'notice', zh, en, log: true } : { t: 'notice', zh, en });
     this.status(zh, en);
+    if (log) this.emitter.emit('chat', { from: '', text: zh, system: true, zh, en });
   }
 
   private status(zh: string, en: string): void {
@@ -1338,6 +1739,7 @@ export class HostSession implements GameSession {
   private setPhase(p: MatchPhase): void {
     if (this.phaseValue === p) return;
     this.phaseValue = p;
+    this.unpause(); // a paused single-player match resumes on any phase change (game over, back to lobby)
     this.emitter.emit('phase', p);
   }
 
@@ -1370,6 +1772,8 @@ export class HostSession implements GameSession {
     this.disposed = true;
     this.stopMatch();
     this.clearTimers();
+    for (const t of this.dropTimers.values()) clearTimeout(t);
+    this.dropTimers.clear();
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = null;
     for (const u of this.unsubs) u();
@@ -1380,8 +1784,15 @@ export class HostSession implements GameSession {
   }
 
   /** Diagnostics for tests / debug overlays. */
-  debugState(): { phase: MatchPhase; peers: number; tick: number; loopRunning: boolean } {
-    return { phase: this.phaseValue, peers: this.peers.size, tick: this.sim?.tick ?? 0, loopRunning: this.loop?.isRunning ?? false };
+  debugState(): { phase: MatchPhase; peers: number; tick: number; loopRunning: boolean; paused: boolean; ticker: string | null } {
+    return {
+      phase: this.phaseValue,
+      peers: this.peers.size,
+      tick: this.sim?.tick ?? 0,
+      loopRunning: this.loop?.isRunning ?? false,
+      paused: this.paused,
+      ticker: this.loop?.tickerKind ?? null,
+    };
   }
 
   /** The live SimHost (tests / debug tools). */

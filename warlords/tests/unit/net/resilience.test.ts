@@ -224,14 +224,15 @@ describe('seat reclaim', () => {
     expect(h.host.debugState().peers).toBe(2);
   });
 
-  it('a kicked player cannot come back with its token', async () => {
+  it('a kicked player cannot come back with its token (nor under the same name)', async () => {
     const h = makeHost({ seed: 4 });
     const a = await addClient(h, 'A');
     await addClient(h, 'B');
     await runToPlaying(h);
     const token = a.session.seatToken!;
     h.host.kick(a.session.mySeat);
-    await expect(addClient(h, 'A', { token })).rejects.toMatchObject({ code: 'inProgress' });
+    await expect(addClient(h, 'A', { token })).rejects.toMatchObject({ code: 'kicked' });
+    await expect(addClient(h, 'A')).rejects.toMatchObject({ code: 'kicked' });
   });
 
   it('a player who reconnects while the sim is still being created is re-bound to its hero', async () => {
