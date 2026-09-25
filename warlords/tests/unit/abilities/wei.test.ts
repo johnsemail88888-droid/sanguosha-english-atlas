@@ -5,12 +5,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../../../src/core/math';
 import type { AbilitySlot, Entity, GameEvent, InputAction, InputFrame, RoleId } from '../../../src/core/types';
-import { defaultSettings, emptyInput } from '../../../src/core/types';
+import { BTN_FIRE, defaultSettings, emptyInput } from '../../../src/core/types';
 import { HERO_BY_ID, isPassiveAbility } from '../../../src/data';
 import type { AbilityDef } from '../../../src/data/types';
 import { getAbility, hasAbility } from '../../../src/sim/abilities';
 import { aimAnglesFor } from '../../../src/sim/aim';
 import type { World } from '../../../src/sim/world';
+import { statusRows } from '../../../src/sim/status';
 import { createWorld } from '../../../src/sim/world';
 import { hero, makeWorld, place, stepN } from '../sim/helpers';
 
@@ -343,6 +344,23 @@ describe('司马懿 Sima Yi', () => {
   });
 });
 
+describe('司马懿 Sima Yi — reflections', () => {
+  it('鬼才 reflects exactly the original bullet: 狼顾 never boosts a reflection (his own shots still are)', () => {
+    const { w, me, foe } = duel('simayi');
+    bigHp(me);
+    bigHp(foe);
+    foe.hero!.items = [null, null, null, null]; // keep 反馈 out of the way
+    cast(w, me, 'e'); // 狼顾: the foe is revealed to him → ×1.4 against it
+    cast(w, me, 'q'); // 鬼才
+    let fhp = foe.hp;
+    w.dealDamage({ targetId: me.id, sourceId: foe.id, amount: 100, type: 'normal', weaponId: 'carbine' });
+    expect(fhp - foe.hp).toBeCloseTo(100, 5);
+    fhp = foe.hp;
+    w.dealDamage({ targetId: foe.id, sourceId: me.id, amount: 100, type: 'normal' });
+    expect(fhp - foe.hp).toBeCloseTo(140, 5);
+  });
+});
+
 // ── 夏侯惇 ──────────────────────────────────────────────────────────────────
 describe('夏侯惇 Xiahou Dun', () => {
   it('刚烈 deals 30 % of any damage taken back to the attacker (not zone / DoT)', () => {
@@ -423,6 +441,66 @@ describe('夏侯惇 Xiahou Dun', () => {
     stepN(d.w, 25);
     expect(d.foe.hp).toBe(f0);
     expect(b0 - behind.hp).toBeCloseTo(60, 5);
+  });
+});
+
+describe('夏侯惇 Xiahou Dun — regressions', () => {
+  it('刚烈 thorns is a finite status, refreshed silently forever (never an "until consumed" row)', () => {
+    const { w, me } = duel('xiahoudun');
+    const left = (): number => Math.max(0, ...me.statuses.filter((s) => s.id === 'thorns').map((s) => s.until - w.time));
+    expect(left()).toBeGreaterThan(30);
+    expect(left()).toBeLessThanOrEqual(60);
+    let events = 0;
+    let minLeft = Infinity;
+    for (let i = 0; i < secs(100); i++) {
+      w.step();
+      events += w.drainEvents().filter((e) => e.t === 'status' && e.status === 'thorns').length;
+      minLeft = Math.min(minLeft, left());
+    }
+    expect(events).toBe(0);
+    expect(minLeft).toBeGreaterThan(29);
+    expect(me.statuses.filter((s) => s.id === 'thorns')).toHaveLength(1);
+    const row = statusRows(me, w.time, me.id).find((r) => r.id === 'thorns');
+    expect(row?.remaining).toBeGreaterThan(0); // -1 would reach remote clients as 0 (docs/SIM_REQUESTS.md WEI-9)
+  });
+
+  it('独目怒冲 never hits a hero through a wall it runs along', () => {
+    // the 1 m test wall spans x 9.5–10.5, z −5…5 (3 m tall); he hugs its west face, the foe stands east of it
+    const { w, me, foe } = duel('xiahoudun');
+    place(w, me, 9.05, -6, Math.PI); // facing +z
+    place(w, foe, 10.9, -1, 0); // 1.85 m to the side of the lane: inside the corridor, behind the wall
+    const f0 = foe.hp;
+    cast(w, me, 'e', { yaw: Math.PI, pitch: 0 });
+    let stunned = false;
+    for (let i = 0; i < 30; i++) {
+      w.step();
+      stunned ||= w.hasStatus(foe.id, 'stun');
+    }
+    expect(foe.hp).toBe(f0);
+    expect(stunned).toBe(false);
+    expect(me.pos.z).toBeGreaterThan(4); // the charge ran on past it
+
+    // control: the same offsets in the open are a hit
+    const d = duel('xiahoudun');
+    place(d.w, d.me, -11, -6, Math.PI);
+    place(d.w, d.foe, -9.15, -1, 0);
+    const g0 = d.foe.hp;
+    cast(d.w, d.me, 'e', { yaw: Math.PI, pitch: 0 });
+    stepN(d.w, 30);
+    expect(g0 - d.foe.hp).toBeCloseTo(60, 5);
+  });
+
+  it('独目怒冲 passes under a hero standing on a ledge above the lane', () => {
+    // the stair landing: x −1.5…1.5, z −16.4…−12.4, top 1.6 m
+    const { w, me, foe } = duel('xiahoudun');
+    place(w, me, 2.3, -20, Math.PI);
+    place(w, foe, 1.0, -14.4, 0);
+    expect(foe.pos.y).toBeCloseTo(1.6, 1);
+    const f0 = foe.hp;
+    cast(w, me, 'e', { yaw: Math.PI, pitch: 0 });
+    stepN(w, 30);
+    expect(foe.hp).toBe(f0);
+    expect(me.pos.z).toBeGreaterThan(-12); // ran on past it
   });
 });
 
@@ -510,6 +588,67 @@ describe('张辽 Zhang Liao', () => {
     stepN(w, secs(2.1));
     expect(w.hasStatus(foe.id, 'silence')).toBe(false);
     expect(w.hasStatus(troop.id, 'stun')).toBe(true); // 2.5 s on soldiers
+  });
+});
+
+describe('张辽 Zhang Liao — regressions', () => {
+  it('突袭 onto a target under a roof lands on its floor (not on the roof) and raids it', () => {
+    // the test roof slab spans x −23…−17, z −23…−17 at 2.5–2.9 m
+    const { w, me, foe } = duel('zhangliao');
+    place(w, foe, -20, -20, Math.PI); // facing +z, toward him
+    foe.pos.y = 0; // under the slab (place() puts it on the topmost surface)
+    place(w, me, -20, -12, 0);
+    foe.hero!.items = [{ id: 'sha', count: 1 }, null, null, null];
+    me.hero!.items = [null, null, null, null];
+    cast(w, me, 'q', aimAt(me, foe));
+    expect(w.cooldownLeft(me.id, 'zhangliao_tuxi')).toBeCloseTo(14, 1);
+    expect(me.pos.y).toBeLessThan(0.5);
+    expect(me.pos.z).toBeLessThan(-20.5); // behind it: its back faces −z
+    expect(Math.hypot(me.pos.x + 20, me.pos.z + 20)).toBeLessThan(2.5);
+    expect(hasItem(me, 'sha')).toBe(true);
+    expect(w.hasStatus(foe.id, 'slow')).toBe(true);
+  });
+
+  it('突袭 only raids enemies it can see from the landing spot', () => {
+    const { w, me, foe } = duel('zhangliao');
+    const hidden = hero(w, 4);
+    place(w, foe, 6, 0, Math.PI / 2); // facing −x, toward him; the test wall (x 9.5–10.5) is behind it
+    place(w, me, -2, 0, -Math.PI / 2);
+    place(w, hidden, 11.5, 0); // ~4 m from the landing spot, on the far side of the wall
+    foe.hero!.items = [{ id: 'sha', count: 1 }, null, null, null];
+    hidden.hero!.items = [{ id: 'shan', count: 1 }, null, null, null];
+    me.hero!.items = [null, null, null, null];
+    cast(w, me, 'q', aimAt(me, foe));
+    expect(w.cooldownLeft(me.id, 'zhangliao_tuxi')).toBeGreaterThan(0);
+    expect(me.pos.x).toBeGreaterThan(6.5);
+    expect(me.pos.x).toBeLessThan(9.5);
+    expect(hasItem(me, 'sha')).toBe(true);
+    expect(w.hasStatus(foe.id, 'slow')).toBe(true);
+    expect(hasItem(hidden, 'shan')).toBe(true);
+    expect(w.hasStatus(hidden.id, 'slow')).toBe(false);
+  });
+
+  it('突袭 records where the blink started as the cast point (the VFX streak runs from there)', () => {
+    const { w, me, foe } = duel('zhangliao');
+    place(w, foe, 0, 22, Math.PI);
+    send(w, me, [], aimAt(me, foe));
+    w.step();
+    const def = abilityOf('zhangliao', 'q');
+    const ctx = w.abilityCtx(me, def) as ReturnType<World['abilityCtx']> & { cast?: { pos?: Vec3; target?: number } };
+    expect(getAbility(def.id)!.activate!(ctx)).toBe(true);
+    expect(ctx.cast?.target).toBe(foe.id);
+    expect(Math.hypot(ctx.cast!.pos!.x, ctx.cast!.pos!.z - 30)).toBeLessThan(0.05);
+  });
+
+  it('辽来 never boosts reflected damage', () => {
+    const { w, me, foe } = duel('zhangliao');
+    bigHp(me);
+    bigHp(foe);
+    foe.yaw = 0; // its back toward Zhang Liao: 辽来 would apply
+    w.applyStatus(me.id, 'thorns', 10, { sourceId: me.id, params: { frac: 0.3 } });
+    const f = foe.hp;
+    w.dealDamage({ targetId: me.id, sourceId: foe.id, amount: 100, type: 'fire' });
+    expect(f - foe.hp).toBeCloseTo(30, 5);
   });
 });
 
@@ -766,6 +905,16 @@ describe('甄姬 Zhen Ji', () => {
     expect(w.statusParam(foe.id, 'slow', 'amount', 0)).toBeCloseTo(0.4, 5);
     expect(w.hasStatus(me.id, 'slow')).toBe(false);
 
+    // the cast point is where she started (the frost field), she herself is at the landing
+    const c = duel('zhenji');
+    send(c.w, c.me, [], { yaw: 0, pitch: 0 });
+    c.w.step();
+    const def = abilityOf('zhenji', 'e');
+    const ctx = c.w.abilityCtx(c.me, def) as ReturnType<World['abilityCtx']> & { cast?: { pos?: Vec3 } };
+    expect(getAbility(def.id)!.activate!(ctx)).toBe(true);
+    expect(Math.hypot(ctx.cast!.pos!.x, ctx.cast!.pos!.z - 30)).toBeLessThan(0.05);
+    expect(30 - c.me.pos.z).toBeGreaterThan(9);
+
     const d = duel('zhenji');
     cast(d.w, d.me, 'e', { yaw: -Math.PI / 2, pitch: 0 }); // looking +x
     expect(d.me.pos.x).toBeGreaterThan(9);
@@ -922,6 +1071,43 @@ describe('魏 robustness', () => {
     }
   });
 
+  it('items gained by Wei abilities are announced to the new owner only (items are hidden information)', () => {
+    const pickups = (ev: GameEvent[]): Extract<GameEvent, { t: 'pickup' }>[] => ev.filter((e): e is Extract<GameEvent, { t: 'pickup' }> => e.t === 'pickup');
+    // 反馈
+    const a = duel('simayi');
+    bigHp(a.me);
+    a.me.hero!.items = [null, null, null, null];
+    a.foe.hero!.items = [{ id: 'sha', count: 1 }, null, null, null];
+    a.w.dealDamage({ targetId: a.me.id, sourceId: a.foe.id, amount: 10, type: 'normal', weaponId: 'carbine' });
+    const pa = pickups(a.w.drainEvents());
+    expect(pa).toHaveLength(1);
+    expect(pa[0].privateTo).toBe(a.me.id);
+    // 突袭
+    const b = duel('zhangliao');
+    place(b.w, b.foe, 0, 22, Math.PI);
+    b.me.hero!.items = [null, null, null, null];
+    b.foe.hero!.items = [{ id: 'sha', count: 1 }, null, null, null];
+    const pb = pickups(cast(b.w, b.me, 'q', aimAt(b.me, b.foe)));
+    expect(pb).toHaveLength(1);
+    expect(pb[0].privateTo).toBe(b.me.id);
+    // 洛神 (first draw wins, second fails)
+    const c = duel('zhenji');
+    c.me.hero!.items = [null, null, null, null];
+    const outcomes = [true, false];
+    c.w.rng.chance = (): boolean => outcomes.shift() ?? false;
+    const pc = pickups([...cast(c.w, c.me, 'q'), ...(stepN(c.w, secs(1)), c.w.drainEvents())]);
+    expect(pc).toHaveLength(1);
+    expect(pc[0].privateTo).toBe(c.me.id);
+    // 天妒
+    const d = duel('guojia');
+    bigHp(d.me);
+    d.me.hero!.items = [null, null, null, null];
+    d.w.dealDamage({ targetId: d.me.id, sourceId: d.foe.id, amount: 50, type: 'normal', weaponId: 'carbine' });
+    const pd = pickups(d.w.drainEvents());
+    expect(pd).toHaveLength(1);
+    expect(pd[0].privateTo).toBe(d.me.id);
+  });
+
   it('passives and hooks tolerate source-less, zone and self damage', () => {
     for (const heroId of WEI) {
       const { w, me, warns } = duel(heroId, { seat: heroId === 'caocao' ? 0 : 2 });
@@ -934,6 +1120,59 @@ describe('魏 robustness', () => {
       expect(threw(warns), heroId).toEqual([]);
     }
   });
+});
+
+// ── bots ────────────────────────────────────────────────────────────────────
+describe('魏 bots', () => {
+  /**
+   * One Wei bot vs a (human, scripted) enemy that keeps within 8 m and shoots in short bursts;
+   * bystanders parked far away. For 12 s the bot is kept healthy, then dropped to 45 % HP so
+   * the heals come up. Returns the Wei abilities the bot cast.
+   */
+  function skirmish(heroId: string): { used: Set<string>; warns: string[] } {
+    const seat = heroId === 'caocao' ? 0 : 2;
+    const warns: string[] = [];
+    const heroes = STD5.map((_, i) => (i === seat ? heroId : 'dummy'));
+    const w = makeWorld(STD5, { heroes, humans: STD5.map((_, i) => i).filter((i) => i !== seat), onWarn: (m) => warns.push(m) });
+    const me = hero(w, seat);
+    const foe = hero(w, seat === 0 ? 2 : 0);
+    for (const h of w.heroList()) h.hero!.roleRevealed = true;
+    STD5.forEach((_, i) => place(w, hero(w, i), i * 8 - 16, -55));
+    place(w, me, 0, 30);
+    place(w, foe, 0, 22, Math.PI);
+    const used = new Set<string>();
+    for (let i = 0; i < secs(25) && !w.result(); i++) {
+      if (foe.hero!.downed || foe.hero!.dead) break;
+      foe.hp = Math.max(foe.hp, foe.maxHp * 0.5);
+      const dx = foe.pos.x - me.pos.x;
+      const dz = foe.pos.z - me.pos.z;
+      const l = Math.hypot(dx, dz) || 1;
+      if (Math.abs(l - 8) > 1) place(w, foe, me.pos.x + (dx / l) * 8, me.pos.z + (dz / l) * 8, Math.atan2(dx / l, dz / l));
+      if (i < secs(12)) me.hp = Math.max(me.hp, me.maxHp * 0.8);
+      if (i === secs(12)) me.hp = me.maxHp * 0.45;
+      w.setInput(foe.hero!.playerId, { ...emptyInput(seq++), ...aimAt(foe, me), buttons: i % 60 < 6 ? BTN_FIRE : 0, actions: [] });
+      w.step();
+      for (const e of w.drainEvents()) if (e.t === 'ability' && e.src === me.id) used.add(e.ability);
+    }
+    return { used, warns };
+  }
+
+  it('a bot in a close fight uses its Wei actives — 张辽 both 突袭 and 威震逍遥津', () => {
+    const used = new Set<string>();
+    for (const heroId of WEI) {
+      const r = skirmish(heroId);
+      expect(threw(r.warns), heroId).toEqual([]);
+      for (const id of r.used) used.add(id);
+    }
+    const actives = WEI.flatMap((h) => HERO_BY_ID[h].abilities.filter((a) => !isPassiveAbility(a)).map((a) => a.id));
+    const missing = actives.filter((id) => !used.has(id));
+    // eslint-disable-next-line no-console
+    console.log(`[wei-bots] ${actives.length - missing.length}/${actives.length} actives cast; never: ${missing.join(', ') || '—'}`);
+    expect(used.has('zhangliao_tuxi'), 'zhangliao_tuxi').toBe(true);
+    expect(used.has('zhangliao_weizhen'), 'zhangliao_weizhen').toBe(true);
+    // the rest is AI-owned heuristics (sim/ai/abilityUse.ts): every active today, allow a little drift
+    expect(missing.length, `never cast: ${missing.join(', ')}`).toBeLessThanOrEqual(2);
+  }, 60_000);
 });
 
 // ── full match ──────────────────────────────────────────────────────────────
@@ -960,9 +1199,12 @@ describe('魏 8-bot match', () => {
     expect(['lord', 'rebel', 'traitor', 'draw']).toContain(res!.winner);
     expect(threw(warns)).toEqual([]);
     expect(warns.filter((m) => /no implementation|no activate/.test(m) && /caocao|simayi|xiahou|zhangliao|xuchu|guojia|zhenji/.test(m))).toEqual([]);
-    // bots actually used the kit
+    // bots actually used the kit. One seed does not reach every active (who fights whom is
+    // role-driven: 11–16 of the 17 over seeds 3/5/7/11/21); the close-fight test above covers each.
     const actives = WEI.flatMap((h) => HERO_BY_ID[h].abilities.filter((a) => !isPassiveAbility(a)).map((a) => a.id));
     const used = actives.filter((id) => (casts.get(id) ?? 0) > 0);
-    expect(used.length).toBeGreaterThanOrEqual(8);
+    // eslint-disable-next-line no-console
+    console.log(`[wei-match] ${res!.winner} after ${res!.durationSec}s; ${used.length}/${actives.length} actives; never: ${actives.filter((id) => !casts.get(id)).join(', ') || '—'}`);
+    expect(used.length).toBeGreaterThanOrEqual(10);
   }, 240_000);
 });

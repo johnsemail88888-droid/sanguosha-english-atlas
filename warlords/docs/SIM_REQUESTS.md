@@ -3,7 +3,7 @@
 Change requests for files owned by SIM-CORE / other engineers. Append one section per request:
 file · function · exact proposed change · why · which ability needs it. The integrator applies them.
 
-## ABILITIES-SHU (蜀) — 3 requests
+## ABILITIES-SHU (蜀) — 4 requests
 
 ### SHU-1 · dash / knockback overshoot (post-forced-movement slide) — correctness, affects every hero
 - **Files / functions:** `src/sim/world.ts` `updateHero` (the `else { if (e.forced) e.forced = undefined; … predictMove }` branch);
@@ -21,7 +21,17 @@ file · function · exact proposed change · why · which ability needs it. The 
   (same 3 lines in `driveUnit` with the unit's `baseSpeed`, and in `clientView.stepPrediction` when a replayed forced
   segment ends). Knockback distances in the data (据水断桥 10, 西凉冲锋 9, 青龙斩 7…) then mean what they say.
 - **Who needs it:** all dashes/knockbacks. Shu works around it for its own casters (`sim/abilities/shu/util.ts`
-  `charge()` → `brake()` on the last dash tick); that workaround becomes a harmless no-op once this lands.
+  `charge()` → `brake()` on the last dash tick) and, since the review, for the victims of its shoves
+  (`strikeUnit()` → `brakeAfterForced()`: watches the knockback it just applied and brakes after its last tick; measured
+  据水断桥 10 → 10.4 m, 西凉冲锋 9 → 8.6 m, was 13.3 / 18.3 m). Both use exactly the cap proposed here, so they become
+  harmless no-ops once this lands. Knockbacks applied by the engine itself (explosions, weapon specials) still slide.
+  Until the `clientView.stepPrediction` part lands, a remote client whose own hero is braked this way predicts the old
+  slide for a few ticks and is pulled back (smoothed) by the next snapshot — one more reason to apply all three parts.
+- **Related (dash length):** a dash moves on every tick with `time < until`, so a duration that is not a whole number of
+  ticks moves one tick more than `distance` (七进七出 7 m → 7.6 m). Shu's `charge()` rounds to n ticks and passes
+  `(n − ½)·SIM_DT` (with `distance·(n − ½)/n`) so float rounding of `until` can never add or drop a tick. Consider doing the
+  same inside `World.dash` (`const n = max(1, round(duration / SIM_DT))`, `until = time + (n − 0.5) * SIM_DT`,
+  `speed = distance / (n * SIM_DT)`) — every hero's dash then covers exactly its data distance.
 
 ### SHU-2 · piercing projectiles re-hit their first target up to 4× in one tick — correctness
 - **File / function:** `src/sim/combat.ts` `updateProjectiles`.
@@ -48,8 +58,26 @@ file · function · exact proposed change · why · which ability needs it. The 
   ```
 - **Who needs it:** every Shu active (they already set it through `sim/abilities/shu/util.ts` `setCast()`); other kingdoms
   can adopt the same helper. Without the change the events simply keep today's values.
+- **Render side:** `src/render/vfx/abilities-shu.ts` already copes with both: `near()` / `within()` accept ev.pos /
+  ev.target only when they are plausible for the ability's range, direction dashes (七进七出, 西凉冲锋) always use the data
+  length, and 青龙斩 estimates its stop point from the aimed unit. After SHU-3, `qinglong()` may take its end point from
+  `near(ctx, dash, …)` instead (the sim then writes the real stop point).
 
-## ABILITIES-QUN (群) — 6 requests
+### SHU-4 · `SimExt.dropAggro(unitId, seconds)` — 空城 writes brain state directly — robustness
+- **Files / functions:** `src/sim/ext.ts` (`SimExt`), `src/sim/world.ts` (implementation), `src/sim/ai/troopBrain.ts` +
+  `src/sim/ai/npcBrain.ts` (honour it).
+- **Problem:** 诸葛亮 空城 ("soldiers / NPCs within 15 m lose aggro") has no API, so `sim/abilities/shu/zhugeliang.ts`
+  `loseAggro()` clears `troop.targetId` / `npc.targetId` and pushes the brains' private `ai.nextScan` timer 3 s ahead. It
+  works with today's brains (both gate target acquisition on `ai.nextScan`), but any brain rewrite that renames or stops
+  reading that field silently breaks 空城 (the units would re-acquire him on the next tick).
+- **Proposed change:** `dropAggro(unitId: EntityId, seconds: number): void` on SimExt — clears the unit's target and sets
+  a documented field (e.g. `ai.aggroHoldUntil`) that both brains check before (re)acquiring any target:
+  `if ((ai.aggroHoldUntil ?? 0) > now) { tr.targetId = undefined; /* hold / follow only */ }`. The NPC "fight back when
+  hurt" path may still override it (being shot breaks the spell).
+- **Who needs it:** 空城 (and any future "calm / taunt-off" effect). Shu switches to it once it exists; until then the
+  workaround above stays (limited to units fighting 诸葛亮's side since the review).
+
+## ABILITIES-QUN (群) — 7 requests (QUN-3 and QUN-5 withdrawn)
 
 ### QUN-1 · +1 for SHU-3 (ability event override) — same `ctx.cast` property
 - **File / function:** `src/sim/world.ts` `activateAbility` — exactly the SHU-3 change (read `ctx.cast` → `pos` / `target` / `dir`).
@@ -69,48 +97,69 @@ file · function · exact proposed change · why · which ability needs it. The 
   (his bullets, rockets, ability hits and his own hazards all carry `sourceId` = the hero, so they keep piercing).
 - **Who needs it:** 吕布 无双 (`lubu_wushuang.modifiers().shieldPierce`). No workaround on the ability side.
 
-### QUN-3 · basic bot: a failed activation locks the bot onto that slot forever — AI (貂蝉 连环计 never cast)
-- **File / function:** `src/sim/ai/basicBot.ts` `tryAbility`.
-- **Problem:** the first slot whose aiHint condition holds is pressed and the loop returns. If `activate()` refuses (no valid
-  target: 离间 needs a *hero* under the crosshair plus someone within 15 m; the bot's target is often a bandit NPC), no
-  cooldown starts and the next attempt picks the same slot again, so E is never tried. In three 8-bot all-Qun matches
-  离间 failed 31× and 连环计 was cast only 4×.
-- **Proposed change:** remember the attempt: `this.tried = { slot, abilityId, at: now }`; at the next `tryAbility`, if
-  `sim.cooldownLeft(self.id, tried.abilityId) <= 0` (it did not fire), skip that slot for ~4 s
-  (`this.skipUntil[slot] = now + 4`) and fall through to the next slot.
-- **Who needs it:** every activate() that can legitimately refuse (离间, 太平要术 / 连环计 without a target, …).
+### QUN-3 · ~~basic bot: a failed activation locks the bot onto that slot forever~~ — WITHDRAWN
+- Already solved: `src/sim/ai/abilityUse.ts` `AbilityUser.checkPending` backs a slot off for ~5 s (`FAIL_BACKOFF`) when a
+  press started no cooldown / spent no charge, and falls through to the next slot. In current all-Qun bot matches 离间
+  and 连环计 are both cast. Nothing to apply.
 
-### QUN-4 · basic bot: 华佗 never goes for a 桃-free revive — AI (急救)
-- **File / function:** `src/sim/ai/basicBot.ts` `reviveGoal` — `if (!h.items.some((s) => s?.id === 'tao')) return null;`
-- **Problem:** 华佗's passive lets him revive without a 桃 once per 30 s (`hooks.canReviveFree`), but the bot only looks
-  for downed allies when it carries a 桃.
-- **Proposed change:** also accept a ready free revive, with the same data-driven test the HUD uses
-  (`ui/hud/logic.ts canReviveFree`): an ability of the bot's hero with `params.freeReviveCd` whose
-  `sim.cooldownLeft(self.id, a.id) <= 0`. (Or expose `canReviveFree(heroId)` on SimExt → `this.hooks.canReviveFree(e)`.)
-- **Who needs it:** 华佗 急救 (`huatuo_jijiu.canReviveFree` / `onRevive`).
+### QUN-4 · HeroBot: the 急救 free revive is assumed ready while it is on cooldown — AI (华佗)
+- **File / function:** `src/sim/ai/heroBot.ts` `HeroBot.canReviveFree()` (used by `reviveCandidate()`).
+- **Problem:** it only checks that one of the hero's passives *has* a `canReviveFree` hook, not that the free revive is
+  ready. A 华佗 bot without a 桃 walks to downed allies while `huatuo_jijiu` is on its 30 s cooldown, and
+  `inventory.startRevive` then refuses silently (`!hasTao && !hooks.canReviveFree(e)`) — a wasted, dangerous trip.
+- **Proposed change:** ask the real hook (it already checks the cooldown and that the bot can act):
+  `return (this.sim as World).hooks.canReviveFree(this.self);` — or, data-driven like the HUD
+  (`ui/hud/logic.ts canReviveFree`): `def.abilities.some((a) => a.slot === 'passive' && !!getAbility(a.id)?.canReviveFree
+  && this.sim.cooldownLeft(this.self.id, a.id) <= 0)`.
+- **Who needs it:** 华佗 急救. (A bot that carries a 桃 is unaffected: the ability side makes a ready free revive go
+  first, see QUN-6.)
 
-### QUN-5 · basic bot: self-centred melee abilities are cast from 27 m away — AI (吕布 方天画戟)
-- **File / function:** `src/sim/ai/basicBot.ts` `tryAbility`: `const range = ab.params.range ?? ab.params.dash ?? 25;`
-- **Problem:** `lubu_fangtian` (targeting 'self', `radius` 5, no `range`) passes the 'offense' test at up to 27 m and whiffs
-  (same for 许褚 虎卫猛击-style slams).
-- **Proposed change:** `const range = ab.params.range ?? ab.params.dash ?? (ab.targeting === 'self' && ab.params.radius !== undefined ? ab.params.radius : 25);`
-- **Who needs it:** 吕布 方天画戟 (and other `targeting: 'self'` damage abilities with a `radius`).
+### QUN-5 · ~~basic bot: self-centred melee abilities are cast from 27 m away~~ — WITHDRAWN
+- Already solved: `abilityUse.ts` `abilityReach()` falls back to `params.radius`, and an 'offense' ability with
+  `targeting: 'self'` and a radius ≤ 12 m is only pressed with ≥ 2 enemy points inside that radius
+  (`enemiesWithin(p.radius)`), so 方天画戟 is no longer cast from afar. Nothing to apply.
 
-### QUN-6 · a ready 急救 free revive should be used before the 桃 — gameplay (华佗)
+### QUN-6 · a ready 急救 free revive should be used before the 桃 — gameplay (华佗) — worked around, please still apply
 - **File / function:** `src/sim/inventory.ts` `updateChannel`, the `ch.kind === 'revive'` completion
   (`const taoSlot = h.items.findIndex(...); if (taoSlot >= 0) { …consume… } else if (w.hooks.canReviveFree(e)) free = true;`).
-- **Problem:** Hua Tuo carrying a 桃 always spends it, even while his once-per-30 s free revive is ready — the free revive
-  only ever triggers when he has no 桃 at all, so the passive silently burns his heals.
+- **Problem:** Hua Tuo carrying a 桃 always spends it, even while his once-per-30 s free revive is ready. Every hero spawns
+  with a 桃, so without a workaround the free revive almost never happened (0 in two full all-Qun bot matches).
+- **Workaround in place:** `huatuo_jijiu.onRevive(free = false)` with the free revive ready gives the spent 桃 back
+  (`giveItem`, or drops it at his feet when the bag is full) and starts the 30 s timer — both for the F-revive and for the
+  桃 item used on a downed ally. Remaining wart: the world still emits `{ t: 'itemUse', item: 'tao' }` for that revive.
 - **Proposed change:** check the free revive first:
   ```ts
   let free = false;
   if (w.hooks.canReviveFree(e)) free = true;
   else { const taoSlot = …; if (taoSlot < 0) return; …consume one 桃… }
   ```
-  (`huatuo_jijiu.onRevive(free = true)` then starts its 30 s timer; nothing else changes.)
+  (`huatuo_jijiu.onRevive(free = true)` then starts its 30 s timer; the workaround simply stops triggering.) Optionally
+  the same in `completeItem` for a 桃 used on a downed ally (skip the consume + `itemUse` when `hooks.canReviveFree(e)`).
 - **Who needs it:** 华佗 急救. The HUD's "need a 桃" hint (`ui/hud/logic.ts`) already treats a ready free revive as enough.
 
-## ITEMS (锦囊 / 装备) — 7 requests
+### QUN-7 · 铁索连环: an area fire / thunder hit multiplies on every chained unit inside it — correctness / balance
+- **File / function:** `src/sim/combat.ts` `dealDamage`, step 9 (chained spread).
+- **Problem:** an area ability hits each unit in its area directly, and each direct hit on a 'chained' unit spreads to
+  every other chained unit. With N chained units inside one blast, each takes the hit N times (3 chained heroes in one
+  雷击 took 3 × 3 × 71.5 = 643.5 each — far past the "no single cast deals ≥ 300 to one target" rule).
+- **Worked around for Qun:** 雷击 / 太平要术 (`qun/zhangjiao.ts` `bolt()`) strike the unchained enemies plus only ONE
+  chained enemy and let the spread cover the rest (tested: each link takes each bolt exactly once). Every other area
+  fire / thunder source still multiplies: 黄盖 诈降火船 (120 in 6 m), 周瑜 napalm line, 陆逊 燎原 fields, the tesla
+  staff's chain jumps, fire hazards (`hazards.ts` fieldEffects), 火攻-style items, explosions (`explode`).
+- **Proposed change:** keep a per-tick "already hit by this" set in World, keyed on `(creditId, abilityId ?? weaponId,
+  tick)`, for fire / thunder hits only:
+  ```ts
+  // before step 1 (fire/thunder, no weaponId — weapon pellets must keep hitting):
+  const key = `${creditId}|${req.abilityId}|${w.tick}`;
+  if (chainedOnly && w.chainHit.get(key)?.has(target.id)) return res;   // already took this strike via the chain
+  // step 9: add target + every spread target to w.chainHit.get(key); skip spread targets already in it
+  ```
+  (clear the map at the start of each tick). Restricting it to targets that carry 'chained' keeps everything else
+  exactly as today; restricting it to ability / status / hazard hits (no `weaponId`) keeps multi-pellet weapons intact.
+- **Who needs it:** everyone who deals area fire / thunder (Wu above, items, hazards); 貂蝉 连环计 / 铁索连环 item make
+  it common. The Qun workaround stays correct (and becomes a no-op) once this lands.
+
+## ITEMS (锦囊 / 装备) — 12 requests
 
 ### ITEMS-1 · expose the 无懈可击 / 谦逊 gates on SimExt — needed by 5 items (worked around)
 - **File:** `src/sim/ext.ts` `interface SimExt` (World already implements both as public methods — declaration only).
@@ -131,13 +180,23 @@ file · function · exact proposed change · why · which ability needs it. The 
   `settings.troopsPerHero + heroDef.troopBonus + (role lord|double ? 2 : 0) + modifiers(id).squadBonus`.
 - **Why:** items only see SimApi; `items/util.ts troopsPerHero()` reads `world.settings` by duck-typing (default 4).
 
-### ITEMS-3 · trap placement is broadcast to everyone (hidden information leak) — please apply
+### ITEMS-3 · item-use events and hidden information (trap spot — worked around; stealthed users — open)
 - **Files:** `src/sim/ext.ts` `ItemImplEx` (+ `hiddenUse?: boolean`), `src/sim/inventory.ts` `completeItem`.
-- **Problem:** `completeItem` emits `{ t: 'itemUse', who, item, pos: point }` publicly, so every client (and the renderer's
-  ring/sparkle at `pos`) learns exactly where each 乐不思蜀 / 兵粮寸断 trap was laid, defeating the hidden trap.
-- **Proposed change:** `w.emit({ t: 'itemUse', who: e.id, item: itemId, pos: point, target: target?.id, ...(impl.hiddenUse ? { privateTo: e.id } : {}) })`
-  (net/eventFilter already routes `privateTo`). ITEMS will then add `hiddenUse: true` to lebusishu / bingliang in
-  `items/delayed.ts` (an object literal cannot carry the field before it is declared).
+- **Problem 1 (worked around, no longer leaks):** `completeItem` emits `{ t: 'itemUse', who, item, pos: point }` publicly,
+  so every client (and the renderer's ring/sparkle at `pos`) learned exactly where each 乐不思蜀 / 兵粮寸断 trap was laid.
+  Workaround in ITEMS-owned files: both traps are now `targeting: 'self'` in `data/items.ts` (no `point` to publish;
+  `use()` reads the crosshair itself via `sim.aimPoint(self, range)`, clamped to 8 m) — the event now only says "X used a
+  trap card" at X, like playing a card. Tested in `tests/unit/items/delayed.test.ts` ("publishes no position").
+- **Problem 2 (open):** the same public event is emitted for a user in stealth (白衣渡江 / 克己 / 百骑劫营 …) — the
+  renderer sparkles at `who` and audio plays at `who`, giving the invisible hero away (the item twin of WU-2).
+- **Proposed change:** in `completeItem`, before `impl.use(ctx)`:
+  `const hidden = impl.hiddenUse === true || (findStatus(e, 'stealth', w.time) !== undefined && !revealedTo(e, undefined, w.time));`
+  and emit `w.emit({ t: 'itemUse', who: e.id, item: itemId, pos: point, target: target?.id, ...(hidden ? { privateTo: e.id } : {}) })`
+  (net/eventFilter already routes `privateTo`). With `hiddenUse` declared, ITEMS can switch the traps back to
+  `targeting: 'point'` + `hiddenUse: true` if the UI wants a placement reticle.
+- **Also (VFX accuracy, low priority):** let `use()` override the event position (`ctx.eventPos?: Vec3`, same idea as
+  SHU-3's `ctx.cast`): 过河拆桥 / 火攻 grenades stop at walls, so the generic itemUse ring at the *aim* point can be metres
+  from where the grenade actually lands (`items/util.ts throwItem` knows the landing point).
 
 ### ITEMS-4 · hidden hazards should be sent within 6 m, not 8 m (low priority)
 - **File / function:** `src/sim/snapshot.ts` `hiddenFrom`.
@@ -145,11 +204,13 @@ file · function · exact proposed change · why · which ability needs it. The 
   snapshots omit them for enemies beyond `STEALTH_SEND_RANGE` (8 m); the item design (data/items.ts header) says 6 m.
 - **Proposed change:** `const range = e.kind === 'hazard' ? 6 : STEALTH_SEND_RANGE; return d > range;`
 
-### ITEMS-5 · source-scoped status removal — 决斗 early end
+### ITEMS-5 · source-scoped status removal — 决斗 early end (worked around, low priority)
 - **Files:** `src/sim/ext.ts` + `src/sim/world.ts`: `removeStatusFrom(targetId: EntityId, id: StatusId, sourceId: EntityId): void`
   → `const e = this.get(targetId); if (e) removeStatusFrom(this, e, id, sourceId);` (status.ts already has it).
 - **Why:** when a duel ends early (35 m apart, someone downed) its two 'marked' instances should go, but
-  `SimApi.removeStatus` would also wipe other commanders' squad marks; today they simply run out at 8 s.
+  `SimApi.removeStatus` would also wipe other commanders' squad marks. Workaround (same as WU-3's): `items/tricks.ts
+  endDuelMark()` sets `until = sim.time` on the duel's own instances (matched by source and end time), so `tickStatuses`
+  removes them that tick with their 'off' events. Same need as WU-3 — one API serves both.
 
 ### ITEMS-6 · discrete custom hazard kinds (low priority, worked around)
 - **File / function:** `src/sim/hazards.ts` `updateHazards` + `HazardKindImpl`.
@@ -162,6 +223,65 @@ file · function · exact proposed change · why · which ability needs it. The 
   returned false: nothing to steal, nobody hurt, squad full …).
 - **Proposed change:** `w.emit({ t: 'sfx', name: 'itemDenied', pos: { ...e.pos }, privateTo: e.id })` so the HUD/audio can
   play a "denied" cue instead of silently doing nothing.
+
+### ITEMS-8 · `DamageRequest.noNullify` — 决斗's penalty must not be cancellable (worked around)
+- **Files:** `src/sim/api.ts` `DamageRequest` (+ `noNullify?: boolean` — additive, optional), `src/sim/combat.ts`
+  `isNullifiableHit`: `if (isZone || req.noNullify || req.sourceId === undefined || req.weaponId !== undefined) return false;`
+- **Problem:** the duel loser's 80 damage is an item hit with a source, so the loser's 无懈可击 cancelled it (bots carry
+  one in every hero fight) — though the target's 无懈可击 was already checked when the duel started.
+- **Workaround:** the penalty uses `abilityId: 'status:juedou'` (`items/tricks.ts DUEL_PENALTY`), which combat exempts.
+  Side effect: 'status:*' hits also count as *indirect* for passives that react to direct hits (`shu/util.ts isDirectHit`,
+  `wei/shared.ts`) and skip 酒 (irrelevant: weapon-only). With the flag, switch back to `abilityId: 'juedou', noNullify: true`.
+
+### ITEMS-9 · loot pickup lock on SimApi — 过河拆桥 flings gear out of its owner's reach (worked around)
+- **Files:** `src/sim/api.ts` `spawnLoot(pos, what, ammo?, lock?)` (declaration only — `World.spawnLoot` already takes
+  `lock: { heroId, seconds }` 4th); optionally `SimExt.dismount(heroId, opts?: { at?: Vec3; lock?: number })` /
+  `stripArmor(heroId, drop?, opts?)` with the same options.
+- **Why:** 过河拆桥 used to drop armor and mount at the victim's feet with no lock — two F presses and the victim had
+  everything back. Now the EMP strips with `stripArmor(id, false)`, clears `hero.mount` itself (= `dismount()` minus the
+  drop; onEquipmentLost still fires from the per-tick diff), and spawns the gear 2.5 m away locked 5 s for the victim
+  via `items/util.ts spawnLockedLoot()` (a cast to World's 4-argument `spawnLoot`). Note WU-4 (nullify inside
+  `dismount` / `stripArmor`): the EMP checks 无懈可击 itself and no longer calls `dismount`, so WU-4 cannot double-consume it.
+
+### ITEMS-10 · RENDER + AUDIO: the EMP looks and sounds like a frag grenade; item-use VFX registry
+- **RENDER, `src/render/vfx/effects.ts` `explosion()`:** add `case 'emp':` — expanding blue-white shock ring on the ground
+  (`fx.ring`, radius0 0.3 → radius × 1.2, color ~C(0.6, 1.2, 2.4)), a thin translucent sphere pulse (`fx.sphere`, 0.3 s),
+  a handful of short electric sparks (`PT.spark`, blue, low gravity), a small cold light flash — no fireball, no smoke,
+  **no `shakeAt`** (it deals no damage). Today `'emp'` falls into the default fire/frag branch (fireball + screen shake).
+- **AUDIO, `src/audio/router.ts` explosion variant:** map `/emp|shock/` to an electric discharge (the existing `'thunder'`
+  variant at low size is acceptable) instead of `'frag'`.
+- **RENDER, `src/render/vfx/eventVfx.ts` `case 'itemUse'`:** an item VFX registry like `registerAbilityVfx` (id → fn with
+  who / pos / target) so cards can get bespoke casts. Suggested looks (ITEM color from data/items.ts):
+  sha — brass ammo glints at the user; shan — blue afterimage ring; tao / taoyuan — peach petals + green rise (taoyuan: a
+  15 m gold ring); jiu — amber steam puff; wuzhong / wugu — card-flip glyphs (wugu: grain burst on the 4 loot spots);
+  guohe / huogong — throw flick only (the warning disc + explosion already show the landing); shunshou — a grapple
+  line user → target; juedou — two crossed-blade glyphs over both duelists + a red tether while `abilityState
+  ['item:juedou:vs']` holds; jiedao — red "hack" glitch on the victim's soldiers; wuxie — golden seal glyph on the user;
+  nanman — dust burst where they spawn; wanjian — volley streaks rising from the user; tiesuo — chain links flying to the
+  chained units; lebusishu / bingliang — a tiny puff at the user only (never at the trap); shandian — dark cloud swirl
+  at pos; zhengbing — banner wave.
+- **UI (HUD):** a duel indicator — opponent name + seconds left — from `hero.abilityState['item:juedou:vs']` (entity id)
+  and `['item:juedou:until']` (sim time) in the local player's private view (no reader in `src/ui` yet).
+
+### ITEMS-11 · AI planner (`src/sim/ai/itemUse.ts ItemUser.plan`) second-guesses three item hints
+- **决斗:** `if (id === 'juedou' && hpFrac < (t.hp / Math.max(1, t.maxHp)) + 0.1) return null;` rejects every even duel.
+  `botShouldUse` now accepts fair fights (≥ 50 % HP, ≥ 90 % of the foe's HP + shield) and finishing blows — drop the line
+  (or `if (id === 'juedou' && gate !== true && …)`).
+- **征兵令:** `case 'zhengbing': return h.squad.length < 4 || fighting ? base : null;` — with a squad cap above 4 (lord,
+  troopBonus heroes) or the card's +2 over-cap allowance the hint says yes (calm, squad below cap / nearly full bag /
+  foe in sight) and the planner refuses. Real-map probe (2 seeds × 150 s, `tests/unit/items/match.test.ts`): hint yes
+  820 / 938 calls, cards played 2. Proposed: `case 'zhengbing': return gate === true ? base : null;`.
+- **Traps (FYI, no change needed):** 乐不思蜀 / 兵粮寸断 are now `targeting: 'self'`, `aiHint: 'utility'`, so the planner's
+  default branch returns the plan when the hint says yes; the hint also chooses the spot (the bot's crosshair is not
+  used). The planner's 'point' + 'defense' branch (≤ 10 m midpoint) no longer applies to them.
+
+### ITEMS-12 · docs: regenerate HEROES.md, align GAME_SPEC §7 决斗
+- `docs/HEROES.md` is stale (tests/unit/data/heroes-doc.test.ts fails): item text in data/items.ts changed (借刀杀人,
+  南蛮入侵, 乐不思蜀, 兵粮寸断, 闪电, and now 过河拆桥's knock-away + 5 s lock) plus Wu's 百骑劫营. Run
+  `UPDATE_DOCS=1 npx vitest run tests/unit/data` (docs/ is outside the ITEMS paths).
+- `docs/GAME_SPEC.md` §7 still describes 决斗 as "tether duel 10 s (damage between you ×1.5, others ×0.5)"; the data and
+  the implementation are an 8 s duel (each side's soldiers focus the other; the one who lost more HP + shield takes 80,
+  ends early at 35 m or when someone falls). Please align the spec text with data/items.ts.
 
 ## ABILITIES-WU (吴) — 9 requests
 
@@ -250,7 +370,7 @@ redundant (not wrong) once the request lands.
   (+`burst: 1`), and 结姻 gained the `maleOnly: 1` hint → `docs/HEROES.md` must be regenerated
   (`UPDATE_DOCS=1 npx vitest run tests/unit/data`; it is also stale from item-text edits by others).
 
-## ABILITIES-WEI (魏) — 7 requests
+## ABILITIES-WEI (魏) — 11 requests + a data note
 
 ### WEI-1 · redirected damage must not run the attacker's outgoing pipeline again — correctness (曹操 护驾, 大乔 流离)
 - **File / function:** `src/sim/combat.ts` `dealDamage` (+ `isNullifiableHit`).
@@ -282,6 +402,10 @@ redundant (not wrong) once the request lands.
   遗计 is clamped to 40 m, 鬼谋 / 宁教我负天下人 resolve their own target, self casts (鬼才, 狼顾, 裸衣…) happen at the
   caster. Every Wei active already writes `ctx.cast` via `sim/abilities/wei/shared.ts` `setCast()`; until the world
   reads it, `render/vfx/abilities-wei.ts` derives the geometry from the ability data instead of `ev.pos`.
+- **Wei convention for blinks:** 突袭 / 凌波微步 / 神速 record the blink's *start* as `pos` (remote events play at their
+  tick, when the caster is already drawn at the landing, so `pos → caster` is the path; `blinkPath()` in the VFX file
+  handles both before and after this lands). The world should copy `ctx.cast.pos` verbatim — no "must be near the
+  crosshair" sanity clamp.
 
 ### WEI-4 · +1 for SHU-1 (post-dash slide) — Wei works around it
 - 独目怒冲 (24 m/s) slid to 16.4 m instead of 12, 虎卫猛击 to 7.0 m instead of 6. `sim/abilities/wei/shared.ts`
@@ -303,8 +427,66 @@ redundant (not wrong) once the request lands.
   ability: 'zhangliao_tuxi', src: <local hero> }`.
 - **Problem:** 突袭 teleports *behind* the target; when the target was facing Zhang Liao, "behind" is on the far side, so
   the local camera ends up looking away from it (the host cannot turn a client's camera).
-- **Proposed change:** ease the camera yaw toward the event's `target` (or `pos` once WEI-3 lands) over ~0.15 s. Bots
-  already re-aim every think.
+- **Proposed change:** ease the camera yaw toward the event's `target` (the raided hero; note `pos` is the blink *start*
+  under the WEI-3 convention above, not something to face) over ~0.15 s. Bots already re-aim every think.
+- **Scheduling:** please land it together with WEI-3 — the back-stab bonus (辽来 +40 %) is the point of the kit, and a
+  human who blinked from in front of the target currently lands looking away from it.
+
+### WEI-8 · reflected damage must skip the reflector's outgoing multipliers — correctness (刚烈, 鬼才, every reflect/thorns)
+- **File / function:** `src/sim/combat.ts` `dealDamage`, step 3 "outgoing modifiers".
+- **Problem:** reflect and thorns are re-dealt with the *reflecting* hero as `sourceId` (kill credit), so step 3 applies
+  its `dmgBoost`, `weaponOutgoingMul`, `troopDmgMul` and every `modifyOutgoing` to them. Probed: 刚烈 returns 39 instead
+  of 30 of a 100 hit during 夏侯惇's own 拔矢啖睛 (dmgBoost ×1.3); any dmgBoost on Sima Yi (an item, an ally's buff) inflates 鬼才 the same way.
+- **Proposed change:** next to WEI-1's `redirected` flag:
+  `const reflected = req.abilityId === 'status:reflect' || req.abilityId === 'status:thorns';` and
+  `if (!isZone && src && !redirected && !reflected) { …step 3… }`. Incoming modifiers (armor is already ignored via
+  `ignoreArmor`, dmgTakenUp/Down, the victim's hooks) stay.
+- **Wei side (done):** the Wei `modifyOutgoing` hooks (狼顾 ×1.4, 辽来 ×1.4) already return reflections unchanged
+  (`sim/abilities/wei/shared.ts` `isReflected`), so only the engine's `dmgBoost` / weapon / troop multipliers remain.
+
+### WEI-9 · (net) statuses "until consumed" arrive as expired on remote clients — correctness, HUD
+- **File / function:** `src/net/codec.ts`, the `you.statuses` loop (`w.u16(csQ(s.remaining))`).
+- **Problem:** `sim/status.ts` `statusRows` reports an `Infinity` status as `remaining: -1`; `csQ(-1)` clamps to 0, so
+  remote clients get `remaining 0` — the HUD shows a blinking "0 / expiring" icon and `estimateMoveMods`' `has()` treats
+  the status as off. (`csDQ` already decodes 0xffff as Infinity.)
+- **Proposed change:** `w.u16(s.remaining < 0 ? 0xffff : csQ(s.remaining));` (the panel already shows no number for a
+  non-finite remaining). Optionally make `has()` in `net/clientView.ts` accept `remaining !== 0`.
+- **Wei side (worked around):** 刚烈 now keeps a 60 s thorns status topped up (refreshed below 30 s, silently — equal
+  params replace the instance without a status event) instead of an infinite one; revert to `Infinity` once this lands
+  if a timer-less HUD icon is preferred.
+
+### WEI-10 · mark passive procs on the ability event — UX (render gesture + audio), all kingdoms
+- **Files:** `src/core/types.ts` (the `{ t: 'ability' }` event), `src/net/codec.ts` (one flag bit),
+  `src/render/vfx/eventVfx.ts` (`case 'ability'`), `src/audio/router.ts` (`case 'ability'`).
+- **Problem:** passive triggers are announced as `{ t: 'ability' }` events (Wei `emitProc`: 奸雄 / 反馈 / 天妒; Wu
+  `emitTrigger`: 流离 / 连营 / 枭姬 / 克己). Clients play the caster's cast gesture (`src.onCast()`) and the full
+  'abilityCast' sound for them, which reads as an active cast — 奸雄 under sustained fire did it every 3 s.
+- **Proposed change:** add `proc?: boolean` to the ability event (codec: one bit); in eventVfx skip `src?.onCast()` when
+  `ev.proc`; in the audio router play a lighter cue (e.g. `abilityCast` at gain ×0.5 / size 0.6, or a dedicated 'proc'
+  recipe). Then set `proc: true` in `sim/abilities/wei/shared.ts` `emitProc` and `wu/util.ts` `emitTrigger` (one line each).
+- **Wei side (interim):** 奸雄's proc event is throttled to one per 8 s (was 3 s).
+
+### WEI-11 · (AI) two bot heuristics keep Wei actives idle — AI (`src/sim/ai/abilityUse.ts`, bot movement)
+- **Evidence:** the 8-bot all-Wei match casts 11–16 of the 17 actives per seed (seeds 3/5/7/11/21; the union of 3/7/21
+  is all 17). In the scripted close-fight test (`tests/unit/abilities/wei.test.ts` "魏 bots": an enemy kept at 8 m that
+  shoots back) every Wei bot casts every active, so the gaps are engagement heuristics, not failed activations (no Wei
+  activation by a bot failed in any probe).
+- **狼顾 blocked by `areaClear`:** 狼顾 is `targeting: 'self'`, `radius: 40`, and `areaClear` treats that radius as a
+  harmful area: any believed-ally or neutral hero within 41 m vetoes the cast. With bystanders 30 m away it was never cast
+  in 20 s; with them 85 m away it was cast after 4 s. It only reveals (privately) and buffs Sima Yi's own damage.
+  **Proposed:** in `safeForFriends` (or `areaClear`), return true when `def.params.privateReveal` is set; more generally,
+  radius-only self casts that apply nothing to others should skip the check.
+- **突袭 range vs hover distance:** a Zhang Liao bot facing a passive enemy at 9 m backs off to 12.1–12.6 m and hovers there,
+  just outside 突袭's 12 m `range`, so the `mobility`/`enemy` plan (`d <= reach`) never presses it. Held at 8 m, it casts 突袭
+  4.5 s in. **Proposed:** while an enemy-targeted mobility ability is ready (and HP > 45 %), cap the preferred engagement
+  distance at `abilityReach(def) − 1.5`, so the bot steps into reach before pressing.
+
+### Data note (Wei)
+- `simayi_guicai` deals reflected damage but carries no `dtype`: `tests/unit/data/data.test.ts` requires every damaging
+  active to have a fixed size (`castDamage > 0`), which a reflect has not. If the data owner wants the header rule
+  ("dtype on reflected damage too") enforced, teach `castDamage` / `DAMAGE_KEYS` about reflect abilities (e.g. rate
+  them 0 and skip the "recognised" assertion when `params.reflect` is set); then add `dtype: 'normal'` to 鬼才 — the
+  code already deals `ctx.def.dtype ?? 'normal'`. 刚烈 keeps `dtype: 'normal'` (engine thorns are always 'normal').
 
 ## RENDER — 1 request
 

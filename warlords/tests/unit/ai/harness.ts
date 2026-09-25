@@ -12,6 +12,7 @@ import { FAILSAFE_TIME } from '../../../src/sim/rules';
 import { ZONE_PHASES } from '../../../src/sim/zone';
 import type { World } from '../../../src/sim/world';
 import { createWorld } from '../../../src/sim/world';
+import { HeroBot } from '../../../src/sim/ai/heroBot';
 
 /** Start of the last shrink (circle closing to 0). */
 export const FINAL_SHRINK_START = ZONE_PHASES.reduce((t, p, i) => (i < ZONE_PHASES.length - 1 ? t + p.wait + p.shrink : t + p.wait), 0);
@@ -71,6 +72,8 @@ export interface MatchMetrics {
   lordKilledLoyal: number;
   /** death sequence: "time:role<killerRole" */
   deathLog: string[];
+  /** exceptions thrown by bot / troop / NPC brains (must stay empty) */
+  brainErrors: string[];
 }
 
 interface MoveTrack {
@@ -83,7 +86,27 @@ interface MoveTrack {
 }
 
 export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): MatchMetrics {
-  const w: World = createWorld(makeBotInit(spec), { map: realMap(), onWarn: () => {} });
+  const brainErrors: string[] = [];
+  const w: World = createWorld(makeBotInit(spec), {
+    map: realMap(),
+    onWarn: (m) => {
+      if (/brain threw/.test(m)) brainErrors.push(m);
+    },
+    // every bot exception is recorded (the world would swallow it and idle the bot for a tick)
+    botFactory: (seat, d, seed) => {
+      const b = new HeroBot(seat, d, seed);
+      return {
+        think(sim, self, dt) {
+          try {
+            return b.think(sim, self, dt);
+          } catch (err) {
+            brainErrors.push(`bot ${seat}: ${String(err)}`);
+            throw err;
+          }
+        },
+      };
+    },
+  });
   const heroes = w.heroList();
   const deaths = { hero: 0, npc: 0, zone: 0, other: 0 };
   let abilities = 0;
@@ -166,6 +189,7 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
     tickMaxMs: times.length ? times[times.length - 1] : 0,
     lordKilledLoyal,
     deathLog,
+    brainErrors,
   };
 }
 
@@ -191,11 +215,12 @@ function sampleMovement(w: World, heroes: Entity[], tracks: Map<EntityId, MoveTr
     if (t.lastSample) t.minuteDist += Math.hypot(p.x - t.lastSample.x, p.z - t.lastSample.z);
     t.lastSample = p;
     if (now - t.minuteStart >= 60) {
-      t.minMinute = Math.min(t.minMinute, t.minuteDist);
+      // standing in the last circle is not being stuck
+      if (now < FINAL_SHRINK_START) t.minMinute = Math.min(t.minMinute, t.minuteDist);
       t.minuteStart = now;
       t.minuteDist = 0;
     }
-    if (!t.idleAnchor || Math.hypot(p.x - t.idleAnchor.x, p.z - t.idleAnchor.z) > 1.5 || busy) t.idleAnchor = { x: p.x, z: p.z, t: now };
+    if (!t.idleAnchor || Math.hypot(p.x - t.idleAnchor.x, p.z - t.idleAnchor.z) > 1.5 || busy || now >= FINAL_SHRINK_START) t.idleAnchor = { x: p.x, z: p.z, t: now };
     else t.longestIdle = Math.max(t.longestIdle, now - t.idleAnchor.t);
   }
 }

@@ -505,6 +505,8 @@ export const QUN_HEROES: HeroDef[] = [
         descEn: 'A war elephant charges 30 m ahead, trampling enemies in its path for 100 melee damage + knockback, then fights for 12 s.',
         cooldown: 35,
         // impl: spawnNpc('elephant', …, { summonerId, lifetime }) then dash(elephant, dir, distance, chargeTime).
+        //       width = HALF-width of the trample corridor (≈ 6 m wide + the unit's radius), from the
+        //       elephant's spawn point 2.5 m ahead; nothing behind Meng Huo is trampled.
         params: { distance: 30, chargeTime: 2, damage: 100, width: 3, knockback: 10, lifetime: 12 },
         dtype: 'melee',
         targeting: 'direction',

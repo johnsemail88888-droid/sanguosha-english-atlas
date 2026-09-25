@@ -14,6 +14,7 @@ import {
   botView,
   centerOf,
   clusterScore,
+  dropToGround,
   flatDist,
   hostileHeroesNear,
   isAlive,
@@ -41,12 +42,13 @@ const P = itemParam;
  * warning marker (hazard `kind`, radius = blast radius) and goes off `fuse`
  * seconds after the throw at the landing point.
  */
-function armFuse(sim: SimApi, self: Entity, plan: ThrowPlan, kind: string, radius: number, fuse: number, detonate: (pos: Vec3) => void): void {
+function armFuse(sim: SimApi, self: Entity, plan: ThrowPlan, kind: string, radius: number, fuse: number, detonate: (pos: Vec3) => void, dps = 0): void {
   const pos = { ...plan.land };
   const ownerId = self.id;
   const markerLife = Math.max(0.05, fuse - plan.flight);
   sim.schedule(plan.flight, () => {
-    sim.spawnHazard({ kind, ownerId, pos, radius, duration: markerLife, tickEvery: 60, params: { fuse } });
+    // `dps` (> 0 for damaging grenades) only tells AI units to get out of the circle; the marker itself does nothing
+    sim.spawnHazard({ kind, ownerId, pos, radius, duration: markerLife, tickEvery: 60, params: dps > 0 ? { fuse, dps } : { fuse } });
   });
   sim.schedule(Math.max(plan.flight, fuse), () => detonate(pos));
 }
@@ -97,8 +99,17 @@ function flingGear(sim: SimApi, u: Entity, blast: Vec3, ids: string[], o: EmpOpt
   const base = Math.hypot(dx, dz) > 0.3 ? Math.atan2(dz, dx) : u.id * 2.399963;
   ids.forEach((itemId, i) => {
     const a = base + (i - (ids.length - 1) / 2) * 1.1;
-    const spot = spotAround(sim, u.pos, a, o.scatter);
-    spawnLockedLoot(sim, spot, { itemId }, { heroId: u.id, seconds: o.lock });
+    // stay on the victim's level: not over a deck's edge into the water or off a rampart
+    let at: Vec3 = { ...u.pos };
+    for (let r = o.scatter, k = 0; k < 3; k++, r *= 0.5) {
+      const spot = spotAround(sim, u.pos, a, r);
+      const g = dropToGround(sim, { x: spot.x, y: u.pos.y + 1, z: spot.z });
+      if (Math.abs(g.y - u.pos.y) <= 1.2) {
+        at = g;
+        break;
+      }
+    }
+    spawnLockedLoot(sim, at, { itemId }, { heroId: u.id, seconds: o.lock });
   });
 }
 
@@ -552,7 +563,7 @@ registerItem({
         const tick = 0.5;
         sim.spawnHazard({ kind: 'huogongFire', ownerId: selfId, pos, radius, duration: fieldTime, tickEvery: tick, params: { damage: fieldDps * tick }, dtype });
       }
-    });
+    }, damage);
     return true;
   },
   botShouldUse(sim, self) {

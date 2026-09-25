@@ -140,6 +140,8 @@ export const WEI_HEROES: HeroDef[] = [
         // impl: modifyIncoming halves weapon bullets (combat isBulletDamage) and remembers the original;
         //       onDamageTaken reflects original × reflect to the shooter with the engine's reflect
         //       semantics (abilityId 'status:reflect'). A frac-0 'reflect' status + 'guicai' hazard mark it.
+        //       No dtype on purpose: the reflect has no fixed size, which the data tests' castDamage cannot
+        //       rate (docs/SIM_REQUESTS.md "Data note (Wei)"); the code deals `dtype ?? 'normal'`.
         params: { duration: 2.5, takenMul: 0.5, reflect: 1 },
         targeting: 'self',
         aiHint: 'defense',
@@ -207,9 +209,10 @@ export const WEI_HEROES: HeroDef[] = [
         sgsSkill: '刚烈',
         descZh: '受到伤害时，将伤害的 30% 反弹给攻击者。',
         descEn: 'Whenever you take damage, 30% of it is dealt back to the attacker.',
-        // impl: a permanent 'thorns' status { frac: reflectFrac }: combat deals reflectFrac × (HP + shield
-        //       damage taken) back to the attacker as undodgeable `dtype` damage. Zone / no-source damage
-        //       and requests that already carry noReflect (DoT ticks, reflects) are ignored.
+        // impl: a 'thorns' status { frac: reflectFrac } kept up while alive: combat deals reflectFrac × (HP +
+        //       shield damage taken) back to the attacker as undodgeable damage. The engine's thorns always
+        //       deal 'normal', so dtype must stay 'normal'. Zone / no-source damage and requests that already
+        //       carry noReflect (DoT ticks, reflects) are ignored.
         params: { reflectFrac: 0.3 },
         dtype: 'normal',
         aiHint: 'defense',

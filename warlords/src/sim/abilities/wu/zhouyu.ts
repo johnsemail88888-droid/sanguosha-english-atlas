@@ -1,11 +1,12 @@
 // 周瑜 Zhou Yu — 英姿 (reload + cooldowns), 反间 (charm onto the nearest other
-// hero, else disarm), 火烧赤壁 (delayed 25 m napalm line + burning ground).
+// hero it can see, else disarm), 火烧赤壁 (delayed 25 m napalm line + burning ground).
 import type { Vec3 } from '../../../core/math';
 import type { Entity } from '../../../core/types';
 import type { AbilityCtx, SimApi } from '../../api';
-import { UNIT_KINDS, flatAimDir, param } from '../common';
+import { ext } from '../../ext';
+import { UNIT_KINDS, flatAimDir, getState, param, setState } from '../common';
 import { registerAbility } from '../registry';
-import { applyDebuff, centerOf, crosshairFoe, isUp, registerFieldKind, setCast } from './util';
+import { applyDebuff, centerOf, crosshairFoe, isUp, publiclyVisible, registerFieldKind, setCast } from './util';
 
 // 英姿 (passive): reload ×reloadMul, ability cooldowns ×cdMul.
 registerAbility({
@@ -14,17 +15,20 @@ registerAbility({
 });
 
 /**
- * The hero a charmed `victim` turns on: the nearest standing hero within `r` m of it that is
- * neither the victim nor the caster, preferring one it can actually see.
+ * The hero a charmed `victim` turns on: the nearest standing hero within `r` m of it that
+ * is neither the victim nor the caster and that the victim can see — a hero hidden in
+ * stealth is never picked (the victim's forced aim and tracers would give it away) —
+ * preferring one in clear line of sight.
  */
 function discordTarget(sim: SimApi, victim: Entity, caster: Entity, r: number): Entity | undefined {
+  const x = ext(sim);
   const eye = sim.eyePos(victim);
   let best: Entity | undefined;
   let bestD = Infinity;
   let bestSeen = false;
   for (const h of sim.heroes()) {
     if (h === victim || h === caster || !h.alive || h.hero?.dead || h.hero?.downed) continue;
-    if (sim.hasStatus(h.id, 'untargetable')) continue;
+    if (sim.hasStatus(h.id, 'untargetable') || !x.canSee(victim, h)) continue;
     const d = Math.hypot(h.pos.x - victim.pos.x, h.pos.y - victim.pos.y, h.pos.z - victim.pos.z);
     if (d > r) continue;
     const seen = sim.lineOfSight(eye, centerOf(h)) || sim.lineOfSight(eye, sim.eyePos(h));
@@ -37,8 +41,15 @@ function discordTarget(sim: SimApi, victim: Entity, caster: Entity, r: number): 
   return best;
 }
 
-// 反间 (Q): charm the crosshair enemy hero for `duration` s onto the nearest other hero (never
-// you); nobody around → disarm it instead. 谦逊-immune targets can't be chosen (no cooldown).
+/** Is the charm target still one the victim should be attacking (standing, visible to it)? */
+function validDiscord(sim: SimApi, victim: Entity, t: Entity | undefined): boolean {
+  return !!t && t.alive && !t.hero?.dead && !t.hero?.downed && !sim.hasStatus(t.id, 'untargetable') && ext(sim).canSee(victim, t);
+}
+
+// 反间 (Q): charm the crosshair enemy hero for `duration` s onto the nearest other hero it can
+// see (never you); nobody around → disarm it instead. 谦逊-immune targets can't be chosen (no
+// cooldown). While the charm lasts, a target that drops, dies or slips into stealth is swapped
+// for the next one (none left → the charm ends).
 registerAbility({
   id: 'zhouyu_fanjian',
   activate(ctx) {
@@ -47,12 +58,33 @@ registerAbility({
     const t = crosshairFoe(ctx, param(ctx, 'range', 30), ['hero']);
     if (!t) return false;
     const other = discordTarget(sim, t, self, param(ctx, 'searchRadius', 30));
-    // pos = whom it turns on (the renderer can draw the discord line target → pos)
-    setCast(ctx, { target: t.id, pos: centerOf(other ?? t) });
+    // pos = whom it turns on (the renderer draws the discord line target → pos); never a stealthed hero
+    setCast(ctx, { target: t.id, pos: centerOf(other && publiclyVisible(sim, other) ? other : t) });
     const outcome = other
       ? applyDebuff(ctx, t, 'charm', param(ctx, 'duration', 2), { targetId: other.id })
       : applyDebuff(ctx, t, 'disarm', param(ctx, 'disarm', 2));
+    if (outcome === 'landed' && other) setState(ctx, 'victim', t.id);
     return outcome !== 'resisted';
+  },
+  tick(ctx) {
+    const { sim, self } = ctx;
+    const vid = getState(ctx, 'victim', -1);
+    if (vid < 0) return;
+    const v = sim.get(vid);
+    const now = sim.time;
+    // our charm only (a later charmer owns the instance once it re-charms the victim)
+    const ch = v?.alive ? v.statuses.find((s) => s.id === 'charm' && s.until > now && s.sourceId === self.id) : undefined;
+    if (!v || !ch) {
+      setState(ctx, 'victim', -1);
+      return;
+    }
+    if (validDiscord(sim, v, sim.get(ch.params?.targetId))) return;
+    const next = discordTarget(sim, v, self, param(ctx, 'searchRadius', 30));
+    if (next) ch.params = { ...(ch.params ?? {}), targetId: next.id };
+    else {
+      ch.until = now; // expires with its 'off' event in this tick's status pass
+      setState(ctx, 'victim', -1);
+    }
   },
 });
 

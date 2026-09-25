@@ -392,6 +392,9 @@ export const ITEMS: ItemDef[] = [
     targeting: 'point',
     range: 15,
     maxStack: 1,
+    // impl: "nearest hero" = nearest standing hero whose position is public — heroes in stealth (not revealed to
+    //   everyone) and downed heroes are skipped, so the public cloud never tracks an invisible hero. It rides at its
+    //   quarry's level (roof / deck / floor) and a bolt only reaches units within 2.5 m of that height.
     params: { range: 15, lifetime: 18, speed: 3.5, strikeEvery: 3, damage: 70, radius: 3 },
     dtype: 'thunder',
     icon: '电',

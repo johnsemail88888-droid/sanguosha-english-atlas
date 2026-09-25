@@ -54,6 +54,7 @@ describe('beliefs', () => {
     const healer = hero(w, 7);
     const claimer = hero(w, 4);
     lord.hp = 200;
+    stepN(w, 2);
     const p0 = bot.beliefs.lordSideness(w, self, healer);
     w.heal(lord.id, 80, healer.id);
     stepN(w, 20);

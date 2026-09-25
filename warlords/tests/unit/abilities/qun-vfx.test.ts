@@ -30,12 +30,17 @@ describe('群 ability VFX', () => {
       localId: 1,
     };
     const empty: AbilityVfxContext = { ...full, src: undefined, srcPos: null, targetPos: null, point: null };
+    // someone else's cast (self-centred pillars are only toned down for the local caster), no local player at all
+    const remote: AbilityVfxContext = { ...full, localId: 2 };
+    const spectator: AbilityVfxContext = { ...full, localId: null };
     for (const id of ids) {
       const fn = getAbilityVfx(id);
       expect(fn, id).toBeTypeOf('function');
       const ev: AbilityEvent = { t: 'ability', src: 1, ability: id };
       expect(() => fn!(full, ev), id).not.toThrow();
       expect(() => fn!(empty, ev), `${id} without anchors`).not.toThrow();
+      expect(() => fn!(remote, ev), `${id} remote caster`).not.toThrow();
+      expect(() => fn!(spectator, ev), `${id} no local player`).not.toThrow();
     }
     expect(() => fx.update(0.1)).not.toThrow();
     fx.dispose();

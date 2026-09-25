@@ -4,6 +4,7 @@
 import type { Vec3 } from '../../../core/math';
 import type { Entity, EntityId, EntityKind } from '../../../core/types';
 import { SIM_DT } from '../../../core/types';
+import { ROLE_BY_ID } from '../../../data';
 import type { AbilityCtx, DamageRequest, SimApi } from '../../api';
 import { ext } from '../../ext';
 import { WALK_SPEED } from '../../physics';
@@ -82,6 +83,30 @@ export function crosshairFriend(ctx: AbilityCtx, range: number, allowDowned: boo
   if (!allowDowned && t.hero.downed) return undefined;
   if (sim.isOwnSide(self, t) || !sim.isHostileTo(self, t)) return t;
   return undefined;
+}
+
+/**
+ * Who a Shu effect treats as a friend (hidden roles — the caster's own
+ * knowledge only, so nothing leaks that the caster could not know):
+ *  - support (济民, 长坂救主, 旌旗, 激将): anyone NOT known-hostile
+ *    (crosshairFriend / isHostileTo);
+ *  - harmful lingering fields (八阵图): everyone not on the caster's own side
+ *    EXCEPT known allies (this function) — unknown heroes are fair game, just
+ *    like bullets hit them.
+ * A known ally is a unit whose hero (itself, or its commander / summoner) has a
+ * publicly known role on the caster's own winning side — the Lord (or 影武者)
+ * for a loyalist, revealed rebels for a rebel — and that is not fighting the
+ * caster. Traitors and neutral roles have no known allies.
+ */
+export function knownAlly(sim: SimApi, owner: Entity, u: Entity): boolean {
+  const mine = sim.roleOf(owner);
+  const hero = ext(sim).commanderOf(u);
+  if (!mine || !hero || hero === owner) return false;
+  const faction = ROLE_BY_ID[mine]?.faction;
+  if (faction !== 'lord' && faction !== 'rebel') return false;
+  const theirs = sim.knownRole(hero);
+  if (!theirs || ROLE_BY_ID[theirs]?.faction !== faction) return false;
+  return !sim.isHostileTo(owner, u);
 }
 
 /** Point `dist` m ahead of `from` along a flat direction. */
@@ -167,6 +192,7 @@ export function coneStrike(sim: SimApi, src: Entity, origin: Vec3, dir: Vec3, ra
   sim.emit({ t: 'melee', src: src.id, pos: { ...origin }, dir: flat, range, arc: arcDeg });
   const hit: Entity[] = [];
   for (const t of unitsInCone(sim, src, origin, flat, range, arcDeg, o.kinds ?? UNIT_KINDS)) {
+    if (o.exclude?.includes(t.id)) continue;
     if (strikeUnit(sim, src, t, o)) hit.push(t);
   }
   return hit;

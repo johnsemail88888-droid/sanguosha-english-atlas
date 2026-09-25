@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ITEM_BY_ID, LOOT_TABLES } from '../../../src/data';
 import { maxReserve, weaponDef } from '../../../src/sim/defs';
-import { chest, events, feet, giveAndUse, hero, hold, inject, place, setup, slotCount, stepN, ticks, useSlot } from './helpers';
+import { aimFrame, chest, events, feet, giveAndUse, hero, hold, inject, place, send, setup, slotCount, stepN, ticks, useSlot } from './helpers';
 
 const REWARD_IDS = new Set(LOOT_TABLES.reward.map((e) => e.id));
 
@@ -111,6 +111,38 @@ describe('过河拆桥 guohe (EMP grenade)', () => {
     expect(b.hero!.mount).toBe('dilu');
     expect(w.hasStatus(b.id, 'nullify')).toBe(false);
     expect(w.hasStatus(c.id, 'nullify')).toBe(true);
+  });
+
+  it('flings the gear 2–3 m away: its wearer cannot take it back for 5 s, anyone else can at once', () => {
+    const { w, a, b, c } = setup();
+    place(w, b, 0, 35);
+    armoured(w, b);
+    giveAndUse(w, a, 'guohe', feet(b));
+    stepN(w, ticks(1.4));
+    const loot = w.kindList('loot');
+    const armor = loot.find((l) => l.loot!.itemId === 'renwang')!;
+    const mount = loot.find((l) => l.loot!.itemId === 'dilu')!;
+    for (const l of [armor, mount]) {
+      const d = Math.hypot(l.pos.x - b.pos.x, l.pos.z - b.pos.z);
+      expect(d).toBeGreaterThan(1.9);
+      expect(d).toBeLessThan(3.1);
+    }
+    expect(Math.hypot(armor.pos.x - mount.pos.x, armor.pos.z - mount.pos.z)).toBeGreaterThan(1.5); // fanned out
+    // b walks onto its armor and presses F: locked
+    place(w, b, armor.pos.x, armor.pos.z);
+    send(w, b, aimFrame(w, b, feet(armor)), [{ a: 'interact' }]);
+    w.step();
+    expect(b.hero!.armor).toBeNull();
+    // c grabs b's mount right away
+    place(w, c, mount.pos.x, mount.pos.z);
+    send(w, c, aimFrame(w, c, feet(mount)), [{ a: 'interact' }]);
+    w.step();
+    expect(c.hero!.mount).toBe('dilu');
+    // after the lock b gets its armor back
+    stepN(w, ticks(5));
+    send(w, b, aimFrame(w, b, feet(armor)), [{ a: 'interact' }]);
+    w.step();
+    expect(b.hero!.armor).toBe('renwang');
   });
 
   it('白银狮子 stripped by the EMP heals its wearer 100', () => {
@@ -248,6 +280,46 @@ describe('决斗 juedou', () => {
     expect(a.hero!.abilityState['item:juedou:vs']).toBeUndefined();
   });
 
+  it("无懈可击 cannot cancel the loser's penalty (it was checked when the duel began)", () => {
+    const { w, a, b } = duel();
+    giveAndUse(w, a, 'juedou', chest(b), b);
+    // b loses the exchange, then plays a 无懈可击; a held one from the start
+    w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 60, type: 'normal', weaponId: 'pistol' });
+    w.applyStatus(b.id, 'nullify', 30, { sourceId: b.id });
+    w.applyStatus(a.id, 'nullify', 30, { sourceId: a.id });
+    const hb = b.hp;
+    stepN(w, ticks(8.3));
+    expect(b.hp).toBe(hb - 80);
+    expect(w.hasStatus(b.id, 'nullify')).toBe(true); // not even consumed
+  });
+
+  it('the starter pays too when it loses, 无懈可击 or not', () => {
+    const { w, a, b } = duel();
+    w.applyStatus(a.id, 'nullify', 30, { sourceId: a.id });
+    giveAndUse(w, a, 'juedou', chest(b), b);
+    w.dealDamage({ targetId: a.id, sourceId: b.id, amount: 60, type: 'normal', weaponId: 'pistol' });
+    const ha = a.hp;
+    stepN(w, ticks(8.3));
+    expect(a.hp).toBe(ha - 80);
+    expect(w.hasStatus(a.id, 'nullify')).toBe(true);
+  });
+
+  it("an early end lifts the duel's focus marks at once; other commanders' marks stay", () => {
+    const { w, a, b, c } = duel();
+    w.applyStatus(b.id, 'marked', 30, { sourceId: c.id });
+    giveAndUse(w, a, 'juedou', chest(b), b);
+    expect(b.statuses.filter((s) => s.id === 'marked')).toHaveLength(2);
+    stepN(w, ticks(1));
+    w.drainEvents();
+    place(w, b, 0, 56); // 36 m: the duel breaks at the next poll
+    stepN(w, ticks(0.6));
+    expect(a.hero!.abilityState['item:juedou:vs']).toBeUndefined();
+    expect(a.statuses.some((s) => s.id === 'marked')).toBe(false);
+    expect(b.statuses.some((s) => s.id === 'marked' && s.sourceId === a.id)).toBe(false);
+    expect(b.statuses.some((s) => s.id === 'marked' && s.sourceId === c.id)).toBe(true);
+    expect(events(w.drainEvents(), 'status').some((e) => e.target === a.id && e.status === 'marked' && !e.on)).toBe(true);
+  });
+
   it('无懈可击 refuses the duel (card spent, no marks); you cannot start a second duel', () => {
     const { w, a, b, c } = duel();
     w.applyStatus(b.id, 'nullify', 30, { sourceId: b.id });
@@ -310,6 +382,35 @@ describe('借刀杀人 jiedao', () => {
     expect(slotCount(a)).toBe(0);
     expect(b.hero!.order.kind).toBe('follow');
     expect(w.hasStatus(b.id, 'nullify')).toBe(false);
+  });
+
+  it('never turns the squad on a hero its commander cannot see, and the order carries no position', () => {
+    const { w, a, b, c } = setup();
+    const d = hero(w, 0);
+    place(w, b, 0, 45);
+    place(w, c, 8, 51); // nearest to b (10 m), but in stealth: invisible to b beyond 6 m
+    place(w, d, -12, 50); // 13 m, in plain sight
+    w.applyStatus(c.id, 'stealth', 30, { sourceId: c.id, params: { keep: 1 } });
+    w.spawnTroops(b.id, 'qun_raider', 3, { x: 4, y: 0, z: 48 });
+    w.step();
+    w.drainEvents();
+    giveAndUse(w, a, 'jiedao', chest(b), b);
+    hold(w, a, ticks(0.6), chest(b), b);
+    expect(slotCount(a)).toBe(0);
+    expect(b.hero!.order).toMatchObject({ kind: 'attack', targetId: d.id });
+    const cmd = events(w.drainEvents(), 'command').filter((e) => e.who === b.id);
+    expect(cmd.length).toBeGreaterThan(0);
+    for (const e of cmd) {
+      expect(e.point).toBeUndefined();
+      expect(e.target).not.toBe(c.id);
+    }
+    // the only hero near b is invisible: nobody to turn them on, card kept
+    stepN(w, ticks(7));
+    place(w, d, -55, -55);
+    w.step();
+    giveAndUse(w, a, 'jiedao', chest(b), b);
+    hold(w, a, ticks(0.6), chest(b), b);
+    expect(slotCount(a)).toBe(1);
   });
 
   it('aiming at one of the soldiers hacks their commander', () => {

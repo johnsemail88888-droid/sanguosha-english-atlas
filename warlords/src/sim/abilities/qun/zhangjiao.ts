@@ -1,8 +1,9 @@
 // 张角 Zhang Jiao ★ — 鬼道 (passive), 雷击 (Q), 太平要术 (E), 黄天 (lord, G).
 import type { Vec3 } from '../../../core/math';
-import type { DamageType, EntityId } from '../../../core/types';
-import type { SimApi } from '../../api';
-import { circleAttack, crosshairEnemy, crosshairPoint, param, summonTroops } from '../common';
+import type { DamageType, Entity, EntityId } from '../../../core/types';
+import { SIM_DT } from '../../../core/types';
+import type { DamageResult, SimApi } from '../../api';
+import { UNIT_KINDS, crosshairEnemy, crosshairPoint, param, summonTroops } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, chestOf, setCastEvent } from './util';
 
@@ -17,23 +18,57 @@ interface BoltSpec {
   stun: number;
 }
 
+/** The hit reached the end of the damage pipeline, so a 'chained' target spread it (combat.ts step 9). */
+const passedThrough = (r: DamageResult): boolean => r.blocked === undefined || r.blocked === 'shield';
+
+/** Anything a landed hit changes on a unit (HP, shield, bleed-out clock, death). */
+const hurtMark = (e: Entity): string => `${e.hp}|${e.shield}|${e.hero?.downed ? e.hero.downedUntil : '-'}|${e.alive}`;
+
 /**
  * One lightning bolt: a 'thunder' explosion event (sky-to-ground bolt VFX) and
- * the damage to every enemy of the caster within the radius. Strikes that were
- * already called keep falling if Zhang Jiao is downed or killed meanwhile.
+ * the damage (+ optional stun) to every enemy of the caster within the radius.
+ *
+ * 铁索连环: a thunder hit on one 'chained' unit already spreads to every chained
+ * unit (combat.ts step 9), so the bolt strikes the unchained enemies directly and
+ * only ONE chained enemy — the spread covers the others, and every chained unit
+ * takes each bolt exactly once (not once per chained unit inside the circle).
+ * Chained enemies inside the circle that the spread reached are stunned like the
+ * directly struck ones. If the chosen link's hit is dodged / nullified / negated
+ * (no spread), the next chained enemy inside is struck instead.
+ *
+ * Strikes that were already called keep falling if Zhang Jiao is downed or killed meanwhile.
  */
 function bolt(sim: SimApi, casterId: EntityId, at: Vec3, o: BoltSpec): void {
   const caster = sim.get(casterId);
   if (!caster) return;
   // keep the point's own height: SimApi.groundHeight is the top-most surface (a roof above it)
   const p = { x: at.x, y: at.y, z: at.z };
-  circleAttack(sim, caster, p, o.radius, {
-    damage: o.damage,
-    dtype: o.dtype,
-    abilityId: o.abilityId,
-    vfx: 'thunder',
-    status: o.stun > 0 ? { id: 'stun', duration: Math.min(MAX_HERO_STUN, o.stun) } : undefined,
-  });
+  sim.emit({ t: 'explosion', pos: { ...p }, radius: o.radius, kind: 'thunder' });
+  const inside = sim
+    .queryRadius(p, o.radius, { kinds: UNIT_KINDS, notFriendlyTo: caster.id, exclude: [caster.id] })
+    .filter((t) => !t.hero?.dead);
+  const stun = (t: Entity): void => {
+    if (o.stun > 0 && t.alive) sim.applyStatus(t.id, 'stun', t.kind === 'hero' ? Math.min(MAX_HERO_STUN, o.stun) : o.stun, { sourceId: casterId });
+  };
+  const strike = (t: Entity): DamageResult => {
+    const r = sim.dealDamage({ targetId: t.id, sourceId: casterId, amount: o.damage, type: o.dtype, abilityId: o.abilityId });
+    // dodged, immune or cancelled by 无懈可击: the bolt's stun misses too (same rule as circleAttack)
+    if (r.blocked !== 'dodge' && r.blocked !== 'invuln' && r.blocked !== 'nullify') stun(t);
+    return r;
+  };
+  const spreads = o.dtype === 'fire' || o.dtype === 'thunder';
+  const chained = spreads ? inside.filter((t) => sim.hasStatus(t.id, 'chained')) : [];
+  for (const t of inside) if (t.alive && !chained.includes(t)) strike(t);
+  if (chained.length === 0) return;
+  const before = new Map(chained.map((t) => [t.id, hurtMark(t)]));
+  let spread = false;
+  for (const t of chained) {
+    if (!spread) {
+      if (t.alive && !t.hero?.dead && passedThrough(strike(t))) spread = true;
+    } else if (hurtMark(t) !== before.get(t.id)) {
+      stun(t); // reached by the spread of this very bolt
+    }
+  }
 }
 
 // 鬼道 (passive): thunder damage you deal (tesla staff arcs, 雷击, the storm cloud) +30 %.
@@ -75,7 +110,11 @@ registerAbility({
 
 // 太平要术 (E): a storm cloud follows the crosshair enemy for 8 s and strikes every 1.5 s
 // (first strike after one interval): 35 thunder to every enemy within 2.5 m of the cloud.
-// If the target dies the cloud lingers where it fell and keeps striking there.
+// If the target dies the cloud lingers where it fell and keeps striking there. While the
+// target is stealthed the cloud stops where it lost it (the cloud is visible to everyone —
+// following would give the hidden unit away) and picks it up again once it is visible.
+// The storm is Zhang Jiao's sorcery: it disperses the moment he dies (a downed Zhang Jiao
+// keeps it; 雷击's bolts, once called, still fall).
 registerAbility({
   id: 'zhangjiao_taiping',
   activate(ctx) {
@@ -107,12 +146,32 @@ registerAbility({
     });
     const cloudId = cloud.id;
     const casterId = self.id;
+    const targetId = target.id;
+    /** the live cloud while Zhang Jiao lives; disperses it once he is dead */
+    const liveCloud = (): Entity | undefined => {
+      const c = sim.get(cloudId);
+      if (!c || !c.alive || !c.hazard) return undefined;
+      const caster = sim.get(casterId);
+      if (!caster || !caster.alive || caster.hero?.dead) {
+        sim.removeEntity(cloudId);
+        return undefined;
+      }
+      return c;
+    };
+    const steer = (): void => {
+      const c = liveCloud();
+      if (!c) return;
+      const t = sim.get(targetId);
+      const trackable = !!t && t.alive && !t.hero?.dead && !sim.hasStatus(t.id, 'stealth');
+      c.hazard!.followId = trackable ? targetId : undefined;
+      sim.schedule(SIM_DT, steer);
+    };
+    sim.schedule(SIM_DT, steer);
     const strikes = Math.floor(duration / interval + 1e-6);
     for (let i = 1; i <= strikes; i++) {
       sim.schedule(interval * i, () => {
-        const c = sim.get(cloudId);
-        if (!c || !c.alive || !c.hazard) return;
-        bolt(sim, casterId, c.pos, spec);
+        const c = liveCloud();
+        if (c) bolt(sim, casterId, c.pos, spec);
       });
     }
     setCastEvent(ctx, { target: target.id, pos: chestOf(target) });

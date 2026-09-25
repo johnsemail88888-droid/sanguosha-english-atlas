@@ -14,7 +14,7 @@
 //          itemUse event carries no placement point (docs/SIM_REQUESTS.md ITEMS-3);
 //          use() lays the trap at the crosshair (≤ range) — or, for a bot, at the
 //          spot its botShouldUse just picked (a charging enemy's path, behind
-//          itself while retreating, a doorway / airdrop / loot pile when calm).
+//          itself while retreating, an airdrop / loot pile / doorway when calm).
 //  闪电    drifts toward the nearest hero whose position is public (owner
 //          included; stealthed / downed heroes are ignored, so the cloud never
 //          gives an invisible hero away) at `speed`, striking everything within
@@ -242,17 +242,16 @@ function passageWidth(sim: SimApi, p: Vec3): number {
   return best;
 }
 
-/** Calm: an unopened airdrop / crate, a loot pile, or a doorway within reach. */
+/** Calm: a landed airdrop, a loot pile, or a doorway within reach. */
 function calmSpot(sim: SimApi, self: Entity, range: number): Vec3 | undefined {
-  // things enemies will come for
+  // things enemies will come for (not plain crates: the bot opens those itself)
   let bait: Vec3 | undefined;
   let baitScore = 0;
-  for (const e of sim.queryRadius(self.pos, range, { kinds: ['airdrop', 'crate', 'loot'] })) {
+  for (const e of sim.queryRadius(self.pos, range, { kinds: ['airdrop', 'loot'] })) {
     let score = 0;
     if (e.kind === 'airdrop' && e.crate && !e.crate.opened && e.onGround) score = 10;
-    else if (e.kind === 'crate' && e.crate && !e.crate.opened) score = 1 + e.crate.tier;
-    else if (e.kind === 'loot') score = sim.queryRadius(e.pos, 3, { kinds: ['loot'] }).length >= 2 ? 2 : 0;
-    if (score <= baitScore) continue;
+    else if (e.kind === 'loot') score = sim.queryRadius(e.pos, 3, { kinds: ['loot'] }).length;
+    if (score < 2 || score <= baitScore) continue;
     const p = usableSpot(sim, self, e.pos, range, e.pos.y);
     if (!p) continue;
     bait = p;
@@ -290,8 +289,9 @@ function calmSpot(sim: SimApi, self: Entity, range: number): Vec3 | undefined {
  * Where a bot should lay a trap right now, if anywhere:
  *  1. a visible hostile hero charging at it: on the charger's path, ≥ armTime ahead of it;
  *  2. retreating from a hostile within 25 m (or hurt and just hit): right behind itself;
- *  3. calm (nobody hostile within 30 m, not hit for 5 s): an airdrop / crate / loot pile
- *     enemies will come for, else the narrowest doorway or passage within reach.
+ *  3. calm (nobody hostile within 30 m, not hit for 5 s, no trap in the last 20 s, < 2 live):
+ *     a landed airdrop or a loot pile enemies will come for, else the narrowest doorway or
+ *     passage within reach.
  */
 function planTrap(sim: SimApi, self: Entity, itemId: string): Vec3 | undefined {
   if (!isStanding(self)) return undefined;
@@ -455,8 +455,9 @@ registerItem({
       radius: prm(ctx, 'radius', 3),
       duration: prm(ctx, 'lifetime', 18),
       tickEvery: every,
-      // `drift`, not the generic `seek` (which would chase invisible heroes and give them away)
-      params: { drift: prm(ctx, 'speed', 3.5), strikeDamage: prm(ctx, 'damage', 70) },
+      // `drift`, not the generic `seek` (which would chase invisible heroes and give them away);
+      // `dps` is only a hint for AI hazard avoidance (ai/perception harmfulHazard) — tick() skips the generic effects
+      params: { drift: prm(ctx, 'speed', 3.5), strikeDamage: prm(ctx, 'damage', 70), dps: prm(ctx, 'damage', 70) / every },
       dtype: ctx.def.dtype ?? 'thunder',
       affectsOwner: true,
     });

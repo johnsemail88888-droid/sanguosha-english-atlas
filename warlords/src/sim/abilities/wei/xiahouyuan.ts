@@ -91,7 +91,8 @@ registerAbility({
     const moved = flatDist(self.pos, start);
     let target = volleyTarget(ctx, aimed, volleyRange);
     if (moved < 0.5 && !target) return false; // nowhere to go and nobody to shoot: keep the cooldown
-    setCast(ctx, { pos: self.pos, target: target?.id });
+    // pos = where the blink started (he is at the landing): the VFX streak runs pos → caster
+    setCast(ctx, { pos: start, target: target?.id });
     if (!target) return true;
     const shots = Math.max(0, Math.round(param(ctx, 'shots', 5)));
     // the held weapon at cast time (a weapon swap mid-volley does not change the rounds)

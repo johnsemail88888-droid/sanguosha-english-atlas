@@ -7,6 +7,7 @@ import { registerAbility } from '../registry';
 import { canAct, emitProc, flatDist, setCast } from './shared';
 
 // 奸雄 (passive): 25 % of the weapon damage you take becomes a shield (5 s), up to 100 in total.
+const JIANXIONG_PROC_GAP = 8;
 registerAbility({
   id: 'caocao_jianxiong',
   onDamageTaken(ctx, dealt) {
@@ -16,7 +17,9 @@ registerAbility({
     const amount = Math.min(dealt * param(ctx, 'frac', 0.25), room);
     if (!(amount > 0.05)) return;
     sim.addShield(self.id, amount, param(ctx, 'duration', 5));
-    emitProc(ctx, 3);
+    // clients still play a cast gesture + cast sound for procs (docs/SIM_REQUESTS.md WEI-10):
+    // at most one every 8 s so sustained fire does not read as constant casting
+    emitProc(ctx, JIANXIONG_PROC_GAP);
   },
 });
 

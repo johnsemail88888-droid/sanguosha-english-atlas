@@ -76,7 +76,8 @@ registerAbility({
       tickEvery: 0.25,
       params: { slow: param(ctx, 'slow', 0.4) },
     });
-    setCast(ctx, { pos: dest, dir });
+    // pos = where the blink started (the frost field; she is at the landing): the VFX streak
+    setCast(ctx, { pos: start, dir });
     return true;
   },
 });

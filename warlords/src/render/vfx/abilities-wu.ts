@@ -177,22 +177,29 @@ const huochuan: AbilityVfxFn = (ctx) => {
 };
 
 // ── 周瑜 ────────────────────────────────────────────────────────────────────
-/** 反间: a pink tether to the charmed enemy, then from it to whoever it turns on (event pos). */
+/**
+ * 反间: a pink tether to the charmed enemy and hearts swirling around it. No line to whoever it
+ * turns on: until docs/SIM_REQUESTS.md WU-1 lands, the event's pos is the raw crosshair point,
+ * not that hero (the victim's own forced fire shows whom it attacks).
+ */
 const fanjian: AbilityVfxFn = (ctx) => {
   const a = ctx.srcPos;
   const t = ctx.targetPos ?? ctx.point;
-  if (a && t) ctx.fx.beams.beam(a, t, CHARM_PINK, 0.06, 0.45, 0.9);
-  if (t) ctx.fx.burst(t, { count: 12, tex: PT.heart, color: CHARM_PINK, speed: [0.5, 2], up: 0.8, life: [0.8, 1.3], size: [0.22, 0.12], gravity: -1, spin: 3 });
-  const victim = ctx.targetPos && ctx.point && ctx.point.distanceTo(ctx.targetPos) > 1.5 ? ctx.point : null;
-  if (t && victim) {
-    ctx.fx.beams.beam(t, victim, C(2.6, 0.35, 0.3), 0.05, 0.9, 0.8);
-    streamAlong(ctx, t, victim, 6, CHARM_PINK, PT.heart, 0.14);
+  if (a && t) {
+    ctx.fx.beams.beam(a, t, CHARM_PINK, 0.06, 0.45, 0.9);
+    streamAlong(ctx, a, t, 6, CHARM_PINK, PT.heart, 0.14);
   }
+  if (!t) return;
+  ctx.fx.burst(t, { count: 12, tex: PT.heart, color: CHARM_PINK, speed: [0.5, 2], up: 0.8, life: [0.8, 1.3], size: [0.22, 0.12], gravity: -1, spin: 3 });
+  ctx.fx.burst(t, { count: 10, tex: PT.heart, color: C(2.6, 0.35, 0.3), speed: [1.2, 2], life: [1.2, 1.8], size: [0.14, 0.08], gravity: -0.3, drag: 1.5, spin: 6, radius: 0.7, flat: true });
 };
 
 /**
- * 火烧赤壁: the 1.5 s warning — the five bomb marks along the 25 m line flare red and
- * burn down while embers drift; the sim's 'fire' explosions land on them.
+ * 火烧赤壁: the 1.5 s warning — the only counterplay to a 100-damage strike, so it must read on
+ * bright sand and on stone alike. Each of the five bomb marks is a dark scorch decal (normal
+ * blending: additive red washes out on bright ground) under a painted red rim, a red countdown
+ * ring closing in and a flare pillar; a dashed red centre line runs down the 25 m corridor
+ * (the overlapping marks already cover its full width). The sim's 'fire' explosions land on them.
  */
 const chibi: AbilityVfxFn = (ctx) => {
   const f = feet(ctx);
@@ -201,20 +208,29 @@ const chibi: AbilityVfxFn = (ctx) => {
   const n = Math.max(1, Math.round(p('zhouyu_chibi', 'blasts', 5)));
   const len = p('zhouyu_chibi', 'length', 25);
   const r = p('zhouyu_chibi', 'radius', 3.5);
-  const delay = p('zhouyu_chibi', 'delay', 1.5);
-  const yaw = yawOf(d);
+  const delay = Math.max(0.3, p('zhouyu_chibi', 'delay', 1.5));
+  // corridor centre line: painted dashes every 1.6 m (starts past his feet)
+  for (let t = 1.6; t <= len + 1e-3; t += 1.6) {
+    const at = ground(ctx, f.clone().addScaledVector(d, t), 0.11);
+    ctx.fx.fx.ring(at, { color: C(1.6, 0.12, 0.05), radius0: 0.32, radius1: 0.32, life: delay, inner: 0, soft: 0.35, alpha: 0.85, alphaEnd: 0.95, additive: false });
+  }
   for (let i = 0; i < n; i++) {
     const at = f.clone().addScaledVector(d, n > 1 ? (i * len) / (n - 1) : len / 2);
     const g = ground(ctx, at, 0.1);
-    ctx.fx.fx.ring(g, { color: WARN_RED, radius0: r, radius1: r * 0.25, life: delay, inner: 0.86, innerEnd: 0.5, alpha: 0.35, alphaEnd: 1.1 });
-    ctx.fx.fx.ring(g, { color: NAPALM, radius0: 0.2, radius1: r, life: delay, inner: 0, alpha: 0.12, alphaEnd: 0.35, soft: 0.6 });
-    ctx.fx.burst(g, { count: 4, tex: PT.flame, color: EMBER, speed: [0.2, 0.8], up: 1, life: [0.6, 1.2], size: [0.15, 0.3], gravity: -1.2, radius: r * 0.6, flat: true });
+    // scorch decal: darkens whatever it lies on
+    ctx.fx.fx.ring(g, { color: C(0.05, 0.008, 0), radius0: r * 0.92, radius1: r, life: delay, inner: 0, soft: 0.3, alpha: 0.5, alphaEnd: 0.72, additive: false });
+    // painted rim + glow above it (lifted so it sorts after the decal)
+    const rim = g.clone().setY(g.y + 0.03);
+    ctx.fx.fx.ring(rim, { color: C(2.2, 0.16, 0.06), radius0: r, radius1: r, life: delay, inner: 0.88, soft: 0.05, alpha: 0.9, alphaEnd: 1, additive: false });
+    ctx.fx.fx.ring(rim, { color: WARN_RED, radius0: r, radius1: r, life: delay, inner: 0.84, soft: 0.1, alpha: 0.8, alphaEnd: 1.3 });
+    // countdown: a ring closing in on the impact point as the bombs fall
+    ctx.fx.fx.ring(rim, { color: C(2.4, 0.5, 0.1), radius0: r * 0.95, radius1: r * 0.15, life: delay, inner: 0.8, innerEnd: 0.45, soft: 0.08, alpha: 0.8, alphaEnd: 1, additive: false });
+    // flare pillar: readable from any angle, over walls and through smoke
+    ctx.fx.fx.pillar(g, WARN_RED, 0.3, 7, delay, 1.4);
+    ctx.fx.fx.pillar(g, NAPALM, 0.9, 3, delay, 0.5);
+    ctx.fx.burst(g, { count: 5, tex: PT.flame, color: EMBER, speed: [0.2, 0.8], up: 1, life: [0.6, 1.2], size: [0.15, 0.3], gravity: -1.2, radius: r * 0.6, flat: true });
   }
-  // a long red streak marks the whole corridor
-  const a = ground(ctx, f, 0.12);
-  const b = ground(ctx, f.clone().addScaledVector(d, len), 0.12);
-  ctx.fx.beams.beam(a, b, WARN_RED, 0.25, delay, 0.45);
-  ctx.fx.slash(ground(ctx, f, 0.1), yaw, 3, 40, NAPALM);
+  ctx.fx.slash(ground(ctx, f, 0.1), yawOf(d), 3, 40, NAPALM);
 };
 
 // ── 大乔 ────────────────────────────────────────────────────────────────────
@@ -253,7 +269,7 @@ const liuli: AbilityVfxFn = (ctx) => {
 };
 
 // ── 陆逊 ────────────────────────────────────────────────────────────────────
-/** 火烧连营: the camps ignite one after another along the line (the fields draw themselves). */
+/** 火烧连营: the camps ignite along the line, `count` × `spacing` m (the fields draw themselves). */
 const huoshao: AbilityVfxFn = (ctx) => {
   const f = feet(ctx);
   if (!f) return;
@@ -261,11 +277,10 @@ const huoshao: AbilityVfxFn = (ctx) => {
   const n = Math.max(1, Math.round(p('luxun_huoshao', 'count', 5)));
   const spacing = p('luxun_huoshao', 'spacing', 4);
   const r = p('luxun_huoshao', 'radius', 2.5);
-  // the fire never jumps walls: when the host sends the last field (event pos), stop there
-  const last = ctx.point && ctx.point.distanceTo(f) <= spacing * (n + 1) ? ctx.point.distanceTo(f) + 0.5 : Infinity;
+  // geometry from the data alone: before WU-1 the event pos is the raw crosshair point, so
+  // it cannot say where a wall stopped the line (the burning fields draw themselves anyway)
   for (let i = 0; i < n; i++) {
     const dist = spacing * (0.75 + i);
-    if (dist > last) break;
     const g = ground(ctx, f.clone().addScaledVector(d, dist), 0.1);
     ctx.fx.burst(g, { count: 8, tex: PT.flame, color: EMBER, color1: C(0.9, 0.2, 0.04), speed: [1, 3.5], up: 0.9, life: [0.4, 0.8], size: [0.4, 1.1], gravity: -2, radius: r * 0.5, flat: true });
     ctx.fx.fx.ring(g, { color: C(2.4, 0.9, 0.25), radius0: 0.3, radius1: r, life: 0.4, inner: 0.75 });

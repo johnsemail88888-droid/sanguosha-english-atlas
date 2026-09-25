@@ -62,15 +62,20 @@ interface TrampleSpec {
   abilityId: string;
   dtype: DamageType;
   damage: number;
+  /** half-width of the trample corridor (data/heroes.ts convention) */
   width: number;
   knockback: number;
   endAt: number;
+  /** where Meng Huo stood and the charge direction: nothing behind him is ever trampled */
+  origin: Vec3;
+  dir: Vec3;
 }
 
 /**
  * Per-tick trample while the elephant charges: every enemy within `width` of the
  * path it covered since the last tick takes the hit once. Stops early if the
- * elephant dies.
+ * elephant dies. Units behind Meng Huo (negative offset along the charge) are
+ * skipped: the path segment's rounded end must not reach back past him.
  */
 function trample(sim: SimApi, eleId: EntityId, last: Vec3, hit: Set<EntityId>, o: TrampleSpec): void {
   const ele = sim.get(eleId);
@@ -78,6 +83,7 @@ function trample(sim: SimApi, eleId: EntityId, last: Vec3, hit: Set<EntityId>, o
   const cur = { ...ele.pos };
   for (const t of unitsAlongLine(sim, ele, last, cur, o.width)) {
     if (hit.has(t.id) || !t.alive) continue;
+    if ((t.pos.x - o.origin.x) * o.dir.x + (t.pos.z - o.origin.z) * o.dir.z < 0) continue;
     hit.add(t.id);
     sim.dealDamage({
       targetId: t.id,
@@ -92,8 +98,10 @@ function trample(sim: SimApi, eleId: EntityId, last: Vec3, hit: Set<EntityId>, o
   if (sim.time + 1e-9 < o.endAt) sim.schedule(SIM_DT, () => trample(sim, eleId, cur, hit, o));
 }
 
-// 象兵 (E): a war elephant charges 30 m ahead over 2 s, trampling every enemy in its 3 m-wide
-// path once (100 melee + knockback), then fights for you for 12 s.
+// 象兵 (E): a war elephant charges 30 m ahead over 2 s, trampling every enemy in its path once
+// (100 melee + knockback) — the path is a 3 m half-width corridor (≈ 6 m wide, plus the unit's
+// own radius) starting where the elephant appears, 2.5 m in front of Meng Huo — then it fights
+// for you for 12 s.
 registerAbility({
   id: 'menghuo_xiangbing',
   activate(ctx) {
@@ -113,9 +121,11 @@ registerAbility({
       width: param(ctx, 'width', 3),
       knockback: param(ctx, 'knockback', 10),
       endAt: sim.time + chargeTime,
+      origin: { x: self.pos.x, y: self.pos.y, z: self.pos.z },
+      dir: { x: dir.x, y: 0, z: dir.z },
     };
-    // units standing right where it appears are trampled too
-    trample(sim, ele.id, { x: self.pos.x, y: self.pos.y, z: self.pos.z }, new Set<EntityId>(), spec);
+    // units standing right where it appears are trampled too (the path starts at its spawn point)
+    trample(sim, ele.id, { ...ele.pos }, new Set<EntityId>(), spec);
     setCastEvent(ctx, { pos: { x: start.x + dir.x * distance, y: start.y, z: start.z + dir.z * distance }, dir });
     return true;
   },

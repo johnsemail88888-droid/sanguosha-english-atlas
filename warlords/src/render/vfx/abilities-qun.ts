@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { ABILITY_BY_ID } from '../../data';
 import { PT } from '../core/textures';
-import { registerAbilityVfx, type AbilityVfxContext, type AbilityVfxFn } from './abilities';
+import { registerAbilityVfx, type AbilityEvent, type AbilityVfxContext, type AbilityVfxFn } from './abilities';
 import { FX_COLORS } from './effects';
 
 const C = (r: number, g: number, b: number): THREE.Color => new THREE.Color(r, g, b);
@@ -28,6 +28,18 @@ const EMBER = C(2.6, 0.9, 0.2);
 /** Ground-level copy of a point (+ lift). */
 function ground(ctx: AbilityVfxContext, p: THREE.Vector3, lift = 0.08): THREE.Vector3 {
   return new THREE.Vector3(p.x, ctx.fx.groundY(p.x, p.z) + lift, p.z);
+}
+
+/**
+ * The caster is the local player: the third-person camera sits a few metres behind
+ * them, inside any tall / wide self-centred effect — those are toned down for him.
+ */
+const isLocal = (ctx: AbilityVfxContext, ev: AbilityEvent): boolean => ctx.localId !== null && ev.src === ctx.localId;
+
+/** A beam with a bright core: readable from 10–40 m (a lone 0.05 m beam is a hairline there). */
+function tether(ctx: AbilityVfxContext, a: THREE.Vector3, b: THREE.Vector3, color: THREE.Color, width: number, life: number, alpha = 1): void {
+  ctx.fx.beams.beam(a, b, color, width, life, alpha);
+  ctx.fx.beams.beam(a, b, C(2.4, 2.3, 2.2), width * 0.3, life * 0.8, alpha * 0.9);
 }
 
 /** Caster feet position (view entity), falling back to the chest anchor. */
@@ -68,14 +80,16 @@ const jijiu: AbilityVfxFn = (ctx) => {
   ctx.fx.burst(p, { count: 8, tex: PT.star, color: C(2, 2, 1.6), speed: [0.5, 2], up: 0.9, life: [0.6, 1], size: [0.14, 0.03], gravity: -1 });
 };
 
-/** 青囊: a herb-green tether to the patient, leaves swirling up and a cleansing flash. */
+/** 青囊: a herb-green tether to the patient, a healing ring at their feet, leaves swirling up and a cleansing flash. */
 const qingnang: AbilityVfxFn = (ctx) => {
   const p = ctx.targetPos ?? ctx.srcPos;
   if (!p) return;
-  if (ctx.srcPos && ctx.srcPos.distanceTo(p) > 1) ctx.fx.beams.beam(ctx.srcPos, p, HERB, 0.07, 0.5, 0.9);
+  if (ctx.srcPos && ctx.srcPos.distanceTo(p) > 1) tether(ctx, ctx.srcPos, p, HERB, 0.24, 0.6, 0.9);
+  ctx.fx.fx.ring(ground(ctx, p), { color: HERB, radius0: 0.4, radius1: 1.8, life: 1.2, inner: 0.68, alpha: 1.1 });
+  ctx.fx.burst(p.clone().setY(p.y + 1.3), { count: 1, tex: PT.glow, color: HERB, speed: [0, 0], life: [0.9, 1.1], size: [1, 0.5] });
   ctx.fx.heal(p, 150);
-  ctx.fx.burst(p, { count: 14, tex: PT.petal, color: HERB, color1: C(0.9, 1.6, 0.5), speed: [0.8, 2.2], up: 1, life: [1.2, 2.2], size: [0.14, 0.08], gravity: -0.6, spin: 5, radius: 0.6 });
-  ctx.fx.burst(p, { count: 10, tex: PT.star, color: C(2.2, 2.2, 2), speed: [2, 5], life: [0.3, 0.5], size: [0.12, 0.02] });
+  ctx.fx.burst(p, { count: 16, tex: PT.petal, color: HERB, color1: C(0.9, 1.6, 0.5), speed: [0.8, 2.4], up: 1, life: [1.2, 2.2], size: [0.32, 0.16], gravity: -0.6, spin: 5, radius: 0.7 });
+  ctx.fx.burst(p, { count: 10, tex: PT.star, color: C(2.2, 2.2, 2), speed: [2, 5], life: [0.3, 0.5], size: [0.2, 0.04] });
   ctx.fx.lights.flash(p, C(0.5, 1, 0.6), 6, 8, 0.35);
 };
 
@@ -90,67 +104,83 @@ const mafei: AbilityVfxFn = (ctx) => {
 
 // ── 吕布 ────────────────────────────────────────────────────────────────────
 /** 方天画戟: a blood-red spinning halberd ring with a golden edge and a dust shockwave. */
-const fangtian: AbilityVfxFn = (ctx) => {
+const fangtian: AbilityVfxFn = (ctx, ev) => {
   const p = ctx.srcPos;
   if (!p) return;
   const radius = ABILITY_BY_ID.lubu_fangtian?.params.radius ?? 5;
   const yaw = Math.atan2(-ctx.dir.x, -ctx.dir.z);
-  const chest = p.clone().setY(p.y - 0.2);
-  // two counter-rotated full sweeps: red body + white-gold edge
-  ctx.fx.fx.ring(chest, { color: HALBERD_RED, radius0: radius * 0.3, radius1: radius, life: 0.3, inner: 0.55, innerEnd: 0.82, alpha: 1.3, soft: 0.2, yaw });
-  ctx.fx.fx.ring(chest.clone().setY(chest.y + 0.25), { color: GOLD, radius0: radius * 0.5, radius1: radius * 1.05, life: 0.22, inner: 0.9, alpha: 1.1, yaw: yaw + Math.PI });
   const g = ground(ctx, p);
+  // the local camera is inside the 5 m sweep: his rings spin at knee height and softer, so
+  // they read as a ring around him instead of an additive disc across the whole view
+  const local = isLocal(ctx, ev);
+  const k = local ? 0.55 : 1;
+  const chest = local ? g.clone().setY(g.y + 0.4) : p.clone().setY(p.y - 0.2);
+  // two counter-rotated full sweeps: red body + white-gold edge
+  ctx.fx.fx.ring(chest, { color: HALBERD_RED, radius0: radius * 0.3, radius1: radius, life: 0.3, inner: 0.55, innerEnd: 0.82, alpha: 1.3 * k, soft: 0.2, yaw });
+  ctx.fx.fx.ring(chest.clone().setY(chest.y + 0.25 * k), { color: GOLD, radius0: radius * 0.5, radius1: radius * 1.05, life: 0.22, inner: 0.9, alpha: 1.1 * k, yaw: yaw + Math.PI });
   ctx.fx.fx.ring(g, { color: C(1.4, 0.35, 0.2), radius0: 0.5, radius1: radius + 1, life: 0.5, inner: 0.85 });
   ctx.fx.burst(g, { count: 22, tex: PT.dust, color: FX_COLORS.dust, speed: [4, 9], life: [0.5, 1], size: [0.5, 1.8], additive: false, alpha: 0.55, drag: 2.5, flat: true, radius: 1 });
   ctx.fx.burst(chest, { count: 24, tex: PT.spark, color: HALBERD_RED, color1: GOLD, speed: [6, 12], life: [0.2, 0.45], size: [0.07, 0.02], stretch: 0.04, radius: radius * 0.6, flat: true });
   ctx.fx.shakeAt(p, 0.35, radius * 2);
 };
 
-/** 辕门射戟: a golden muzzle bloom and a heavy lingering streak to the impact. */
+/**
+ * 辕门射戟: a golden muzzle bloom and a short flare out of the barrel. The streak to the
+ * impact is the sim's own 'shot' event tracer (the ability event's pos is only the capped
+ * 60 m aim point, so a streak drawn to it would stop mid-air on a 120 m shot).
+ */
 const sheji: AbilityVfxFn = (ctx) => {
   const from = ctx.srcPos;
   if (!from) return;
-  const to = ctx.point ?? from.clone().addScaledVector(ctx.dir, 120);
   const muzzle = from.clone().addScaledVector(ctx.dir, 0.9);
-  ctx.fx.burst(muzzle, { count: 1, tex: PT.star, color: GOLD, speed: [0, 0], life: [0.12, 0.16], size: [1.2, 0.4] });
-  ctx.fx.burst(muzzle, { count: 10, tex: PT.spark, color: GOLD, dir: ctx.dir, spread: 0.15, speed: [8, 16], life: [0.1, 0.25], size: [0.05, 0.02], stretch: 0.04 });
-  ctx.fx.beams.beam(muzzle, to, GOLD, 0.09, 0.45, 0.9);
-  ctx.fx.beams.tracer(muzzle, to, C(2.6, 2.2, 1.4), 0.12, 600, 16);
-  ctx.fx.burst(to, { count: 12, tex: PT.spark, color: GOLD, speed: [3, 9], life: [0.2, 0.4], size: [0.06, 0.02], stretch: 0.03 });
+  ctx.fx.burst(muzzle, { count: 1, tex: PT.star, color: GOLD, speed: [0, 0], life: [0.14, 0.2], size: [1.6, 0.5] });
+  ctx.fx.burst(muzzle, { count: 14, tex: PT.spark, color: GOLD, dir: ctx.dir, spread: 0.15, speed: [8, 18], life: [0.1, 0.28], size: [0.07, 0.02], stretch: 0.05 });
+  ctx.fx.burst(muzzle, { count: 6, tex: PT.smoke, color: C(0.9, 0.8, 0.6), dir: ctx.dir, spread: 0.3, speed: [1, 3], life: [0.4, 0.8], size: [0.3, 1], additive: false, alpha: 0.35, drag: 2 });
+  ctx.fx.beams.beam(muzzle, muzzle.clone().addScaledVector(ctx.dir, 4), GOLD, 0.16, 0.18, 0.9);
   ctx.fx.lights.flash(muzzle, C(1, 0.8, 0.4), 6, 10, 0.12);
 };
 
 // ── 貂蝉 ────────────────────────────────────────────────────────────────────
-/** 离间: pink tether caster → target, and target ⇄ the hero it is turned on (event pos). */
+/**
+ * 离间: a pink tether caster → the charmed hero, a pink ring and a big heart over it; and,
+ * when the event names the hero it is turned on (ev.pos, docs/SIM_REQUESTS.md QUN-1), a
+ * thick heart-tether between the pair with the same mark on the second hero.
+ */
 const lijian: AbilityVfxFn = (ctx) => {
   const a = ctx.targetPos;
-  if (ctx.srcPos && a) ctx.fx.beams.beam(ctx.srcPos, a, PINK, 0.05, 0.5, 0.7);
-  const hearts = (p: THREE.Vector3): void =>
-    ctx.fx.burst(p, { count: 9, tex: PT.heart, color: PINK, speed: [0.5, 2], up: 0.8, life: [0.9, 1.4], size: [0.22, 0.12], gravity: -1 });
-  if (a) hearts(a);
+  if (!a) return;
+  if (ctx.srcPos && ctx.srcPos.distanceTo(a) > 1) tether(ctx, ctx.srcPos, a, PINK, 0.22, 0.6, 0.8);
+  const mark = (p: THREE.Vector3): void => {
+    ctx.fx.fx.ring(ground(ctx, p), { color: PINK, radius0: 0.4, radius1: 1.6, life: 1.6, inner: 0.72, alpha: 1.1 });
+    ctx.fx.burst(p.clone().setY(p.y + 1.4), { count: 1, tex: PT.heart, color: PINK, speed: [0, 0], life: [1.4, 1.6], size: [1.1, 0.7], gravity: -0.3 });
+    ctx.fx.burst(p, { count: 10, tex: PT.heart, color: PINK, speed: [0.5, 2], up: 0.8, life: [0.9, 1.4], size: [0.36, 0.18], gravity: -1 });
+  };
+  mark(a);
   const b = ctx.point;
-  if (a && b && a.distanceTo(b) > 1.5) {
-    ctx.fx.beams.beam(a, b, PINK, 0.1, 1.2, 1);
-    ctx.fx.beams.beam(a, b, C(2.4, 2, 2.2), 0.03, 1.0, 0.8);
-    hearts(b);
+  if (b && a.distanceTo(b) > 1.5) {
+    tether(ctx, a, b, PINK, 0.3, 1.4, 1);
+    mark(b);
   }
 };
 
-/** 连环计: iron-violet chain links flung at the target, then a ring marking the 8 m chain zone. */
+/** 连环计: an iron-violet chain flung at the target, big links along it, a lock ring on the target and the 8 m chain zone. */
 const lianhuan: AbilityVfxFn = (ctx) => {
   const t = ctx.targetPos ?? ctx.point;
   if (!t) return;
   if (ctx.srcPos) {
+    tether(ctx, ctx.srcPos, t, VIOLET, 0.18, 0.8, 0.8);
     const d = t.clone().sub(ctx.srcPos);
     const n = Math.max(4, Math.min(14, Math.round(d.length() / 2)));
     for (let i = 0; i < n; i++) {
       const p = ctx.srcPos.clone().addScaledVector(d, (i + 0.5) / n);
-      ctx.fx.burst(p, { count: 1, tex: PT.ring, color: i % 2 ? VIOLET : IRON, speed: [0, 0.2], life: [0.6, 0.8], size: [0.22, 0.16], spin: 2 });
+      ctx.fx.burst(p, { count: 1, tex: PT.ring, color: i % 2 ? VIOLET : IRON, speed: [0, 0.2], life: [0.7, 0.9], size: [0.5, 0.36], spin: 2 });
     }
   }
   const radius = ABILITY_BY_ID.diaochan_lianhuan?.params.radius ?? 8;
-  ctx.fx.fx.ring(ground(ctx, t), { color: VIOLET, radius0: 0.5, radius1: radius, life: 0.7, inner: 0.93, alpha: 0.8 });
-  ctx.fx.burst(t, { count: 12, tex: PT.chevron, color: VIOLET, speed: [1, 3], life: [0.5, 0.9], size: [0.18, 0.1], spin: 4 });
+  const g = ground(ctx, t);
+  ctx.fx.fx.ring(g, { color: VIOLET, radius0: 0.4, radius1: 1.4, life: 1.2, inner: 0.6, alpha: 1.2 });
+  ctx.fx.fx.ring(g, { color: VIOLET, radius0: 0.5, radius1: radius, life: 0.7, inner: 0.93, alpha: 1 });
+  ctx.fx.burst(t, { count: 12, tex: PT.chevron, color: VIOLET, speed: [1, 3], life: [0.5, 0.9], size: [0.36, 0.2], spin: 4 });
 };
 
 // ── 张角 ────────────────────────────────────────────────────────────────────
@@ -171,7 +201,7 @@ const leiji: AbilityVfxFn = (ctx) => {
   ctx.fx.burst(g, { count: 10, tex: PT.spark, color: FX_COLORS.thunder, speed: [1, 3], life: [0.3, 0.7], size: [0.05, 0.02], radius, flat: true, stretch: 0.03 });
 };
 
-/** 太平要术: a jagged arc from the staff to the cursed target and a dark swirl gathering over it. */
+/** 太平要术: a thick jagged arc from the staff to the cursed target, a storm ring at its feet and a dark swirl gathering over it. */
 const taiping: AbilityVfxFn = (ctx) => {
   const t = ctx.targetPos ?? ctx.point;
   if (!t) return;
@@ -182,25 +212,29 @@ const taiping: AbilityVfxFn = (ctx) => {
     for (let i = 1; i <= segs; i++) {
       const p = ctx.srcPos.clone().addScaledVector(d, i / segs);
       if (i < segs) p.add(new THREE.Vector3((Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.2));
-      ctx.fx.beams.beam(prev, p, FX_COLORS.thunder, 0.12, 0.25);
+      tether(ctx, prev, p, FX_COLORS.thunder, 0.3, 0.3);
       prev = p;
     }
   }
+  const radius = ABILITY_BY_ID.zhangjiao_taiping?.params.radius ?? 2.5;
+  ctx.fx.fx.ring(ground(ctx, t), { color: FX_COLORS.thunder, radius0: radius * 0.4, radius1: radius, life: 1, inner: 0.8, alpha: 1.1 });
   const sky = t.clone().setY(t.y + 5);
   ctx.fx.burst(sky, { count: 12, tex: PT.smoke, color: C(0.18, 0.2, 0.28), speed: [0.5, 1.5], life: [1.2, 2], size: [1.2, 3], additive: false, alpha: 0.7, radius: 1.5, drag: 1 });
-  ctx.fx.burst(t, { count: 12, tex: PT.spark, color: FX_COLORS.thunder, speed: [2, 6], life: [0.2, 0.4], size: [0.05, 0.02], stretch: 0.04 });
+  ctx.fx.burst(t, { count: 14, tex: PT.spark, color: FX_COLORS.thunder, speed: [2, 6], life: [0.2, 0.4], size: [0.1, 0.03], stretch: 0.05 });
 };
 
 /** 黄天: a golden heaven-pillar and a wide turban-yellow ring as the warriors rise. */
-const huangtian: AbilityVfxFn = (ctx) => {
+const huangtian: AbilityVfxFn = (ctx, ev) => {
   const f = feet(ctx);
   if (!f) return;
   const g = ground(ctx, f);
-  ctx.fx.fx.pillar(g, YELLOW_TURBAN, 1.2, 16, 1.2, 0.9);
+  // the local camera stands inside the pillar: he only gets the rings and the rising motes
+  const local = isLocal(ctx, ev);
+  if (!local) ctx.fx.fx.pillar(g, YELLOW_TURBAN, 1.2, 16, 1.2, 0.9);
   ctx.fx.fx.ring(g, { color: YELLOW_TURBAN, radius0: 1, radius1: 9, life: 0.9, inner: 0.85, alpha: 1.2 });
-  ctx.fx.fx.ring(g, { color: C(2, 1.2, 0.3), radius0: 0.5, radius1: 5, life: 0.6, inner: 0.7 });
+  ctx.fx.fx.ring(g, { color: C(2, 1.2, 0.3), radius0: 0.5, radius1: 5, life: 0.6, inner: 0.7, alpha: local ? 0.6 : 1 });
   ctx.fx.burst(g.clone().setY(g.y + 1), { count: 30, tex: PT.glow, color: YELLOW_TURBAN, color1: GOLD, speed: [1, 5], up: 0.9, life: [0.8, 1.6], size: [0.18, 0.04], gravity: -1.5, radius: 3 });
-  ctx.fx.lights.flash(g.clone().setY(g.y + 3), C(1, 0.85, 0.3), 14, 20, 0.6);
+  ctx.fx.lights.flash(g.clone().setY(g.y + 3), C(1, 0.85, 0.3), local ? 5 : 14, 20, 0.6);
   ctx.fx.shakeAt(g, 0.3, 12);
 };
 
@@ -233,14 +267,16 @@ const sishi: AbilityVfxFn = (ctx) => {
 
 // ── 孟获 ────────────────────────────────────────────────────────────────────
 /** 再起: the Nanman king roars back up in a burst of embers. */
-const zaiqi: AbilityVfxFn = (ctx) => {
+const zaiqi: AbilityVfxFn = (ctx, ev) => {
   const f = feet(ctx);
   if (!f) return;
   const g = ground(ctx, f);
-  ctx.fx.fx.pillar(g, EMBER, 0.9, 6, 0.8, 0.9);
+  // no pillar around the local camera (it would white out his view as he gets back up)
+  const local = isLocal(ctx, ev);
+  if (!local) ctx.fx.fx.pillar(g, EMBER, 0.9, 6, 0.8, 0.9);
   ctx.fx.fx.ring(g, { color: EMBER, radius0: 0.5, radius1: 6, life: 0.6, inner: 0.8, alpha: 1.2 });
-  ctx.fx.burst(g.clone().setY(g.y + 1), { count: 26, tex: PT.flame, color: EMBER, color1: C(0.8, 0.15, 0.02), speed: [2, 6], up: 0.8, life: [0.4, 0.9], size: [0.3, 0.9], gravity: -2, drag: 2, radius: 0.8 });
-  ctx.fx.lights.flash(g.clone().setY(g.y + 1.5), C(1, 0.5, 0.2), 14, 14, 0.5);
+  ctx.fx.burst(g.clone().setY(g.y + 1), { count: local ? 14 : 26, tex: PT.flame, color: EMBER, color1: C(0.8, 0.15, 0.02), speed: [2, 6], up: 0.8, life: [0.4, 0.9], size: [0.3, 0.9], gravity: -2, drag: 2, radius: 0.8 });
+  ctx.fx.lights.flash(g.clone().setY(g.y + 1.5), C(1, 0.5, 0.2), local ? 5 : 14, 14, 0.5);
   ctx.fx.shakeAt(g, 0.35, 10);
 };
 

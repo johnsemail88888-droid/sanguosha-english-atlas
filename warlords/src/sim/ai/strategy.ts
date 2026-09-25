@@ -55,6 +55,17 @@ export function fightingOther(v: BotView, x: Entity, self: Entity): boolean {
   return false;
 }
 
+/** Is `x` pointing its weapon at `at` (within `deg`)? Facing is public (you see where people aim). */
+export function facing(x: Entity, at: Entity, deg: number): boolean {
+  const dx = at.pos.x - x.pos.x;
+  const dz = at.pos.z - x.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 3) return true;
+  const fx = -Math.sin(x.yaw);
+  const fz = -Math.cos(x.yaw);
+  return (fx * dx + fz * dz) / d >= Math.cos((deg * Math.PI) / 180);
+}
+
 /**
  * 0..1 end-game pressure: from ~5:30 the closing circle forces decisions, so
  * bots act on weaker suspicion (engage thresholds drop, evidence caps lift).
@@ -103,7 +114,7 @@ export class RoleStrategy {
   ) {
     // the push window is on the public clock (every rebel reads the same zone timer), so the
     // rebels converge on the lord together without knowing each other
-    this.pushAt = prof.lootPhase + 110 + rng.next() * 20;
+    this.pushAt = prof.lootPhase + 115 + rng.next() * 5;
     this.gearUntil = Math.min(prof.lootPhase - 35, 80) + rng.next() * 12;
     this.campUntil = prof.lootPhase + 55;
     this.escortAngle = ((seat * 2.39996) % (Math.PI * 2)) + rng.next() * 0.4;
@@ -139,7 +150,7 @@ export class RoleStrategy {
     if (v.role !== 'rebel') return false;
     if (v.now >= this.pushAt) return true;
     const lord = this.crownRef(v);
-    return !!lord && lord.hp < lord.maxHp * 0.5 && v.now > this.prof.lootPhase * 0.5;
+    return !!lord && lord.hp < lord.maxHp * 0.6 && v.now > this.prof.lootPhase * 0.5;
   }
 
   /** Traitor: only crowns (and neutrals) are left besides me. */
@@ -164,7 +175,8 @@ export class RoleStrategy {
     const neu = beliefs.p(sim, self, x, 'opportunist') + beliefs.p(sim, self, x, 'bounty');
     // real provocation (a burst of damage, not one stray pellet; much more when x is busy
     // fighting someone else near us — collateral)
-    const busy = fightingOther(v, x, self);
+    // x fighting someone else, or visibly pointing elsewhere when it hit us
+    const busy = fightingOther(v, x, self) || !facing(x, self, 25);
     // believed allies get the benefit of the doubt (stray fire), strangers much less
     const friendly = this.allyScore(v, x) >= 0.55;
     // …and more than one hit: a single grenade / blast next to us may have been meant for someone else
@@ -175,7 +187,7 @@ export class RoleStrategy {
     const rebelsLeft = tk ? tk.rebelsAlive : 1;
     // suspicion alone never outweighs a lack of evidence about this very hero (unless the table
     // forces it) — until the closing circle forces a decision
-    const cap = known !== undefined ? 1 : beliefs.evidenceMagnitude(x.id) >= 0.6 ? 1 : 0.8 + 0.2 * pressure(v.now);
+    const cap = known !== undefined ? 1 : beliefs.evidenceMagnitude(x.id) >= 0.6 ? 1 : 0.75 + 0.25 * pressure(v.now);
     let hst = 0;
     switch (role) {
       case 'lord': {
@@ -191,8 +203,16 @@ export class RoleStrategy {
         if (crownX) return 0;
         hst = Math.min(rb + tr * (rebelsLeft > 0.5 ? 0.35 : 1) + neu * 0.05, sure(rb + tr, cap));
         let crownDmg = 0;
-        for (const c of aliveCrowns(sim, self)) if (c !== x) crownDmg = Math.max(crownDmg, obs.recentDamage(sim, x.id, c.id));
-        if (crownDmg >= (busy ? DEFEND_DMG * 4 : DEFEND_DMG)) hst = Math.max(hst, ls > 0.75 ? 0.35 : DEFEND);
+        let crownFaced = false;
+        for (const c of aliveCrowns(sim, self)) {
+          if (c === x) continue;
+          const dmg = obs.recentDamage(sim, x.id, c.id);
+          if (dmg > crownDmg) {
+            crownDmg = dmg;
+            crownFaced = facing(x, c, 25);
+          }
+        }
+        if (crownDmg >= (busy || !crownFaced ? DEFEND_DMG * 4 : DEFEND_DMG)) hst = Math.max(hst, ls > 0.75 ? 0.35 : DEFEND);
         if (provoked) hst = Math.max(hst, ls > 0.75 ? 0.3 : RETALIATE);
         break;
       }
@@ -209,17 +229,25 @@ export class RoleStrategy {
       }
       case 'traitor': {
         const endgame = this.traitorEndgame(v);
+        const ready = this.traitorReady(v);
         if (crownX) {
-          // the lord must not fall while rebels live (they would win); at the end, duel him
-          hst = endgame ? (x.hp < x.maxHp * 0.15 || self.hp > self.maxHp * 0.55 ? 1 : 0.55) : 0;
+          // the lord must not fall while rebels live (they would win); at the end, duel him —
+          // from strength (healed up), or when he is already on his knees
+          hst = endgame ? (ready || x.hp < x.maxHp * 0.3 ? 1 : 0.5) : 0;
           break;
         }
         if (rebelsLeft > 0.5) {
           const bal = this.balance(v);
-          // rebels strong → side with the lord; lord side strong → thin the loyalists
+          // keep the balance: rebels strong → side with the lord; lord side strong → thin the loyalists
           hst = Math.min(cap, rb * clamp(bal, 0.45, 1) + ls * clamp(1 - bal, 0, 0.55));
+          // the lord is going down: save him from whoever is hitting him (rebels would win)
+          for (const c of aliveCrowns(sim, self)) {
+            if (c.hp < c.maxHp * 0.35 && obs.recentDamage(sim, x.id, c.id) >= 10) hst = Math.max(hst, DEFEND);
+          }
         } else {
+          // rebels gone: purge the loyal side one by one, but only from strength
           hst = Math.min(cap, ls + neu * 0.1);
+          if (!ready) hst = Math.min(hst, 0.5);
         }
         if (provoked) hst = Math.max(hst, RETALIATE);
         break;
@@ -238,6 +266,16 @@ export class RoleStrategy {
         hst = provoked ? RETALIATE : 0;
     }
     return clamp(hst, 0, 1);
+  }
+
+  /** Traitor: healthy enough to take on the lord side (or out of 桃 to heal with). */
+  traitorReady(v: BotView): boolean {
+    const self = v.self;
+    const frac = self.hp / Math.max(1, self.maxHp);
+    const hasTao = self.hero!.items.some((s) => s?.id === 'tao');
+    // the closing circle will kill the smaller HP pool first: no more waiting
+    if (pressure(v.now) >= 0.6) return true;
+    return frac >= 0.75 || (!hasTao && frac >= 0.45);
   }
 
   /** Rebel strength / lord-side strength (from this bot's beliefs). */
@@ -365,9 +403,14 @@ export class RoleStrategy {
       }
       case 'traitor': {
         if (zg) return { mode: 'zone', goal: zg, arrive: 3, sprint: true };
-        if (this.traitorEndgame(v) && lord) {
-          const ready = self.hp > self.maxHp * 0.6 || !self.hero!.items.some((s) => s?.id === 'tao');
-          if (ready) return { mode: 'hunt', goal: { ...lord.pos }, arrive: 8, sprint: false };
+        const tk = v.beliefs.table;
+        const rebelsLeft = tk ? tk.rebelsAlive : 1;
+        if (rebelsLeft < 1.2 && lord) {
+          // the endgame is coming and we are the obvious suspect: heal up out of reach first
+          if (!this.traitorReady(v)) return this.hide(v);
+          // then pick off the loyal side (the most isolated first), the lord last
+          const prey = this.traitorPrey(v, lord);
+          if (prey) return { mode: 'hunt', goal: { ...prey.pos }, arrive: 8, sprint: false };
         }
         if (lord && now >= this.prof.lootPhase) {
           // shadow the lord at a distance: close enough to intervene, far enough to stay out of it
@@ -398,6 +441,30 @@ export class RoleStrategy {
         return this.hide(v);
       }
     }
+  }
+
+  /** Traitor endgame: the most isolated believed-loyal hero, or the lord when he is alone. */
+  private traitorPrey(v: BotView, lord: Entity): Entity | undefined {
+    const { sim, self, beliefs } = v;
+    if (this.traitorEndgame(v)) return lord;
+    let best: Entity | undefined;
+    let bs = -Infinity;
+    for (const e of sim.heroes()) {
+      if (e === self || !e.hero || e.hero.dead || wearsCrown(sim, e)) continue;
+      const ls = beliefs.lordSideness(sim, self, e);
+      if (ls < 0.5) continue;
+      let nearest = Infinity;
+      for (const o of sim.heroes()) {
+        if (o === e || o === self || !o.hero || o.hero.dead) continue;
+        nearest = Math.min(nearest, Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z));
+      }
+      const s = Math.min(nearest, 60) - (e.hp / Math.max(1, e.maxHp)) * 20 - Math.hypot(e.pos.x - self.pos.x, e.pos.z - self.pos.z) * 0.2;
+      if (s > bs) {
+        bs = s;
+        best = e;
+      }
+    }
+    return best;
   }
 
   /** Bounty: target weak or alone, and we are healthy. */
@@ -469,6 +536,8 @@ export class RoleStrategy {
       }
       this.hidePoint = best;
     }
+    // keep moving around the hiding spot (a still target is an easy target)
+    if (this.hidePoint && Math.hypot(this.hidePoint.x - self.pos.x, this.hidePoint.z - self.pos.z) < 8) return this.wander(v, this.hidePoint, 9, 'hide');
     return { mode: 'hide', goal: this.hidePoint, arrive: 5, sprint: false };
   }
 

@@ -44,6 +44,8 @@ const COMMAND_GAP = 1.5;
 const SEEN_MEMORY = 6;
 const INTERACT_RANGE = 2.2;
 const DEG = Math.PI / 180;
+/** how far the lord strays from his anchor (loyalists / squad) in a fight */
+const LORD_LEASH = 12;
 
 interface Seen {
   pos: Vec3;
@@ -103,6 +105,7 @@ export class HeroBot implements BotBrain, BotView {
   private sprintOk = false;
   private lootId: EntityId | undefined;
   private lootSince = 0;
+  private lootNearSince = -1;
   private nextLootScan = 0;
   private readonly lootBlacklist = new Map<EntityId, number>();
   private reviveId: EntityId | undefined;
@@ -189,8 +192,10 @@ export class HeroBot implements BotBrain, BotView {
       this.decide();
     }
     this.act(f, dt);
-    this.maybeAbility(f);
-    this.maybeItem(f);
+    // one decision per frame for the view: a revive / pickup in progress keeps the crosshair
+    const busy = f.actions.some((a) => a.a === 'item' || a.a === 'interact');
+    if (!busy) this.maybeAbility(f);
+    if (!busy && !f.actions.some((a) => a.a === 'ability')) this.maybeItem(f);
     this.squad(f);
     this.strategy.comms(this, f);
     this.countActions(f);
@@ -214,6 +219,10 @@ export class HeroBot implements BotBrain, BotView {
 
   allyScore(e: Entity): number {
     return this.strategy!.allyScore(this, e);
+  }
+
+  wouldEngage(e: Entity): boolean {
+    return this.hostility(e) >= this.engageAt(e);
   }
 
   allies(includeDowned = false): Entity[] {
@@ -354,6 +363,8 @@ export class HeroBot implements BotBrain, BotView {
       if (c.hero?.downed) s *= hst >= 0.7 ? 1.25 : 0.2;
       if (c === this.target) s *= 1.3;
       if (bounty !== undefined && c.id === bounty) s *= 1.4;
+      // the rebels' push focuses the crown
+      if (this.role === 'rebel' && c.kind === 'hero' && wearsCrown(sim, c) && this.strategy!.pushing(this)) s *= 1.6;
       if (lordSide && c.kind === 'hero') {
         for (const cr of sim.heroes()) {
           if (cr !== c && cr.hero && !cr.hero.dead && wearsCrown(sim, cr) && this.obs.sinceAttack(sim, c.id, cr.id) < 6) {
@@ -403,12 +414,16 @@ export class HeroBot implements BotBrain, BotView {
     const pushing = strat.pushing(this);
     let retreatHp = this.prof.retreatHp;
     if (this.role === 'rebel' && !pushing) retreatHp += 0.1;
+    // committed push: rebels only break off when nearly dead, unless the lord is out of reach
+    if (this.role === 'rebel' && pushing && t && wearsCrown(this.sim, t)) retreatHp -= 0.12;
     if (this.role === 'lord' || this.role === 'traitor' || this.role === 'opportunist') retreatHp += 0.08;
+    if (this.role === 'lord' && this.threats.filter((x) => x.e.kind === 'hero' && x.hostility >= 0.8 && x.dist < 40).length >= 2) retreatHp += 0.06;
     const closeThreat = this.threats.find((x) => x.hostility >= 0.5 && x.dist < 32 && (x.los || x.e.kind === 'hero'));
     // zone emergencies first
     const zg = this.zoneGoal();
     const out = this.outsideZone(1);
-    const fightingClose = !!t && this.targetLos && this.targetDist < 18 && hpFrac > 0.6 && this.x.zoneView().dps <= 8;
+    // a close duel may finish at the edge of a weak circle — never for the lord
+    const fightingClose = this.role !== 'lord' && !!t && this.targetLos && this.targetDist < 15 && hpFrac > 0.6 && this.x.zoneView().dps <= 4;
     if (zg && out && !fightingClose) return this.setMode('zone', zg, 3, true);
     // disengage when hurt
     if ((hpFrac < retreatHp && closeThreat) || now < this.retreatUntil) {
@@ -524,11 +539,16 @@ export class HeroBot implements BotBrain, BotView {
     let cur = this.lootId !== undefined ? sim.get(this.lootId) : undefined;
     if (cur && lootValue(cur, self, this.role) <= 0) cur = undefined;
     if (cur) {
-      const stuck = this.nav.unreachable || now - this.lootSince > LOOT_TIMEOUT;
+      // standing on it without getting it (locked drop, no room after all…): give up quickly
+      const near = dist2d(cur.pos, self.pos) < (needsInteract(cur) ? INTERACT_RANGE : 1.6);
+      if (!near) this.lootNearSince = -1;
+      else if (this.lootNearSince < 0) this.lootNearSince = now;
+      const stuck = this.nav.unreachable || now - this.lootSince > LOOT_TIMEOUT || (this.lootNearSince >= 0 && now - this.lootNearSince > 3.5);
       const above = dist2d(cur.pos, self.pos) < 3 && Math.abs(cur.pos.y - self.pos.y) > 1.7;
       if (stuck || (above && now - this.lootSince > 3)) {
         this.lootBlacklist.set(cur.id, now + 60);
         cur = undefined;
+        this.lootNearSince = -1;
         this.nav.reset();
       }
     }
@@ -563,6 +583,7 @@ export class HeroBot implements BotBrain, BotView {
     if (best && bs > 1.2) {
       this.lootId = best.id;
       this.lootSince = now;
+      this.lootNearSince = -1;
       return best;
     }
     return undefined;
@@ -725,7 +746,14 @@ export class HeroBot implements BotBrain, BotView {
     }
     const dx = (t.pos.x - self.pos.x) / Math.max(1e-3, d);
     const dz = (t.pos.z - self.pos.z) / Math.max(1e-3, d);
-    if (d > hi) {
+    const anchor = this.role === 'lord' ? this.lordAnchor() : null;
+    if (anchor && dist2d(self.pos, anchor) > LORD_LEASH) {
+      // 主公 never charges off alone: fall back toward his loyalists / squad while fighting
+      const n = this.nav.steer(sim, self, anchor, LORD_LEASH * 0.5);
+      mx = n.x;
+      mz = n.z;
+      jump = n.jump;
+    } else if (d > hi && (!anchor || dist2d(t.pos, anchor) < hi + LORD_LEASH)) {
       const n = this.nav.steer(sim, self, t.pos, hi * 0.8);
       mx = n.x;
       mz = n.z;
@@ -864,6 +892,16 @@ export class HeroBot implements BotBrain, BotView {
       this.stats.shotsFired++;
     }
     return true;
+  }
+
+  /** Where the lord's fight is anchored: his believed loyalists, else his squad, else null. */
+  private lordAnchor(): Vec3 | null {
+    const { sim, self } = this;
+    const friends = this.allies().filter((a) => dist2d(a.pos, self.pos) < 45);
+    if (friends.length > 0) return centroidOf(friends);
+    const squad = self.hero!.squad.map((id) => sim.get(id)).filter((e): e is Entity => !!e && e.alive && dist2d(e.pos, self.pos) < 30);
+    if (squad.length >= 2) return centroidOf(squad);
+    return null;
   }
 
   /**
@@ -1200,6 +1238,18 @@ function crosshairAhead(self: Entity, yaw: number, pitch: number): Vec3 {
 
 function aliveCrownsNear(sim: SimApi, self: Entity, r: number): Entity[] {
   return sim.heroes().filter((e) => e !== self && e.hero && !e.hero.dead && wearsCrown(sim, e) && dist2d(e.pos, self.pos) < r);
+}
+
+function centroidOf(list: readonly Entity[]): Vec3 {
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const e of list) {
+    x += e.pos.x;
+    y += e.pos.y;
+    z += e.pos.z;
+  }
+  return { x: x / list.length, y: y / list.length, z: z / list.length };
 }
 
 /** Radius around the target that a weapon's special / explosion also hits. */

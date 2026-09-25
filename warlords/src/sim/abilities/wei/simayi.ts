@@ -3,7 +3,7 @@ import type { Entity } from '../../../core/types';
 import type { AbilityCtx, DamageRequest } from '../../api';
 import { getState, param, setState } from '../common';
 import { registerAbility } from '../registry';
-import { attackerUnit, canAct, emitProc, heroAttacker, isBullet, isDirectHit, setCast, statusFrom, stealOne } from './shared';
+import { attackerUnit, canAct, emitProc, heroAttacker, isBullet, isDirectHit, isReflected, setCast, statusFrom, stealOne } from './shared';
 
 // 反馈 (passive): when a hero damages you (personally — not its troops), steal 1 random item
 // from it. 8 s internal cooldown, spent only when something was actually taken.
@@ -79,12 +79,12 @@ registerAbility({
     const amount = original * Math.max(0, param(ctx, 'reflect', 1));
     if (!(amount > 0)) return;
     // same semantics as the engine's reflect status: undodgeable, ignores armor, no loops,
-    // never cancelled by 无懈可击 (reflects are exempt)
+    // never cancelled by 无懈可击 (reflects are exempt), untouched by outgoing multipliers
     sim.dealDamage({
       targetId: shooter.id,
       sourceId: self.id,
       amount,
-      type: 'normal',
+      type: ctx.def.dtype ?? 'normal',
       noReflect: true,
       canDodge: false,
       ignoreArmor: true,
@@ -127,6 +127,8 @@ registerAbility({
   modifyOutgoing(ctx, amount) {
     const t = ctx.other;
     if (!t?.hero || ctx.sim.time >= getState(ctx, 'until')) return amount;
+    // 鬼才 / thorns reflections return what came in: never boosted (DoT ticks still are)
+    if (isReflected(ctx.req)) return amount;
     const priv = param(ctx, 'privateReveal', 1) > 0;
     const marked = priv ? revealedByMe(t, ctx.self.id, ctx.sim.time) : statusFrom(ctx.sim, t, 'reveal', ctx.self.id);
     return marked ? amount * param(ctx, 'mul', 1.4) : amount;

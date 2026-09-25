@@ -267,6 +267,21 @@ describe('甘宁 Gan Ning', () => {
     expect(r.w.cooldownLeft(r.g.id, 'ganning_qixi')).toBe(0);
   });
 
+  it('奇袭: a 无懈可击 already spent on his effect this tick cancels the whole bolt too (no strip)', () => {
+    const { w, g, foe } = raid();
+    w.equip(foe.id, 'bagua');
+    w.equip(foe.id, 'chitu');
+    w.addShield(foe.id, 50, 10);
+    // the echo of a charge consumed by an earlier effect of Gan Ning in the cast tick
+    w.nullifyEcho.set(foe.id, { creditId: g.id, tick: w.tick + 1 });
+    expect(cast(w, 2, 'q', aimAt(g, foe)).fired).toBe(true);
+    expect(foe.hero!.armor).toBe('bagua');
+    expect(foe.hero!.mount).toBe('chitu');
+    expect(foe.shield).toBeCloseTo(50, 5);
+    expect(w.hasStatus(foe.id, 'silence')).toBe(false);
+    expect(w.cooldownLeft(g.id, 'ganning_qixi')).toBeGreaterThan(0);
+  });
+
   it('百骑劫营: he and his squad turn stealthy; the first attack (one trigger pull, ≤ 1 s) gets +60 %', () => {
     const { w, g, foe } = raid();
     const squad = w.spawnTroops(g.id, 'wu_crossbow', 2);
@@ -531,6 +546,43 @@ describe('周瑜 Zhou Yu', () => {
     expect(cast(w, 2, 'q', SKY).fired).toBe(false);
   });
 
+  it('反间: never turns the victim on a hero hidden in stealth; a target that vanishes is swapped', () => {
+    const w = mk([D, D, 'zhouyu', D, D]);
+    const [far, zy, near, foe] = [hero(w, 0), hero(w, 2), hero(w, 3), hero(w, 4)];
+    place(w, zy, 0, 26);
+    place(w, foe, 0, 22);
+    place(w, near, 8, 16); // 10 m from the victim, in stealth: invisible to it
+    place(w, far, -14, 8); // ≈ 20 m, in plain sight
+    w.applyStatus(near.id, 'stealth', 30, { sourceId: near.id });
+    expect(w.canSee(foe, near)).toBe(false);
+    const { fired, events } = cast(w, 2, 'q', aimAt(zy, foe));
+    expect(fired).toBe(true);
+    expect(w.statusParam(foe.id, 'charm', 'targetId', -1)).toBe(far.id);
+    // the public cast event never points at the stealthed hero either
+    const ev = events.find((e) => e.t === 'ability' && e.ability === 'zhouyu_fanjian');
+    expect(ev?.t === 'ability' && ev.pos ? Math.hypot(ev.pos.x - near.pos.x, ev.pos.z - near.pos.z) : 0).toBeGreaterThan(6);
+    // mid-charm the target slips into stealth → swapped for the next visible hero (none → ends)
+    w.removeStatus(near.id, 'stealth');
+    w.applyStatus(far.id, 'stealth', 30, { sourceId: far.id });
+    w.step();
+    expect(w.statusParam(foe.id, 'charm', 'targetId', -1)).toBe(near.id);
+    w.applyStatus(near.id, 'stealth', 30, { sourceId: near.id });
+    w.step();
+    w.step();
+    expect(w.hasStatus(foe.id, 'charm')).toBe(false);
+
+    // only a stealthed hero around → disarm instead
+    const w2 = mk([D, D, 'zhouyu', D, D]);
+    const [zy2, near2, foe2] = [hero(w2, 2), hero(w2, 3), hero(w2, 4)];
+    place(w2, zy2, 0, 30);
+    place(w2, foe2, 0, 22);
+    place(w2, near2, 8, 18);
+    w2.applyStatus(near2.id, 'stealth', 30, { sourceId: near2.id });
+    expect(cast(w2, 2, 'q', aimAt(zy2, foe2)).fired).toBe(true);
+    expect(w2.hasStatus(foe2.id, 'charm')).toBe(false);
+    expect(w2.hasStatus(foe2.id, 'disarm')).toBe(true);
+  });
+
   it('火烧赤壁: after 1.5 s five bombs hit the 25 m line: 100 fire once per unit, then burning ground', () => {
     const w = mk([D, D, 'zhouyu', D, D]);
     const [zy, a, b] = [hero(w, 2), hero(w, 3), hero(w, 4)];
@@ -641,6 +693,111 @@ describe('大乔 Da Qiao', () => {
       const before = lost(by);
       bullet(w, att, q, 10);
       expect(lost(by)).toBe(before);
+    });
+  });
+
+  it('流离: never into a downed friend or a known ally — her own soldier takes it, else she does', () => {
+    withParam('daqiao', 'daqiao_liuli', 'chance', 1, () => {
+      // loyalist Da Qiao reviving her downed Lord under fire, her soldier nearby
+      const w = mk([D, 'daqiao', D, D, D]);
+      const [lord, q, att, by] = [hero(w, 0), hero(w, 1), hero(w, 4), hero(w, 3)];
+      place(w, q, 0, 30);
+      place(w, lord, 1.5, 30);
+      place(w, att, 0, 20);
+      const own = w.spawnTroops(q.id, 'wu_crossbow', 1, { x: -3, y: 0, z: 30 })[0];
+      w.downHero(lord, att.id);
+      const bleed = lord.hero!.downedUntil;
+      bullet(w, att, q, 40);
+      expect(lost(own)).toBeGreaterThan(0);
+      expect(lost(q)).toBe(0);
+      expect(lord.hero!.downedUntil).toBe(bleed);
+      // soldier gone: six more hits all stay on her, the Lord's bleed-out is untouched
+      w.killUnit(own, undefined, false);
+      for (let i = 0; i < 6; i++) bullet(w, att, q, 40);
+      expect(lord.hero!.downedUntil).toBe(bleed);
+      expect(lord.hero!.dead).toBe(false);
+      expect(lost(q)).toBeCloseTo(240, 5);
+      // standing, the Lord (a known ally) is still never picked; an unknown hero is
+      w.revive(lord.id, 100, q.id);
+      q.hp = q.maxHp;
+      bullet(w, att, q, 30);
+      expect(lost(q)).toBeCloseTo(30, 5);
+      expect(lord.hp).toBe(100);
+      place(w, by, -2, 31);
+      bullet(w, att, q, 30);
+      expect(lost(by)).toBeCloseTo(30, 5);
+      expect(lord.hp).toBe(100);
+    });
+  });
+
+  it('流离: a downed known enemy is fair game; walls and stealth hide candidates', () => {
+    withParam('daqiao', 'daqiao_liuli', 'chance', 1, () => {
+      // rebel Da Qiao: the (public) Lord is a known enemy
+      const w = mk([D, D, 'daqiao', D, D]);
+      const [lord, q, by, att] = [hero(w, 0), hero(w, 2), hero(w, 3), hero(w, 4)];
+      place(w, q, 0, 30);
+      place(w, lord, 2, 30);
+      place(w, att, 0, 20);
+      w.downHero(lord, att.id);
+      const bleed = lord.hero!.downedUntil;
+      bullet(w, att, q, 20);
+      expect(lost(q)).toBe(0);
+      expect(lord.hero!.downedUntil).toBeCloseTo(bleed - 20 * 0.1, 5);
+
+      // the 3 m wall at x = 10 (z −5…5) stands between her and the only other unit
+      const w2 = mk([D, D, 'daqiao', D, D]);
+      const [q2, by2, att2] = [hero(w2, 2), hero(w2, 3), hero(w2, 4)];
+      place(w2, q2, 8.5, 0);
+      place(w2, by2, 12.5, 0);
+      place(w2, att2, 0, 0);
+      bullet(w2, att2, q2, 25);
+      expect(lost(q2)).toBeCloseTo(25, 5);
+      expect(lost(by2)).toBe(0);
+      place(w2, by2, 8.5, 3.5);
+      bullet(w2, att2, q2, 25);
+      expect(lost(by2)).toBeCloseTo(25, 5);
+      // stealthed 7 m away (she can't see it): not a candidate
+      place(w2, by2, 8.5, 7.5);
+      w2.applyStatus(by2.id, 'stealth', 10, { sourceId: by2.id });
+      bullet(w2, att2, q2, 25);
+      expect(lost(q2)).toBeCloseTo(50, 5);
+      expect(lost(by2)).toBeCloseTo(25, 5);
+      void by;
+    });
+  });
+
+  it('流离: the displaced bullet is the full shot — 酒 doubles it once, 寒冰 slows, the attacker is credited', () => {
+    withParam('daqiao', 'daqiao_liuli', 'chance', 1, () => {
+      const { w, q, att, by } = dq();
+      const lordHero = hero(w, 0);
+      w.applyStatus(att.id, 'drunk', 8, { sourceId: att.id, params: { mul: 2, weaponOnly: 1 } });
+      w.step();
+      bullet(w, att, q, 50);
+      expect(lost(q)).toBe(0);
+      expect(lost(by)).toBeCloseTo(100, 5);
+      expect(w.hasStatus(att.id, 'drunk')).toBe(false); // spent once, by the displaced bullet
+      bullet(w, att, q, 50);
+      expect(lost(by)).toBeCloseTo(150, 5);
+
+      // the 酒 went into an earlier hit of the same tick (another target): not carried over twice
+      w.applyStatus(att.id, 'drunk', 8, { sourceId: att.id, params: { mul: 2, weaponOnly: 1 } });
+      w.step();
+      bullet(w, att, lordHero, 10);
+      expect(lost(lordHero)).toBeCloseTo(20, 5);
+      bullet(w, att, q, 50);
+      expect(lost(by)).toBeCloseTo(200, 5);
+
+      // weapon on-hit specials land on the new victim (寒冰: slow stacks), not on her
+      w.dealDamage({ targetId: q.id, sourceId: att.id, amount: 10, type: 'normal', weaponId: 'hanbing' });
+      expect(w.hasStatus(by.id, 'slow')).toBe(true);
+      expect(w.hasStatus(q.id, 'slow')).toBe(false);
+
+      // a lethal redirect is the attacker's hit (kill credit, attack memory)
+      by.hp = 5;
+      bullet(w, att, q, 50);
+      expect(by.hero!.downed).toBe(true);
+      expect(by.lastDamagedBy).toBe(att.id);
+      expect(lost(q)).toBe(0);
     });
   });
 

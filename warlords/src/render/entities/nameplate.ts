@@ -306,10 +306,10 @@ varying float vKind;
 void main() {
   vec4 c = vColor;
   if (vKind > 0.5) {
+    // greyscale atlas multiplied by the kingdom / squad tint (white fill takes the
+    // colour, the dark outline and pole stay dark; mip-averaged edges blend)
     vec4 t = texture2D(uAtlas, vec2((vUv.x + (vKind > 1.5 ? 1.0 : 0.0)) * 0.5, vUv.y));
-    // white texels take the kingdom / squad tint; outlines and the pole keep their colour
-    float tint = step(0.88, min(t.r, min(t.g, t.b)));
-    c = vec4(mix(t.rgb, t.rgb * vColor.rgb, tint), t.a * vColor.a);
+    c = vec4(t.rgb * vColor.rgb, t.a * vColor.a);
   }
   if (c.a < 0.02) discard;
   gl_FragColor = c;
@@ -317,13 +317,13 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-/** Atlas: [pennant | chevron], 64x64 each, white where the tint goes. */
+/** Greyscale atlas: [pennant | chevron], 64x64 each; white where the tint goes. */
 function badgeAtlas(): THREE.Texture | null {
   const c = makeCanvas(128, 64);
   if (!c) return null;
   const g = c.ctx;
   // pennant on a pole
-  g.fillStyle = '#3a2a1a';
+  g.fillStyle = '#2a2a2a';
   g.fillRect(14, 6, 5, 54);
   g.fillStyle = '#ffffff';
   g.strokeStyle = '#1a1208';

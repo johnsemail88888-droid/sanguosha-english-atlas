@@ -1,13 +1,19 @@
 // Shared helpers for the 吴 Wu ability implementations (abilities/wu/*.ts).
-// Everything goes through SimApi / SimExt (never World), stays deterministic
-// (host RNG, sim time) and tolerates dead / downed / vanished entities.
+// Everything goes through SimApi / SimExt, stays deterministic (host RNG, sim
+// time) and tolerates dead / downed / vanished entities. The only reaches past
+// SimExt are documented engine gates (World.nullifies / canBeAffected, the same
+// structural cast items/util.ts uses) and combat's weapon on-hit specials for
+// 流离 — each tied to a docs/SIM_REQUESTS.md entry that retires it.
 import type { Vec3 } from '../../../core/math';
 import type { DamageType, Entity, EntityId, EntityKind, StatusId } from '../../../core/types';
+import { ROLE_BY_ID } from '../../../data';
 import { rollRewardItems } from '../../../data/loot';
 import type { AbilityCtx, SimApi } from '../../api';
+import { applyWeaponSpecialOnHit } from '../../combat';
 import { maxReserve, usesAmmo, weaponDef } from '../../defs';
-import { ext } from '../../ext';
+import { ext, isDebuff } from '../../ext';
 import { registerHazardKind } from '../../hazards';
+import type { World } from '../../world';
 import { UNIT_KINDS, alive } from '../common';
 
 /** Default dodge-roll charges (world.ts BASE_DODGE_CHARGES). */
@@ -44,6 +50,32 @@ export function otherAbilityParam(ctx: AbilityCtx, abilityId: string, key: strin
   return v === undefined || !Number.isFinite(v) ? fallback : v;
 }
 
+// ── engine gates (World implements these; not on SimExt yet — docs/SIM_REQUESTS.md WU-4 / WU-5, ITEMS-1) ──
+interface EngineGates {
+  /** 无懈可击 for a hostile effect of `sourceId` on `target`: consumes a charge (or echoes this tick's). */
+  nullifies?(target: Entity, sourceId?: EntityId): boolean;
+  /** 谦逊-style veto (AbilityImpl.canBeAffected of the target's abilities); no side effects. */
+  canBeAffected?(target: Entity, what: StatusId | 'steal', sourceId?: EntityId): boolean;
+}
+
+const gates = (sim: SimApi): EngineGates => sim as unknown as EngineGates;
+
+/** True when `target` is immune to `what` from `sourceId` (陆逊 谦逊: charm / dance / theft). */
+export function immuneTo(sim: SimApi, target: Entity, what: StatusId | 'steal', sourceId?: EntityId): boolean {
+  const g = gates(sim);
+  return typeof g.canBeAffected === 'function' && g.canBeAffected(target, what, sourceId) === false;
+}
+
+/**
+ * 无懈可击 gate for a hostile effect of `sourceId` on `target` that carries no status or
+ * damage of its own (奇袭's gear strip): true = cancelled — one charge consumed, or an
+ * earlier effect of the same enemy on that target was already cancelled this tick.
+ */
+export function nullifiedBy(sim: SimApi, target: Entity, sourceId: EntityId): boolean {
+  const g = gates(sim);
+  return typeof g.nullifies === 'function' && g.nullifies(target, sourceId) === true;
+}
+
 // ── 无懈可击 / 谦逊 aware debuffs ─────────────────────────────────────────────
 function nullifyCharges(sim: SimApi, e: Entity): number {
   let n = 0;
@@ -53,18 +85,72 @@ function nullifyCharges(sim: SimApi, e: Entity): number {
 
 /**
  * landed    — the status is on the target;
- * nullified — 无懈可击 cancelled the effect (the card is spent: start the cooldown);
- * resisted  — the target is immune (陆逊 谦逊) or otherwise not affectable: like 三国杀,
- *             such a target cannot be chosen, so the caster keeps the ability.
+ * nullified — 无懈可击 cancelled the effect: a charge was spent, or its same-tick echo
+ *             (an earlier effect of the caster on that target was cancelled this tick)
+ *             — the card is played: start the cooldown;
+ * resisted  — the target is immune (陆逊 谦逊) or not affectable (dead, zero duration):
+ *             like 三国杀, such a target cannot be chosen, so the caster keeps the ability.
  */
 export type DebuffOutcome = 'landed' | 'nullified' | 'resisted';
 
 export function applyDebuff(ctx: AbilityCtx, target: Entity, id: StatusId, duration: number, params?: Record<string, number>): DebuffOutcome {
   const { sim, self } = ctx;
-  if (!alive(target)) return 'resisted';
+  if (!alive(target) || !(duration > 0)) return 'resisted';
+  const hostile = target.id !== self.id && isDebuff(id);
+  // immunity is decided up front (WU-5): an immune hero is never a valid target
+  const canAsk = typeof gates(sim).canBeAffected === 'function';
+  if (hostile && canAsk && immuneTo(sim, target, id, self.id)) return 'resisted';
   const before = nullifyCharges(sim, target);
   if (sim.applyStatus(target.id, id, duration, { sourceId: self.id, params })) return 'landed';
+  if (!hostile) return 'resisted';
+  // alive, not immune, positive duration: only 无懈可击 (a charge or its echo) refuses a debuff
+  if (canAsk) return 'nullified';
   return nullifyCharges(sim, target) < before ? 'nullified' : 'resisted';
+}
+
+// ── hidden roles / hidden information ───────────────────────────────────────
+/**
+ * A unit the caster knows to be on its own winning side (the caster's own knowledge
+ * only): its hero (itself, or its commander / summoner) has a publicly known role in the
+ * caster's faction — the Lord (影武者) for a loyalist, revealed rebels for a rebel — and
+ * is not fighting the caster. Traitors and neutral roles have no known allies.
+ */
+export function knownAlly(sim: SimApi, owner: Entity, u: Entity): boolean {
+  const mine = sim.roleOf(owner);
+  const hero = ext(sim).commanderOf(u);
+  if (!mine || !hero || hero === owner) return false;
+  const faction = ROLE_BY_ID[mine]?.faction;
+  if (faction !== 'lord' && faction !== 'rebel') return false;
+  const theirs = sim.knownRole(hero);
+  if (!theirs || ROLE_BY_ID[theirs]?.faction !== faction) return false;
+  return !sim.isHostileTo(owner, u);
+}
+
+/**
+ * Is `e`'s position public knowledge? False while it is stealthed and not revealed to
+ * everyone: a public event (the world's { t: 'ability' } broadcast) must not point at it.
+ */
+export function publiclyVisible(sim: SimApi, e: Entity): boolean {
+  let stealth = false;
+  for (const s of e.statuses) {
+    if (s.until <= sim.time) continue;
+    if (s.id === 'reveal' && s.params?.viewerId === undefined) return true;
+    if (s.id === 'stealth') stealth = true;
+  }
+  return !stealth;
+}
+
+// ── weapon on-hit specials ──────────────────────────────────────────────────
+/**
+ * Apply the weapon's on-hit special (寒冰 slow → freeze, 朱雀 burn, 麒麟 dismount,
+ * 太平 chain lightning) of a weapon hit `src` landed on `target` — exactly what the
+ * world does after a normal weapon hit (combat.ts fireOne / meleeSwing / projectiles).
+ * Only for hits the world did not resolve itself (流离 redirect); remove once
+ * docs/SIM_REQUESTS.md WU-10 (`redirectDamage`) lands.
+ */
+export function weaponOnHit(sim: SimApi, src: Entity, weaponId: string, target: Entity, dealt: number): void {
+  // sim is the World (SimApi is its public face); the special code lives in combat.ts
+  applyWeaponSpecialOnHit(sim as unknown as World, src, weaponDef(weaponId), target, dealt);
 }
 
 // ── targeting ───────────────────────────────────────────────────────────────

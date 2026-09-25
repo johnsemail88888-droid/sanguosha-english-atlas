@@ -40,6 +40,13 @@ export function immobile(sim: SimApi, self: Entity): boolean {
 /** A weapon bullet (the hits armor / 八卦 / 鬼才 / 倾国 care about): see combat.isBulletDamage. */
 export const isBullet = (req: DamageRequest): boolean => req.weaponId !== undefined && (req.type === 'normal' || req.type === 'pierce');
 
+/**
+ * Reflected damage (鬼才, the engine's reflect / thorns — 刚烈): it is dealt with the reflecting
+ * hero as source, so outgoing multipliers (狼顾, 辽来…) must leave it alone — a reflect returns
+ * what came in. (The engine's own dmgBoost step: docs/SIM_REQUESTS.md WEI-8.)
+ */
+export const isReflected = (req: DamageRequest): boolean => req.abilityId === 'status:reflect' || req.abilityId === 'status:thorns';
+
 /** Damage over time, reflects and the zone are not "hits" (天妒, 反馈…). */
 export const isDirectHit = (req: DamageRequest): boolean =>
   req.type !== 'zone' && !(req.abilityId?.startsWith('status:') ?? false);
@@ -79,15 +86,16 @@ export const facingOf = (e: Entity): Vec3 => ({ x: -Math.sin(e.yaw), y: 0, z: -M
 
 /**
  * Give `n` random reward items (rollRewardItems) to a hero: into free slots,
- * the rest dropped at its feet. Emits 'pickup' for the ones that went into
- * slots. Returns the rolled ids.
+ * the rest dropped at its feet. Emits a 'pickup' — private to the hero: what
+ * you hold is hidden information — for the ones that went into slots. Returns
+ * the rolled ids.
  */
 export function grantRandomItems(sim: SimApi, hero: Entity, n: number): string[] {
   if (!(n > 0) || !hero.hero || hero.hero.dead) return [];
   const ids = rollRewardItems(sim.rng, Math.floor(n));
   ids.forEach((id, i) => {
     if (sim.giveItem(hero.id, id)) {
-      sim.emit({ t: 'pickup', who: hero.id, item: id });
+      sim.emit({ t: 'pickup', who: hero.id, item: id, privateTo: hero.id });
     } else {
       const a = (i / Math.max(1, ids.length)) * Math.PI * 2 + 0.7;
       sim.spawnLoot({ x: hero.pos.x + Math.cos(a) * 0.9, y: hero.pos.y, z: hero.pos.z + Math.sin(a) * 0.9 }, { itemId: id });
@@ -99,19 +107,22 @@ export function grantRandomItems(sim: SimApi, hero: Entity, n: number): string[]
 /**
  * Steal one item from `victim` into `thief` (respects 谦逊 and 无懈可击).
  * Victims without items are skipped *before* the nullify gate, so a pointless
- * steal never burns their 无懈可击. Emits 'pickup' for the thief.
+ * steal never burns their 无懈可击. Emits a 'pickup' private to the thief (the
+ * victim sees the gap in its own inventory; nobody else learns the item).
  */
 export function stealOne(sim: SimApi, thief: Entity, victim: Entity): string | null {
   if (!victim.hero || victim.hero.dead || victim === thief) return null;
   if (!victim.hero.items.some((s) => !!s && s.count > 0)) return null;
   const id = ext(sim).stealItem(thief.id, victim.id, false);
-  if (id) sim.emit({ t: 'pickup', who: thief.id, item: id });
+  if (id) sim.emit({ t: 'pickup', who: thief.id, item: id, privateTo: thief.id });
   return id;
 }
 
 /**
  * Passive trigger feedback for the renderer / audio (the world only emits
  * 'ability' events for activations). Throttled per ability via abilityState.
+ * Clients cannot tell it from a cast yet (the cast gesture + cast sound play):
+ * docs/SIM_REQUESTS.md WEI-10 — keep procs rare (minGap) until that lands.
  */
 export function emitProc(ctx: AbilityCtx, minGap: number, extra: { target?: EntityId; pos?: Vec3 } = {}): void {
   const h = ctx.self.hero;
@@ -147,6 +158,12 @@ export function safeBlink(ctx: AbilityCtx, target: Vec3, maxDist: number): Vec3 
 // ── the world's { t: 'ability' } event ──────────────────────────────────────
 /** Where / at whom an activation really happened (renderer + audio). */
 export interface CastInfo {
+  /**
+   * The effect point. Blinks (突袭, 凌波微步, 神速) record where the blink STARTED —
+   * the caster itself already stands at the landing when the event is shown, so
+   * pos → caster is the path (render/vfx/abilities-wei.ts blinkPath). Dashes and
+   * leaps (独目怒冲, 虎卫猛击) record the nominal end: the event plays at the start.
+   */
   pos?: Vec3;
   target?: EntityId;
   dir?: Vec3;

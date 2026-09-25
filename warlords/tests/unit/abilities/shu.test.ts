@@ -938,3 +938,227 @@ describe('关羽 义绝 targeting', () => {
     expect(w.hasStatus(shield.id, 'silence')).toBe(false);
   });
 });
+
+// ── review fixes: bystanders, exact dash / shove distances, known allies ─────
+describe('蜀 movement accuracy', () => {
+  const flat = (a: Vec3, b: Vec3): number => Math.hypot(a.x - b.x, a.z - b.z);
+
+  it('青龙斩: units beside or behind 关羽 do not cancel the charge; the target ahead is hit', () => {
+    for (const [bx, bz] of [
+      [0, 31.2], // 1.2 m behind
+      [1.2, 30], // 1.2 m to the side
+      [-0.6, 30.3], // overlapping his shoulder
+    ]) {
+      const w = world(['dummy', 'dummy', 'guanyu', 'dummy', 'dummy']);
+      const g = hero(w, 2);
+      const foe = hero(w, 3);
+      const by = hero(w, 4);
+      place(w, g, 0, 30);
+      place(w, by, bx, bz);
+      place(w, foe, 0, 22.5); // 7.5 m ahead
+      const soldier = troopsOf(w, hero(w, 0), 1, -1.2, 30.8)[0]; // a Lord's soldier at his back too
+      w.step();
+      press(w, 2, 'q', { yaw: 0 });
+      stepN(w, 20);
+      expect(30 - g.pos.z, `bystander at ${bx},${bz}`).toBeGreaterThan(5);
+      expect(foe.maxHp - foe.hp, `bystander at ${bx},${bz}`).toBeCloseTo(90 * 1.25, 5);
+      expect(g.pos.z).toBeGreaterThan(foe.pos.z); // stopped in front of it, not through it
+      expect(by.hp).toBe(by.maxHp);
+      expect(soldier.hp).toBe(soldier.maxHp);
+    }
+  });
+
+  it('青龙斩: stops short of the first unit in front (about 1.2 m gap), not past it', () => {
+    const w = world(['dummy', 'dummy', 'guanyu', 'dummy', 'dummy']);
+    const g = hero(w, 2);
+    const foe = hero(w, 3);
+    place(w, g, 0, 30);
+    place(w, foe, 0, 24);
+    w.step();
+    press(w, 2, 'q', { yaw: 0 });
+    stepN(w, 20);
+    const gap = g.pos.z - foe.pos.z; // the foe was knocked back by the sweep: use its hit position
+    expect(gap).toBeGreaterThan(0);
+    expect(foe.maxHp - foe.hp).toBeCloseTo(90 * 1.25, 5);
+    // where he stopped: 6 m − radius − 1.2 gap ≈ 4.4 m travelled (+ the braked slide)
+    expect(30 - g.pos.z).toBeGreaterThan(4.2);
+    expect(30 - g.pos.z).toBeLessThan(4.9);
+  });
+
+  it('七进七出 covers its data distance (no one-tick overshoot, no long slide)', () => {
+    const w = world(['dummy', 'zhaoyun', 'dummy', 'dummy', 'dummy']);
+    const zy = hero(w, 1);
+    place(w, zy, 0, 30);
+    w.step();
+    const q = HERO_BY_ID.zhaoyun.abilities.find((a) => a.slot === 'q')!;
+    press(w, 1, 'q', { yaw: 0 });
+    stepN(w, 40);
+    const d = 30 - zy.pos.z;
+    expect(d).toBeGreaterThanOrEqual(q.params.dash - 0.05);
+    expect(d).toBeLessThan(q.params.dash + 0.35); // walking-speed slide after the brake
+    expect(Math.abs(zy.pos.x)).toBeLessThan(1e-6);
+  });
+
+  it('长坂救主 ends next to the ally without overlapping it (near and far rescues)', () => {
+    for (const z of [22, 15, 11]) {
+      const w = world(['dummy', 'zhaoyun', 'dummy', 'dummy', 'dummy']);
+      const zy = hero(w, 1);
+      const lord = hero(w, 0);
+      place(w, zy, 0, 30);
+      place(w, lord, 0, z);
+      w.step();
+      press(w, 1, 'e', aim(w, zy, lord));
+      stepN(w, 30);
+      const d = flat(zy.pos, lord.pos);
+      expect(d, `rescue from ${30 - z} m`).toBeGreaterThan(zy.radius + lord.radius + 0.2);
+      expect(d, `rescue from ${30 - z} m`).toBeLessThan(zy.radius + lord.radius + 0.6 + 0.05);
+    }
+  });
+
+  it('据水断桥 knockback: heroes and soldiers travel about the data distance (no slide)', () => {
+    const w = world(['dummy', 'zhangfei', 'dummy', 'dummy', 'dummy']);
+    const zf = hero(w, 1);
+    const foe = hero(w, 2);
+    place(w, zf, 0, 30);
+    place(w, foe, 0, 25);
+    const soldier = troopsOf(w, hero(w, 4), 1, -2.5, 26)[0];
+    w.step();
+    const kb = HERO_BY_ID.zhangfei.abilities.find((a) => a.slot === 'e')!.params.knockback;
+    const f0 = { ...foe.pos };
+    const s0 = { ...soldier.pos };
+    press(w, 1, 'e', { yaw: 0 });
+    stepN(w, 60);
+    expect(flat(foe.pos, f0)).toBeGreaterThan(kb * 0.9);
+    expect(flat(foe.pos, f0)).toBeLessThan(kb * 1.2);
+    expect(flat(soldier.pos, s0)).toBeGreaterThan(kb * 0.9);
+    expect(flat(soldier.pos, s0)).toBeLessThan(kb * 1.2);
+  });
+
+  it('西凉冲锋 knockback: a trampled hero travels about the data distance', () => {
+    const w = world(['dummy', 'machao', 'dummy', 'dummy', 'dummy']);
+    const mc = hero(w, 1);
+    const foe = hero(w, 2);
+    place(w, mc, 0, 45);
+    place(w, foe, 1, 38);
+    w.step();
+    const e = HERO_BY_ID.machao.abilities.find((a) => a.slot === 'e')!;
+    press(w, 1, 'e', { yaw: 0 });
+    let hitAt: Vec3 | undefined;
+    for (let i = 0; i < 60; i++) {
+      w.step();
+      if (!hitAt && foe.hp < foe.maxHp) hitAt = { ...foe.pos };
+    }
+    expect(hitAt).toBeDefined();
+    const travel = flat(foe.pos, hitAt!);
+    expect(travel).toBeGreaterThan(e.params.knockback * 0.85);
+    expect(travel).toBeLessThan(e.params.knockback * 1.25);
+    expect(45 - mc.pos.z).toBeGreaterThanOrEqual(e.params.dash - 0.05);
+    expect(45 - mc.pos.z).toBeLessThan(e.params.dash + 0.35);
+  });
+
+  it('a knockback replaced by another shove is not braked by the stale watcher', () => {
+    const w = world(['dummy', 'zhangfei', 'dummy', 'dummy', 'dummy']);
+    const zf = hero(w, 1);
+    const foe = hero(w, 2);
+    place(w, zf, 0, 30);
+    place(w, foe, 0, 25);
+    w.step();
+    press(w, 1, 'e', { yaw: 0 });
+    stepN(w, 7); // the shout's shove is on its last ticks
+    // a second, engine-side shove (e.g. an explosion) takes over mid-flight
+    w.knockback(foe.id, { x: 1, y: 0, z: 0 }, 6);
+    const f = foe.forced;
+    expect(f).toBeDefined();
+    stepN(w, 3); // past the end of the first shove, well inside the second (0.3 s)
+    expect(foe.forced).toBe(f);
+    // still flying sideways at full shove speed: the first watcher let go
+    expect(foe.vel.x).toBeGreaterThan(15);
+    expect(() => stepN(w, 30)).not.toThrow();
+  });
+});
+
+describe('蜀 review fixes', () => {
+  it('蛇矛连击: a kill with the last shell leaves the gun loaded (no reload inside the window)', () => {
+    const w = world(['dummy', 'zhangfei', 'dummy', 'dummy', 'dummy']);
+    const zf = hero(w, 1);
+    place(w, zf, 0, 30);
+    const t = troopsOf(w, hero(w, 4), 1, 0, 27)[0];
+    w.step();
+    t.hp = 1;
+    const gun = zf.hero!.weapons[0]!;
+    expect(gun.id).toBe('zhangba');
+    gun.mag = 1;
+    send(w, 1, [], { ...aim(w, zf, t), buttons: 1 });
+    w.step();
+    expect(t.alive).toBe(false);
+    expect(w.hasStatus(zf.id, 'noReload')).toBe(true);
+    expect(gun.mag).toBeGreaterThan(0);
+    expect(zf.hero!.reloadUntil).toBeLessThanOrEqual(w.time);
+    // a kill that lands while reloading (a burn tick, an ability) racks the gun too
+    const t2 = troopsOf(w, hero(w, 4), 1, 3, 27)[0];
+    t2.hp = 1;
+    gun.mag = 0;
+    zf.hero!.reloadUntil = w.time + 2;
+    w.dealDamage({ targetId: t2.id, sourceId: zf.id, amount: 5, type: 'fire', abilityId: 'status:burn' });
+    expect(t2.alive).toBe(false);
+    expect(gun.mag).toBeGreaterThan(0);
+    expect(zf.hero!.reloadUntil).toBe(0);
+  });
+
+  it('空城: only soldiers fighting 诸葛亮 lose aggro; an uninvolved commander’s troops keep their fight', () => {
+    const w = world(['dummy', 'zhugeliang', 'dummy', 'dummy', 'dummy']);
+    const lord = hero(w, 0);
+    const zgl = hero(w, 1); // loyalist, role unknown to the others
+    const rebel = hero(w, 2);
+    place(w, lord, -6, 34);
+    place(w, zgl, 0, 30);
+    place(w, rebel, 6, 20);
+    const lordsMan = troopsOf(w, lord, 1, -4, 30)[0];
+    const rebelsMan = troopsOf(w, rebel, 1, 4, 26)[0];
+    w.step();
+    lordsMan.troop!.targetId = rebel.id;
+    rebelsMan.troop!.targetId = zgl.id;
+    press(w, 1, 'e', { yaw: 0 });
+    expect(rebelsMan.troop!.targetId).toBeUndefined();
+    expect(lordsMan.troop!.targetId).toBe(rebel.id);
+  });
+
+  it('八阵图 spares known allies: a loyalist 诸葛亮 never slows / silences the Lord or the Lord’s soldiers', () => {
+    const w = world(['dummy', 'zhugeliang', 'dummy', 'dummy', 'dummy']);
+    const lord = hero(w, 0);
+    const zgl = hero(w, 1); // loyalist
+    const rebel = hero(w, 2);
+    const traitor = hero(w, 4);
+    place(w, zgl, 0, 32);
+    place(w, lord, -2, 20);
+    place(w, rebel, 2, 20);
+    place(w, traitor, 0, 17);
+    const lordsMan = troopsOf(w, lord, 1, -1, 22)[0];
+    w.step();
+    press(w, 1, 'q', aim(w, zgl, { x: 0, y: 0, z: 20 }));
+    stepN(w, 2);
+    expect(w.hasStatus(lord.id, 'slow')).toBe(false);
+    expect(w.hasStatus(lord.id, 'silence')).toBe(false);
+    expect(w.hasStatus(lordsMan.id, 'slow')).toBe(false);
+    // unknown heroes are fair game (hidden roles)
+    expect(w.hasStatus(rebel.id, 'silence')).toBe(true);
+    expect(w.hasStatus(traitor.id, 'slow')).toBe(true);
+    // …and a "Lord" who turns on him is no ally any more
+    w.dealDamage({ targetId: zgl.id, sourceId: lord.id, amount: 5, type: 'normal', weaponId: 'carbine' });
+    stepN(w, 10);
+    expect(w.hasStatus(lord.id, 'silence')).toBe(true);
+  });
+
+  it('八阵图 of a rebel 诸葛亮 does slow and silence the Lord', () => {
+    const w = world(['dummy', 'dummy', 'zhugeliang', 'dummy', 'dummy']);
+    const lord = hero(w, 0);
+    const zgl = hero(w, 2); // rebel
+    place(w, zgl, 0, 32);
+    place(w, lord, 0, 20);
+    w.step();
+    press(w, 2, 'q', aim(w, zgl, { x: 0, y: 0, z: 20 }));
+    stepN(w, 2);
+    expect(w.hasStatus(lord.id, 'slow')).toBe(true);
+    expect(w.hasStatus(lord.id, 'silence')).toBe(true);
+  });
+});

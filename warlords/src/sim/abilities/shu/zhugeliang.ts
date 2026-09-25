@@ -4,7 +4,7 @@ import type { SimApi } from '../../api';
 import { registerHazardKind } from '../../hazards';
 import { registerAbility } from '../registry';
 import { crosshairPoint, getState, param, setState } from '../common';
-import { emitAbility, setCast } from './util';
+import { emitAbility, knownAlly, setCast } from './util';
 
 const MAZE_KIND = 'bazhen';
 const MAZE_TICK = 0.25;
@@ -37,7 +37,9 @@ registerAbility({
 });
 
 // 八阵图 (Q): a stone maze at the crosshair. Enemies inside are slowed and
-// silenced; you and your own units inside gain bullet evasion.
+// silenced; you and your own units inside gain bullet evasion. "Enemies" =
+// everything not on your own side except your KNOWN allies (util.ts knownAlly:
+// a loyalist's maze never slows / silences the Lord or the Lord's soldiers).
 registerHazardKind({
   kind: MAZE_KIND,
   tick(sim, hz, affected) {
@@ -53,6 +55,7 @@ registerHazardKind({
         continue;
       }
       if (u.kind === 'turret') continue;
+      if (owner && knownAlly(sim, owner, u)) continue;
       if ((p.slow ?? 0) > 0) sim.applyStatus(u.id, 'slow', linger, { sourceId: hz.ownerId, params: { amount: p.slow } });
       if (u.kind === 'hero' && (p.silence ?? 0) > 0) sim.applyStatus(u.id, 'silence', linger, { sourceId: hz.ownerId });
     }
@@ -80,7 +83,9 @@ registerAbility({
 });
 
 // 空城 (E): play the guqin — invulnerable and untargetable, but disarmed and
-// slowed; hostile soldiers / NPCs nearby drop their targets and hesitate.
+// slowed; soldiers / NPCs nearby that are fighting you (hostile to you, or
+// targeting you / your own units) drop their targets and hesitate. Troops of a
+// commander you have no quarrel with keep their fight.
 registerAbility({
   id: 'zhugeliang_kongcheng',
   activate(ctx) {
@@ -93,14 +98,28 @@ registerAbility({
     const slow = param(ctx, 'selfSlow', 0.3);
     if (slow > 0) sim.applyStatus(self.id, 'slow', duration, { ...src, params: { amount: slow } });
     for (const u of sim.queryRadius(self.pos, param(ctx, 'radius', 15), { kinds: ['troop', 'npc'], notFriendlyTo: self.id })) {
-      loseAggro(sim, u, duration);
+      if (u.alive && fightingSide(sim, self, u)) loseAggro(sim, u, duration);
     }
     setCast(ctx, { pos: { ...self.pos } });
     return true;
   },
 });
 
-/** Drop the current target and hold off re-scanning for `hold` seconds. */
+/** Is soldier / NPC `u` fighting `self`'s side: targeting him or his units, or hostile to him? */
+function fightingSide(sim: SimApi, self: Entity, u: Entity): boolean {
+  const tid = u.troop?.targetId ?? u.npc?.targetId;
+  const t = tid !== undefined ? sim.get(tid) : undefined;
+  if (t && sim.isOwnSide(self, t)) return true;
+  return sim.isHostileTo(u, self);
+}
+
+/**
+ * Drop the current target and hold off re-scanning for `hold` seconds.
+ * Workaround: writes the troop / NPC brain's scan timer directly (both brains
+ * gate target acquisition on `ai.nextScan`). docs/SIM_REQUESTS.md SHU-4 asks
+ * for a proper SimExt.dropAggro(unitId, seconds) so a brain rewrite cannot
+ * silently break 空城.
+ */
 function loseAggro(sim: SimApi, u: Entity, hold: number): void {
   const until = sim.time + hold;
   if (u.troop) {

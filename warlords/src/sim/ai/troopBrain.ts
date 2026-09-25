@@ -239,7 +239,7 @@ export class BasicTroopBrain implements TroopBrain {
         if (!owner || owner === cmd) return true;
         if (e.statuses.some((s) => s.id === 'marked' && s.sourceId === cmd.id && s.until > sim.time)) return true;
         // soldiers fight whom their commander fights (a stray friendly bullet is not a war)
-        return mind.allyScore(owner) < 0.5 && mind.hostility(owner) >= 0.5;
+        return mind.allyScore(owner) < 0.5 && mind.wouldEngage(owner);
       },
       (e) => {
         let b = 0;

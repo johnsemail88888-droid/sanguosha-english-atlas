@@ -3,20 +3,32 @@ import type { Entity, EntityId } from '../../../core/types';
 import type { AbilityCtx } from '../../api';
 import { flatAimDir, getState, param, setState, unitsAlongLine } from '../common';
 import { registerAbility } from '../registry';
-import { brakeAtDashEnd, canAct, chestOf, flatDist, immobile, setCast, statusFrom } from './shared';
+import { brakeAtDashEnd, canAct, chestOf, flatDist, immobile, losBetween, setCast } from './shared';
 
 // 刚烈 (passive): 30 % of any damage you take is dealt back to the attacker. Implemented with
-// the engine's 'thorns' status (kept up permanently while alive): it reflects the damage
-// actually taken (HP + shield) as undodgeable 'normal' damage, ignores zone / source-less
-// damage and anything already carrying noReflect (DoT ticks, reflects), so it never loops
-// and 无懈可击 never cancels it.
+// the engine's 'thorns' status, kept up for as long as you live: it reflects the damage
+// actually taken (HP + shield) as undodgeable 'normal' damage (the engine's thorns type — the
+// data's dtype must stay 'normal'), ignores zone / source-less damage and anything already
+// carrying noReflect (DoT ticks, reflects), so it never loops and 无懈可击 never cancels it.
+// The status is finite and topped up (not Infinity): the snapshot codec cannot send an
+// "until consumed" status yet (docs/SIM_REQUESTS.md WEI-9) and remote clients would see it
+// as expired. A refresh with equal params replaces the instance silently (no status event).
+const THORNS_SPAN = 60;
+const THORNS_REFRESH = 30;
+
+function thornsLeft(e: Entity, selfId: EntityId, now: number): number {
+  let left = 0;
+  for (const s of e.statuses) if (s.id === 'thorns' && s.sourceId === selfId && s.until > now) left = Math.max(left, s.until - now);
+  return left;
+}
+
 registerAbility({
   id: 'xiahoudun_ganglie',
   tick(ctx) {
     const { sim, self } = ctx;
     if (!self.alive || self.hero?.dead) return;
-    if (statusFrom(sim, self, 'thorns', self.id)) return;
-    sim.applyStatus(self.id, 'thorns', Infinity, { sourceId: self.id, params: { frac: param(ctx, 'reflectFrac', 0.3) } });
+    if (thornsLeft(self, self.id, sim.time) >= THORNS_REFRESH) return;
+    sim.applyStatus(self.id, 'thorns', THORNS_SPAN, { sourceId: self.id, params: { frac: param(ctx, 'reflectFrac', 0.3) } });
   },
 });
 
@@ -36,6 +48,9 @@ registerAbility({
 
 // 独目怒冲 (E): charge 12 m along your aim; the first hero in your path takes 60 melee damage,
 // is stunned 1 s and stops the charge. Heroes that dodge / are invulnerable are passed through.
+// Contact needs the body to really meet it: roughly the same level (not on a roof / ledge above
+// or below the lane) and in line of sight (never through a wall you are running along).
+const CONTACT_DY = 1.5;
 const passedBy = new WeakMap<Entity, Set<EntityId>>();
 
 function endCharge(ctx: AbilityCtx, stop: boolean): void {
@@ -61,7 +76,9 @@ function chargeContact(ctx: AbilityCtx): void {
   setState(ctx, 'pz', self.pos.z);
   const passed = passedBy.get(self) ?? new Set<EntityId>();
   const width = param(ctx, 'width', 1.5);
-  const cands = unitsAlongLine(sim, self, from, to, width, { kinds: ['hero'] }).filter((h) => !passed.has(h.id) && !h.hero?.dead && !h.hero?.downed);
+  const cands = unitsAlongLine(sim, self, from, to, width, { kinds: ['hero'] }).filter(
+    (h) => !passed.has(h.id) && !h.hero?.dead && !h.hero?.downed && Math.abs(h.pos.y - self.pos.y) < CONTACT_DY && losBetween(sim, self, h),
+  );
   if (cands.length === 0) return;
   cands.sort((a, b) => flatDist(a.pos, from) - flatDist(b.pos, from));
   for (const t of cands) {

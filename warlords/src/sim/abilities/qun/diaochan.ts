@@ -84,12 +84,14 @@ registerAbility({
     const { sim, self } = ctx;
     if (!canAct(self)) return false;
     const first = crosshairEnemy(ctx, param(ctx, 'range', 30));
-    if (!first || first.hero?.dead) return false;
+    // a downed hero can't be slowed into anything: no cast (the cooldown is kept)
+    if (!standing(first)) return false;
     const radius = param(ctx, 'radius', 8);
     const extra = Math.max(0, Math.floor(param(ctx, 'extraTargets', 2)));
-    // heroes first (the valuable links), then the nearest units
+    // standing heroes first (the valuable links), then the nearest units; downed heroes are
+    // never linked (the slow is pointless on them and they would waste a link)
     const rest = enemiesInRadius(sim, self, first.pos, radius)
-      .filter((u) => u !== first && flatDist(u.pos, first.pos) <= radius + u.radius && pickable(sim, self, u))
+      .filter((u) => u !== first && standing(u) && flatDist(u.pos, first.pos) <= radius + u.radius && pickable(sim, self, u))
       .sort((x, y) => (x.kind === 'hero' ? 0 : 1) - (y.kind === 'hero' ? 0 : 1) || flatDist(x.pos, first.pos) - flatDist(y.pos, first.pos) || x.id - y.id)
       .slice(0, extra);
     const duration = param(ctx, 'duration', 8);

@@ -6,7 +6,7 @@ import { weaponDef } from '../../defs';
 import { ext } from '../../ext';
 import { alive, getState, param, setState } from '../common';
 import { registerAbility } from '../registry';
-import { applyDebuff, centerOf, crosshairFoe, isUp, setCast } from './util';
+import { applyDebuff, centerOf, crosshairFoe, isUp, nullifiedBy, setCast } from './util';
 
 // 锦帆 (passive): +10 % move speed; killing any unit (or downing a hero) refills the magazine.
 registerAbility({
@@ -32,7 +32,11 @@ registerAbility({
     const t = crosshairFoe(ctx, param(ctx, 'range', 30));
     if (!t) return false;
     setCast(ctx, { target: t.id, pos: centerOf(t) });
+    // 无懈可击 first, for the bolt as a whole: one charge (or the echo of one this tick) and
+    // nothing happens — dismount / stripArmor don't consult it themselves (WU-4)
+    if (nullifiedBy(sim, t, self.id)) return true;
     const outcome = applyDebuff(ctx, t, 'silence', param(ctx, 'silence', 2.5));
+    // 'resisted' here = immune to the silence only (or a zero duration): the EMP still strips
     if (outcome === 'nullified' || !alive(t)) return true;
     const x = ext(sim);
     if (t.hero) {

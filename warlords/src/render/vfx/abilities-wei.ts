@@ -10,6 +10,9 @@
 //
 // Until docs/SIM_REQUESTS.md WEI-3 (SHU-3) lands, ev.pos is the raw crosshair
 // point (up to 60 m away), so geometry comes from the ability data instead.
+// Blinks (突袭, 凌波微步, 神速): remote events play at their own tick, when the
+// caster is already drawn at the landing, so their paths never start at srcPos
+// blindly — see blinkPath().
 import * as THREE from 'three';
 import { ABILITY_BY_ID } from '../../data';
 import { PT } from '../core/textures';
@@ -64,6 +67,40 @@ function clampedPoint(ctx: AbilityVfxContext, range: number): THREE.Vector3 | nu
 }
 
 const yawOf = (d: THREE.Vector3): number => Math.atan2(-d.x, -d.z);
+
+/** Chest height above the feet position the sim reports in ev.pos. */
+const CHEST = 1.0;
+
+/**
+ * Start → landing of a blink. The sim records where the blink STARTED as ev.pos
+ * (sim/abilities/wei/shared.ts CastInfo; carried once WEI-3 lands), and by the
+ * time the event plays the caster is usually drawn at the landing already:
+ *  - ev.pos behind the caster (against the aim) and within `range`: WEI-3 is
+ *    live → ev.pos → caster;
+ *  - ev.pos right at the caster: the event outran the teleport (own cast on a
+ *    client) → caster → `ahead` (or `fallback` m along the aim);
+ *  - otherwise (the raw crosshair point, before WEI-3): the caster stands at
+ *    the landing → a `fallback` m trail back along −aim.
+ */
+export function blinkPath(
+  ctx: AbilityVfxContext,
+  range: number,
+  fallback: number,
+  ahead: THREE.Vector3 | null = null,
+): { from: THREE.Vector3; to: THREE.Vector3 } | null {
+  const s = ctx.srcPos;
+  if (!s) return null;
+  const d = flatDir(ctx);
+  const p = ctx.point;
+  if (p) {
+    const dx = p.x - s.x;
+    const dz = p.z - s.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.75) return { from: s.clone(), to: ahead ? ahead.clone() : s.clone().addScaledVector(d, fallback) };
+    if (dist <= range + 1.5 && dx * d.x + dz * d.z < 0) return { from: new THREE.Vector3(p.x, p.y + CHEST, p.z), to: s.clone() };
+  }
+  return { from: s.clone().addScaledVector(d, -fallback), to: s.clone() };
+}
 
 // ── building blocks ─────────────────────────────────────────────────────────
 /** Expanding double ring on the ground. */
@@ -125,13 +162,21 @@ const wangmei: AbilityVfxFn = (ctx) => {
   ctx.fx.heal(p, P('caocao_wangmei', 'selfHeal', 50));
 };
 
-/** 护驾: gold-and-blue banner pillar, three guard beacons around Cao Cao, a gong flash. */
-const hujia: AbilityVfxFn = (ctx) => {
+/**
+ * 护驾: gold-and-blue banner pillar, three guard beacons around Cao Cao, a gong flash.
+ * For the Lord himself the central pillars would wash out the crosshair right when he
+ * is under attack: his own view keeps only the ground rings, beacons and flash.
+ */
+const hujia: AbilityVfxFn = (ctx, ev) => {
   const p = ctx.srcPos;
   if (!p) return;
   const g = ground(ctx, p);
-  ctx.fx.fx.pillar(g, WEI_BLUE, 0.5, 9, 0.9, 1);
-  ctx.fx.fx.pillar(g, GOLD, 0.2, 11, 0.7, 0.9);
+  if (ev.src !== ctx.localId) {
+    ctx.fx.fx.pillar(g, WEI_BLUE, 0.5, 9, 0.9, 1);
+    ctx.fx.fx.pillar(g, GOLD, 0.2, 11, 0.7, 0.9);
+  } else {
+    ctx.fx.fx.ring(g, { color: WEI_BLUE, radius0: 0.4, radius1: 2.6, life: 0.6, inner: 0.7, alpha: 1.1 });
+  }
   const n = Math.max(1, Math.round(P('caocao_hujia', 'count', 3)));
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
@@ -203,16 +248,15 @@ const charge: AbilityVfxFn = (ctx) => {
 };
 
 // ── 张辽 ────────────────────────────────────────────────────────────────────
-/** 突袭: a blue blink streak to the target and a flicker where he reappears behind it. */
+/** 突袭: a blue blink streak to where he reappears behind the target, the raid radius flashing around him. */
 const tuxi: AbilityVfxFn = (ctx) => {
-  const from = ctx.srcPos;
-  if (!from) return;
-  const to = ctx.targetPos ?? clampedPoint(ctx, P('zhangliao_tuxi', 'range', 12));
-  if (!to) return;
+  const path = blinkPath(ctx, P('zhangliao_tuxi', 'range', 12) + 2, 6, ctx.targetPos);
+  if (!path) return;
+  const { from, to } = path;
   trail(ctx, from, to, WEI_BLUE, 4);
   ctx.fx.burst(from, { count: 12, tex: PT.spark, color: STEEL, speed: [2, 6], life: [0.2, 0.4], size: [0.05, 0.02], stretch: 0.03 });
   ctx.fx.fx.ring(ground(ctx, to), { color: WEI_BLUE, radius0: 0.5, radius1: P('zhangliao_tuxi', 'radius', 6), life: 0.45, inner: 0.9, alpha: 0.9 });
-  ctx.fx.burst(to, { count: 10, tex: PT.star, color: GOLD, speed: [1, 3], life: [0.3, 0.6], size: [0.12, 0.03], spin: 6 });
+  ctx.fx.burst(ctx.targetPos ?? to, { count: 10, tex: PT.star, color: GOLD, speed: [1, 3], life: [0.3, 0.6], size: [0.12, 0.03], spin: 6 });
 };
 
 /** 威震逍遥津: the name alone terrifies — a thundering blue shout wave. */
@@ -302,22 +346,23 @@ const luoshen: AbilityVfxFn = (ctx) => {
   ctx.fx.burst(p, { count: 6, tex: PT.petal, color: C(1.6, 1.8, 2.4), speed: [0.4, 1.2], up: 1, life: [1, 1.6], size: [0.12, 0.08], gravity: -0.6, spin: 4, radius: 0.6 });
 };
 
-/** 凌波微步: she glides 10 m over a frost-silver streak; ice shatters where she stood. */
+/** 凌波微步: she glides 10 m over a frost-silver streak; ice shatters where she stood (the frost field). */
 const lingbo: AbilityVfxFn = (ctx) => {
-  const from = ctx.srcPos;
-  const to = ahead(ctx, P('zhenji_lingbo', 'blink', 10));
-  if (!from || !to) return;
+  const blinkDist = P('zhenji_lingbo', 'blink', 10);
+  const path = blinkPath(ctx, blinkDist, blinkDist);
+  if (!path) return;
+  const { from, to } = path;
   trail(ctx, from, to, FROST, 5);
-  ctx.fx.explosion(from, Math.min(3, P('zhenji_lingbo', 'radius', 4)), 'ice');
+  ctx.fx.explosion(ground(ctx, from, 0.5), Math.min(3, P('zhenji_lingbo', 'radius', 4)), 'ice');
   ctx.fx.burst(to, { count: 12, tex: PT.snow, color: C(1.5, 1.8, 2.2), speed: [0.5, 2], life: [0.6, 1.1], size: [0.12, 0.06], gravity: 0.5, drag: 1.5, radius: 0.5 });
 };
 
 // ── 夏侯渊 ──────────────────────────────────────────────────────────────────
 /** 神速: a lightning-fast dash streak to the (≤ 14 m) landing point; the volley draws its own tracers. */
 const shensu: AbilityVfxFn = (ctx) => {
-  const from = ctx.srcPos;
-  const to = clampedPoint(ctx, P('xiahouyuan_shensu', 'range', 14));
-  if (!from || !to) return;
+  const path = blinkPath(ctx, P('xiahouyuan_shensu', 'range', 14), 8);
+  if (!path) return;
+  const { from, to } = path;
   const land = to.clone().setY(Math.max(to.y, ctx.fx.groundY(to.x, to.z) + 1));
   trail(ctx, from, land, C(1.2, 1.5, 2.6), 6);
   dust(ctx, from, land, 4);

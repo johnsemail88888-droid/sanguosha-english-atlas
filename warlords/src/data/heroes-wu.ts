@@ -369,10 +369,11 @@ export const WU_HEROES: HeroDef[] = [
         nameZh: '反间',
         nameEn: 'Sow Discord',
         sgsSkill: '反间',
-        descZh: '魅惑准星处敌人 2 秒：它攻击 30 米内离它最近的另一名武将（不会是你）；若无则缴械它 2 秒。',
-        descEn: 'Charm the crosshair enemy for 2 s: it attacks the nearest other hero within 30 m of it (never you). None: disarm it 2 s.',
+        descZh: '魅惑准星处敌人 2 秒：它攻击 30 米内离它最近、它看得见的另一名武将（不会是你）；若无则缴械它 2 秒。',
+        descEn: 'Charm the crosshair enemy for 2 s: it attacks the nearest other hero it can see within 30 m (never you). None: disarm it 2 s.',
         cooldown: 20,
-        // impl: x = nearest hero ≠ target, ≠ self within searchRadius of the target →
+        // impl: x = nearest hero ≠ target, ≠ self within searchRadius of the target that the target can see
+        //       (canSee: stealth hides) →
         //       applyStatus(target, 'charm', duration, { sourceId: self.id, params: { targetId: x.id } });
         //       no such hero → applyStatus(target, 'disarm', disarm). Its soldiers follow its fire on their own.
         params: { range: 30, duration: 2, searchRadius: 30, disarm: 2 },
@@ -443,9 +444,11 @@ export const WU_HEROES: HeroDef[] = [
         nameZh: '流离',
         nameEn: 'Displacement',
         sgsSkill: '流离',
-        descZh: '被子弹击中时，30% 几率将该伤害转移给 8 米内另一个单位（攻击者除外）。',
-        descEn: 'When hit by a bullet, 30% chance to redirect that damage to another unit within 8 m (not the attacker).',
-        // impl: modifyIncoming → dealDamage(other, amount, redirected: true) and return 0; skip if req.redirected.
+        descZh: '被子弹击中时，30% 几率将该伤害转移给 8 米内你看得见的另一单位（优先敌人，己方士兵最后，攻击者除外）。',
+        descEn: 'When hit by a bullet, 30% chance to pass it to a unit in sight within 8 m: enemies first, your soldiers last, never the attacker.',
+        // impl (sim/abilities/wu/daqiao.ts): modifyIncoming → re-deal the bullet as the attacker's hit on the new
+        //       victim (line of sight, no downed friends / known-allied heroes) and return 0; 酒 and weapon on-hit
+        //       specials carry over. docs/SIM_REQUESTS.md WU-10 (engine redirectDamage) replaces the workaround.
         params: { chance: 0.3, radius: 8 },
         aiHint: 'defense',
       },

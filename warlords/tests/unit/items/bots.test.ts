@@ -1,13 +1,14 @@
 // Bot hints (ItemImplEx.botShouldUse) make sense, and real bots use the
 // cards in a quick match without any item implementation throwing.
 import { describe, expect, it } from 'vitest';
+import type { Vec3 } from '../../../src/core/math';
 import type { Entity, GameEvent } from '../../../src/core/types';
 import { ITEMS } from '../../../src/data';
 import type { ItemImplEx } from '../../../src/sim/ext';
 import { getItem } from '../../../src/sim/items';
 import type { World } from '../../../src/sim/world';
 import { makeWorld } from '../sim/helpers';
-import { ROLES5, aimFrame, chest, hero, place, send, setup } from './helpers';
+import { ROLES5, aimFrame, chest, feet, hero, place, send, setup } from './helpers';
 
 const impl = (id: string): ItemImplEx => getItem(id) as ItemImplEx;
 const should = (w: World, e: Entity, id: string): boolean => impl(id).botShouldUse!(w, e);
@@ -81,14 +82,24 @@ describe('botShouldUse', () => {
     expect(should(w, a, 'shunshou')).toBe(false);
   });
 
-  it('决斗 only duels it expects to win', () => {
+  it('决斗: any fair fight when healthy, finishing a weak foe — never from behind or out of range', () => {
     const { w, a, b } = setup();
     place(w, b, 0, 32);
     fighting(w, a, b);
-    expect(should(w, a, 'juedou')).toBe(false); // even fight
+    expect(should(w, a, 'juedou')).toBe(true); // even and healthy
     b.hp = b.maxHp * 0.5;
     expect(should(w, a, 'juedou')).toBe(true);
-    a.hp = a.maxHp * 0.3;
+    a.hp = a.maxHp * 0.32;
+    expect(should(w, a, 'juedou')).toBe(false); // hurt, foe not beaten down
+    b.hp = b.maxHp * 0.2;
+    expect(should(w, a, 'juedou')).toBe(true); // finish it
+    a.hp = a.maxHp;
+    b.hp = b.maxHp;
+    b.shield = b.maxHp; // far more HP + shield than us
+    expect(should(w, a, 'juedou')).toBe(false);
+    b.shield = 0;
+    place(w, b, 0, 42); // 22 m
+    fighting(w, a, b);
     expect(should(w, a, 'juedou')).toBe(false);
   });
 
@@ -159,10 +170,21 @@ describe('botShouldUse', () => {
     expect(should(w, a, 'zhengbing')).toBe(false);
   });
 
-  it('征兵令 not with a full squad', () => {
-    const { w, a } = setup();
-    w.spawnTroops(a.id, 'qun_raider', 4);
+  it('征兵令: refills below the cap; over it only before a fight or when the card just takes up room', () => {
+    const { w, a, b } = setup();
+    w.spawnTroops(a.id, 'qun_raider', 4); // at the cap (4)
+    a.hero!.items = [{ id: 'zhengbing', count: 1 }, null, null, null];
     fighting(w, a, undefined);
+    expect(should(w, a, 'zhengbing')).toBe(false); // calm, squad full, bag has room
+    a.hero!.items = [{ id: 'zhengbing', count: 1 }, { id: 'tao', count: 1 }, { id: 'sha', count: 1 }, null];
+    expect(should(w, a, 'zhengbing')).toBe(true); // bag nearly full
+    a.hero!.items = [{ id: 'zhengbing', count: 2 }, null, null, null];
+    expect(should(w, a, 'zhengbing')).toBe(true); // a full stack
+    a.hero!.items = [{ id: 'zhengbing', count: 1 }, null, null, null];
+    place(w, b, 0, 50); // a foe in sight 30 m out, not shooting yet
+    fighting(w, a, b);
+    expect(should(w, a, 'zhengbing')).toBe(true);
+    w.spawnTroops(a.id, 'qun_raider', 2); // cap + 2: no room at all
     expect(should(w, a, 'zhengbing')).toBe(false);
   });
 
@@ -181,7 +203,7 @@ describe('botShouldUse', () => {
     expect(should(w, a, 'nanman')).toBe(false);
   });
 
-  it('traps when an enemy hero charges in (or while fleeing hurt)', () => {
+  it('traps when an enemy hero charges in (or while fleeing hurt) — delayed.test.ts has the spots', () => {
     const { w, a, b } = setup();
     place(w, b, 0, 30);
     fighting(w, a, b);
@@ -196,8 +218,102 @@ describe('botShouldUse', () => {
   });
 });
 
+// Every card whose hint says "yes" must really be usable at that moment: a
+// hint that fires while use() refuses (keeps the card) makes a bot retry and
+// back off forever. Drives each item through the input path, no AI planner.
+interface Case {
+  id: string;
+  count?: number;
+  /** set the scene; returns what a bot would aim at (point, optional entity) */
+  scene(w: World, a: Entity, b: Entity, c: Entity): { at: Vec3; target?: Entity };
+}
+
+const aimB = (w: World, a: Entity, b: Entity, dz = 32): { at: Vec3; target: Entity } => {
+  place(w, b, 0, dz);
+  fighting(w, a, b);
+  return { at: chest(b), target: b };
+};
+const calm = (w: World, a: Entity): { at: Vec3 } => {
+  fighting(w, a, undefined);
+  return { at: { x: a.pos.x, y: a.pos.y + 1, z: a.pos.z + 10 } };
+};
+
+const CASES: Case[] = [
+  { id: 'sha', scene: (w, a, b) => ((a.hero!.weapons[0]!.reserve = 0), aimB(w, a, b)) },
+  { id: 'shan', scene: (w, a, b) => ((a.hero!.dodgeCharges = 1), aimB(w, a, b)) },
+  { id: 'tao', scene: (w, a) => ((a.hp = a.maxHp * 0.4), calm(w, a)) },
+  { id: 'jiu', count: 2, scene: (w, a, b) => aimB(w, a, b) },
+  { id: 'wuzhong', scene: (w, a) => calm(w, a) },
+  { id: 'guohe', scene: (w, a, b) => ((b.hero!.armor = 'renwang'), { ...aimB(w, a, b), at: feet(b) }) },
+  { id: 'shunshou', scene: (w, a, b) => ((b.hero!.items = [{ id: 'tao', count: 1 }, null, null, null]), aimB(w, a, b, 26)) },
+  { id: 'juedou', scene: (w, a, b) => aimB(w, a, b) },
+  {
+    id: 'jiedao',
+    scene: (w, a, b, c) => {
+      place(w, c, 5, 50);
+      w.spawnTroops(b.id, 'qun_raider', 3, { x: 3, y: 0, z: 47 });
+      return aimB(w, a, b, 45);
+    },
+  },
+  { id: 'wuxie', scene: (w, a, b) => aimB(w, a, b) },
+  { id: 'nanman', scene: (w, a, b) => ({ ...aimB(w, a, b), at: feet(b) }) },
+  { id: 'wanjian', scene: (w, a, b) => (w.applyStatus(b.id, 'root', 5, { sourceId: a.id }), { ...aimB(w, a, b), at: feet(b) }) },
+  { id: 'taoyuan', scene: (w, a) => ((a.hp = a.maxHp - 150), calm(w, a)) },
+  { id: 'wugu', scene: (w, a) => calm(w, a) },
+  { id: 'huogong', scene: (w, a, b) => ({ ...aimB(w, a, b), at: feet(b) }) },
+  {
+    id: 'tiesuo',
+    scene: (w, a, b) => {
+      w.spawnTroops(b.id, 'qun_raider', 2, { x: 2, y: 0, z: 33 });
+      return { ...aimB(w, a, b), at: feet(b) };
+    },
+  },
+  {
+    id: 'lebusishu',
+    scene: (w, a, b) => {
+      const r = aimB(w, a, b, 36);
+      b.vel.z = -5;
+      return r;
+    },
+  },
+  {
+    id: 'bingliang',
+    scene: (w, a, b) => {
+      const r = aimB(w, a, b, 36);
+      a.vel.z = -4;
+      return r;
+    },
+  },
+  { id: 'shandian', scene: (w, a, b) => ({ ...aimB(w, a, b), at: feet(b) }) },
+  { id: 'zhengbing', scene: (w, a) => calm(w, a) },
+];
+
+describe('hint ⇒ usable', () => {
+  it('covers every item', () => {
+    expect(CASES.map((c) => c.id).sort()).toEqual(ITEMS.map((d) => d.id).sort());
+  });
+  for (const k of CASES) {
+    it(`${k.id}: when the hint says yes, the card is really used`, () => {
+      const { w, a, b, c } = setup();
+      a.hero!.items = [{ id: k.id, count: k.count ?? 1 }, null, null, null];
+      const { at, target } = k.scene(w, a, b, c);
+      expect(should(w, a, k.id), `${k.id} hint`).toBe(true);
+      w.drainEvents();
+      send(w, a, aimFrame(w, a, at, { aimTargetId: target?.id }), [{ a: 'item', slot: 0 }]);
+      w.step();
+      const useTime = ITEMS.find((d) => d.id === k.id)!.useTime;
+      for (let i = 0; i < Math.ceil((useTime + 0.1) * 30); i++) {
+        send(w, a, aimFrame(w, a, at, { aimTargetId: target?.id }));
+        w.step();
+      }
+      const used = (w.drainEvents() as GameEvent[]).some((e) => e.t === 'itemUse' && e.who === a.id && e.item === k.id);
+      expect(used, `${k.id} used`).toBe(true);
+    });
+  }
+});
+
 describe('bots with cards', () => {
-  it('a short all-bot skirmish uses a variety of cards and no item implementation throws', () => {
+  it('a short all-bot skirmish: cards get played and no item implementation throws', () => {
     const warnings: string[] = [];
     const w = makeWorld(ROLES5, { humans: [], settings: { botDifficulty: 'hard' }, onWarn: (m) => warnings.push(m) });
     // everyone starts close together, loaded with cards
@@ -222,6 +338,8 @@ describe('bots with cards', () => {
       for (const ev of w.drainEvents() as GameEvent[]) if (ev.t === 'itemUse') used.add(ev.item);
     }
     expect(warnings.filter((m) => /threw|NaN|non-finite/.test(m))).toEqual([]);
-    expect(used.size).toBeGreaterThanOrEqual(8);
+    // how many different cards get played is AI tuning (ai/itemUse.ts); the
+    // per-card "hint ⇒ usable" cases above pin the item side
+    expect(used.size).toBeGreaterThanOrEqual(3);
   });
 });

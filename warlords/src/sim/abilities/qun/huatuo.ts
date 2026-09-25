@@ -17,6 +17,11 @@ const MAX_HERO_STUN = 1.5;
 // 急救 (passive): revives take 0.5 s and give +80 HP; once every 30 s a revive needs no 桃.
 // The free-revive timer lives in hero.cooldowns[huatuo_jijiu] so the HUD shows it
 // (ui/hud/logic.ts canReviveFree reads exactly that).
+// A ready free revive is used FIRST, even when Hua Tuo carries a 桃: the world
+// (inventory.ts updateChannel) still spends a carried 桃 before asking canReviveFree
+// (docs/SIM_REQUESTS.md QUN-6), so onRevive(free = false) with the free revive ready gives
+// that 桃 back and starts the 30 s timer instead — the same outcome, and redundant (never
+// taken) once QUN-6 lands.
 registerAbility({
   id: 'huatuo_jijiu',
   modifiers(ctx) {
@@ -29,9 +34,13 @@ registerAbility({
     return canAct(ctx.self) && ctx.sim.cooldownLeft(ctx.self.id, ctx.def.id) <= 0;
   },
   onRevive(ctx, target, free) {
-    if (free) ctx.sim.setCooldown(ctx.self.id, ctx.def.id, param(ctx, 'freeReviveCd', 30));
+    const { sim, self } = ctx;
+    const ready = canAct(self) && sim.cooldownLeft(self.id, ctx.def.id) <= 0;
+    // the 桃 was spent although no 桃 was needed: give it back (a full bag drops it at his feet)
+    if (!free && ready && !sim.giveItem(self.id, 'tao')) sim.spawnLoot({ ...self.pos }, { itemId: 'tao', count: 1 });
+    if (free || ready) sim.setCooldown(self.id, ctx.def.id, param(ctx, 'freeReviveCd', 30));
     // the passive has no activation: announce the (fast / free) rescue for VFX + audio
-    ctx.sim.emit({ t: 'ability', src: ctx.self.id, ability: ctx.def.id, target: target.id, pos: chestOf(target) });
+    sim.emit({ t: 'ability', src: self.id, ability: ctx.def.id, target: target.id, pos: chestOf(target) });
   },
 });
 

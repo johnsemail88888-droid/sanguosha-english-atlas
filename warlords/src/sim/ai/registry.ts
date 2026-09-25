@@ -11,6 +11,8 @@ export interface CommanderMind {
   allyScore(e: Entity): number;
   /** 0..1 how hostile the commander is toward `e` */
   hostility(e: Entity): number;
+  /** would the commander open fire on `e` himself? */
+  wouldEngage(e: Entity): boolean;
 }
 
 const minds = new WeakMap<SimApi, Map<EntityId, CommanderMind>>();

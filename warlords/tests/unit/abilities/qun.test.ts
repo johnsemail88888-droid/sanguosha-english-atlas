@@ -170,6 +170,54 @@ describe('华佗 Hua Tuo', () => {
     expect(w.hooks.canReviveFree(doc)).toBe(true);
   });
 
+  it('急救: a ready free revive goes first — a carried 桃 is kept; on cooldown the 桃 is spent', () => {
+    const a = setup();
+    const { w } = a;
+    const doc = a.at(0);
+    const ally = a.at(1);
+    doc.hero!.items = [null, { id: 'tao', count: 1 }, null, null];
+    const taos = (): number => doc.hero!.items.reduce((n, s) => n + (s?.id === 'tao' ? s.count : 0), 0);
+    const downAlly = (): void => {
+      place(w, ally, 0, 28.6);
+      w.dealDamage({ targetId: ally.id, amount: 9999, type: 'true' });
+      expect(ally.hero!.downed).toBe(true);
+    };
+    downAlly();
+    w.drainEvents();
+    send(w, 0, [{ a: 'interact' }], { yaw: 0, buttons: BTN_INTERACT });
+    stepN(w, T(0.6));
+    expect(ally.hero!.downed).toBe(false);
+    expect(ally.hp).toBe(180);
+    expect(taos()).toBe(1); // the free revive was used, not the 桃
+    expect(w.cooldownLeft(doc.id, 'huatuo_jijiu')).toBeGreaterThan(29);
+    expect(fired(w.drainEvents(), 'huatuo_jijiu')).toBe(true);
+    // the free revive is on cooldown: now the 桃 is spent and the timer is not restarted
+    downAlly();
+    const cdBefore = w.cooldownLeft(doc.id, 'huatuo_jijiu');
+    send(w, 0, [{ a: 'interact' }], { yaw: 0, buttons: BTN_INTERACT });
+    stepN(w, T(0.6));
+    expect(ally.hero!.downed).toBe(false);
+    expect(ally.hp).toBe(180);
+    expect(taos()).toBe(0);
+    expect(w.cooldownLeft(doc.id, 'huatuo_jijiu')).toBeLessThan(cdBefore);
+
+    // the 桃 item used on a downed ally (a full bag, 3 stacked 桃): the free revive still goes first
+    const b = setup();
+    const doc2 = b.at(0);
+    const ally2 = b.at(1);
+    doc2.hero!.items = [{ id: 'tao', count: 3 }, { id: 'sha', count: 1 }, { id: 'sha', count: 1 }, { id: 'sha', count: 1 }];
+    place(b.w, ally2, 0, 28.6);
+    b.w.dealDamage({ targetId: ally2.id, amount: 9999, type: 'true' });
+    expect(ally2.hero!.downed).toBe(true);
+    send(b.w, 0, [{ a: 'item', slot: 0 }], { yaw: 0 });
+    stepN(b.w, T(0.6));
+    expect(ally2.hero!.downed).toBe(false);
+    expect(ally2.hp).toBe(180);
+    expect(doc2.hero!.items[0]).toEqual({ id: 'tao', count: 3 });
+    expect(b.w.cooldownLeft(doc2.id, 'huatuo_jijiu')).toBeGreaterThan(29);
+    for (const x of [a, b]) expect(threw(x.warns)).toEqual([]);
+  });
+
   it('青囊: heals the crosshair hero 150 over 3 s and cleanses every debuff', () => {
     const a = setup();
     const { w } = a;
@@ -502,6 +550,33 @@ describe('貂蝉 Diaochan', () => {
     stepN(w, T(8.1));
     expect(w.hasStatus(A.id, 'chained')).toBe(false);
   });
+  it('连环计 never links a downed hero, and is not cast on one', () => {
+    const a = setup();
+    const { w } = a;
+    const dc = a.at(2);
+    const A = a.at(3);
+    const down = a.at(4);
+    place(w, A, 0, 25);
+    place(w, down, 2, 25); // nearest, and a hero — but downed
+    const troop = w.spawnTroops(a.at(0).id, 'qun_raider', 1, { x: 6, y: 0, z: 25 })[0];
+    w.dealDamage({ targetId: down.id, amount: 9999, type: 'true' });
+    expect(down.hero!.downed).toBe(true);
+    const evs = cast(a, 2, 'e', aimAt(dc, A));
+    expect(fired(evs, 'diaochan_lianhuan')).toBe(true);
+    expect(w.hasStatus(A.id, 'chained')).toBe(true);
+    expect(w.hasStatus(troop.id, 'chained')).toBe(true);
+    expect(w.hasStatus(down.id, 'chained')).toBe(false);
+
+    // the crosshair on a downed hero: no cast, the cooldown is kept
+    const b = setup();
+    const D = b.at(3);
+    place(b.w, D, 0, 25);
+    b.w.dealDamage({ targetId: D.id, amount: 9999, type: 'true' });
+    expect(D.hero!.downed).toBe(true);
+    expect(fired(cast(b, 2, 'e', aimAt(b.at(2), D)), 'diaochan_lianhuan')).toBe(false);
+    expect(b.w.cooldownLeft(b.at(2).id, 'diaochan_lianhuan')).toBe(0);
+    expect(b.w.hasStatus(D.id, 'chained')).toBe(false);
+  });
 });
 
 // ── 张角 ────────────────────────────────────────────────────────────────────
@@ -579,6 +654,98 @@ describe('张角 Zhang Jiao', () => {
     const b = setup();
     expect(fired(cast(b, 0, 'e', SKY), def.id)).toBe(false);
     expect(b.w.cooldownLeft(b.at(0).id, def.id)).toBe(0);
+  });
+
+  it('雷击 / 太平要术 on a 连环计 chain: every chained unit takes each strike exactly once', () => {
+    const ROLES8: RoleId[] = ['lord', 'loyalist', 'loyalist', 'rebel', 'rebel', 'rebel', 'rebel', 'traitor'];
+    const build = (): { a: Arena; c: Entity[]; far: Entity; plain: Entity } => {
+      const a = arena(['zhangjiao', 'dummy', 'dummy', 'dummy', 'dummy', 'dummy', 'dummy', 'dummy'], ROLES8);
+      const { w } = a;
+      place(w, a.at(0), 0, 45);
+      const c = [a.at(3), a.at(4), a.at(5)];
+      place(w, c[0], 0, 25); // a 3 m cluster around (0, 25)
+      place(w, c[1], 1.5, 25);
+      place(w, c[2], 0, 26.5);
+      const far = a.at(6); // chained, far outside the strike
+      place(w, far, 20, 25);
+      const plain = a.at(7); // inside the strike, not chained
+      place(w, plain, -1.5, 25);
+      for (const e of [...c, far]) w.applyStatus(e.id, 'chained', 20);
+      w.step();
+      w.drainEvents();
+      return { a, c, far, plain };
+    };
+    // 雷击: 3 bolts × 71.5 each — not 3 × 3 × 71.5 (= 643.5) for the chained cluster
+    const L = build();
+    const bolt = 55 * 1.3;
+    expect(fired(cast(L.a, 0, 'q', aimAtPoint(L.a.at(0), { x: 0, y: 0, z: 25 })), 'zhangjiao_leiji')).toBe(true);
+    for (const e of [...L.c, L.far, L.plain]) expect(lost(e), `seat ${e.hero!.seat} after bolt 1`).toBeCloseTo(bolt, 5);
+    // the first bolt stuns everyone inside the circle (spread-reached links too), not the far link
+    for (const e of [...L.c, L.plain]) expect(L.a.w.hasStatus(e.id, 'stun'), `seat ${e.hero!.seat} stunned`).toBe(true);
+    expect(L.a.w.hasStatus(L.far.id, 'stun')).toBe(false);
+    stepN(L.a.w, T(3));
+    for (const e of [...L.c, L.far, L.plain]) expect(lost(e), `seat ${e.hero!.seat}`).toBeCloseTo(3 * bolt, 5);
+    expect(threw(L.a.warns)).toEqual([]);
+
+    // 太平要术: 5 strikes × 45.5 each on every link (227.5), wherever the links stand
+    const S = build();
+    expect(fired(cast(S.a, 0, 'e', aimAt(S.a.at(0), S.c[0])), 'zhangjiao_taiping')).toBe(true);
+    stepN(S.a.w, T(8.5));
+    for (const e of [...S.c, S.far, S.plain]) expect(lost(e), `seat ${e.hero!.seat}`).toBeCloseTo(5 * 35 * 1.3, 5);
+    expect(threw(S.a.warns)).toEqual([]);
+
+    // a nullify on the first link: it is spared the whole bolt (spread included); the rest still take it once
+    const N = build();
+    N.a.w.applyStatus(N.c[0].id, 'nullify', 20, { sourceId: N.c[0].id });
+    cast(N.a, 0, 'q', aimAtPoint(N.a.at(0), { x: 0, y: 0, z: 25 }));
+    expect(lost(N.c[0])).toBe(0);
+    expect(N.a.w.hasStatus(N.c[0].id, 'stun')).toBe(false);
+    for (const e of [N.c[1], N.c[2], N.far, N.plain]) expect(lost(e), `seat ${e.hero!.seat}`).toBeCloseTo(bolt, 5);
+  });
+
+  it('太平要术 disperses when Zhang Jiao dies, and stops following a stealthed target', () => {
+    // the caster (a rebel: his death does not end the match) dies after the first strike
+    const a = arena(['dummy', 'dummy', 'zhangjiao', 'dummy', 'dummy']);
+    const { w } = a;
+    const zj = a.at(2);
+    const foe = a.at(4);
+    place(w, zj, 0, 45);
+    place(w, foe, 0, 25);
+    cast(a, 2, 'e', aimAt(zj, foe));
+    stepN(w, T(1.6));
+    const strike = 35 * 1.3;
+    expect(lost(foe)).toBeCloseTo(strike, 5);
+    // downed: the storm keeps going
+    zj.hero!.abilityState['menghuo_zaiqi:used'] = 1;
+    w.dealDamage({ targetId: zj.id, amount: 9999, type: 'true' });
+    expect(zj.hero!.downed).toBe(true);
+    stepN(w, T(1.5));
+    expect(lost(foe)).toBeCloseTo(2 * strike, 5);
+    // dead: the cloud is gone at once and never strikes again
+    kill(w, zj);
+    w.step();
+    expect(w.kindList('hazard').some((h) => h.hazard?.kind === 'lightningCloud')).toBe(false);
+    stepN(w, T(6));
+    expect(lost(foe)).toBeCloseTo(2 * strike, 5);
+    expect(w.result()).toBeNull();
+
+    // stealth: the cloud stays where it lost the target, then picks it up again
+    const b = arena(['zhangjiao', 'dummy', 'dummy', 'dummy', 'dummy']);
+    place(b.w, b.at(0), 0, 45);
+    const t = b.at(3);
+    place(b.w, t, 0, 25);
+    cast(b, 0, 'e', aimAt(b.at(0), t));
+    stepN(b.w, T(0.5));
+    const cloud = b.w.kindList('hazard').find((h) => h.hazard?.kind === 'lightningCloud')!;
+    b.w.applyStatus(t.id, 'stealth', 5, { sourceId: t.id });
+    b.w.step();
+    place(b.w, t, 10, 20);
+    stepN(b.w, T(0.5));
+    expect(Math.hypot(cloud.pos.x - 0, cloud.pos.z - 25)).toBeLessThan(0.5);
+    b.w.removeStatus(t.id, 'stealth');
+    stepN(b.w, T(0.2));
+    expect(Math.hypot(cloud.pos.x - 10, cloud.pos.z - 20)).toBeLessThan(0.5);
+    for (const x of [a, b]) expect(threw(x.warns)).toEqual([]);
   });
 
   it('黄天: only the real Lord summons 5 黄巾力士 for 30 s', () => {
@@ -775,6 +942,24 @@ describe('孟获 Meng Huo', () => {
     expect(ele.alive).toBe(true);
     stepN(w, T(12.5));
     expect(ele.alive).toBe(false);
+  });
+  it('象兵: nobody behind (or right beside, behind the spawn point) Meng Huo is trampled', () => {
+    const a = setup();
+    const { w } = a;
+    const mh = a.at(2);
+    const behind = a.at(3);
+    const ahead = a.at(4);
+    place(w, behind, 0, 52.5); // 2.5 m behind him (he charges toward -z)
+    place(w, ahead, 0, 40);
+    const reqs = spyDamage(w);
+    cast(a, 2, 'e', { yaw: 0, pitch: 0 });
+    stepN(w, T(2.2));
+    const trampled = (id: EntityId): number => reqs.filter((r) => r.targetId === id && r.abilityId === 'menghuo_xiangbing').length;
+    expect(trampled(behind.id)).toBe(0);
+    expect(lost(behind)).toBe(0);
+    expect(Math.abs(behind.pos.z - 52.5)).toBeLessThan(0.5); // not knocked anywhere
+    expect(trampled(ahead.id)).toBe(1);
+    expect(lost(ahead)).toBe(100);
   });
 });
 

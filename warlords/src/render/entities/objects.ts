@@ -211,9 +211,13 @@ function lootInfo(id: string): { rarity: Rarity; glyph: string; color: string; w
 let cardGeo: THREE.PlaneGeometry | null = null;
 const cardMats = new Map<string, THREE.MeshStandardMaterial>();
 
+/** Loot / crates cast shadows only this close to the camera (draw-call budget). */
+const PROP_SHADOW_DIST = 18;
+
 export class LootView implements EntityView {
   readonly root = new THREE.Group();
   private readonly item: THREE.Object3D;
+  private readonly shadowCaster: THREE.Object3D;
   private readonly phase: number;
 
   constructor(e: ViewEntity) {
@@ -225,6 +229,7 @@ export class LootView implements EntityView {
       const holder = new THREE.Group();
       holder.add(w.mesh);
       this.item = holder;
+      this.shadowCaster = w.mesh;
     } else {
       if (!cardGeo) cardGeo = new THREE.PlaneGeometry(0.42, 0.56);
       const key = `${info.glyph}|${info.color}|${info.rarity}`;
@@ -240,7 +245,7 @@ export class LootView implements EntityView {
         cardMats.set(key, m);
       }
       this.item = new THREE.Mesh(cardGeo, m);
-      this.item.castShadow = true;
+      this.shadowCaster = this.item;
     }
     this.root.add(this.item);
     if (info.rarity !== 'common' || info.weapon) this.root.add(lootPillar(info.rarity));
@@ -251,7 +256,9 @@ export class LootView implements EntityView {
     this.root.position.set(e.x, e.y, e.z);
     this.item.position.y = 0.55 + Math.sin(ctx.time * 2 + this.phase) * 0.06;
     this.item.rotation.y = ctx.time * 1.2 + this.phase;
-    this.root.visible = ctx.camPos.distanceTo(this.root.position) < 120;
+    const dist = ctx.camPos.distanceTo(this.root.position);
+    this.root.visible = dist < 120;
+    this.shadowCaster.castShadow = ctx.shadows && dist < PROP_SHADOW_DIST;
   }
 
   dispose(): void {
@@ -289,6 +296,7 @@ function crateGeos(tier: number): { body: THREE.BufferGeometry; lid: THREE.Buffe
 
 export class CrateView implements EntityView {
   readonly root = new THREE.Group();
+  private readonly body: THREE.Mesh;
   private readonly lid: THREE.Mesh;
   private readonly glow: THREE.Mesh;
   private openT = 0;
@@ -301,6 +309,7 @@ export class CrateView implements EntityView {
     const bm = new THREE.Mesh(body, worldMaterial());
     bm.castShadow = true;
     bm.receiveShadow = true;
+    this.body = bm;
     this.lid = new THREE.Mesh(lid, worldMaterial());
     this.lid.position.set(0, 0.56, 0.31);
     this.lid.castShadow = true;
@@ -328,7 +337,12 @@ export class CrateView implements EntityView {
     this.lid.rotation.x = -1.9 * this.openT;
     this.glow.visible = this.openT < 0.5;
     (this.glow.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.25 * Math.sin(ctx.time * 3 + e.id);
-    this.root.visible = ctx.camPos.distanceTo(this.root.position) < 160;
+    const dist = ctx.camPos.distanceTo(this.root.position);
+    this.root.visible = dist < 160;
+    const shadow = ctx.shadows && dist < PROP_SHADOW_DIST * 2;
+    this.body.castShadow = shadow;
+    // a closed lid's shadow falls inside the body's
+    this.lid.castShadow = shadow && this.openT > 0.05;
   }
 
   dispose(): void {
