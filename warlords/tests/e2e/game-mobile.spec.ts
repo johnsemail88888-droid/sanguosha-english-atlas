@@ -238,7 +238,9 @@ test('phone 844×390 with touch: the touch HUD drives the hero, overlays never t
       const r = e.getBoundingClientRect();
       return { x: r.x, y: r.y, width: r.width, height: r.height };
     }));
+    expect(items.length).toBe(8);
     for (const it of items) expect(overlap(it, banner), 'wheel item vs zone banner').toBe(false);
+    await page.waitForTimeout(600); // let the pop-in finish for the screenshot
     await page.screenshot({ path: test.info().outputPath('wheel-640x360.png') });
     await tb('wheel').tap();
     await page.setViewportSize({ width: 844, height: 390 });

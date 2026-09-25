@@ -6,7 +6,7 @@ import type { SfxName } from '../../../src/audio/catalog';
 import type { MusicTrack } from '../../../src/audio/music';
 import type { LoopName } from '../../../src/audio/recipes/loops';
 import { fakeView } from '../../../src/audio/render';
-import { EventRouter } from '../../../src/audio/router';
+import { EMP_SIZE, EventRouter, PROC_GAIN, PROC_SIZE } from '../../../src/audio/router';
 import type { SoundSink } from '../../../src/audio/router';
 import type { LoopOpts, PlayOpts } from '../../../src/audio/sfx';
 
@@ -469,5 +469,44 @@ describe('EventRouter: world state', () => {
     local.downed = false;
     router.handle([], view);
     expect(sink.downed).toEqual([true, false]);
+  });
+});
+
+describe('EventRouter: ability procs and EMP (G3-7/8)', () => {
+  it('a passive proc plays a lighter, smaller abilityCast than an activation', () => {
+    const view = fakeView([hero(2, 10, 0, { sub: 'caocao', kingdom: 'wei' })], 1);
+    router.handle([{ t: 'ability', src: 2, ability: 'caocao_p', proc: true }], view);
+    sink.t += 1;
+    router.handle([{ t: 'ability', src: 2, ability: 'caocao_q' }], view);
+    const casts = sink.named('abilityCast');
+    expect(casts).toHaveLength(2);
+    const [proc, cast] = casts;
+    expect(proc.o.gain).toBe(PROC_GAIN);
+    expect(proc.o.gain).toBe(0.5);
+    expect(proc.o.size).toBe(PROC_SIZE);
+    expect(proc.o.size).toBeCloseTo(0.6);
+    expect(cast.o.gain ?? 1).toBe(1);
+    expect(cast.o.size).toBe(1);
+    expect(proc.o.priority ?? 0).toBeLessThan(cast.o.priority ?? 0);
+  });
+
+  it('a local proc stays non-positional but lighter', () => {
+    const view = fakeView([hero(1, 0, 0, { sub: 'luxun', kingdom: 'wu' })], 1);
+    router.handle([{ t: 'ability', src: 1, ability: 'luxun_p', proc: true }], view);
+    const [c] = sink.named('abilityCast');
+    expect(c.o.local).toBe(true);
+    expect(c.o.pos).toBeUndefined();
+    expect(c.o.gain).toBe(PROC_GAIN);
+  });
+
+  it("EMP explosions use the small 'thunder' variant, not 'frag'", () => {
+    const view = fakeView([], null);
+    router.handle([{ t: 'explosion', pos: { x: 5, y: 0, z: 5 }, radius: 8, kind: 'emp' }], view);
+    router.handle([{ t: 'explosion', pos: { x: 5, y: 0, z: 5 }, radius: 8, kind: 'frag' }], view);
+    const [emp, frag] = sink.named('explosion');
+    expect(emp.o.variant).toBe('thunder');
+    expect(emp.o.size).toBe(EMP_SIZE);
+    expect(emp.o.size ?? 1).toBeLessThan(frag.o.size ?? 1);
+    expect(frag.o.variant).toBe('frag');
   });
 });

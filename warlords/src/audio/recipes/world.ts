@@ -628,8 +628,10 @@ function abilityFlavor(v: Voice, flavor: string): void {
 }
 
 export const abilityCast: Recipe = (v, o) => {
-  whoosh(v, { lo: 300, hi: 3200, dur: 0.32, peak: 0.35, q: 0.9 });
-  tone(v, { freq: 90, to: 140, glide: 0.25, peak: 0.2, attack: 0.08, decay: 0.3 });
+  // size < 1: a passive proc (奸雄, 流离 …) — shorter, lighter swell under the same motif
+  const k = Math.max(0.4, Math.min(1, o.size));
+  whoosh(v, { lo: 300, hi: 3200, dur: 0.32 * k, peak: 0.35 * k, q: 0.9 });
+  tone(v, { freq: 90, to: 140, glide: 0.25 * k, peak: 0.2 * k, attack: 0.08 * k, decay: 0.3 * k });
   stinger(v, o.variant, o.size > 1.2);
   abilityFlavor(v, o.flavor);
 };

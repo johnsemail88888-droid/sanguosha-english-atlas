@@ -146,7 +146,8 @@ export function handleEvents(evs: readonly GameEvent[], deps: EventVfxDeps): voi
         }
         case 'ability': {
           const src = entities.character(ev.src);
-          src?.onCast();
+          // a passive trigger (奸雄, 流离, 连营 …) has no cast gesture: only its VFX
+          if (!ev.proc) src?.onCast();
           const srcPos = src ? src.chestWorld(new THREE.Vector3()) : null;
           const tgt = ev.target !== undefined ? entities.character(ev.target) : undefined;
           const targetPos = tgt ? tgt.chestWorld(new THREE.Vector3()) : null;

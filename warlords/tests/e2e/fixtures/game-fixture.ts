@@ -204,10 +204,39 @@ export async function pickHero(page: Page, prefer: readonly string[] = []): Prom
     }
   }
   const hero = (await chosen.getAttribute('data-hero')) ?? '';
+  const t0 = Date.now();
   await chosen.click();
+  const clicked = { ms: Date.now() - t0, ...((await selectState(page)) as object) };
   const confirm = page.locator('.detail-actions .sg-btn');
-  await confirm.click();
+  try {
+    await confirm.click({ timeout: 60_000 });
+  } catch (err) {
+    throw new Error(`hero select: cannot confirm ${hero}: after the card click ${JSON.stringify(clicked)}, now ${JSON.stringify(await selectState(page))}\n${(err as Error).message}`);
+  }
   return hero;
+}
+
+/** Hero-select diagnostics for a failed pick (what the page shows and what the session holds). */
+export async function selectState(page: Page): Promise<unknown> {
+  return page
+    .evaluate(() => {
+      const g = (window as SgwlWindow).__sgwl;
+      const s = g?.session as unknown as { heroSelect?: { lordPhase: boolean; options: string[]; picks: Record<number, string>; deadline: number; lordSeat: number } | null; myId?: string; lobby?: { seats: { seat: number; playerId: string | null }[] } | null } | null;
+      const v = s?.heroSelect ?? null;
+      const sel = document.querySelector('.sg-select');
+      return {
+        screen: g?.screen ?? null,
+        phase: g?.phase ?? null,
+        cls: sel?.className ?? null,
+        stage: sel?.querySelector('.titles')?.textContent ?? null,
+        ring: sel?.querySelector('.ring')?.textContent ?? null,
+        confirm: document.querySelector('.detail-actions .sg-btn')?.textContent ?? null,
+        view: v ? { lordPhase: v.lordPhase, options: v.options.length, picks: v.picks, deadline: v.deadline, lordSeat: v.lordSeat } : null,
+        me: s?.lobby?.seats.find((x) => x.playerId === s.myId)?.seat ?? null,
+        t: performance.now() | 0,
+      };
+    })
+    .catch((e: unknown) => ({ evalError: String(e) }));
 }
 
 /** Title → 单人练习 → setup → start → roles → hero select → match (HUD up). Returns the picked hero id. */
