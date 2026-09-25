@@ -5,7 +5,7 @@ import type { Screen, UiCtx } from '../ctx';
 import { Bag, copyText, h } from '../dom';
 import { t, tx } from '../i18n';
 import { button, segmented } from '../widgets';
-import { desktopInfo, detectLocalServer, servedByLocalServer } from '../desktop';
+import { desktopInfo, detectLocalServer, refreshLanUrls, servedByLocalServer } from '../desktop';
 import { clearRejoin, loadRejoin, markModeChosen, modeChosen, netPatch, parseInvite, type InviteNet, type NetMode } from '../invite';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
@@ -52,6 +52,8 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   const el = h('div', { class: 'sg-screen sg-menu-screen sg-online', data: { screen: 'online' } });
   const invited = ctx.pendingRoom();
   let code = invited ? normalizeRoomCode(invited) : '';
+  // the desktop app's LAN addresses as they are now (the startup list goes stale when the network changes)
+  if (desktopInfo()) refreshLanUrls();
   const desktop = desktopInfo();
   // an invite link says how the host is reachable: that beats the saved default
   const link = invited ? parseInvite(globalThis.location?.search ?? '') : null;
@@ -197,8 +199,8 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
 
   /** Desktop app: the LAN addresses friends open in their browser, with copy buttons. */
   function lanBox(): HTMLElement | null {
-    const urls = desktop?.lanUrls ?? [];
     if (!desktop) return null;
+    const urls = desktopInfo()?.lanUrls ?? [];
     const rows = urls.map((u) =>
       h('li', { class: 'lan-row' },
         h('code', { class: 'lan-url' }, u),
@@ -227,6 +229,16 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       if (!modeTouched && !busy && !settings.get().net.wsUrl.trim()) mode = 'ws';
       if (!busy) render();
     });
+  }
+  // desktop: a network change (Wi-Fi switched, cable plugged) → fresh LAN addresses
+  if (desktop) {
+    const onNet = (): void => {
+      const before = (desktopInfo()?.lanUrls ?? []).join(' ');
+      if (refreshLanUrls().join(' ') !== before && !busy && el.isConnected) render();
+    };
+    bag.listen(window, 'online', onNet);
+    const conn = (navigator as { connection?: EventTarget }).connection;
+    if (conn && typeof conn.addEventListener === 'function') bag.listen(conn, 'change', onNet);
   }
   // re-evaluate when the server URL is configured from the settings modal
   let lastWs = settings.get().net.wsUrl;

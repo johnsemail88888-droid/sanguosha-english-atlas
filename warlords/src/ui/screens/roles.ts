@@ -9,6 +9,7 @@ import { getLang, roleName, seatLabel, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
 import { ROLE_GLYPH, roleColor } from '../theme';
 import { roleSeal, seal, textUnits } from '../widgets';
+import { artOr, roleArt } from '../artIcons';
 import { backToSetup } from './heroSelect';
 import { LOADING_TIPS } from './loading';
 
@@ -55,14 +56,23 @@ export { textUnits };
 function roleCard(role: RoleId): HTMLElement {
   const def = ROLE_BY_ID[role];
   const color = roleColor(role);
-  const front = h('div', { class: 'face front' },
-    h('div', { class: 'frame' },
-      seal(ROLE_GLYPH[role], { color, size: '5.2em' }),
-      h('div', { class: 'rname', style: `--len:${textUnits(roleName(role)).toFixed(1)}` }, roleName(role)),
-      h('div', { class: 'faction' }, def ? tx(def.nameEn, def.nameZh) : ''),
-    ),
+  const nameEl = (): HTMLElement => h('div', { class: 'rname', style: `--len:${textUnits(roleName(role)).toFixed(1)}` }, roleName(role));
+  const faction = (): HTMLElement => h('div', { class: 'faction' }, def ? tx(def.nameEn, def.nameZh) : '');
+  const plainFront = (): HTMLElement => {
+    const el = h('div', { class: 'face front' }, h('div', { class: 'frame' }, seal(ROLE_GLYPH[role], { color, size: '5.2em' }), nameEl(), faction()));
+    el.style.setProperty('--rc', color);
+    return el;
+  };
+  // the painted identity card (no text on it): our frame, seal and the name in the role colour on top
+  const front = artOr(
+    roleArt(role),
+    (art) => {
+      const el = h('div', { class: 'face front art' }, art, h('div', { class: 'frame' }, seal(ROLE_GLYPH[role], { color, size: '2.3em' }), h('div', { class: 'rbanner' }, nameEl(), faction())));
+      el.style.setProperty('--rc', color);
+      return el;
+    },
+    plainFront,
   );
-  front.style.setProperty('--rc', color);
   const back = h('div', { class: 'face back' }, h('div', { class: 'frame' }, h('div', { class: 'back-logo' }, '身'), h('div', { class: 'back-sub' }, '三国杀·枪火乱世')));
   return h('div', { class: 'flip-card', role: 'img', aria: { label: roleName(role) } }, back, front);
 }

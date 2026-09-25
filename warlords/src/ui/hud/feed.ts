@@ -4,6 +4,14 @@ import { h } from '../dom';
 import { colon, getLang, heroName, roleName, t } from '../i18n';
 import { ROLE_GLYPH, kingdomColor, roleColor } from '../theme';
 import type { PortraitCache } from '../widgets';
+import { abilityIcon, gearIcon } from '../artIcons';
+import type { KillCause } from './killcause';
+
+/** The painted weapon / ability / card a kill was made with (null without art: the feed looks as before). */
+export function causeIcon(cause: KillCause | null | undefined): HTMLElement | null {
+  if (!cause) return null;
+  return cause.kind === 'ability' ? abilityIcon(cause.id, 'kf-how') : gearIcon(cause.id, 'kf-how');
+}
 
 export interface FeedParty {
   name: string;
@@ -35,13 +43,14 @@ export class KillFeed {
   }
 
   /** "killer 斩 victim [role]" (killer null = zone / unknown). */
-  push(killer: FeedParty | null, victim: FeedParty, opts: { downed?: boolean; mine?: boolean; aboutMe?: boolean; now: number }): void {
+  push(killer: FeedParty | null, victim: FeedParty, opts: { downed?: boolean; mine?: boolean; aboutMe?: boolean; now: number; cause?: KillCause | null }): void {
     const role = victim.role;
     const roleEl = role
       ? h('span', { class: 'rseal', style: `--seal:${roleColor(role)}`, title: roleName(role) }, ROLE_GLYPH[role], h('small', null, roleName(role)))
       : null;
     const el = h('div', { class: `kf${opts.mine ? ' mine' : ''}${opts.aboutMe ? ' me' : ''}${opts.downed ? ' downed' : ''}` },
       this.party(killer, 'k'),
+      killer ? causeIcon(opts.cause) : null,
       h('span', { class: `verb${getLang() === 'en' ? ' word' : ''}` }, t(opts.downed ? 'feed.down' : 'feed.kill')),
       this.party(victim, 'v'),
       roleEl,
@@ -83,7 +92,7 @@ export class Announcer {
   readonly el: HTMLElement;
   private readonly bigEl: HTMLElement;
   private readonly infoEl: HTMLElement;
-  private queue: { text: string; kind: AnnKind; sub?: string }[] = [];
+  private queue: { text: string; kind: AnnKind; sub?: string; icons: HTMLElement[] }[] = [];
   /** the newest info line (tests / harness) */
   lastInfo: { text: string; sub?: string } | null = null;
   private showingUntil = 0;
@@ -96,10 +105,16 @@ export class Announcer {
     this.el = h('div', { class: 'hud-announce' }, this.bigEl, this.infoEl);
   }
 
-  push(text: string, kind: AnnKind = 'info', sub?: string, now = performance.now() / 1000): void {
+  /** `art`: painted emblems / renders of what the line is about (loot), shown when the art ships */
+  push(text: string, kind: AnnKind = 'info', sub?: string, now = performance.now() / 1000, art: readonly (HTMLElement | null)[] = []): void {
+    const icons = art.filter((x): x is HTMLElement => !!x);
     if (kind === 'info') {
       // an info line may carry a second, smaller line (a card's one-line effect)
-      const el = h('div', { class: `line${sub ? ' has-sub' : ''}` }, h('span', { class: 'main' }, text), sub ? h('span', { class: 'sub' }, sub) : null);
+      const el = h('div', { class: `line${sub ? ' has-sub' : ''}${icons.length ? ' has-art' : ''}` },
+        icons.length ? h('span', { class: 'ann-art' }, icons) : null,
+        h('span', { class: 'main' }, text),
+        sub ? h('span', { class: 'sub' }, sub) : null,
+      );
       this.infoEl.appendChild(el);
       this.lastInfo = { text, sub };
       this.infos.push({ el, until: now + (sub ? 5.5 : 4) });
@@ -108,7 +123,7 @@ export class Announcer {
     }
     // drop duplicates already queued
     if (this.queue.some((q) => q.text === text)) return;
-    this.queue.push({ text, kind, sub });
+    this.queue.push({ text, kind, sub, icons });
     if (this.queue.length > 4) this.queue.shift();
   }
 
@@ -116,7 +131,13 @@ export class Announcer {
     if (now >= this.showingUntil) {
       const next = this.queue.shift();
       if (next) {
-        this.bigEl.replaceChildren(h('div', { class: `msg ${next.kind}` }, h('span', { class: 't' }, next.text), next.sub ? h('span', { class: 's' }, next.sub) : null));
+        this.bigEl.replaceChildren(
+          h('div', { class: `msg ${next.kind}` },
+            h('span', { class: 't' }, next.text),
+            next.sub ? h('span', { class: 's' }, next.sub) : null,
+            next.icons.length ? h('span', { class: 'ann-art' }, next.icons) : null,
+          ),
+        );
         this.bigEl.classList.add('show');
         const msg = this.bigEl.firstElementChild as HTMLElement | null;
         if (msg && typeof msg.animate === 'function') {

@@ -33,6 +33,10 @@ export const HUD_CSS = /* css */ `
 .role-chip .bounty { font-size: ${fs(12, 10)}; color: #ffc38a; }
 .hud-topcenter { position: absolute; left: 50%; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: ${u(4)}; }
 .hud-zone { display: inline-flex; align-items: center; gap: ${u(8)}; padding: ${u(4)} ${u(16)}; background: var(--hud-bg); border: 1px solid var(--hud-line); border-radius: 999px; font-size: ${fs(15, 11)}; white-space: nowrap; }
+/* a guest's link to the host (connstatus.ts), in place of the clock row */
+.link-chip { padding: ${u(2)} ${u(12)}; border-radius: 999px; font-size: ${fs(13, 10)}; font-weight: 700; white-space: nowrap; background: rgba(120, 80, 10, 0.82); border: 1px solid #f2c14e; color: #ffe6a8; }
+.link-chip[data-tone="bad"] { background: rgba(130, 30, 20, 0.85); border-color: #ff8a6a; color: #ffd9cc; animation: sg-hud-blink 1s ease-in-out infinite alternate; }
+.link-chip[data-tone="ok"] { background: rgba(30, 90, 50, 0.82); border-color: #7fe09a; color: #d8ffe2; }
 .hud-zone .zphase { font-family: var(--font-display); color: var(--gold-hi); font-weight: 800; }
 .hud-zone.shrinking { border-color: #ff7840; }
 .hud-zone.shrinking .ztext { color: #ffb08a; }

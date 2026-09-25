@@ -8,7 +8,10 @@ import { h, setClass, setText } from './dom';
 import { getLang, t, tx, type I18nKey } from './i18n';
 import { ORDER_GLYPH, ORDER_SEQUENCE } from './theme';
 import { abilityReady, cooldownFraction } from './hud/logic';
+import { flashDenied } from './hud/panels';
 import { abilityShort, itemShort, touchLabel, type TouchKey } from './short';
+import { gearArt } from './cardArt';
+import { abilityArt, setArt } from './artIcons';
 
 /** Hold an item slot this long (ms) to read the card instead of using it. */
 export const LONG_PRESS_MS = 450;
@@ -48,6 +51,8 @@ export interface TouchControls {
   setVisible(on: boolean): void;
   /** re-label the buttons after a language change */
   relabel(): void;
+  /** the sim refused this ability: a short red pulse on its button */
+  denied?(abilityId: string): void;
   dispose(): void;
 }
 
@@ -329,6 +334,8 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
       setText(b.label, abilityShort(def, lang));
       setClass(b.el, 'word', lang === 'en');
       b.el.title = tx(def.nameZh, def.nameEn);
+      // the painted icon fills the button (under the sweep / key / seconds) when the art ships
+      setArt(b.el, abilityArt(def.id), { first: true, cls: 'tb-art' });
     }
     const rem = me.cooldowns[def.id] ?? 0;
     const p = Math.round(cooldownFraction(rem, def.cooldown) * 100) / 100;
@@ -385,6 +392,7 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
         it.key = key;
         it.setId(st?.id ?? '');
         setClass(it.el, 'empty', !st);
+        setArt(it.el, gearArt(st?.id), { first: true, cls: 'tb-art' });
         const idef = st ? ITEM_BY_ID[st.id] : undefined;
         setText(it.g, st ? idef?.icon ?? st.id.slice(0, 1) : '');
         // the short name under the glyph (not repeated when it IS the glyph: 桃, 酒 …)
@@ -416,6 +424,9 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
         resetStick();
         for (const b of el.querySelectorAll('.tbtn.down')) b.classList.remove('down');
       }
+    },
+    denied(abilityId) {
+      for (const b of [abQ, abE, abG]) if (b.labelKey.startsWith(`${abilityId}|`)) flashDenied(b.el);
     },
     relabel() {
       for (const l of labelled) labelFor(l.el, l.key);

@@ -8,10 +8,13 @@ import { h, setClass, setText } from '../dom';
 import { colon, fmtTime, gearName, getLang, heroName, roleName, t, tx, type I18nKey } from '../i18n';
 import { displayName } from '../../game/names';
 import { abilityShort, itemShort } from '../short';
+import { gearArt } from '../cardArt';
+import { abilityArt, roleCardBadge, setArt } from '../artIcons';
 import { ORDER_GLYPH, ORDER_KEYS, ORDER_SEQUENCE, RARITY_COLOR, ROLE_GLYPH, kingdomColor, roleColor, statusInfo } from '../theme';
 import { magatama, type PortraitCache } from '../widgets';
 import { abilityReady, aliveCount, cooldownFraction, filledTicks, hpTicks, hudAbilities, maxDodgeCharges, zoneStatus, type AbilitySlotView } from './logic';
 import type { HudFrame } from './types';
+import type { LinkChip } from './connstatus';
 
 const r1 = (v: number): number => Math.round(v * 1000) / 1000;
 
@@ -144,11 +147,11 @@ export class VitalsPanel {
       const chips: HTMLElement[] = [];
       if (me.armor) {
         const a = ARMOR_BY_ID[me.armor];
-        chips.push(h('span', { class: 'gchip', style: `--gc:${a?.color ?? '#aaa'}`, title: `${t('hud.armor')}${colon()}${gearName(me.armor)}` }, gearName(me.armor)));
+        chips.push(gearChip(me.armor, h('span', { class: 'gchip', style: `--gc:${a?.color ?? '#aaa'}`, title: `${t('hud.armor')}${colon()}${gearName(me.armor)}` }, gearName(me.armor))));
       }
       if (me.mount) {
         const m = MOUNT_BY_ID[me.mount];
-        chips.push(h('span', { class: 'gchip', style: `--gc:${m?.color ?? '#aaa'}`, title: `${t('hud.mount')}${colon()}${gearName(me.mount)}` }, `${m?.type === 'defense' ? '+1' : '-1'} ${gearName(me.mount)}`));
+        chips.push(gearChip(me.mount, h('span', { class: 'gchip', style: `--gc:${m?.color ?? '#aaa'}`, title: `${t('hud.mount')}${colon()}${gearName(me.mount)}` }, `${m?.type === 'defense' ? '+1' : '-1'} ${gearName(me.mount)}`)));
       }
       this.gear.replaceChildren(...chips);
     }
@@ -191,6 +194,12 @@ export class VitalsPanel {
   }
 }
 
+/** Armor / mount chip: its painted emblem in front of the name when the art ships. */
+function gearChip(id: string, chip: HTMLElement): HTMLElement {
+  setArt(chip, gearArt(id), { first: true, cls: 'gc-ico' });
+  return chip;
+}
+
 // ── Weapon ───────────────────────────────────────────────────────────────────
 
 export class WeaponPanel {
@@ -203,6 +212,7 @@ export class WeaponPanel {
   private readonly reload: HTMLElement;
   private readonly reloadFill: HTMLElement;
   private readonly reloadLbl: HTMLElement;
+  private readonly main: HTMLElement;
   private key = '';
   private mag = -1;
   private res = -1;
@@ -217,14 +227,12 @@ export class WeaponPanel {
     this.reloadFill = h('i');
     this.reloadLbl = h('span', null, t('hud.reloading'));
     this.reload = h('div', { class: 'w-reload' }, h('div', { class: 'track' }, this.reloadFill), this.reloadLbl);
-    this.el = h('div', { class: 'hud-weapon' },
-      h('div', { class: 'w-slots' }, ...this.slots),
-      h('div', { class: 'w-main' },
-        h('div', { class: 'w-title' }, this.nameEl, this.cardEl),
-        h('div', { class: 'w-ammo' }, this.magEl, h('span', { class: 'sep' }, '/'), this.resEl),
-        this.reload,
-      ),
+    this.main = h('div', { class: 'w-main' },
+      h('div', { class: 'w-title' }, this.nameEl, this.cardEl),
+      h('div', { class: 'w-ammo' }, this.magEl, h('span', { class: 'sep' }, '/'), this.resEl),
+      this.reload,
     );
+    this.el = h('div', { class: 'hud-weapon' }, h('div', { class: 'w-slots' }, ...this.slots), this.main);
   }
 
   update(f: HudFrame): void {
@@ -239,7 +247,9 @@ export class WeaponPanel {
         const slot = this.slots[i];
         setClass(slot, 'active', i === me.activeSlot);
         setClass(slot, 'empty', !wi);
-        setText(slot.lastElementChild as HTMLElement, wi ? gearName(wi.id) : '—');
+        setText(slot.querySelector('.n') as HTMLElement, wi ? gearName(wi.id) : '—');
+        // the painted render of each carried weapon (when the art ships)
+        setArt(slot, gearArt(wi?.id), { cls: 'ws-art' });
         if (wi) {
           const wd = WEAPON_BY_ID[wi.id];
           slot.style.setProperty('--rc', wd ? RARITY_COLOR[wd.rarity] : '#aaa');
@@ -248,6 +258,7 @@ export class WeaponPanel {
       setText(this.nameEl, w ? gearName(w.id) : t('hud.noWeapon'));
       setText(this.cardEl, def?.sgsCard ? `〔${def.sgsCard}〕` : '');
       this.el.style.setProperty('--rc', def ? RARITY_COLOR[def.rarity] : '#b9b2a2');
+      setArt(this.main, gearArt(w?.id), { first: true, cls: 'w-art' });
       this.mag = -1;
     }
     const mag = w?.mag ?? 0;
@@ -296,6 +307,7 @@ interface AbilityEl {
 
 interface ItemEl {
   root: HTMLElement;
+  card: HTMLElement;
   glyph: HTMLElement;
   count: HTMLElement;
   name: HTMLElement;
@@ -319,9 +331,10 @@ export class AbilityBar {
       const glyph = h('span', { class: 'g' });
       const count = h('b', { class: 'cnt' });
       const name = h('span', { class: 'nm' });
-      const root = h('div', { class: 'item empty', data: { slot: i } }, h('span', { class: 'key' }, String(4 + i)), h('div', { class: 'card' }, glyph, name, count));
+      const card = h('div', { class: 'card' }, glyph, name, count);
+      const root = h('div', { class: 'item empty', data: { slot: i } }, h('span', { class: 'key' }, String(4 + i)), card);
       root.addEventListener('click', () => this.onUse?.('item', i));
-      this.items.push({ root, glyph, count, name, key: '' });
+      this.items.push({ root, card, glyph, count, name, key: '' });
       this.itemsEl.appendChild(root);
     }
   }
@@ -335,8 +348,11 @@ export class AbilityBar {
       const num = h('b', { class: 'cdnum' });
       const charges = h('span', { class: 'charges' });
       const name = tx(v.def.nameZh, v.def.nameEn);
+      const ico = h('div', { class: 'ico' }, h('span', { class: `g${lang === 'en' ? ' en' : ''}` }, abilityShort(v.def, lang === 'en' ? 'en' : 'zh')), cd, num);
+      // the painted icon under the cooldown sweep / seconds (the short name stays as the fallback)
+      setArt(ico, abilityArt(v.def.id), { first: true });
       const root = h('div', { class: `ab slot-${v.def.slot}`, title: `${name}\n${tx(v.def.descZh, v.def.descEn)}` },
-        h('div', { class: 'ico' }, h('span', { class: `g${lang === 'en' ? ' en' : ''}` }, abilityShort(v.def, lang === 'en' ? 'en' : 'zh')), cd, num),
+        ico,
         v.key ? h('span', { class: 'key' }, v.key) : h('span', { class: 'key passive' }, t(v.def.slot === 'lord' ? 'hud.lord' : 'hud.passive')),
         charges,
       );
@@ -397,6 +413,8 @@ export class AbilityBar {
       if (key === rec.key) continue;
       rec.key = key;
       setClass(rec.root, 'empty', !it);
+      // the card's painted emblem over its glyph (when the art ships)
+      setArt(rec.card, gearArt(it?.id), { first: true, cls: 'it-art' });
       if (it) {
         const def = ITEM_BY_ID[it.id];
         setText(rec.glyph, def?.icon ?? gearName(it.id).slice(0, 1));
@@ -418,6 +436,21 @@ export class AbilityBar {
     this.key = '';
     for (const it of this.items) it.key = '';
   }
+
+  /** The sim refused this ability (abilityDenied): a short red pulse on its button. */
+  denied(abilityId: string): void {
+    const a = this.abilities.find((x) => x.view.def.id === abilityId);
+    if (a) flashDenied(a.root.firstElementChild);
+  }
+}
+
+/** Red ring pulse on a refused ability (painted icons included). */
+export function flashDenied(el: Element | null): void {
+  if (!el || typeof (el as HTMLElement).animate !== 'function') return;
+  (el as HTMLElement).animate(
+    [{ boxShadow: '0 0 0 3px #ff5a4a, 0 0 14px rgba(255, 90, 74, 0.9)', transform: 'translateX(-3px)' }, { transform: 'translateX(3px)', offset: 0.3 }, { transform: 'translateX(-2px)', offset: 0.6 }, { boxShadow: '0 0 0 0 rgba(255, 90, 74, 0)', transform: 'none' }],
+    { duration: 420, easing: 'ease-out' },
+  );
 }
 
 /** Glow pulse when an ability comes off cooldown (WAAPI: no forced reflow). */
@@ -532,6 +565,10 @@ export class TopBar {
   private readonly zonePhase: HTMLElement;
   private readonly zoneText: HTMLElement;
   private readonly zoneBox: HTMLElement;
+  private readonly matchInfo: HTMLElement;
+  /** a guest's link to the host (connstatus.ts): shown in place of the clock row */
+  private readonly linkEl: HTMLElement;
+  private link: LinkChip | null = null;
   private roleKey = '';
   private clockSecs = -1;
   private aliveN = -1;
@@ -544,10 +581,22 @@ export class TopBar {
     this.zonePhase = h('span', { class: 'zphase' });
     this.zoneText = h('span', { class: 'ztext' });
     this.zoneBox = h('div', { class: 'hud-zone' }, this.zonePhase, this.zoneText);
+    this.matchInfo = h('div', { class: 'match-info' }, this.clock, h('span', { class: 'dot' }, '·'), this.alive);
+    this.linkEl = h('div', { class: 'link-chip sg-hidden', role: 'status', aria: { live: 'polite' } });
     this.el = h('div', { class: 'hud-top' },
       this.roleChip,
-      h('div', { class: 'hud-topcenter' }, this.zoneBox, h('div', { class: 'match-info' }, this.clock, h('span', { class: 'dot' }, '·'), this.alive)),
+      h('div', { class: 'hud-topcenter' }, this.zoneBox, this.matchInfo, this.linkEl),
     );
+  }
+
+  /** The link chip (null hides it): replaced in place, never stacked. */
+  setLink(chip: LinkChip | null): void {
+    this.link = chip;
+    setClass(this.linkEl, 'sg-hidden', !chip);
+    setClass(this.matchInfo, 'sg-hidden', !!chip);
+    if (!chip) return;
+    this.linkEl.dataset.tone = chip.tone;
+    setText(this.linkEl, `${chip.tone === 'ok' ? '✓' : '⚠'} ${tx(chip.zh, chip.en)}`);
   }
 
   update(f: HudFrame): void {
@@ -558,9 +607,10 @@ export class TopBar {
       this.roleKey = rk;
       if (role) {
         const def = ROLE_BY_ID[role];
-        const s = h('span', { class: 'sg-seal', style: `--seal:${roleColor(role)};--sz:1.9em` }, h('span', null, ROLE_GLYPH[role]));
+        // your painted identity card as the reminder when the art ships, else the seal
+        const badge = roleCardBadge(role, () => h('span', { class: 'sg-seal', style: `--seal:${roleColor(role)};--sz:1.9em` }, h('span', null, ROLE_GLYPH[role])), 'rc-card');
         this.roleChip.replaceChildren(
-          s,
+          badge,
           h('div', { class: 'rc-text' },
             h('b', null, roleName(role)),
             h('span', { class: 'goal' }, def ? tx(def.goalZh, def.goalEn) : ''),
@@ -597,5 +647,6 @@ export class TopBar {
     this.zoneKey = '';
     this.aliveN = -1;
     this.clockSecs = -1;
+    this.setLink(this.link);
   }
 }

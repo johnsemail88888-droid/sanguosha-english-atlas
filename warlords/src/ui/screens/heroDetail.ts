@@ -8,6 +8,8 @@ import { getLang, heroName, heroTitle, kingdomName, t, tx } from '../i18n';
 import { portraitArtPath } from '../art';
 import { kingdomColor } from '../theme';
 import { difficultyStars, kingdomBadge, magatamaRow } from '../widgets';
+import { gearArt } from '../cardArt';
+import { abilityArt, setArt } from '../artIcons';
 
 export const SLOT_ORDER: Record<AbilityDef['slot'], number> = { passive: 0, q: 1, e: 2, lord: 3 };
 export const SLOT_KEY: Record<AbilityDef['slot'], string> = { passive: '', q: 'Q', e: 'E', lord: 'G' };
@@ -27,7 +29,11 @@ export function abilityBlock(a: AbilityDef, opts: { dimLord?: boolean } = {}): H
   if (a.cooldown) meta.push(t('select.cooldown', { n: a.cooldown }));
   if (a.charges && a.charges > 1) meta.push(t('select.charges', { n: a.charges }));
   const dim = a.slot === 'lord' && opts.dimLord;
+  // the painted skill icon beside the text (an empty, hidden slot without art)
+  const ico = h('span', { class: 'ab-ico' });
+  setArt(ico, abilityArt(a.id), { lazy: true });
   return h('div', { class: `sg-ability slot-${a.slot}${dim ? ' dim' : ''}` },
+    ico,
     h('div', { class: 'ab-head' },
       h('span', { class: `ab-key k-${a.slot}` }, slotLabel(a.slot, isPassiveAbility(a))),
       h('span', { class: 'ab-name' }, tx(a.nameZh, a.nameEn)),
@@ -63,7 +69,11 @@ export function weaponClassName(c: WeaponDef['class']): string {
 
 export function weaponBlock(w: WeaponDef): HTMLElement {
   const dmg = w.pellets > 1 ? `${w.damage}×${w.pellets}` : String(w.damage);
+  // the painted render beside the stats (an empty, hidden slot without art)
+  const art = h('span', { class: 'wc-art' });
+  setArt(art, gearArt(w.id), { lazy: true });
   return h('div', { class: 'sg-weapon-card' },
+    art,
     h('div', { class: 'wc-head' },
       h('span', { class: 'wc-name' }, tx(w.nameZh, w.nameEn)),
       w.sgsCard ? h('span', { class: 'wc-card' }, `〔${w.sgsCard}〕`) : null,

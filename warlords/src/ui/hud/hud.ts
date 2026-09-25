@@ -2,7 +2,7 @@
 // through GameHandle.onEvents (never drains the view itself). Owns the in-match
 // overlays (scoreboard, big map, wheel, chat, pause) and the touch overlay.
 import type { EntityId, GameEvent, SquadOrderKind, ViewEntity } from '../../core/types';
-import { ARMOR_BY_ID, ITEM_BY_ID, MOUNT_BY_ID } from '../../data';
+import { ARMOR_BY_ID, HERO_BY_ID, ITEM_BY_ID, MOUNT_BY_ID } from '../../data';
 import type { GameSession } from '../../game/session';
 import { displayName } from '../../game/names';
 import { settings } from '../../game/settings';
@@ -23,6 +23,9 @@ import { createGuideCard, guideCount, shouldShowGuide } from './guide';
 import { drawMinimap, type MarkerInput } from './minimap';
 import { BigMap, PauseMenu, Scoreboard, Wheel, cardRow, type WheelChoice } from './overlays';
 import { UiKeyDeduper, cycleSpectate, deniedText, entityLabel } from './logic';
+import { KillCauses } from './killcause';
+import { LinkStatus } from './connstatus';
+import { gearIcon, prewarmWeapons } from '../artIcons';
 import type { HudFrame } from './types';
 import { trackViewport } from './viewport';
 
@@ -112,6 +115,15 @@ export class Hud {
   private fpsT = 0;
   private regionKey = '';
   private readonly keyDedupe = new UiKeyDeduper();
+  /** a guest's link to the host: one live chip instead of a chat line + announcement per status */
+  private readonly link = new LinkStatus();
+  /** the match's weapon renders were queued for their cut-out (kill feed / pickups show them without a hitch) */
+  private prewarmed = false;
+  /** what each kill / down was made with (kill feed glyph when the art ships) */
+  private readonly causes = new KillCauses({
+    heldWeapon: (id) => this.view?.get(id)?.weapon,
+    ownerOf: (id) => this.view?.get(id)?.owner,
+  });
   private readonly airdrops = new Map<EntityId, { x: number; z: number; until: number }>();
   private lastDenied = -1e9;
   private inputEnabled: boolean | null = null;
@@ -179,6 +191,7 @@ export class Hud {
         online,
         isHost: () => this.session.isHost,
         items: () => this.view.local()?.items ?? [],
+        role: () => this.view.local()?.role,
       },
     );
     this.controlsBox = h('div', { class: 'hud-controls sg-panel sg-corners', role: 'dialog' });
@@ -259,6 +272,13 @@ export class Hud {
     this.bag.add(
       this.session.on('status', (st) => {
         const now = performance.now() / 1000;
+        // the link to the host: the chip (+ one chat line per change), no announcement
+        const ln = this.link.push(st, now);
+        if (ln.handled) {
+          this.top.setLink(this.link.chip);
+          if (ln.chat) this.chat.add({ from: t('chat.system'), text: tx(ln.chat.zh, ln.chat.en), kind: 'system' }, now);
+          return;
+        }
         const text = tx(st.zh, st.en);
         this.chat.add({ from: t('chat.system'), text, kind: 'system' }, now);
         this.announcer.push(text, 'info', undefined, now);
@@ -388,6 +408,11 @@ export class Hud {
       return;
     }
     this.readFailed = false;
+    if (this.link.update(now)) this.top.setLink(this.link.chip);
+    if (!this.prewarmed && f.players.length) {
+      this.prewarmed = true;
+      prewarmWeapons([...f.players.map((p) => HERO_BY_ID[p.heroId]?.signatureWeapon), 'pistol']);
+    }
     this.vitals.update(f);
     this.weapon.update(f);
     this.abilities.update(f);
@@ -495,6 +520,11 @@ export class Hud {
     const me = this.view.local();
     const squad = new Set(me?.squad.map((s) => s.id) ?? []);
     const lang = getLang();
+    try {
+      this.causes.ingest(evs, now);
+    } catch (err) {
+      console.error('[hud] kill causes failed', err);
+    }
     for (const ev of evs) {
       try {
         switch (ev.t) {
@@ -523,7 +553,7 @@ export class Hud {
             const mine = ev.src !== undefined && ev.src === myId;
             const victim = entityLabel(this.view, ev.target, lang);
             if ((aboutMe || mine) && victim?.kind === 'hero') {
-              this.feed.push(this.party(ev.src, lang), this.toParty(victim), { downed: true, mine, aboutMe, now });
+              this.feed.push(this.party(ev.src, lang), this.toParty(victim), { downed: true, mine, aboutMe, now, cause: this.causes.causeOf(ev.target, ev.src, now) });
             }
             break;
           }
@@ -557,16 +587,21 @@ export class Hud {
             break;
           case 'reward':
             if (ev.who === myId) {
-              if (ev.kind === 'rebelKill') this.announcer.push(t('hud.reward.rebelKill'), 'big', ev.items?.map(pickupName).join(tx('、', ', ')), now);
-              else if (ev.kind === 'bounty') this.announcer.push(t('hud.reward.bounty'), 'big', ev.items?.map(pickupName).join(tx('、', ', ')), now);
+              const loot = (ev.items ?? []).map((id) => gearIcon(id, 'ann-ico'));
+              if (ev.kind === 'rebelKill') this.announcer.push(t('hud.reward.rebelKill'), 'big', ev.items?.map(pickupName).join(tx('、', ', ')), now, loot);
+              else if (ev.kind === 'bounty') this.announcer.push(t('hud.reward.bounty'), 'big', ev.items?.map(pickupName).join(tx('、', ', ')), now, loot);
             }
             break;
           case 'pickup':
             // the card's name plus its one-line effect: players learn what a card does as they get it
-            if (ev.who === myId) this.announcer.push(t('hud.pickup', { name: pickupName(ev.item) }), 'info', pickupDesc(ev.item) || undefined, now);
+            if (ev.who === myId) this.announcer.push(t('hud.pickup', { name: pickupName(ev.item) }), 'info', pickupDesc(ev.item) || undefined, now, [gearIcon(ev.item, 'ann-ico')]);
             break;
           case 'sfx':
             // the sim refused a card / ability of ours: say why when the sim tells us, else stay neutral
+            if (ev.name === 'abilityDenied' && typeof ev.ability === 'string' && (ev.privateTo === undefined || ev.privateTo === myId)) {
+              this.abilities.denied(ev.ability);
+              this.touch?.denied?.(ev.ability);
+            }
             if ((ev.name === 'itemDenied' || ev.name === 'abilityDenied') && (ev.privateTo === undefined || ev.privateTo === myId) && now - this.lastDenied > 1.2) {
               this.lastDenied = now;
               const msg = deniedText(ev as { reason?: unknown; item?: unknown; ability?: unknown });
@@ -595,7 +630,9 @@ export class Hud {
     const killer = this.party(ev.killer, lang);
     const mine = ev.killer !== undefined && ev.killer === myId;
     const aboutMe = ev.target === myId;
-    this.feed.push(killer, victim, { mine, aboutMe, now });
+    const cause = this.causes.causeOf(ev.target, ev.killer, now);
+    this.causes.forget(ev.target);
+    this.feed.push(killer, victim, { mine, aboutMe, now, cause });
     if (mine && !aboutMe) {
       this.killStamp.show(`${heroName(victim.heroId)}${victim.role ? tx(`（${roleName(victim.role)}）`, ` (${roleName(victim.role)})`) : ''}`, victim.heroId);
       this.crosshair.hit('kill');

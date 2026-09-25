@@ -9,6 +9,8 @@ import { colon, kingdomName, t, tx, type I18nKey } from '../i18n';
 import { ORDER_KEYS, RARITY_COLOR, roleInk } from '../theme';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
 import { weaponClassName } from './heroDetail';
+import { gearArt } from '../cardArt';
+import { artKnown, gearIcon, roleCardBadge, setArt, whenArtKnown } from '../artIcons';
 import { ZONE_PHASES } from '../../sim/zone';
 
 type HelpTab = 'roles' | 'rules' | 'zone' | 'squad' | 'controls' | 'items' | 'gear' | 'weapons';
@@ -74,10 +76,17 @@ function para(zh: string, en: string): HTMLElement {
   return h('p', null, tx(zh, en));
 }
 
+/** A card / armor / mount glyph tile: its painted emblem in a round frame when the art ships. */
+function gearGlyph(id: string, color: string, glyph: string): HTMLElement {
+  const el = h('span', { class: 'item-glyph', style: `--ic:${color}` }, glyph);
+  setArt(el, gearArt(id), { lazy: true });
+  return el;
+}
+
 function rolesTab(): HTMLElement {
   const cards = ROLES.map((r) =>
     h('div', { class: 'role-row' },
-      roleSeal(r.id, '2.6em'),
+      roleCardBadge(r.id, () => roleSeal(r.id, '2.6em'), 'help-card'),
       h('div', null,
         h('div', { class: 'rr-head' }, h('b', { style: `color:${roleInk(r.id)}` }, tx(r.nameZh, r.nameEn)), r.chaosOnly ? h('span', { class: 'sg-chip' }, t('single.modeChaos')) : null, r.publicAtStart ? h('span', { class: 'sg-chip' }, tx('公开', 'Public')) : null),
         h('div', null, h('b', null, `${t('roles.goal')}${colon()}`), tx(r.goalZh, r.goalEn)),
@@ -228,7 +237,7 @@ function itemsTab(): HTMLElement {
           h('thead', null, h('tr', null, h('th', null, ''), h('th', null, tx('名称', 'Name')), h('th', null, tx('类别', 'Type')), h('th', null, tx('效果', 'Effect')), h('th', { class: 'num' }, tx('堆叠', 'Stack')))),
           h('tbody', null, ITEMS.map((it) =>
             h('tr', null,
-              h('td', null, h('span', { class: 'item-glyph', style: `--ic:${it.color}` }, it.icon)),
+              h('td', null, gearGlyph(it.id, it.color, it.icon)),
               h('td', null, h('b', { style: `color:${RARITY_COLOR[it.rarity] ?? 'inherit'}` }, tx(it.nameZh, it.nameEn)), it.sgsCard && it.sgsCard !== it.nameZh ? h('div', { class: 'sg-mute' }, `〔${it.sgsCard}〕`) : null),
               h('td', null, itemKindName(it.kind)),
               h('td', null, tx(it.descZh, it.descEn)),
@@ -246,7 +255,7 @@ function gearTab(): HTMLElement {
     section(tx('防具', 'Armor'),
       h('div', { class: 'sg-table-wrap' },
         h('table', { class: 'sg-table' },
-          h('tbody', null, ARMORS.map((a) => h('tr', null, h('td', null, h('span', { class: 'item-glyph', style: `--ic:${a.color}` }, a.nameZh.slice(0, 1))), h('td', null, h('b', null, tx(a.nameZh, a.nameEn))), h('td', null, tx(a.descZh, a.descEn))))),
+          h('tbody', null, ARMORS.map((a) => h('tr', null, h('td', null, gearGlyph(a.id, a.color, a.nameZh.slice(0, 1))), h('td', null, h('b', null, tx(a.nameZh, a.nameEn))), h('td', null, tx(a.descZh, a.descEn))))),
         ),
       ),
     ),
@@ -255,7 +264,7 @@ function gearTab(): HTMLElement {
       h('div', { class: 'sg-table-wrap' },
         h('table', { class: 'sg-table' },
           h('tbody', null, MOUNTS.map((m) => h('tr', null,
-            h('td', null, h('span', { class: 'item-glyph', style: `--ic:${m.color}` }, m.type === 'offense' ? '-1' : '+1')),
+            h('td', null, gearGlyph(m.id, m.color, m.type === 'offense' ? '-1' : '+1')),
             h('td', null, h('b', null, tx(m.nameZh, m.nameEn))),
             h('td', null, tx(m.descZh, m.descEn)),
           ))),
@@ -283,7 +292,7 @@ function weaponsTab(): HTMLElement {
           )),
           h('tbody', null, sorted.map((w) =>
             h('tr', null,
-              h('td', null, h('b', { style: `color:${RARITY_COLOR[w.rarity] ?? 'inherit'}` }, tx(w.nameZh, w.nameEn)), w.sgsCard ? h('div', { class: 'sg-mute' }, `〔${w.sgsCard}〕`) : null, !w.lootable ? h('span', { class: 'sg-chip' }, tx('专属', 'Signature')) : null),
+              h('td', null, gearIcon(w.id, 'wt-art', true), h('b', { style: `color:${RARITY_COLOR[w.rarity] ?? 'inherit'}` }, tx(w.nameZh, w.nameEn)), w.sgsCard ? h('div', { class: 'sg-mute' }, `〔${w.sgsCard}〕`) : null, !w.lootable ? h('span', { class: 'sg-chip' }, tx('专属', 'Signature')) : null),
               h('td', null, weaponClassName(w.class)),
               h('td', { class: 'num' }, w.pellets > 1 ? `${w.damage}×${w.pellets}` : String(w.damage)),
               h('td', { class: 'num' }, `${w.fireRate}/s`),
@@ -336,5 +345,7 @@ export function createHelpScreen(ctx: UiCtx): Screen {
     showTab();
   };
   build();
+  // opened before the art listing arrived (a deep link): the weapon renders need it at build time
+  if (!artKnown()) void whenArtKnown().then(() => !bag.isDisposed && showTab());
   return { el, relabel: build, dispose: () => bag.dispose() };
 }
