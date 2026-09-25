@@ -7,6 +7,7 @@
 //          the 2D weapon art in the corner for reference; label: hold, size, tris (full / far LOD)
 //   side   a GLB hero holding it in the aimed pose, from the right
 //   hand   close-up of the weapon hand from the right (grip in the fist?)
+//   draw   both hands from the right, wider (the bow's drawing hand on the string, the pistol's cupping hand)
 //   top    the same from above (barrel along the aim, nothing inside the body)
 //   front  from the front-left
 //   tps    the player's over-the-shoulder camera (sim/aim cameraRig), cropped
@@ -14,8 +15,11 @@
 //   game   the same camera at the game's default 75° field of view
 // Params: ids=a,b (default: every calibrated weapon), views=bench,side,top,tps
 // (default), hero=<id> (default zhaoyun; 'owner' = the weapon's hero),
-// pitch=<rad>, anim=ads|reload|sprint, cell=<px width>, bones=1 (hand joint
-// markers), noweapon=1.
+// pitch=<rad>, anim=ads|reload|sprint|low (sprint: running in place; low: the
+// showcase's low-ready idle), cell=<px width>, bones=1 (hand joint
+// markers + the weapon's fore point in magenta), noweapon=1.
+// window.__reach: per row, the support arm's reach and its shoulder's distances
+// to the weapon's grip / fore point, the hand's to the fore point (m).
 import * as THREE from 'three';
 import { HEROES, WEAPON_BY_ID } from '../../data';
 import { VF_ADS, VF_RELOADING, VF_SPRINTING } from '../../core/types';
@@ -27,7 +31,7 @@ import { loadAllClips } from '../anim/glbClips';
 import { WEAPON_GLB_CAL, loadWeaponArt, weaponArtSync, type WeaponPoint } from '../models/weaponGlb';
 import { buildWeapon } from '../models/weapons';
 
-type View = 'bench' | 'side' | 'hand' | 'top' | 'front' | 'tps' | 'game';
+type View = 'bench' | 'side' | 'hand' | 'draw' | 'top' | 'front' | 'tps' | 'game';
 
 /** Distance between the rows' heroes (m): nothing of one row shows in another's views. */
 const SPACING = 40;
@@ -168,6 +172,7 @@ export async function startWeaponsPreview(canvas: HTMLCanvasElement, params: URL
           ['RightHand', '#ff2020'],
           ['LeftHand', '#2060ff'],
           ['RightForeArm', '#ff9020'],
+          ['fore', '#ff20ff'],
         ].map(([name, c]) => {
           const m = marker(c, 0.012);
           scene.add(m);
@@ -202,14 +207,41 @@ export async function startWeaponsPreview(canvas: HTMLCanvasElement, params: URL
   let t = 0;
   const step = (dt: number): void => {
     t += dt;
-    for (const r of rows) r.rig.update(dt, t, { speed: 0, moveX: 0, moveZ: 0, pitch, flags });
+    // sprint: running in place (the lowered carry needs speed); low: the showcase's low-ready idle
+    const speed = anim === 'sprint' ? 7.5 : 0;
+    for (const r of rows) r.rig.update(dt, t, { speed, moveX: 0, moveZ: speed > 0 ? 1 : 0, pitch, flags, lowReady: anim === 'low' });
   };
   for (let i = 0; i < 90; i++) step(1 / 60);
   scene.updateMatrixWorld(true);
   for (const r of rows) {
-    for (const j of r.joints) r.rig.glbBody?.boneWorld(j.name, j.m.position);
+    for (const j of r.joints) {
+      if (j.name === 'fore') {
+        // the held weapon's fore point (foregrip / bow nock), magenta
+        const wm = findWeaponMesh(r.rig.root, r.id);
+        const fore = r.rig.glbBody?.weaponInfo?.fore;
+        j.m.visible = !!(wm && fore);
+        if (wm && fore) j.m.position.copy(fore).applyMatrix4(wm.matrixWorld);
+      } else r.rig.glbBody?.boneWorld(j.name, j.m.position);
+    }
     if (hideWeapon) r.rig.root.traverse((o) => o.name.startsWith('weapon_') && (o.visible = false));
   }
+  // window.__reach: the support arm's reach vs its distances to the weapon's grip / fore point (m)
+  (window as unknown as { __reach: unknown }).__reach = rows.map((r) => {
+    const body = r.rig.glbBody;
+    const wm = findWeaponMesh(r.rig.root, r.id);
+    const fore = body?.weaponInfo?.fore;
+    if (!body || !wm || !fore) return { id: r.id };
+    const pos = (name: string): THREE.Vector3 => {
+      const v = new THREE.Vector3();
+      body.boneWorld(name, v);
+      return v;
+    };
+    const [a, b, c, ra] = [pos('LeftArm'), pos('LeftForeArm'), pos('LeftHand'), pos('RightArm')];
+    const grip = new THREE.Vector3().setFromMatrixPosition(wm.matrixWorld);
+    const f = fore.clone().applyMatrix4(wm.matrixWorld);
+    const r3 = (x: number): number => Math.round(x * 1000) / 1000;
+    return { id: r.id, reach: r3(a.distanceTo(b) + b.distanceTo(c)), shoulders: r3(a.distanceTo(ra)), toGrip: r3(a.distanceTo(grip)), toFore: r3(a.distanceTo(f)), handToFore: r3(c.distanceTo(f)), gripToFore: r3(grip.distanceTo(f)) };
+  });
 
   const draw = (): void => {
     scene.updateMatrixWorld(true);
@@ -263,6 +295,15 @@ export async function startWeaponsPreview(canvas: HTMLCanvasElement, params: URL
           cam.position.set(hand.x + 1.1, hand.y + 0.05, hand.z - 0.15);
           cam.up.set(0, 1, 0);
           cam.lookAt(hand.x, hand.y, hand.z - 0.15);
+        } else if (v === 'draw') {
+          // between the two hands, from the right
+          const a = r.rig.glbBody?.boneWorld('LeftHand', tmp) ? tmp.clone() : tmp.set(p.x, 1.3, p.z - 0.3).clone();
+          const b = r.rig.glbBody?.boneWorld('RightHand', tmp2) ? tmp2 : tmp2.set(p.x, 1.3, p.z - 0.3);
+          a.add(b).multiplyScalar(0.5);
+          cam.fov = 34;
+          cam.position.set(a.x + 1.5, a.y + 0.15, a.z);
+          cam.up.set(0, 1, 0);
+          cam.lookAt(a.x, a.y, a.z);
         } else if (v === 'front') {
           cam.fov = 30;
           cam.position.set(p.x - 0.6, 1.5, p.z - 3.2);

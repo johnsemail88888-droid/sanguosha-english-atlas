@@ -36,18 +36,23 @@ import {
   BACK_ENTER,
   BACK_EXIT,
   CLOTH_FOLLOW,
+  GLB_HOLD_POSES,
   L,
   U,
   WARP_MAX,
   glbBlend,
   glbCast,
   glbHit,
+  glbHoldTarget,
   glbMelee,
   newGlbBlend,
   newGlbMemory,
   type GlbAnimInput,
+  type GlbFrameInput,
 } from '../../../src/render/anim/glbAnimator';
-import { twoBoneReach } from '../../../src/render/anim/ik';
+import { alignFrames, limbJoints, slideToReach, twoBoneReach } from '../../../src/render/anim/ik';
+import { RIDE_POSE, SADDLE_HIP } from '../../../src/render/models/mounts';
+import { DRAW_WRIST } from '../../../src/render/models/glbBody';
 import { CLIP_IDS, setClipsForTests, type ClipId } from '../../../src/render/anim/glbClips';
 import {
   CLOTH_BONES,
@@ -303,6 +308,13 @@ describe('glbBlend (state → layer weights)', () => {
     expect(b.aim).toBe(1);
     expect(b.weaponVisible).toBe(true);
     expect(b.leftHandIk).toBe(true);
+    // a pistol's support hand cups the grip; akimbo's holds its own gun, a sword's stays free
+    glbBlend(input({ hold: 'pistol' }), newGlbMemory(), b);
+    expect(b.leftHandIk).toBe(true);
+    glbBlend(input({ hold: 'akimbo' }), newGlbMemory(), b);
+    expect(b.leftHandIk).toBe(false);
+    glbBlend(input({ hold: 'sword' }), newGlbMemory(), b);
+    expect(b.leftHandIk).toBe(false);
   });
 
   it('unarmed: the lower clips drive the whole body', () => {
@@ -485,6 +497,128 @@ describe('twoBoneReach', () => {
     expect(twoBoneReach(a, b, c, t, r, m)).toBe(false);
     const end = apply(a, b, c, r, m);
     expect(end.clone().normalize().dot(new THREE.Vector3(1, 0, 0))).toBeGreaterThan(0.999);
+  });
+});
+
+describe('limb IK helpers (legs astride, hold arms)', () => {
+  it('alignFrames turns a direction onto another with its bend plane turned along', () => {
+    const u0 = new THREE.Vector3(0, 0, 1);
+    const n0 = new THREE.Vector3(1, 0, 0);
+    const u1 = new THREE.Vector3(0.3, -0.6, 0.7).normalize();
+    const n1 = new THREE.Vector3(1, 0.2, 0).normalize();
+    const qr = alignFrames(u0, n0, u1, n1, new THREE.Quaternion());
+    expect(u0.clone().applyQuaternion(qr).distanceTo(u1)).toBeLessThan(1e-5);
+    // the normal lands on n1's part perpendicular to u1
+    const n1p = n1.clone().addScaledVector(u1, -n1.dot(u1)).normalize();
+    expect(n0.clone().applyQuaternion(qr).distanceTo(n1p)).toBeLessThan(1e-5);
+    // a straight limb (no plane): the shortest arc
+    const qs = alignFrames(u0, new THREE.Vector3(), u1, n1, new THREE.Quaternion());
+    expect(u0.clone().applyQuaternion(qs).distanceTo(u1)).toBeLessThan(1e-5);
+  });
+
+  it('limbJoints keeps the segment lengths, ends on a reachable target, bends toward the pole', () => {
+    const a = new THREE.Vector3(0.1, 1.3, 0);
+    const t = new THREE.Vector3(0.22, 0.85, 0.05);
+    const pole = new THREE.Vector3(0.9, -0.3, 0.8);
+    const mid = new THREE.Vector3();
+    const end = new THREE.Vector3();
+    expect(limbJoints(a, t, pole, 0.45, 0.43, mid, end)).toBe(true);
+    expect(end.distanceTo(t)).toBeLessThan(1e-4);
+    expect(mid.distanceTo(a)).toBeCloseTo(0.45, 4);
+    expect(mid.distanceTo(end)).toBeCloseTo(0.43, 4);
+    // the knee goes forward and out (toward the pole's side of the hip → ankle line)
+    expect(mid.z).toBeGreaterThan(0.15);
+    expect(mid.x).toBeGreaterThan(0.2);
+    // out of reach: straight toward the target
+    expect(limbJoints(a, new THREE.Vector3(0.1, -1, 0), pole, 0.45, 0.43, mid, end)).toBe(false);
+    expect(end.distanceTo(a)).toBeCloseTo(0.88, 3);
+    expect(end.x).toBeCloseTo(0.1, 3);
+  });
+
+  it('slideToReach: the support hand takes the foregrip in reach, else slides back along the weapon to the farthest reachable point', () => {
+    const s = new THREE.Vector3(0.15, 1.4, 0);
+    const g = new THREE.Vector3(-0.15, 1.1, 0.15);
+    const out = new THREE.Vector3();
+    // in reach: the foregrip itself
+    const near = new THREE.Vector3(-0.1, 1.15, 0.3);
+    expect(slideToReach(s, g, near, 0.5, out)).toBe(1);
+    expect(out.distanceTo(near)).toBeLessThan(1e-9);
+    // a foregrip 0.6 m ahead: on the grip → foregrip line, exactly at the reach, as far forward as that goes
+    const far = new THREE.Vector3(-0.15, 1.1, 0.75);
+    const t = slideToReach(s, g, far, 0.5, out);
+    expect(t).toBeGreaterThan(0.1);
+    expect(t).toBeLessThan(1);
+    expect(out.distanceTo(s)).toBeCloseTo(0.5, 6);
+    expect(out.x).toBeCloseTo(-0.15, 6);
+    expect(out.y).toBeCloseTo(1.1, 6);
+    expect(out.z).toBeCloseTo(0.15 + 0.6 * t, 6);
+    // (in place: `out` may be the foregrip vector itself)
+    const alias = far.clone();
+    slideToReach(s, g, alias, 0.5, alias);
+    expect(alias.distanceTo(out)).toBeLessThan(1e-9);
+    // nothing in reach: the weapon's point nearest the shoulder
+    expect(slideToReach(s, g, far, 0.2, out)).toBe(0);
+    expect(out.distanceTo(g)).toBeLessThan(1e-9);
+  });
+});
+
+describe('hold poses (GLB_HOLD_POSES)', () => {
+  const hand = new THREE.Vector3();
+  const hand2 = new THREE.Vector3();
+  const dir = new THREE.Vector3();
+  it('akimbo: both guns forward, side by side 0.3–0.4 m apart; pistol: on the midline, arms out', () => {
+    const ak = GLB_HOLD_POSES.akimbo!;
+    glbHoldTarget(ak, 0, 0, 1, hand, dir);
+    glbHoldTarget(ak, 0, 0, -1, hand2, dir);
+    // armature axes: +X = the model's left, +Z forward
+    expect(hand.x).toBeLessThan(0);
+    expect(hand2.x).toBeGreaterThan(0);
+    const apart = hand.distanceTo(hand2);
+    expect(apart).toBeGreaterThanOrEqual(0.3);
+    expect(apart).toBeLessThanOrEqual(0.4);
+    expect(hand.z).toBeCloseTo(hand2.z, 6);
+    expect(hand.y).toBeCloseTo(hand2.y, 6);
+    expect(hand.z).toBeGreaterThan(0.35);
+    const pi = GLB_HOLD_POSES.pistol!;
+    glbHoldTarget(pi, 0, 0, 1, hand, dir);
+    expect(Math.abs(hand.x)).toBeLessThan(0.1);
+    expect(hand.z).toBeGreaterThan(0.35);
+    expect(dir.z).toBeCloseTo(1, 6);
+  });
+
+  it('hip / launcher / staff: at the hip, on the shoulder, mid-shaft with the tip up', () => {
+    glbHoldTarget(GLB_HOLD_POSES.hip!, 0, 0, 1, hand, dir);
+    expect(hand.y).toBeLessThan(-0.25);
+    // two-handed holds blade the chest (the left shoulder forward: the support hand reaches the foregrip)
+    for (const h of ['hip', 'launcher', 'pole'] as const) expect(GLB_HOLD_POSES[h]!.blade, h).toBeGreaterThan(0.4);
+    glbHoldTarget(GLB_HOLD_POSES.launcher!, 0, 0, 1, hand, dir);
+    expect(Math.abs(hand.y)).toBeLessThan(0.1);
+    expect(hand.x).toBeLessThan(-0.15);
+    const pole = GLB_HOLD_POSES.pole!;
+    glbHoldTarget(pole, 0, 0, 1, hand, dir);
+    expect(hand.y).toBeLessThan(-0.2);
+    expect(Math.asin(dir.y)).toBeCloseTo(pole.tilt, 6);
+    // rifles and bows keep the aimed clip's own arms
+    expect(GLB_HOLD_POSES.rifle).toBeUndefined();
+    expect(GLB_HOLD_POSES.bow).toBeUndefined();
+  });
+
+  it('aiming up swings the hands about the shoulders (by the hold’s share) and the weapon by the whole pitch', () => {
+    for (const [name, pose] of Object.entries(GLB_HOLD_POSES)) {
+      glbHoldTarget(pose!, 0, 0, 1, hand, dir);
+      glbHoldTarget(pose!, 0.6, 0, 1, hand2, dir);
+      expect(hand2.length(), name).toBeCloseTo(hand.length(), 6);
+      expect(hand2.y, name).toBeGreaterThan(hand.y);
+      expect(Math.asin(dir.y), name).toBeCloseTo(0.6 + pose!.tilt, 6);
+      expect(dir.x).toBe(0);
+      // lowered (sprint carry / showcase): the hold's own carry, whatever the aim
+      glbHoldTarget(pose!, 0.6, 1, 1, hand2, dir);
+      expect(hand2.y, name).toBeCloseTo(pose!.low.hand[1], 6);
+      expect(Math.asin(dir.y), name).toBeCloseTo(pose!.low.pitch, 6);
+      // guns / flamers / launchers point down, staves are carried tip up
+      if (name === 'pole') expect(dir.y).toBeGreaterThan(0.3);
+      else expect(dir.y).toBeLessThan(-0.2);
+    }
   });
 });
 
@@ -742,9 +876,9 @@ describe('GlbBody + GlbAnimator on a synthetic rig', () => {
 // ── AI-art weapons in a GLB body's hands ────────────────────────────────────
 
 /** Calibrated art for a weapon from a textured box "gun" (1.0 long along +Z, like the shipped files). */
-function boxArt(id: string): WeaponArt {
+function boxArt(id: string, size: [number, number, number] = [0.1, 0.3, 1.0]): WeaponArt {
   const scene = new THREE.Group();
-  scene.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 1.0), new THREE.MeshStandardMaterial({ map: new THREE.DataTexture(new Uint8Array(4), 1, 1) })));
+  scene.add(new THREE.Mesh(new THREE.BoxGeometry(...size), new THREE.MeshStandardMaterial({ map: new THREE.DataTexture(new Uint8Array(4), 1, 1) })));
   const art = prepareWeaponArt(id, WEAPON_GLB_CAL[id], scene)!;
   art.lod = art.geo.clone();
   return art;
@@ -814,6 +948,177 @@ describe('GlbBody holding AI-art weapons', () => {
     expect(after.geometry).toBe(art.lod);
     body.setLod(false);
     expect(after.geometry).toBe(art.geo);
+    body.dispose();
+  });
+
+  const frame = (o: Partial<GlbFrameInput> = {}): GlbFrameInput => ({ ...fi, ...o });
+  const barrel = (m: THREE.Mesh): THREE.Vector3 => new THREE.Vector3(0, 0, -1).transformDirection(m.matrixWorld);
+  const at = (m: THREE.Mesh): THREE.Vector3 => new THREE.Vector3().setFromMatrixPosition(m.matrixWorld);
+
+  it('akimbo: both guns forward along the aim, side by side (not one behind the other)', () => {
+    setClipsForTests(syntheticClips());
+    setWeaponArtForTests(boxArt('cixiong'));
+    const body = new GlbBody(syntheticTemplate(), 1.8);
+    const root = new THREE.Group();
+    root.add(body.group);
+    body.setWeapon('cixiong', 'akimbo', true);
+    for (let i = 0; i < 40; i++) body.update(frame({ hold: 'akimbo', pitch: 0.2 }));
+    root.updateMatrixWorld(true);
+    const ws = weaponMeshes(body, 'cixiong');
+    const left = ws.find((w) => w.parent?.name === 'weapon_LeftHand')!;
+    const right = ws.find((w) => w.parent?.name === 'weapon_RightHand')!;
+    const pl = at(left);
+    const pr = at(right);
+    // the game's forward is −Z, its right +X
+    expect(pr.x - pl.x).toBeGreaterThan(0.25);
+    expect(pr.x - pl.x).toBeLessThan(0.45);
+    expect(Math.abs(pr.z - pl.z)).toBeLessThan(0.06);
+    expect(Math.abs(pr.y - pl.y)).toBeLessThan(0.06);
+    for (const w of [left, right]) {
+      const d = barrel(w);
+      expect(d.z).toBeLessThan(-0.9);
+      expect(Math.asin(d.y)).toBeCloseTo(0.2, 1);
+    }
+    body.dispose();
+  });
+
+  it('pistol: arms out, the support hand cupping the gun hand, the barrel along the aim', () => {
+    setClipsForTests(syntheticClips());
+    setWeaponArtForTests(boxArt('qingnang'));
+    const body = new GlbBody(syntheticTemplate(), 1.8);
+    const root = new THREE.Group();
+    root.add(body.group);
+    body.setWeapon('qingnang', 'pistol', false);
+    for (let i = 0; i < 40; i++) body.update(frame({ hold: 'pistol' }));
+    root.updateMatrixWorld(true);
+    const r = new THREE.Vector3();
+    const l = new THREE.Vector3();
+    const chest = new THREE.Vector3();
+    body.boneWorld('RightHand', r);
+    body.boneWorld('LeftHand', l);
+    body.boneWorld('Spine', chest);
+    expect(l.distanceTo(r)).toBeLessThan(0.12);
+    // in front of the chest, near the midline
+    expect(chest.z - r.z).toBeGreaterThan(0.3);
+    expect(Math.abs(r.x - chest.x)).toBeLessThan(0.12);
+    const [gun] = weaponMeshes(body, 'qingnang');
+    expect(barrel(gun).z).toBeLessThan(-0.97);
+    body.dispose();
+  });
+
+  it('hip hold: the flamer at the hip (well below the aimed rifle), still along the aim', () => {
+    setClipsForTests(syntheticClips());
+    setWeaponArtForTests(boxArt('zhuque'));
+    setWeaponArtForTests(boxArt('carbine'));
+    const heights: number[] = [];
+    for (const [id, hold] of [
+      ['carbine', 'rifle'],
+      ['zhuque', 'hip'],
+    ] as const) {
+      const body = new GlbBody(syntheticTemplate(), 1.8);
+      const root = new THREE.Group();
+      root.add(body.group);
+      body.setWeapon(id, hold, false);
+      for (let i = 0; i < 40; i++) body.update(frame({ hold }));
+      root.updateMatrixWorld(true);
+      const [gun] = weaponMeshes(body, id);
+      heights.push(at(gun).y);
+      expect(barrel(gun).z, id).toBeLessThan(-0.97);
+      body.dispose();
+    }
+    expect(heights[0] - heights[1]).toBeGreaterThan(0.2);
+  });
+
+  it('two-handed holds: the support hand on the weapon — the foregrip, or slid back along it when that is out of reach', () => {
+    setClipsForTests(syntheticClips());
+    setWeaponArtForTests(boxArt('zhuque'));
+    setWeaponArtForTests(boxArt('huben'));
+    setWeaponArtForTests(boxArt('taiping'));
+    // (the rig's hold for each: flamer / LMG from the hip, the staff; a short body's arms
+    // do not reach the LMG's foregrip 0.42 m ahead of its grip)
+    for (const [id, hold, height, onFore] of [
+      ['zhuque', 'hip', 1.8, true],
+      ['huben', 'hip', 1.8, true],
+      ['huben', 'hip', 1.3, false],
+      ['taiping', 'pole', 1.8, true],
+    ] as const) {
+      const body = new GlbBody(syntheticTemplate(), height);
+      const root = new THREE.Group();
+      root.add(body.group);
+      body.setWeapon(id, hold, false);
+      for (let i = 0; i < 40; i++) body.update(frame({ hold }));
+      root.updateMatrixWorld(true);
+      const [gun] = weaponMeshes(body, id);
+      const grip = at(gun);
+      const fore = body.weaponInfo!.fore!.clone().applyMatrix4(gun.matrixWorld);
+      const left = new THREE.Vector3();
+      body.boneWorld('LeftHand', left);
+      // on the grip → foregrip line (within a couple of cm), ahead of the weapon hand
+      const seg = new THREE.Line3(grip, fore);
+      const on = seg.closestPointToPoint(left, true, new THREE.Vector3());
+      expect(on.distanceTo(left), id).toBeLessThan(0.02);
+      expect(left.clone().sub(grip).dot(barrel(gun)), id).toBeGreaterThan(0.04);
+      if (onFore) expect(left.distanceTo(fore), id).toBeLessThan(0.04);
+      else expect(left.distanceTo(fore), id).toBeGreaterThan(0.08);
+      body.dispose();
+    }
+  });
+
+  it('bow: the drawing hand on the string, just behind the nock', () => {
+    const clips = syntheticClips();
+    setClipsForTests({ ...clips, bow: clips.aim });
+    // limbs along the file's +X (1.07 tall), the arrow along +Z: 1.05 m long at its 1.12 m height
+    setWeaponArtForTests(boxArt('xiaoji', [1.07, 0.1, 1.0]));
+    const body = new GlbBody(syntheticTemplate(), 1.8);
+    const root = new THREE.Group();
+    root.add(body.group);
+    body.setWeapon('xiaoji', 'bow', false);
+    for (let i = 0; i < 40; i++) body.update(frame({ hold: 'bow' }));
+    root.updateMatrixWorld(true);
+    const [bow] = weaponMeshes(body, 'xiaoji');
+    const wrist = body.weaponInfo!.fore!.clone().add(DRAW_WRIST).applyMatrix4(bow.matrixWorld);
+    const r = new THREE.Vector3();
+    body.boneWorld('RightHand', r);
+    expect(r.distanceTo(wrist)).toBeLessThan(0.02);
+    body.dispose();
+  });
+
+  it('riding: feet at the stirrups, knees forward and out around the barrel', () => {
+    setClipsForTests(syntheticClips());
+    const body = new GlbBody(syntheticTemplate(), 1.8);
+    const root = new THREE.Group();
+    root.add(body.group);
+    body.setWeapon('carbine', 'rifle', false);
+    for (let i = 0; i < 40; i++) body.update(frame({ mounted: true, mountHip: SADDLE_HIP.horse }));
+    root.updateMatrixWorld(true);
+    const [ox, oy, oz] = RIDE_POSE.horse.ankle;
+    const hips = new THREE.Vector3();
+    body.boneWorld('Hips', hips);
+    expect(hips.y).toBeCloseTo(SADDLE_HIP.horse, 2);
+    for (const [side, sx] of [
+      ['Left', -1],
+      ['Right', 1],
+    ] as const) {
+      const ankle = new THREE.Vector3();
+      const knee = new THREE.Vector3();
+      const hip = new THREE.Vector3();
+      body.boneWorld(`${side}Foot`, ankle);
+      body.boneWorld(`${side}Leg`, knee);
+      body.boneWorld(`${side}UpLeg`, hip);
+      // rig-root frame: the rider's left is −X, forward −Z
+      expect(ankle.distanceTo(new THREE.Vector3(sx * ox, oy, -oz)), side).toBeLessThan(0.02);
+      expect(knee.z, side).toBeLessThan(hip.z - 0.1);
+      expect(Math.abs(knee.x), side).toBeGreaterThan(Math.abs(hip.x) + 0.05);
+      expect(knee.y, side).toBeLessThan(hip.y);
+    }
+    // the saddle bob lifts the rider a little more than the saddle (the stirrups ride with it)
+    for (let i = 0; i < 10; i++) body.update(frame({ mounted: true, mountHip: SADDLE_HIP.horse, mountBob: 0.05 }));
+    root.updateMatrixWorld(true);
+    body.boneWorld('Hips', hips);
+    expect(hips.y - SADDLE_HIP.horse).toBeGreaterThan(0.05);
+    const ankle = new THREE.Vector3();
+    body.boneWorld('LeftFoot', ankle);
+    expect(ankle.y).toBeCloseTo(oy + 0.05, 1);
     body.dispose();
   });
 

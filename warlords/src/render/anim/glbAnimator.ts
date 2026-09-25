@@ -13,10 +13,18 @@
 //                  toward the travel direction with the chest counter-turned,
 //                  an aim solve that turns the torso until the held weapon
 //                  points along the camera aim (pitch included), recoil kick,
-//                  hit flinch, stun wobble, saddle placement, left-hand IK on
-//                  the foregrip, and the cloth followers (capes / robes
+//                  hit flinch, stun wobble, saddle placement with the legs
+//                  astride (IK to the stirrups / the howdah's pad, models/
+//                  mounts.ts RIDE_POSE), left-hand IK on the foregrip (a
+//                  pistol's support hand cups the grip, a bow's drawing hand
+//                  holds the string; a foregrip out of the arm's reach: the
+//                  hand slides back along the weapon, ik.slideToReach), and
+//                  the cloth followers (capes / robes
 //                  skinned to models/glb.ts CLOTH_BONES trail the thighs at a
-//                  damped amplitude).
+//                  damped amplitude). Pistols, akimbo pairs, hip-fired
+//                  flamers / LMGs, shouldered launchers and staves place the
+//                  weapon themselves (GLB_HOLD_POSES, like the procedural
+//                  rig's HOLD_POSES) instead of the aimed-rifle clip's arms.
 //
 // Locomotion set: every movement in the game is a run (heroes 5 m/s, troops
 // 5-6 m/s, ADS 3 m/s, sprint 7.5 m/s) while the shipped walk clips are slow
@@ -42,8 +50,9 @@ import {
 } from '../../core/types';
 import type { HoldStyle } from '../models/weapons';
 import { CLOTH_BONES, type CharTemplate } from '../models/glb';
+import { RIDE_POSE, rideKindOf, type RidePose } from '../models/mounts';
 import { CLIP_SPECS, modelClip, type ClipId, type ModelClip } from './glbClips';
-import { twoBoneReach } from './ik';
+import { alignFrames, limbJoints, slideToReach, twoBoneReach } from './ik';
 
 // ── slots ────────────────────────────────────────────────────────────────────
 
@@ -111,6 +120,9 @@ export const CLOTH_FOLLOW = 0.35;
 export const CLOTH_RATE = 14;
 /** Share of the way the cloth followers swing back toward hanging straight down (gravity). */
 export const CLOTH_GRAVITY = 0.5;
+/** Seated on a mount: the followers drape along the raised thighs and bent shins (more follow, less hang). */
+export const CLOTH_FOLLOW_RIDE = 0.55;
+export const CLOTH_GRAVITY_RIDE = 0.3;
 
 export interface GlbAnimInput {
   dt: number;
@@ -424,7 +436,8 @@ export function glbBlend(inp: GlbAnimInput, mem: GlbAnimMemory, out: GlbBlend): 
   out.aim = main === 'aim' || main === 'bow' || main === 'bowShot' ? 1 : 0;
   out.lowered = main === 'aim' && (sprinting || (inp.lowReady === true && (f & VF_ADS) === 0 && (f & VF_FIRING) === 0)) ? 1 : 0;
   out.face = full ? 0 : 1;
-  out.leftHandIk = main === 'aim' && inp.hold !== 'akimbo' && inp.hold !== 'sword' && inp.hold !== 'pistol';
+  // (a pistol's support hand cups the grip; akimbo's holds the second gun)
+  out.leftHandIk = main === 'aim' && inp.hold !== 'akimbo' && inp.hold !== 'sword';
   out.weaponVisible = armed && !dead && !downed && !dance;
   out.stun = (f & VF_STUNNED) !== 0 && !dead ? 1 : 0;
   out.timeScale = (f & VF_FROZEN) !== 0 ? 0 : out.stun ? 0.35 : 1;
@@ -439,8 +452,83 @@ export interface GlbWeaponAttach {
   hand: 'RightHand' | 'LeftHand';
   /** barrel direction (−Z of the weapon) in that hand bone's frame (unit) */
   dirInHand: THREE.Vector3;
-  /** foregrip (left-hand IK target) in the hand bone's frame, model units; null = none */
+  /** foregrip (left-hand IK target; bows: the drawing hand's, on the string) in the hand bone's frame, model units; null = none */
   foreInHand: THREE.Vector3 | null;
+  /** the weapon's origin (its grip) in the hand bone's frame, model units: where the support hand slides back to */
+  originInHand: THREE.Vector3;
+  /** weapon rotation in the hand bone's frame (the holds that place the weapon themselves, GLB_HOLD_POSES) */
+  grip: THREE.Quaternion;
+  /** akimbo: the left gun's rotation in the left hand's frame; else null */
+  gripL: THREE.Quaternion | null;
+}
+
+/**
+ * Holds that place the weapon themselves instead of turning the aimed-rifle
+ * clip's arms onto the aim (the rifle / bow holds): the chest squares to the
+ * aim (or turns to a bladed stance), the weapon hand goes to a target in front
+ * of the shoulders (arm IK with the elbow toward a pole), the weapon is turned
+ * along the aim, and the left hand takes the foregrip (the pistol's cups the
+ * grip; akimbo's holds its own gun, mirrored). Like the procedural rig's
+ * HOLD_POSES (anim/animator.ts).
+ */
+export interface GlbHoldPose {
+  /** weapon hand (the grip, the weapon's origin) from the shoulders' midpoint (m): x right, y up, z forward, at a level aim */
+  hand: readonly [number, number, number];
+  /** weapon pitch above the aim (rad): a staff's tip up */
+  tilt: number;
+  /** share of the aim pitch that swings the hand about the shoulders (the weapon itself follows the whole pitch) */
+  swing: number;
+  /** chest yaw from square to the aim (rad, + = the right shoulder back, the left one forward: a bladed stance) */
+  blade: number;
+  /** share of the aim pitch the spine bends (the arms take the rest) */
+  spine: number;
+  /** weapon arm's elbow direction (x right, y up, z forward) */
+  elbow: readonly [number, number, number];
+  /**
+   * the lowered carry (sprinting, the showcase idle of portraits / the gallery):
+   * the hand target (same frame) and the weapon's pitch (rad) — instead of the
+   * aimed pose swung down to the low-ready pitch
+   */
+  low: { hand: readonly [number, number, number]; pitch: number };
+}
+
+export const GLB_HOLD_POSES: Partial<Record<HoldStyle, GlbHoldPose>> = {
+  // isosceles two-handed grip: arms forward, the gun on the midline at chin height;
+  // lowered: compressed ready, the gun at the belly pointing down-forward
+  pistol: { hand: [0.05, -0.08, 0.44], tilt: 0, swing: 1, blade: 0, spine: 0.4, elbow: [0.7, -1, -0.1], low: { hand: [0.06, -0.32, 0.3], pitch: -0.6 } },
+  // a gun in each hand, side by side 0.34 m apart; lowered: down-forward at the sides
+  akimbo: { hand: [0.17, -0.09, 0.42], tilt: 0, swing: 1, blade: 0, spine: 0.4, elbow: [0.9, -1, -0.1], low: { hand: [0.18, -0.36, 0.26], pitch: -0.7 } },
+  // Two-handed holds keep the grip close to the body and the chest well bladed (the left
+  // shoulder forward): the models' arms reach ~0.46 m, so the support hand gets to a
+  // foregrip ~0.2–0.35 m ahead of the grip (farther ones: it slides back, leftHandIk).
+  // flamers / LMGs from the hip: the stock under the forearm by the right hip
+  hip: { hand: [0.16, -0.28, 0.12], tilt: 0, swing: 0.45, blade: 0.9, spine: 0.3, elbow: [0.4, -0.3, -1], low: { hand: [0.16, -0.3, 0.1], pitch: -0.35 } },
+  // launchers on the right shoulder, the tube beside the head; lowered: still shouldered, the muzzle down a little
+  launcher: { hand: [0.18, 0.0, 0.12], tilt: 0, swing: 1, blade: 0.6, spine: 0.4, elbow: [0.3, -1, 0.3], low: { hand: [0.18, -0.04, 0.1], pitch: -0.3 } },
+  // staves / spears at the right hip, the shaft along the aim with the tip a little up, the
+  // left hand forward on it; lowered: carried at port, the tip high across the chest
+  pole: { hand: [0.17, -0.28, 0.08], tilt: 0.3, swing: 0.45, blade: 0.9, spine: 0.3, elbow: [0.4, -0.3, -1], low: { hand: [0.17, -0.3, 0.16], pitch: 0.7 } },
+};
+
+/**
+ * PURE: a hold's weapon-hand target (m, armature axes: +X = the model's left,
+ * +Y up, +Z forward; from the shoulders' midpoint) and the weapon direction
+ * for an aim pitch, blended toward the hold's lowered carry by `lowered`
+ * (0..1). side −1 = the left hand (akimbo), mirrored.
+ */
+export function glbHoldTarget(pose: GlbHoldPose, pitch: number, lowered: number, side: 1 | -1, outHand: THREE.Vector3, outDir: THREE.Vector3): void {
+  const a = pitch * pose.swing;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  const k = 1 - lowered;
+  const x = pose.hand[0] * k + pose.low.hand[0] * lowered;
+  const y0 = pose.hand[1];
+  const z0 = pose.hand[2];
+  const y = (y0 * c + z0 * s) * k + pose.low.hand[1] * lowered;
+  const z = (z0 * c - y0 * s) * k + pose.low.hand[2] * lowered;
+  outHand.set(-x * side, y, z);
+  const d = (pitch + pose.tilt) * k + pose.low.pitch * lowered;
+  outDir.set(0, Math.sin(d), Math.cos(d));
 }
 
 export interface GlbFrameInput extends Omit<GlbAnimInput, 'has' | 'natSpeed' | 'crawlHeading'> {
@@ -474,6 +562,28 @@ const _pA = new THREE.Vector3();
 const _pB = new THREE.Vector3();
 const _pC = new THREE.Vector3();
 const _pT = new THREE.Vector3();
+const _pD = new THREE.Vector3();
+const _pO = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
+const _hold = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _xW = new THREE.Vector3();
+const _yW = new THREE.Vector3();
+const _zW = new THREE.Vector3();
+const _mW = new THREE.Matrix4();
+const _qW = new THREE.Quaternion();
+/** Joint names per side (no per-frame string building). */
+const LIMB = {
+  Left: { shoulder: 'LeftShoulder', arm: 'LeftArm', fore: 'LeftForeArm', hand: 'LeftHand', upLeg: 'LeftUpLeg', leg: 'LeftLeg', foot: 'LeftFoot', toe: 'LeftToeBase' },
+  Right: { shoulder: 'RightShoulder', arm: 'RightArm', fore: 'RightForeArm', hand: 'RightHand', upLeg: 'RightUpLeg', leg: 'RightLeg', foot: 'RightFoot', toe: 'RightToeBase' },
+} as const;
+const _kneeT = new THREE.Vector3();
+const _ankleT = new THREE.Vector3();
+const _nA = new THREE.Vector3();
+const _nB = new THREE.Vector3();
+const _dA = new THREE.Vector3();
+const _qRide = new THREE.Quaternion();
+const _gW = new THREE.Vector3();
 const _chainQ = [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()];
 const _chainP = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
 
@@ -780,16 +890,19 @@ export class GlbAnimator {
       _q.setFromAxisAngle(Y_AXIS, hipsYaw);
       hips.quaternion.premultiply(_q);
     }
-    // mount: hips at the saddle, thighs spread around the horse
+    // mount: hips at the saddle (bouncing a little more than it), legs astride (IK to the stirrups)
     const mountW = this.wLo[L.sit];
-    if (mountW > 1e-3 && fi.mountHip > 0) {
+    const ride = mountW > 1e-3 && fi.mountHip > 0 ? RIDE_POSE[rideKindOf(fi.mountHip)] : null;
+    if (ride) {
       // metres in the rig-root frame → model units (the clone's Armature space)
-      const saddle = (fi.mountHip + fi.mountBob) / this.unitM;
+      const saddle = (fi.mountHip + fi.mountBob * (1 + ride.bounce)) / this.unitM;
       hips.position.y += (saddle - hips.position.y) * mountW;
       hips.position.x += (this.hipsRest.x - hips.position.x) * mountW;
       hips.position.z += (this.hipsRest.z - 0.06 / this.unitM - hips.position.z) * mountW;
-      this.rotateWorld(bones.LeftUpLeg, 'Hips', Y_AXIS, 0.42 * mountW);
-      this.rotateWorld(bones.RightUpLeg, 'Hips', Y_AXIS, -0.42 * mountW);
+      this.rideLeg(ride, 1, fi.mountBob, mountW);
+      this.rideLeg(ride, -1, fi.mountBob, mountW);
+      // a nod with each stride (the aim solve below keeps the weapon on target)
+      this.rotateWorld(bones.Spine02, 'Hips', RIGHT_AXIS, -ride.lean * fi.mountBob * mountW);
     }
 
     // 2. torso: keep the chest on the aim yaw (counter the hips turn), then aim the weapon
@@ -798,9 +911,17 @@ export class GlbAnimator {
       for (let i = 0; i < SPINE.length; i++) this.rotateWorld(bones[SPINE[i]], i === 0 ? 'Hips' : SPINE[i - 1], Y_AXIS, counter * SPINE_SHARE[i]);
     }
     if (attach && this.aimW > 1e-3 && b.weaponVisible) {
-      const pitch = (clamp(fi.pitch, -1.3, 1.3) + 0.12 * this.recoilPitch) * (1 - this.lowered) + LOW_READY_PITCH * this.lowered;
+      const aimPitch = clamp(fi.pitch, -1.3, 1.3) + 0.12 * this.recoilPitch;
+      const pitch = aimPitch * (1 - this.lowered) + LOW_READY_PITCH * this.lowered;
       let spinePitch = 0;
-      for (let iter = 0; iter < 3; iter++) {
+      // holds that place the weapon themselves (while the aim slot plays)
+      const hold = this.wUp[U.aim] > 1e-3 ? GLB_HOLD_POSES[fi.hold] : undefined;
+      if (hold) {
+        // (the lowered carry keeps the chest upright)
+        spinePitch = this.squareChest(hold, aimPitch * (1 - this.lowered));
+        this.holdArms(hold, attach, aimPitch, this.lowered, this.wUp[U.aim] * this.aimW, fi.hold === 'akimbo');
+      }
+      for (let iter = 0; iter < (hold ? 0 : 3); iter++) {
         this.weaponDir(attach, _v);
         const yawErr = wrapAngle(-Math.atan2(_v.x, _v.z)) * this.aimW;
         const pitchErr = (pitch - Math.asin(clamp(_v.y, -1, 1))) * this.aimW;
@@ -834,9 +955,13 @@ export class GlbAnimator {
       this.rotateWorld(bones.Head, 'neck', RIGHT_AXIS, -0.25 + Math.sin(t * 3.1) * 0.1);
     }
 
-    // 3. left hand on the foregrip
+    // 3. left hand on the foregrip; a bow's drawing hand on the string
     if (attach && attach.foreInHand && b.leftHandIk && b.weaponVisible && this.wUp[U.aim] > 0.5 && this.wUp[U.reload] < 0.05) {
       this.leftHandIk(attach, this.wUp[U.aim] * this.aimW);
+    }
+    if (attach && attach.foreInHand && fi.hold === 'bow' && b.weaponVisible && this.wUp[U.bow] > 1e-3) {
+      this.foreTarget(attach, _pT);
+      this.handReach('Right', _pT, this.wUp[U.bow] * this.aimW);
     }
 
     // 4. cloth: a damped share of each thigh's final rotation, pulled toward
@@ -844,14 +969,17 @@ export class GlbAnimator {
     //    cape into a wall), trailing slightly
     if (this.cloth.length) {
       const follow = this.clothSettled ? 1 - Math.exp(-dt * CLOTH_RATE) : 1;
+      const rideW = ride ? mountW : 0;
+      const share = CLOTH_FOLLOW + (CLOTH_FOLLOW_RIDE - CLOTH_FOLLOW) * rideW;
+      const gravity = CLOTH_GRAVITY + (CLOTH_GRAVITY_RIDE - CLOTH_GRAVITY) * rideW;
       for (let i = 0; i < this.cloth.length; i++) {
         const c = this.cloth[i];
-        _q.copy(c.rest).slerp(c.thigh.quaternion, CLOTH_FOLLOW);
+        _q.copy(c.rest).slerp(c.thigh.quaternion, share);
         // armature-space hang axis (the thigh's bone axis, toward the knee)
         _qa.copy(hips.quaternion).multiply(_q);
         _v.copy(Y_AXIS).applyQuaternion(_qa);
         // −_v.y = cos(angle to straight down); upside down (mid-roll) the pull fades out
-        const g = CLOTH_GRAVITY * smooth01(-0.85, -0.45, -_v.y);
+        const g = gravity * smooth01(-0.85, -0.45, -_v.y);
         if (g > 1e-3) {
           _q2.setFromUnitVectors(_v, DOWN_AXIS);
           _q2.slerp(IDENTITY_Q, 1 - g);
@@ -914,39 +1042,179 @@ export class GlbAnimator {
     return out;
   }
 
+  /**
+   * Rotate a bone by the ARMATURE-space rotation `q` (pivot at the bone),
+   * blended in by `w`: local' = P⁻¹ · q · P · local, P = the parent's armature rotation.
+   */
+  private premultiplyWorld(bone: THREE.Bone | undefined, parentName: string, q: THREE.Quaternion, w: number): void {
+    if (!bone) return;
+    if (w < 0.999) q.slerp(IDENTITY_Q, 1 - w);
+    this.chainQuat(parentName, _qp);
+    _q.copy(_qp).invert().multiply(q).multiply(_qp);
+    bone.quaternion.premultiply(_q);
+  }
+
+  /**
+   * One leg of a mounted rider (side +1 = left, the armature's +X): thigh and
+   * shin turned so the ankle reaches the pose's target with the knee toward
+   * its pole (the bend plane turned along, see ik.alignFrames), then the foot
+   * turned along the pose's foot direction.
+   */
+  private rideLeg(pose: RidePose, side: 1 | -1, bob: number, w: number): void {
+    const n = LIMB[side > 0 ? 'Left' : 'Right'];
+    const foot = this.bones[n.foot];
+    if (!foot) return;
+    const u = this.unitM;
+    // thigh + shin: the ankle to the stirrup, the knee toward the pose's pole
+    _pT.set((side * pose.ankle[0]) / u, (pose.ankle[1] + bob) / u, pose.ankle[2] / u);
+    _v3.set(side * pose.knee[0], pose.knee[1], pose.knee[2]);
+    this.limbTo(n.upLeg, n.leg, n.foot, 'Hips', _pT, _v3, w);
+    // foot: ankle → toe along the pose's foot direction (heel down, toe a little out)
+    const toe = this.bones[n.toe];
+    if (!toe) return;
+    this.chainPos(n.foot, _pC);
+    this.chainPos(n.toe, _pT);
+    _v.subVectors(_pT, _pC).normalize();
+    _v2.set(side * pose.foot[0], pose.foot[1], pose.foot[2]).normalize();
+    _qRide.setFromUnitVectors(_v, _v2);
+    this.premultiplyWorld(foot, n.leg, _qRide, w);
+  }
+
   /** Current barrel direction in armature space. */
   private weaponDir(attach: GlbWeaponAttach, out: THREE.Vector3): THREE.Vector3 {
     this.chainQuat(attach.hand, _qb);
     return out.copy(attach.dirInHand).applyQuaternion(_qb);
   }
 
-  private leftHandIk(attach: GlbWeaponAttach, w: number): void {
-    const bones = this.bones;
-    const arm = bones.LeftArm;
-    const fore = bones.LeftForeArm;
-    if (!arm || !fore || !bones.LeftHand || !attach.foreInHand) return;
-    // target: the foregrip, from the weapon hand
-    this.chainPos(attach.hand, _pT);
+  /** The weapon's fore point (foregrip / bow string) in armature space. */
+  private foreTarget(attach: GlbWeaponAttach, out: THREE.Vector3): THREE.Vector3 {
+    this.chainPos(attach.hand, out);
     this.chainQuat(attach.hand, _qb);
-    _v.copy(attach.foreInHand).applyQuaternion(_qb);
-    _pT.add(_v);
+    if (attach.foreInHand) out.add(_v.copy(attach.foreInHand).applyQuaternion(_qb));
+    return out;
+  }
+
+  /**
+   * The support hand on the foregrip — or, out of the arm's reach (a long LMG
+   * from the hip, a staff: the model's short arms), as far toward it along the
+   * weapon as it reaches (ik.slideToReach), so it holds the weapon instead of
+   * pointing at the foregrip in mid-air.
+   */
+  private leftHandIk(attach: GlbWeaponAttach, w: number): void {
+    if (!attach.foreInHand) return;
+    this.foreTarget(attach, _pT);
+    // (foreTarget left the weapon hand's armature rotation in _qb)
+    this.chainPos(attach.hand, _gW).add(_v.copy(attach.originInHand).applyQuaternion(_qb));
     this.chainPos('LeftArm', _pA);
     this.chainPos('LeftForeArm', _pB);
     this.chainPos('LeftHand', _pC);
+    const reach = _pA.distanceTo(_pB) + _pB.distanceTo(_pC);
+    slideToReach(_pA, _gW, _pT, reach * LEFT_REACH, _pT);
+    this.handReach('Left', _pT, w);
+  }
+
+  /** Two-bone reach of one arm to an armature-space target, bending in its current elbow plane. */
+  private handReach(side: 'Left' | 'Right', target: THREE.Vector3, w: number): void {
+    const n = LIMB[side];
+    const arm = this.bones[n.arm];
+    const fore = this.bones[n.fore];
+    if (!arm || !fore || !this.bones[n.hand]) return;
+    _pD.copy(target);
+    this.chainPos(n.arm, _pA);
+    this.chainPos(n.fore, _pB);
+    this.chainPos(n.hand, _pC);
     const qRoot = _ikRoot;
     const qMid = _ikMid;
-    twoBoneReach(_pA, _pB, _pC, _pT, qRoot, qMid);
-    if (w < 0.999) {
-      qRoot.slerp(IDENTITY_Q, 1 - w);
-      qMid.slerp(IDENTITY_Q, 1 - w);
-    }
+    twoBoneReach(_pA, _pB, _pC, _pD, qRoot, qMid);
     // mid first (about the elbow, expressed through the upper arm's frame), then the root
-    this.chainQuat('LeftArm', _qp);
-    _q.copy(_qp).invert().multiply(qMid).multiply(_qp);
-    fore.quaternion.premultiply(_q);
-    this.chainQuat('LeftShoulder', _qp);
-    _q.copy(_qp).invert().multiply(qRoot).multiply(_qp);
-    arm.quaternion.premultiply(_q);
+    this.premultiplyWorld(fore, n.arm, qMid, w);
+    this.premultiplyWorld(arm, n.shoulder, qRoot, w);
+  }
+
+  /**
+   * Hold poses (GLB_HOLD_POSES): turn the chest square to the aim (or to the
+   * hold's bladed stance) and bend the spine by the hold's share of the pitch.
+   * Returns the spine pitch applied.
+   */
+  private squareChest(hold: GlbHoldPose, pitch: number): number {
+    const bones = this.bones;
+    for (let iter = 0; iter < 2; iter++) {
+      // chest forward: across the shoulder line (left − right) × up = (−v.z, 0, v.x); its yaw
+      // is + toward the armature's +X (the model's left), so a bladed chest (the left shoulder
+      // forward, facing right of the aim) is at −blade
+      this.chainPos('RightArm', _pA);
+      this.chainPos('LeftArm', _pB);
+      _v.subVectors(_pB, _pA);
+      const yawErr = wrapAngle(-hold.blade - Math.atan2(-_v.z, _v.x)) * this.aimW;
+      if (Math.abs(yawErr) < 1e-4) break;
+      for (let i = 0; i < SPINE.length; i++) this.rotateWorld(bones[SPINE[i]], i === 0 ? 'Hips' : SPINE[i - 1], Y_AXIS, yawErr * SPINE_SHARE[i]);
+    }
+    const sp = clamp(pitch * hold.spine, -SPINE_PITCH_DOWN, SPINE_PITCH_UP) * this.aimW;
+    for (let i = 0; i < SPINE.length; i++) this.rotateWorld(bones[SPINE[i]], i === 0 ? 'Hips' : SPINE[i - 1], RIGHT_AXIS, sp * SPINE_SHARE[i]);
+    return sp;
+  }
+
+  /** Hold poses: the weapon hand(s) to the hold's target, the weapon(s) along the aim. */
+  private holdArms(hold: GlbHoldPose, attach: GlbWeaponAttach, pitch: number, lowered: number, w: number, akimbo: boolean): void {
+    if (w < 1e-3) return;
+    // the shoulders' midpoint (the arms do not move it)
+    this.chainPos('RightArm', _pA);
+    this.chainPos('LeftArm', _pB);
+    _pO.addVectors(_pA, _pB).multiplyScalar(0.5);
+    for (let k = 0; k < (akimbo ? 2 : 1); k++) {
+      const side = k === 0 ? 1 : -1;
+      const n = LIMB[side > 0 ? 'Right' : 'Left'];
+      const grip = side > 0 ? attach.grip : attach.gripL;
+      if (!grip) continue;
+      glbHoldTarget(hold, pitch, lowered, side, _hold, _dir);
+      _pT.copy(_hold).divideScalar(this.unitM).add(_pO);
+      _v3.set(-hold.elbow[0] * side, hold.elbow[1], hold.elbow[2]);
+      this.limbTo(n.arm, n.fore, n.hand, n.shoulder, _pT, _v3, w);
+      // the hand turned so the weapon lies along the aim, its top up: weapon = hand · grip
+      _zW.copy(_dir).negate();
+      _yW.set(0, 1, 0).addScaledVector(_zW, -_zW.y).normalize();
+      _xW.crossVectors(_yW, _zW);
+      _mW.makeBasis(_xW, _yW, _zW);
+      _qW.setFromRotationMatrix(_mW).multiply(_q2.copy(grip).invert());
+      this.chainQuat(n.fore, _qp);
+      _qW.premultiply(_qp.invert());
+      const hand = this.bones[n.hand];
+      if (hand) hand.quaternion.slerp(_qW, w);
+    }
+  }
+
+  /**
+   * Two-bone limb (root → mid → end joints) to an armature-space target, the
+   * middle joint bent toward `pole`: the root segment is turned onto its new
+   * direction with the bend plane turned along (ik.alignFrames), then the
+   * middle segment onto the target. Blended in by `w`.
+   */
+  private limbTo(root: string, mid: string, end: string, rootParent: string, target: THREE.Vector3, pole: THREE.Vector3, w: number): void {
+    const rb = this.bones[root];
+    const mb = this.bones[mid];
+    if (!rb || !mb || !this.bones[end]) return;
+    const a = this.chainPos(root, _pA);
+    const m = this.chainPos(mid, _pB);
+    const e = this.chainPos(end, _pC);
+    const l1 = a.distanceTo(m);
+    const l2 = m.distanceTo(e);
+    if (l1 < 1e-6 || l2 < 1e-6) return;
+    _pD.copy(target);
+    limbJoints(a, _pD, pole, l1, l2, _kneeT, _ankleT);
+    _v.subVectors(m, a);
+    _v2.subVectors(e, m);
+    _nA.crossVectors(_v, _v2);
+    _dA.subVectors(_kneeT, a);
+    _v2.subVectors(_ankleT, _kneeT);
+    _nB.crossVectors(_dA, _v2);
+    alignFrames(_v, _nA, _dA, _nB, _qRide);
+    this.premultiplyWorld(rb, rootParent, _qRide, w);
+    this.chainPos(mid, _pB);
+    this.chainPos(end, _pC);
+    _v.subVectors(_pC, _pB).normalize();
+    _v2.subVectors(_ankleT, _kneeT).normalize();
+    _qRide.setFromUnitVectors(_v, _v2);
+    this.premultiplyWorld(mb, root, _qRide, w);
   }
 
   dispose(): void {
@@ -963,5 +1231,7 @@ export const SPINE_PITCH_UP = 0.7;
 export const SPINE_PITCH_DOWN = 0.25;
 /** Weapon pitch (rad) of the low-ready carry while sprinting. */
 export const LOW_READY_PITCH = -0.62;
+/** Share of the support arm's full length it reaches out to (a straight elbow reads as locked). */
+export const LEFT_REACH = 0.97;
 /** Clip time (s) of the jump clip's airborne tuck (held while VF_AIRBORNE). */
 export const JUMP_HOLD = 0.8;

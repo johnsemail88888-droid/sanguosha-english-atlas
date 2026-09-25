@@ -18,6 +18,7 @@ import {
   type QuadCalib,
 } from '../../../src/render/models/quadrupedRig';
 import {
+  blazeMask,
   coatGamma,
   measureCoatRef,
   mountCoatVariant,
@@ -28,7 +29,7 @@ import {
   setMountLoaderForTests,
   tackTexel,
 } from '../../../src/render/models/mountGlb';
-import { MOUNT_SCALE, MountRig, SADDLE_HIP, SEAT_TO_HIP, mountSeatHeight } from '../../../src/render/models/mounts';
+import { MOUNT_SCALE, MountRig, RIDE_POSE, SADDLE_HIP, SEAT_TO_HIP, mountSeatHeight, rideKindOf } from '../../../src/render/models/mounts';
 import { CharacterRig } from '../../../src/render/models/character';
 import { heroSpec } from '../../../src/render/models';
 import { assetList, setAssetListForTests } from '../../../src/game/assets';
@@ -215,6 +216,43 @@ describe('quadruped rig', () => {
     expect(measureSeatTop(new Float32Array(0), HORSE_CALIB)).toBe(y);
   });
 
+  it('skins the horse’s tail hair to the tail chain only (a lifted tail stays a rope); the hocks beside it keep their legs', () => {
+    const calib = HORSE_CALIB;
+    const minY = -0.746;
+    const m = mountRigMatrix(calib, minY, 1.5);
+    const bones = quadBones(calib, refineJoints(new Float32Array(0), calib, minY), m);
+    const s = new THREE.Vector3().setFromMatrixScale(m).x;
+    const box = (b: { min: readonly number[]; max: readonly number[] }): { min: THREE.Vector3; max: THREE.Vector3 } => {
+      const bb = new THREE.Box3().setFromPoints([new THREE.Vector3(...b.min).applyMatrix4(m), new THREE.Vector3(...b.max).applyMatrix4(m)]);
+      return { min: bb.min, max: bb.max };
+    };
+    const rigid = calib.rigid.map((r) => ({ bone: r.bone, ...box(r) }));
+    const exclusive = (calib.exclusive ?? []).map((r) => ({ bones: r.bones, ...box(r), fade: r.fade * s }));
+    expect(exclusive.length).toBe(1);
+    // file coordinates: tail hair (front surface, side, tip), a hock's rear, the rump above the dock
+    const pts = [
+      [0, -0.1, -0.815],
+      [0.06, 0.0, -0.87],
+      [0, -0.38, -0.9],
+      [0.11, -0.3, -0.8],
+      [0.08, 0.25, -0.7],
+    ];
+    const pos = Float32Array.from(pts.flatMap((p) => new THREE.Vector3(p[0], p[1], p[2]).applyMatrix4(m).toArray()));
+    const w = quadSkinWeights(pos, bones, rigid, exclusive);
+    const share = (v: number, pred: (name: string) => boolean): number => {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) if (w.skinWeight[v * 4 + k] > 0 && pred(bones[w.skinIndex[v * 4 + k]].name)) sum += w.skinWeight[v * 4 + k];
+      return sum;
+    };
+    const tail = (n: string): boolean => n.startsWith('tail');
+    for (let v = 0; v < 3; v++) expect(share(v, tail), `tail vertex ${v}`).toBeCloseTo(1, 6);
+    // the hock (x 0.11: outside the hair) stays on its leg
+    expect(share(3, (n) => n.startsWith('BL') || n.startsWith('BR'))).toBeGreaterThan(0.9);
+    expect(share(3, tail)).toBeLessThan(0.05);
+    // above the region the normal falloff applies (rump)
+    expect(share(4, (n) => n === 'pelvis' || n === 'body')).toBeGreaterThan(0.5);
+  });
+
   it('measures segment distances', () => {
     const a = new THREE.Vector3(0, 0, 0);
     const b = new THREE.Vector3(0, 1, 0);
@@ -368,6 +406,47 @@ describe('MountRig with the AI-art model', () => {
     for (let i = 0; i < 30; i++) ele.update(1 / 60, 2, i / 60);
     expect(ele.mesh.skeleton.bones.some((b) => b.name === 'trunk4')).toBe(true);
     ele.dispose();
+  });
+
+  it('的卢’s blaze is a narrow stripe from the forehead down the nose (not a round spot)', () => {
+    const r = rigMountMesh('horse', stubMountMesh(HORSE_CALIB), 1.5).regions;
+    // forehead above and behind the nose (rig space: the head at −Z)
+    expect(r.blazeA.y).toBeGreaterThan(r.blazeB.y + 0.15 * r.unit);
+    expect(r.blazeA.z).toBeGreaterThan(r.blazeB.z + 0.08 * r.unit);
+    const len = r.blazeA.distanceTo(r.blazeB);
+    // long and narrow, tapering toward the nose
+    expect(len).toBeGreaterThan(5 * r.blazeW.x);
+    expect(r.blazeW.y).toBeLessThan(r.blazeW.x);
+    const mid = r.blazeA.clone().lerp(r.blazeB, 0.5);
+    expect(blazeMask(mid, r)).toBeCloseTo(1, 6);
+    expect(blazeMask(r.blazeA, r)).toBeCloseTo(1, 6);
+    expect(blazeMask(r.blazeB, r)).toBeCloseTo(1, 6);
+    // across the face it ends within a few cm; the cheeks and the jaw stay coat
+    const side = mid.clone();
+    side.x += 0.06 * r.unit;
+    expect(blazeMask(side, r)).toBe(0);
+    const below = mid.clone();
+    below.y -= 0.1 * r.unit;
+    expect(blazeMask(below, r)).toBe(0);
+  });
+
+  it('seats riders by the saddle height: horse feet in the stirrups (reachable, under the seat), the elephant’s bench', () => {
+    expect(rideKindOf(SADDLE_HIP.horse)).toBe('horse');
+    expect(rideKindOf(SADDLE_HIP.elephant)).toBe('elephant');
+    for (const kind of ['horse', 'elephant'] as const) {
+      const p = RIDE_POSE[kind];
+      const drop = SADDLE_HIP[kind] - p.ankle[1];
+      // below the seat, within a ~0.9 m leg's reach of the hip joints (~0.06 below the hips)
+      expect(drop, kind).toBeGreaterThan(0.3);
+      expect(Math.hypot(drop - 0.06, p.ankle[0] - 0.1, p.ankle[2] + 0.06), kind).toBeLessThan(0.85);
+      expect(p.knee[2], kind).toBeGreaterThan(0);
+    }
+    // horse: the stirrup tread measured on horse.glb is 0.77 m up, 0.1 m ahead of the seat, 0.24 m out
+    const h = RIDE_POSE.horse.ankle;
+    expect(h[1] - 0.77).toBeGreaterThan(0.03);
+    expect(h[1] - 0.77).toBeLessThan(0.12);
+    expect(h[0]).toBeGreaterThan(0.18);
+    expect(h[0]).toBeLessThan(0.26);
   });
 
   it('puts the seat just under the rider\'s hips', () => {

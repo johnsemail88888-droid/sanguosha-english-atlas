@@ -72,6 +72,41 @@ export function mountSeatHeight(kind: MountKind): number {
   return (SADDLE_HIP[kind] - SEAT_TO_HIP[kind]) / MOUNT_SCALE[kind];
 }
 
+/**
+ * How a GLB rider's legs sit on a mount (anim/glbAnimator.ts): leg IK from
+ * the seated hips to an ankle target, the knee bent toward a pole, the foot
+ * turned along a direction. Metres / directions in the rider's frame on the
+ * mount: x = out from the midline (mirrored per side), y = up, z = forward
+ * (the mount's head); the ankle is a height above the ground and a distance
+ * ahead of the seat (it rides with the saddle's bob).
+ */
+export interface RidePose {
+  ankle: readonly [out: number, up: number, fwd: number];
+  knee: readonly [out: number, up: number, fwd: number];
+  foot: readonly [out: number, up: number, fwd: number];
+  /** extra rise of the rider's hips per metre of saddle bob (the knees absorb it: a little posting bounce) */
+  bounce: number;
+  /** forward lean of the upper body per metre of saddle bob (rad / m), a nod with each stride */
+  lean: number;
+}
+
+/**
+ * Horse: feet in the stirrups (measured on horse.glb: the tread 0.77 m up,
+ * 0.24 m out, 0.1 m ahead of the seat; the ankle sits above and behind the
+ * ball of the foot), thighs down and out around the barrel, knees forward
+ * and out, heels down. Elephant: the howdah's bench — shins down in front of
+ * it, feet on the pad, knees a little apart.
+ */
+export const RIDE_POSE: Record<MountKind, RidePose> = {
+  horse: { ankle: [0.22, 0.84, 0.02], knee: [0.9, -0.3, 0.8], foot: [0.3, 0.18, 1], bounce: 0.6, lean: 1.2 },
+  elephant: { ankle: [0.2, 1.96, 0.32], knee: [0.3, 0.2, 1], foot: [0.2, 0.1, 1], bounce: 0.4, lean: 0.8 },
+};
+
+/** The mount a rider sits on, from the saddle height the rig reports (GlbFrameInput.mountHip). */
+export function rideKindOf(mountHip: number): MountKind {
+  return mountHip > (SADDLE_HIP.horse + SADDLE_HIP.elephant) / 2 ? 'elephant' : 'horse';
+}
+
 const LEGS = ['FL', 'FR', 'BL', 'BR'] as const;
 const TAU = Math.PI * 2;
 
@@ -288,10 +323,12 @@ export class MountRig {
     b('neck2').rotation.x = nod * 0.5;
     b('head').rotation.x = moving ? Math.sin(P) * 0.07 : Math.sin(t * 0.9 + 1) * 0.05;
     b('head').rotation.y = moving ? 0 : Math.sin(t * 0.37) * 0.06;
-    b('tail').rotation.x = -0.1 - (moving ? 0.45 * g : 0) + Math.sin(t * 2.3) * 0.05;
+    // tail (skinned as one rope, quadrupedRig.ts): lifted from the dock and streaming
+    // back with the speed, flicked with each stride, the hair trailing the dock
+    b('tail').rotation.x = -0.1 - (moving ? 0.42 * g + Math.sin(P + 1.1) * 0.07 * g : 0) + Math.sin(t * 2.3) * 0.05;
     b('tail').rotation.z = Math.sin(t * 1.7) * 0.1;
     b('tail2').rotation.z = Math.sin(t * 1.7 - 0.7) * 0.14;
-    b('tail2').rotation.x = moving ? -0.3 * g : 0;
+    b('tail2').rotation.x = moving ? -0.28 * g + Math.sin(P + 0.3) * 0.09 * g : 0;
     return bob;
   }
 

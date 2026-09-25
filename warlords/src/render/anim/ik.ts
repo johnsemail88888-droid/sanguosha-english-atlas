@@ -127,3 +127,95 @@ export function twoBoneReach(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector
   outRoot.setFromUnitVectors(_ca, _ta.normalize());
   return dRaw <= l1 + l2;
 }
+
+const _u0 = new THREE.Vector3();
+const _n0 = new THREE.Vector3();
+const _w0 = new THREE.Vector3();
+const _u1 = new THREE.Vector3();
+const _n1 = new THREE.Vector3();
+const _w1 = new THREE.Vector3();
+const _m0 = new THREE.Matrix4();
+const _m1 = new THREE.Matrix4();
+
+/**
+ * Rotation taking the direction `u0` to `u1` AND the plane normal `n0` to
+ * `n1` (each normal is made perpendicular to its direction first): turns a
+ * limb segment onto a new direction with its bend plane (the hinge of the next
+ * joint) turned along, instead of the shortest arc's arbitrary twist. Falls
+ * back to the shortest arc when a normal is degenerate (a straight limb).
+ */
+export function alignFrames(u0: THREE.Vector3, n0: THREE.Vector3, u1: THREE.Vector3, n1: THREE.Vector3, out: THREE.Quaternion): THREE.Quaternion {
+  _u0.copy(u0).normalize();
+  _u1.copy(u1).normalize();
+  _n0.copy(n0).addScaledVector(_u0, -n0.dot(_u0));
+  _n1.copy(n1).addScaledVector(_u1, -n1.dot(_u1));
+  if (_n0.lengthSq() < 1e-10 || _n1.lengthSq() < 1e-10) return out.setFromUnitVectors(_u0, _u1);
+  _n0.normalize();
+  _n1.normalize();
+  _w0.crossVectors(_u0, _n0);
+  _w1.crossVectors(_u1, _n1);
+  _m0.makeBasis(_u0, _n0, _w0);
+  _m1.makeBasis(_u1, _n1, _w1);
+  // R · m0 = m1 → R = m1 · m0ᵀ (orthonormal)
+  _m0.transpose();
+  return out.setFromRotationMatrix(_m1.multiply(_m0));
+}
+
+const _kd = new THREE.Vector3();
+const _pl = new THREE.Vector3();
+
+/**
+ * Where a two-bone limb's middle joint goes: root `a`, target `t`, segment
+ * lengths `l1` / `l2`, the middle joint bending toward `pole`. Writes the
+ * middle joint into `outMid` and the reachable end (the target, or the
+ * closest reachable point on the root → target line) into `outEnd`; returns
+ * false when the target was out of reach.
+ */
+export function limbJoints(a: THREE.Vector3, t: THREE.Vector3, pole: THREE.Vector3, l1: number, l2: number, outMid: THREE.Vector3, outEnd: THREE.Vector3): boolean {
+  _kd.subVectors(t, a);
+  let d = _kd.length();
+  if (d < 1e-8) {
+    _kd.set(0, -1, 0);
+    d = 1e-8;
+  } else _kd.divideScalar(d);
+  const reach = d <= l1 + l2;
+  d = Math.min(l1 + l2 - 1e-5, Math.max(Math.abs(l1 - l2) + 1e-5, d));
+  _pl.copy(pole).addScaledVector(_kd, -pole.dot(_kd));
+  if (_pl.lengthSq() < 1e-10) _pl.set(0, 0, 1).addScaledVector(_kd, -_kd.z);
+  if (_pl.lengthSq() < 1e-10) _pl.set(1, 0, 0);
+  _pl.normalize();
+  const along = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(0, l1 * l1 - along * along));
+  outEnd.copy(a).addScaledVector(_kd, d);
+  outMid.copy(a).addScaledVector(_kd, along).addScaledVector(_pl, h);
+  return reach;
+}
+
+const _sd = new THREE.Vector3();
+const _se = new THREE.Vector3();
+
+/**
+ * Where a support hand takes a weapon it cannot reach at its foregrip: the
+ * point of the segment grip `g` → foregrip `f` farthest toward `f` that lies
+ * within `reach` of the shoulder `s` (the hand slides back along the handguard
+ * / receiver / shaft instead of floating in the air, the arm pointing at an
+ * unreachable foregrip). The foregrip itself when it is in reach; when not even
+ * the grip is, the segment's point nearest the shoulder. Writes `out` (may
+ * alias `f`, not `g` / `s`); returns the share of the way from the grip (0..1).
+ */
+export function slideToReach(s: THREE.Vector3, g: THREE.Vector3, f: THREE.Vector3, reach: number, out: THREE.Vector3): number {
+  _sd.subVectors(g, s);
+  _se.subVectors(f, g);
+  const ee = _se.lengthSq();
+  const r2 = reach * reach;
+  let t = 1;
+  if (ee > 1e-12 && s.distanceToSquared(f) > r2) {
+    const de = _sd.dot(_se);
+    const disc = de * de - ee * (_sd.lengthSq() - r2);
+    // entering the reach sphere: the far root of |d + t·e|² = r²; outside it everywhere: the nearest point
+    const far = disc >= 0 ? (-de + Math.sqrt(disc)) / ee : -1;
+    t = far >= 0 ? Math.min(1, far) : Math.min(1, Math.max(0, -de / ee));
+  }
+  out.copy(g).addScaledVector(_se, t);
+  return t;
+}
