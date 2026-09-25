@@ -36,8 +36,13 @@ const artUniforms = {
 
 /** Tile size (m) per ground layer: grass, dirt, cliff, paving, mud (cliffs: see CLIFF_*). */
 export const GROUND_TILE_M = [5.6, 4.6, 14.0, 3.6, 6.0] as const;
-/** Cliff strata sample: metres per image (u along the face, v up) — long, low slabs. */
-const CLIFF_STRATA_M = [62.0, 24.0] as const;
+/**
+ * Cliff strata sample: metres per image along the face and up it. The painted
+ * courses are turned to run DOWN the face (long vertical slabs, the fall-line
+ * strokes of 披麻皴 / 斧劈皴): laid flat they stacked into horizontal terraces
+ * that striped every tall face and the great corner peaks.
+ */
+const CLIFF_STRATA_M = [26.0, 58.0] as const;
 /** Cliff fracture sample: metres per image, turn (degrees) and the distance it has faded out by. */
 const CLIFF_FRACTURE_M = 13.0;
 const CLIFF_FRACTURE_DEG = 32;
@@ -113,21 +118,25 @@ vec3 gTex(float layer, vec2 uv, vec2 gx, vec2 gy, float orient, float road, bool
 }
 // cliffs: side projections around the face heading (no stretching on steep faces). The
 // painted cliff is a stacked-stone pattern (2 × 2 repeats per image), so it is
-// never shown as-is over a whole face: the strata sample stretches it into
-// long, low beds (${CLIFF_STRATA_M[0]} × ${CLIFF_STRATA_M[1]} m per image, domain-warped so no joint lines
-// up), and a finer copy turned ${CLIFF_FRACTURE_DEG}° crosses them as fractures — its value
-// only — breaking every course into irregular blocks (axe-cut strokes, 斧劈皴)
-// and hiding both repeats. Far away the strata blur into tonal masses with
-// soft weathering streaks. ≤ 2 samples per projection; the vertical warp is
-// shared by the projections so their beds line up where they blend.
+// never shown as-is over a whole face: the strata sample turns it 90° and
+// stretches it into long slabs running down the face (${CLIFF_STRATA_M[0]} m along × ${CLIFF_STRATA_M[1]} m up per
+// image, domain-warped so no joint lines up), and a finer copy turned ${CLIFF_FRACTURE_DEG}°
+// crosses them as fractures — its value only — breaking every slab into
+// irregular blocks (axe-cut strokes, 斧劈皴) and hiding both repeats. Far away
+// the slabs blur into tonal masses with vertical weathering streaks. ≤ 2
+// samples per projection; the lateral warp is shared by the projections so
+// their slabs line up where they blend.
 vec3 gCliffProj(vec2 q, vec2 qx, vec2 qy, float warpV, float detW, float blur, float soften, bool lq) {
 #ifdef GROUND_LQ
   lq = true;
 #endif
-  float wu = gNoise(q * vec2(0.019, 0.031) + 5.3) - 0.5;
-  vec2 wq = q + vec2(wu * 34.0, warpV);
+  float wu = gNoise(q * vec2(0.031, 0.013) + 5.3) - 0.5;
+  // slabs meander sideways as they run down (warpV) and shift in length (wu)
+  vec2 wq = q + vec2(warpV, wu * 30.0);
   const vec2 SM = vec2(${(1 / CLIFF_STRATA_M[0]).toFixed(5)}, ${(1 / CLIFF_STRATA_M[1]).toFixed(5)});
-  vec3 c = textureGrad(uGroundTex, vec3(wq * SM + 0.41, 2.0), qx * SM * blur, qy * SM * blur).rgb;
+  // image u (along the painted courses) runs up the face, image v across it
+  vec2 st = (wq * SM).yx + 0.41;
+  vec3 c = textureGrad(uGroundTex, vec3(st, 2.0), (qx * SM).yx * blur, (qy * SM).yx * blur).rgb;
   // soften the painted joints: the regular dark grid is what reads as masonry
   float la = dot(c, vec3(0.333)) / max(dot(uCliffAvg, vec3(0.333)), 0.02);
   c *= mix(1.0, clamp(0.62 / max(la, 0.05), 1.0, 2.2), soften);
@@ -139,8 +148,8 @@ vec3 gCliffProj(vec2 q, vec2 qx, vec2 qy, float warpV, float detW, float blur, f
     c *= mix(1.0, clamp(d / max(dot(uCliffAvg, vec3(0.333)), 0.02), 0.45, 1.5), detW);
   }
   // weathering streaks running down the face
-  float streak = gNoise(vec2(q.x * 0.085, q.y * 0.014 + wu));
-  return c * (0.9 + 0.18 * streak);
+  float streak = gNoise(vec2(q.x * 0.085, q.y * 0.012 + wu));
+  return c * (0.88 + 0.22 * streak);
 }
 // one side projection, heading k·45° (k = 0..3): u along the face, v up
 vec3 gCliffSide(float k, vec3 p, vec3 dpx, vec3 dpy, float warpV, float detW, float blur, float soften, bool lq) {
@@ -164,10 +173,10 @@ vec3 gCliff(vec3 p, vec3 n, vec3 dpx, vec3 dpy, bool lq) {
   float detW = 0.8 - 0.45 * smoothstep(10.0, 60.0, dist) - 0.35 * smoothstep(90.0, ${CLIFF_FRACTURE_FAR.toFixed(1)}, dist);
   // far faces: the strata turn into tonal masses (mip bias), never a pattern
   float blur = 1.0 + 2.5 * smoothstep(140.0, 420.0, dist);
-  // bed warp along the height, the same for both projections: a broad fold
-  // plus a tighter one that pinches and swells the beds (thin / thick courses)
+  // lateral slab warp down the height, the same for both projections: a broad
+  // swing plus a tighter one that pinches and swells the slabs
   float hc = p.x * 0.8 + p.z * 0.6;
-  float warpV = (gNoise(vec2(hc * 0.017, p.y * 0.045)) - 0.5) * 9.0 + (gNoise(vec2(hc * 0.031 + 3.7, p.y * 0.1)) - 0.5) * 5.5;
+  float warpV = (gNoise(vec2(hc * 0.021, p.y * 0.017)) - 0.5) * 12.0 + (gNoise(vec2(hc * 0.047 + 3.7, p.y * 0.041)) - 0.5) * 5.0;
   // joint softening: the painted joints give close rock its definition, but a
   // big face far away would show them as a regular grid (or grain on a peak)
   float soften = 0.5 + 0.35 * smoothstep(40.0, 220.0, dist);
@@ -175,16 +184,18 @@ vec3 gCliff(vec3 p, vec3 n, vec3 dpx, vec3 dpy, bool lq) {
   if (tb < 0.01) c = gCliffSide(k0, p, dpx, dpy, warpV, detW, blur, soften, lq);
   else if (tb > 0.99) c = gCliffSide(k1, p, dpx, dpy, warpV, detW, blur, soften, lq);
   else c = mix(gCliffSide(k0, p, dpx, dpy, warpV, detW, blur, soften, lq), gCliffSide(k1, p, dpx, dpy, warpV, detW, blur, soften, lq), tb);
-  // far faces (the great corner peaks): calmer rock with irregular ledges
-  // following the beds, so a tall face reads as terraced stone (not grain)
+  // far faces (the great corner peaks): calmer rock modelled by long vertical
+  // ribs and gullies down the fall line (披麻皴), never horizontal bands
   float farT = smoothstep(110.0, 320.0, dist);
   if (farT > 0.0) {
-    float lb = gNoise(vec2(hc * 0.021 + 1.3, (p.y + warpV) * 0.085));
-    float ledge = smoothstep(0.6, 0.74, lb);
+    // two perpendicular directions, so the ribs vary along a face of any heading
+    float hc2 = p.z * 0.8 - p.x * 0.6;
+    float rb = 0.5 * (gNoise(vec2(hc * 0.055 + warpV * 0.05 + 1.3, p.y * 0.009)) + gNoise(vec2(hc2 * 0.055 + 4.1, p.y * 0.009 + 2.7)));
+    float rib = smoothstep(0.38, 0.68, rb);
     c = mix(c, mix(c, uCliffAvg, 0.5), farT);
-    // lit ledges with scrub on them (苔点), shaded bands between
-    c *= 1.0 + farT * (0.34 * ledge - 0.1);
-    c = mix(c, c * vec3(0.84, 1.06, 0.78), ledge * farT * 0.7);
+    // lit ribs with scrub on their crests (苔点), shaded gullies between
+    c *= 1.0 + farT * (0.26 * rib - 0.1);
+    c = mix(c, c * vec3(0.86, 1.05, 0.8), rib * farT * 0.4 * smoothstep(0.3, 0.7, gNoise(p.xz * 0.02 + p.y * 0.015)));
   }
   // 赤壁: the landmark's cliffs are red sandstone
   float red = uRedRock.w * (1.0 - smoothstep(uRedRock.z * 0.6, uRedRock.z, length(p.xz - uRedRock.xy)));

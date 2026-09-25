@@ -166,6 +166,8 @@ function fixWinding(g: THREE.BufferGeometry): void {
 export function farmMaterial(map: THREE.Texture | null): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ map, vertexColors: true, transparent: true, roughness: 0.92, metalness: 0 });
   m.name = 'farmField';
+  // the faded-out border writes no depth (effects behind it stay visible)
+  m.alphaTest = 0.06;
   // lifted off the ground in depth (the furrows sit 5 cm over it)
   m.polygonOffset = true;
   m.polygonOffsetFactor = -1;

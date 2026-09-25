@@ -1,7 +1,8 @@
 // Static world assembly: every MapProp is built procedurally and merged per
-// 64 m chunk and per material (opaque / double-sided cloth / unlit glow), so the
-// whole map is a few dozen draw calls. Vegetation + rocks are instanced;
-// banner cloths are one waving mesh; brazier flames one instanced mesh.
+// 64 m chunk and per material (opaque / double-sided cloth), so the whole map
+// is a few dozen draw calls; the small unlit glow bits (lanterns, embers) are
+// one mesh for the whole map. Vegetation + rocks are instanced; banner cloths
+// are one waving mesh; brazier flames one instanced mesh.
 import * as THREE from 'three';
 import type { MapData, MapProp, PropType } from '../../core/map';
 import { GeoBuilder, trs } from '../core/geo';
@@ -133,11 +134,14 @@ export function buildWorld(map: MapData): WorldBuild {
   const listing = assetListSync();
   // the cloth builder takes the double-sided roof shells too (propkit roofExtras),
   // so it carries the surface channel like the opaque one
-  const newChunk = (): Chunk => ({ opaque: new GeoBuilder({ extraName: 'aSurf' }), cloth: new GeoBuilder({ extraName: 'aSurf' }), glow: new GeoBuilder() });
+  // lanterns / embers of every chunk: a few hundred triangles, one draw for the map
+  const glowAll = new GeoBuilder();
+  const newChunk = (glow: GeoBuilder = glowAll): Chunk => ({ opaque: new GeoBuilder({ extraName: 'aSurf' }), cloth: new GeoBuilder({ extraName: 'aSurf' }), glow });
   const swaps = new Map<SwapKey, Chunk>();
   const swapOf = (k: SwapKey): Chunk => {
     let ch = swaps.get(k);
-    if (!ch) swaps.set(k, (ch = newChunk()));
+    // a swap keeps its own glow: it is retired with the stand-ins
+    if (!ch) swaps.set(k, (ch = newChunk(new GeoBuilder())));
     return ch;
   };
   const chunkOf = (x: number, z: number): Chunk => {
@@ -199,9 +203,18 @@ export function buildWorld(map: MapData): WorldBuild {
     };
     add(ch.opaque, worldMaterial(), 'opaque', true);
     add(ch.cloth, worldMaterialDouble(), 'cloth', true);
-    add(ch.glow, glowMaterial(), 'glow', false);
+    if (ch.glow !== glowAll) add(ch.glow, glowMaterial(), 'glow', false);
   };
   for (const [key, ch] of chunks) buildChunk(key, ch, null);
+  if (!glowAll.isEmpty()) {
+    const g = glowAll.build();
+    geos.push(g);
+    triangles += g.getAttribute('position').count / 3;
+    const mesh = new THREE.Mesh(g, glowMaterial());
+    mesh.name = 'chunk_all_glow';
+    mesh.matrixAutoUpdate = false;
+    group.add(mesh);
+  }
   for (const [k, ch] of swaps) {
     const list: THREE.Mesh[] = [];
     buildChunk(`swap_${k}`, ch, list);
