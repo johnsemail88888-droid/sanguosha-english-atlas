@@ -1,0 +1,11 @@
+{
+  "note": "AI-generated art (Higgsfield). Edit this list; .github/workflows/warlords-assets.yml downloads + optimises each entry and commits the output.",
+  "entries": [
+    {
+      "kind": "preview",
+      "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260924_201258_be2805ba-b47c-46fb-aa82-65d5a7e04a24.png",
+      "out": "assets-src/previews/test-guanyu.webp",
+      "maxSize": 768
+    }
+  ]
+}

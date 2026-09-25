@@ -1,0 +1,44 @@
+name: Warlords · Fetch AI art
+
+# The dev container cannot reach the Higgsfield CDN, so generated art is listed in
+# warlords/assets-src/manifest.json and this workflow downloads, optimises and
+# commits it back to the same branch.
+on:
+  push:
+    paths: ['warlords/assets-src/manifest.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: warlords-assets-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install asset tools
+        working-directory: warlords/scripts
+        run: |
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund sharp@0.34 @gltf-transform/core@4 @gltf-transform/extensions@4 @gltf-transform/functions@4 meshoptimizer@0.22
+      - name: Download and optimise
+        working-directory: warlords
+        run: NODE_PATH=scripts/node_modules node scripts/fetch-assets.mjs
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add warlords/public/assets warlords/assets-src
+          if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
+          git commit -m "assets(warlords): fetch AI art from manifest"
+          for i in 1 2 3; do git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0; sleep 5; done
+          exit 1
