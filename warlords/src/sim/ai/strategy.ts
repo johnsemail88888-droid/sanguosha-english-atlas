@@ -173,7 +173,7 @@ export class RoleStrategy {
     this.nextClaimAt = 35 + rng.next() * 60;
     this.fakeLoyal = rng.next() < 0.5;
     this.claimRebelAtPush = rng.next() < 0.5;
-    this.probeAt = rng.next() < 0.6 ? prof.lootPhase * 0.7 + rng.next() * 45 : -1;
+    this.probeAt = rng.next() < 0.75 ? prof.lootPhase * 0.7 + rng.next() * 45 : -1;
   }
 
   // ── who is who ──────────────────────────────────────────────────────────
