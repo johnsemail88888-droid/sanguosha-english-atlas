@@ -197,3 +197,44 @@ Append new sections at the end; mark `Status:` when applied.
   `page.evaluate(() => { const end = performance.now() + 20000; while (performance.now() < end); })` → no guest is
   announced as dropped and the guests' `__sgwl.session.waitingForHost` became true meanwhile.
 
+
+## NET-4 · NET · guests must not drop while their page builds the match scene
+- **Status:** applied (wave 2) — supersedes the timing details of APP-6.
+- **Observed:** on a slow device (and in the online e2e under CPU load) a guest's page is unresponsive for many
+  seconds at a time while it builds the scene / compiles shaders (a guest's loading took ~2 min in SwiftShader).
+  The host exempted a loading peer from `peerTimeout` for at most 30 s, then dropped it on the next ≥ 15 s stall
+  (「断开连接，由人机接管」 → 「重新连接」, reproduced with guests frozen 4 × 12 s while loading); the guest's rejoin,
+  run on the same frozen page, could time out as well (a wall-clock hello / connect timeout that fires late runs
+  before the answer queued behind the freeze) → "connection lost" on the title screen.
+  Chromium also stops answering WebSocket pings while a frozen page's receive pipe is full (snapshots streaming),
+  so the relay dropped such a socket after one silent heartbeat round. A P2P rejoin that PeerJS answered
+  `peer-unavailable` (the host's signalling link reconnecting) ended at once as "host left".
+- **Change:**
+  - `src/net/stall.ts`: `ResponsiveClock` (time between watchdog ticks, capped at 1.5 periods + 250 ms: a freeze
+    counts as one short step and is flagged), `StallAwareTimeout` (a timeout in responsive time that never fires on
+    the poll right after a stall), `RecentSilence` + `adaptiveTimeoutMs` (a link that was just silent for long gets
+    2 × that as its timeout, decaying with τ = 30 s, between the normal and the loading timeout).
+  - Host (`hostSession.ts`): peer silence is counted in host-responsive time; a peer loading the match (matchStart
+    sent, `loaded` not received) is timed out after `timings.loadGrace` = 60 s of silence (no cap on the loading
+    itself), and so is a peer warming up — after `loaded` until its input has flowed steadily (no gap > 2 s) for
+    `timings.warmUp` = 10 s, at most 2 min (`WarmUp`): the e2e showed 15–17 s freezes on a guest's first frames
+    right after `loaded`. Afterwards `peerTimeout` 15 s, raised by its recent silences. A loading / warming-up
+    peer whose link closes keeps its seat `timings.loadDropGrace` = 20 s (an explicit `leave` keeps `dropGrace`).
+  - Guest (`clientSession.ts`): the host-silence watchdog counts responsive time (+ adaptive timeout); a host still
+    loading the match — no snapshot yet, or not flowing steadily for `hostWarmUpMs` = 10 s — gets
+    `hostLoadingTimeoutMs` = 60 s (was 45 s, until the first snapshot only); hello /
+    rejoin timeouts and the relay / PeerJS connect timeouts (`wsTransport.ts`, `peerTransport.ts`) are
+    `StallAwareTimeout`s; "room not found" on a P2P rejoin is retried with backoff (1, 2, 4, 5 s…) for 30 s of
+    responsive time without using up a rejoin attempt (`openRetryingRoomNotFound`); `joinOnlineSession` does the
+    same for a P2P reload rejoin (the tab holds the room's seat token) — a code typed in for the first time still
+    gets "room not found" at once.
+  - Relay (`server/relay.mjs`): a socket is dropped only after `HEARTBEAT_MISSES` = 4 unanswered pings in a row
+    (60–75 s) instead of one round (15–30 s).
+  - No protocol change: matchStart … `loaded` already tells the host when a guest loads; the worker heartbeat idea
+    was not needed (the host's snapshots already come from the tick worker, and the watchdogs no longer count
+    time the page was frozen).
+- **Tests:** `tests/unit/net/stall.test.ts`, `tests/unit/net/slowDevice.test.ts` (fake-timer host + a guest page that
+  freezes 18 s at a time for 90 s of loading and 17 s on its first frames — also a minute after its last loading
+  freeze, which the warm-up covers; host warm-up on the guest; stall-aware hello; P2P retries),
+  relay heartbeat in `tests/unit/net/relay.test.ts`; e2e `tests/e2e/game-online.spec.ts` (guests freeze 3 × 12 s
+  while loading; P2P F5 while the host's signalling link is down).

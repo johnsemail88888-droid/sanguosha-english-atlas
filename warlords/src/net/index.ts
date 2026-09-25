@@ -8,7 +8,7 @@
 // reject with a NetError carrying bilingual text (err.zh / err.en / err.code).
 import type { GameSession } from '../game/session';
 import { settings } from '../game/settings';
-import { ClientSession } from './clientSession';
+import { ClientSession, hasSeatToken, openRetryingRoomNotFound, ROOM_NOT_FOUND_RETRY_MS } from './clientSession';
 import { NetError, toNetError } from './errors';
 import { HostSession } from './hostSession';
 import { sanitizeName } from './protocol';
@@ -70,12 +70,16 @@ async function openClientTransport(mode: NetMode, room: string): Promise<Transpo
 /**
  * Join an online room by code (accepts lowercase / pasted links). The session
  * rejoins automatically after a connection drop, and a page reload rejoins the
- * same seat (seat token kept in sessionStorage per room).
+ * same seat (seat token kept in sessionStorage per room). A P2P reload rejoin
+ * (this tab holds a seat token for the room) does not take a transient "room not
+ * found" for an answer (PeerJS: the host peer is unavailable while its signalling
+ * link reconnects); a code typed in for the first time does.
  */
 export async function joinOnlineSession(code: string, opts: { name: string; mode: NetMode }): Promise<GameSession> {
   const room = normalizeRoomCode(code);
   if (!room) throw new NetError('invalidCode');
-  const transport = await openClientTransport(opts.mode, room);
+  const retryMs = opts.mode === 'peer' && hasSeatToken(room) ? ROOM_NOT_FOUND_RETRY_MS : 0;
+  const transport = await openRetryingRoomNotFound(() => openClientTransport(opts.mode, room), retryMs);
   try {
     return await ClientSession.connect({
       transport,

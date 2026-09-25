@@ -11,6 +11,7 @@
 //    sender writes the destination id ('*' = all clients, host only);
 //    the relay rewrites it to the sender's id on delivery.
 import { NetError } from './errors';
+import { StallAwareTimeout } from './stall';
 import { BaseTransport, type Channel, type Payload, type PeerId } from './transport';
 
 export const RELAY_PROTOCOL_VERSION = 1;
@@ -154,7 +155,9 @@ export class WsTransport extends BaseTransport {
       ws.binaryType = 'arraybuffer';
       const t = new WsTransport(ws, isHost);
       let settled = false;
-      const timer = setTimeout(() => {
+      // responsive time (stall.ts): a page frozen meanwhile (a rejoin while the
+      // scene builds) still gets to read the relay's queued answer
+      const timer = new StallAwareTimeout(opts.timeoutMs ?? 8000, () => {
         if (settled) return;
         settled = true;
         try {
@@ -163,11 +166,11 @@ export class WsTransport extends BaseTransport {
           /* ignore */
         }
         reject(new NetError('timeout'));
-      }, opts.timeoutMs ?? 8000);
+      });
       const settle = (err: NetError | null): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        timer.cancel();
         if (err) {
           try {
             ws.close();

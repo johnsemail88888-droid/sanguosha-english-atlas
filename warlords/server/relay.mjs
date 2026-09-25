@@ -28,14 +28,23 @@ const F_UNRELIABLE = 2;
 export const UNRELIABLE_BACKLOG = 16 * 1024;
 
 /**
- * @param {{ maxPerRoom?: number, maxRooms?: number, heartbeatMs?: number, helloTimeoutMs?: number,
- *           unreliableBacklog?: number, log?: (...a: unknown[]) => void }} [opts]
+ * Heartbeat rounds in a row a socket may stay silent (no pong, no message) before it
+ * is dropped. A browser whose page is frozen (a phone building the match scene) can
+ * stop reading its socket and so stop answering pings for a while: a socket that is
+ * merely quiet is kept (NET-4); the game's own watchdogs judge the players.
+ */
+export const HEARTBEAT_MISSES = 4;
+
+/**
+ * @param {{ maxPerRoom?: number, maxRooms?: number, heartbeatMs?: number, heartbeatMisses?: number,
+ *           helloTimeoutMs?: number, unreliableBacklog?: number, log?: (...a: unknown[]) => void }} [opts]
  */
 export function createRelay(opts = {}) {
   const maxPerRoom = opts.maxPerRoom ?? 8;
   const unreliableBacklog = opts.unreliableBacklog ?? UNRELIABLE_BACKLOG;
   const maxRooms = opts.maxRooms ?? 1000;
   const heartbeatMs = opts.heartbeatMs ?? 15000;
+  const heartbeatMisses = Math.max(1, opts.heartbeatMisses ?? HEARTBEAT_MISSES);
   const helloTimeoutMs = opts.helloTimeoutMs ?? 10000;
   const log = opts.log ?? (() => {});
 
@@ -174,15 +183,15 @@ export function createRelay(opts = {}) {
   };
 
   wss.on('connection', (ws) => {
-    const client = { ws, id: '', room: null, isHost: false, alive: true, helloTimer: null };
+    const client = { ws, id: '', room: null, isHost: false, missed: 0, helloTimer: null };
     client.helloTimer = setTimeout(() => {
       if (!client.room) ws.close(4001, 'hello timeout');
     }, helloTimeoutMs);
     ws.on('pong', () => {
-      client.alive = true;
+      client.missed = 0;
     });
     ws.on('message', (data, isBinary) => {
-      client.alive = true;
+      client.missed = 0;
       const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data);
       if (!isBinary) {
         let msg;
@@ -210,11 +219,13 @@ export function createRelay(opts = {}) {
     for (const ws of wss.clients) {
       const c = ws._sgwlClient;
       if (!c) continue;
-      if (!c.alive) {
+      // no pong / message for `heartbeatMisses` pings in a row (60–75 s by default): a dead link
+      if (c.missed >= heartbeatMisses) {
+        log(`[relay] ${c.room ? `room ${c.room.code} ${c.id}` : 'socket'}: no sign of life for ${heartbeatMisses} heartbeats, dropped`);
         ws.terminate();
         continue;
       }
-      c.alive = false;
+      c.missed++;
       try {
         ws.ping();
       } catch {

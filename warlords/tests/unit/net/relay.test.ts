@@ -16,7 +16,7 @@ import { flatMap, testHeroPool, waitFor } from './fixtures';
 // @ts-expect-error plain .mjs without type declarations
 import { startServer } from '../../../server/server.mjs';
 // @ts-expect-error plain .mjs without type declarations
-import { createRelay, UNRELIABLE_BACKLOG as RELAY_BACKLOG } from '../../../server/relay.mjs';
+import { createRelay, HEARTBEAT_MISSES, UNRELIABLE_BACKLOG as RELAY_BACKLOG } from '../../../server/relay.mjs';
 
 interface Server {
   port: number;
@@ -163,6 +163,43 @@ describe('ws relay (raw sockets)', () => {
     expect(eighth.ctrl[0]).toMatchObject({ op: 'error', code: 'roomFull' });
     host.ws.close();
     await waitFor(() => clients.every((c) => c.closed()));
+  });
+});
+
+describe('relay heartbeat (NET-4)', () => {
+  it('keeps a socket that misses a few pings (a frozen page with a full receive pipe), drops one silent for HEARTBEAT_MISSES rounds', async () => {
+    expect(HEARTBEAT_MISSES).toBeGreaterThanOrEqual(4); // × 15 s: longer than a loading guest's grace
+    const relay = createRelay({ heartbeatMs: 60 });
+    const server = http.createServer();
+    server.on('upgrade', (req, socket, head) => relay.handleUpgrade(req, socket, head));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const url = `ws://127.0.0.1:${(server.address() as { port: number }).port}/ws`;
+    try {
+      const host = await rawSocket(url);
+      host.ws.send(JSON.stringify({ op: 'create', v: 1 }));
+      await waitFor(() => host.ctrl.length > 0);
+      const code = (host.ctrl[0] as { code: string }).code;
+      // a guest whose page is frozen: its browser answers no pings (and sends nothing)
+      const frozen = new WebSocket(url, { autoPong: false });
+      let frozenClosed = false;
+      frozen.on('close', () => (frozenClosed = true));
+      await new Promise((r) => frozen.once('open', r));
+      frozen.send(JSON.stringify({ op: 'join', v: 1, code }));
+      const t0 = Date.now();
+      // 3 silent rounds: still there (the old relay dropped it after one)
+      await new Promise((r) => setTimeout(r, 3 * 60 + 20));
+      expect(frozenClosed).toBe(false);
+      expect(relay.stats().players).toBe(2);
+      await waitFor(() => frozenClosed, 2000);
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(HEARTBEAT_MISSES * 60 - 20);
+      // the host answers its pings: it stays
+      expect(host.closed()).toBe(false);
+      await waitFor(() => host.ctrl.some((m) => m.op === 'peerLeave'), 1000);
+      host.ws.close();
+    } finally {
+      await relay.close();
+      await new Promise((r) => server.close(r));
+    }
   });
 });
 

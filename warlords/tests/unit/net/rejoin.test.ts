@@ -114,10 +114,12 @@ describe('rejoin into the running match', () => {
     t.send('host', encodeJson({ t: 'loaded' }));
     loadedSent = true;
     await waitFor(() => h.host.phase === 'playing', 2000, 'playing');
-    // the grace ends with 'loaded': a peer that then goes silent is dropped as usual
+    // the grace ends with 'loaded': a peer that then goes silent is dropped as usual —
+    // after 2 × its ~1.5 s silence while loading at first (NET-4: a peer that just
+    // stalled gets a raised timeout for a while), not after loadGrace
     loadedSent = false;
     h.net.sever('frozen');
-    await waitFor(() => h.host.lobby.seats.find((s) => s.name === 'frozen')?.isBot === true, 3000, 'timed out after loaded');
+    await waitFor(() => h.host.lobby.seats.find((s) => s.name === 'frozen')?.isBot === true, 6000, 'timed out after loaded');
   });
 });
 
