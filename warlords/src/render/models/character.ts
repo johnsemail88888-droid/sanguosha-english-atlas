@@ -142,6 +142,8 @@ export class CharacterRig {
   private disposed = false;
   private stealthed = false;
   private castShadows = true;
+  /** the held weapon's own shadow (a separate draw on GLB bodies; merged into the procedural body) */
+  private weaponShadows = true;
   private weaponShown = false;
   private fade = 1;
   private localView = false;
@@ -355,7 +357,7 @@ export class CharacterRig {
     this.mesh.visible = false;
     if (this.xray) this.xray.visible = false;
     this.glb.setWeapon(this.weaponId, this.hold, this.akimbo);
-    this.glb.setShadows(this.castShadows && !this.stealthed);
+    this.glb.setShadows(this.castShadows && !this.stealthed, this.weaponShadows && this.castShadows && !this.stealthed);
     this.applyOpacity();
     return true;
   }
@@ -395,7 +397,7 @@ export class CharacterRig {
     if (on === this.stealthed) return;
     this.stealthed = on;
     this.applyOpacity();
-    this.setShadows(this.castShadows);
+    this.setShadows(this.castShadows, this.weaponShadows);
   }
 
   /** Through-wall silhouette (VF_EXPOSED / reveal): drawn only where the character is occluded. */
@@ -460,11 +462,13 @@ export class CharacterRig {
     return this.stealthed;
   }
 
-  setShadows(cast: boolean): void {
+  /** `weapon`: also the held weapon's shadow on a GLB body (skipped at range: a thin extra shadow draw per character). */
+  setShadows(cast: boolean, weapon = cast): void {
     this.castShadows = cast;
+    this.weaponShadows = weapon;
     const c = cast && !this.stealthed;
     this.mesh.castShadow = c;
-    this.glb?.setShadows(c);
+    this.glb?.setShadows(c, c && weapon);
     if (this.mount) this.mount.mesh.castShadow = c;
   }
 

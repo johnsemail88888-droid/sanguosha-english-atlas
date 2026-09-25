@@ -13,7 +13,7 @@ import { GlbAnimator, type GlbFrameInput, type GlbWeaponAttach } from '../anim/g
 import { clipSync } from '../anim/glbClips';
 import { interpolantOf, trackBone, type PreparedClip } from '../anim/glbRetarget';
 import { normalizeScale, releaseTemplate, retainTemplate, type CharTemplate } from './glb';
-import { buildWeapon, weaponMaterial, type HoldStyle, type WeaponModel, type WeaponModelInfo } from './weapons';
+import { buildWeapon, cloneKeepingDefines, heldWeaponMaterial, type HoldStyle, type WeaponModel, type WeaponModelInfo } from './weapons';
 
 let xrayMat: THREE.MeshBasicMaterial | null = null;
 function xrayMaterial(): THREE.MeshBasicMaterial {
@@ -134,6 +134,7 @@ export class GlbBody {
   /** per-instance weapon material, only while the body is translucent (stealth / camera fade) */
   private weaponFade: THREE.MeshStandardMaterial | null = null;
   private opacity = 1;
+  private weaponShadow = true;
 
   constructor(tpl: CharTemplate, height: number) {
     this.template = tpl;
@@ -146,7 +147,8 @@ export class GlbBody {
     });
     this.mesh = mesh as unknown as THREE.SkinnedMesh;
     for (const b of this.mesh.skeleton.bones) this.bones[b.name] = b;
-    this.material = tpl.material.clone();
+    // per-instance clone (tints, fades); keeps the template's FOG_MAX clamp (a plain clone drops defines)
+    this.material = cloneKeepingDefines(tpl.material);
     this.mesh.material = this.material;
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = false;
@@ -197,6 +199,8 @@ export class GlbBody {
     this.attach = null;
     if (!id || hold === 'none') return;
     const main = buildWeapon(id);
+    main.mesh.material = heldWeaponMaterial();
+    main.mesh.castShadow = this.weaponShadow;
     this.info = main.info;
     const g = gripFor(this.template, hold, false);
     const holder = g.hand === 'RightHand' ? this.holders[0] : this.holders[1];
@@ -211,6 +215,8 @@ export class GlbBody {
     if (akimbo) {
       const gl = gripFor(this.template, hold, true);
       const second = buildWeapon(id);
+      second.mesh.material = heldWeaponMaterial();
+      second.mesh.castShadow = this.weaponShadow;
       this.holders[1].position.copy(gl.p);
       this.holders[1].quaternion.copy(gl.q);
       this.holders[1].add(second.mesh);
@@ -264,18 +270,19 @@ export class GlbBody {
   private applyWeaponOpacity(): void {
     const faded = this.opacity < 0.999;
     if (faded && !this.weaponFade) {
-      this.weaponFade = weaponMaterial().clone();
+      this.weaponFade = cloneKeepingDefines(heldWeaponMaterial());
       this.weaponFade.transparent = true;
       this.weaponFade.depthWrite = false;
     }
     if (this.weaponFade) this.weaponFade.opacity = this.opacity;
-    const mat = faded && this.weaponFade ? this.weaponFade : weaponMaterial();
+    const mat = faded && this.weaponFade ? this.weaponFade : heldWeaponMaterial();
     for (const w of this.weapons) if (w && w.mesh.material !== mat) w.mesh.material = mat;
   }
 
-  setShadows(cast: boolean): void {
+  setShadows(cast: boolean, weapon = cast): void {
     this.mesh.castShadow = cast;
-    for (const w of this.weapons) if (w) w.mesh.castShadow = cast;
+    this.weaponShadow = weapon;
+    for (const w of this.weapons) if (w) w.mesh.castShadow = weapon;
   }
 
   setXray(on: boolean): void {

@@ -79,15 +79,22 @@ export function structPlanUsable(plan: readonly LayerPlan[]): boolean {
 export interface TexSizes {
   ground: number;
   struct: number;
+  /** longest side of a prop model's texture (the shipped maps are 512–1024) */
+  props: number;
   /** sky panorama width (height follows the image aspect) */
   sky: number;
 }
 
-/** Texture resolution per quality tier (GPU memory: ~27 / 7 / 9 MB at medium+high, ~4× less on low). */
+/**
+ * Texture resolution per quality tier. GPU memory (RGBA8 + mips): ground array
+ * ~28 MB, structure array ~8 MB, sky ~9–15 MB, prop models ~13 MB (medium,
+ * maps capped at 512) / ~32 MB (high); ~4× less on low.
+ * Structures stay at 512 even on high: 2.3 m per repeat is ~220 texels per metre.
+ */
 export function texSizesFor(q: Quality): TexSizes {
-  if (q === 'low') return { ground: 512, struct: 256, sky: 1024 };
-  if (q === 'high') return { ground: 1024, struct: 1024, sky: 2560 };
-  return { ground: 1024, struct: 512, sky: 2048 };
+  if (q === 'low') return { ground: 512, struct: 256, props: 256, sky: 1024 };
+  if (q === 'high') return { ground: 1024, struct: 512, props: 1024, sky: 2560 };
+  return { ground: 1024, struct: 512, props: 512, sky: 2048 };
 }
 
 // ── runtime state ───────────────────────────────────────────────────────────
@@ -103,6 +110,25 @@ export function worldArtDisabledByUser(): boolean {
 
 function browserCanDecode(): boolean {
   return typeof document !== 'undefined' && typeof fetch === 'function' && typeof createImageBitmap === 'function';
+}
+
+let possibleOverride: boolean | null = null;
+
+/** Tests: force worldArtPossible() on / off (null: detect from the page). */
+export function setWorldArtPossibleForTests(v: boolean | null): void {
+  possibleOverride = v;
+}
+
+/**
+ * False when this page can never show world art: the user switch, no image
+ * decoding (tests, old browsers), or a page that cannot fetch side files (the
+ * single-file build opened from file://). Synchronous: callers decide before
+ * the asset listing has loaded.
+ */
+export function worldArtPossible(): boolean {
+  if (possibleOverride !== null) return possibleOverride;
+  if (worldArtDisabledByUser() || !browserCanDecode()) return false;
+  return typeof location !== 'undefined' && /^https?:$/.test(location.protocol);
 }
 
 export interface TexArraySet {
@@ -176,7 +202,7 @@ const placeholders: THREE.DataArrayTexture[] = [];
  * art is off for this page (no browser decode support / user switch).
  */
 function listing(): ReadonlySet<string> | Promise<ReadonlySet<string>> | null {
-  if (worldArtDisabledByUser() || !browserCanDecode()) return null;
+  if (!worldArtPossible()) return null;
   return assetListSync() ?? assetList();
 }
 
@@ -216,7 +242,7 @@ function makePlaceholder(names: readonly string[]): THREE.DataArrayTexture {
   return t;
 }
 
-function configureArray(t: THREE.DataArrayTexture): void {
+function configureArray(t: THREE.DataArrayTexture, anisotropy = 8): void {
   t.format = THREE.RGBAFormat;
   t.type = THREE.UnsignedByteType;
   t.colorSpace = THREE.SRGBColorSpace;
@@ -225,8 +251,8 @@ function configureArray(t: THREE.DataArrayTexture): void {
   t.magFilter = THREE.LinearFilter;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.generateMipmaps = true;
-  // three clamps to the device maximum: effectively min(8, max)
-  t.anisotropy = 8;
+  // three clamps to the device maximum: effectively min(8, max) for the ground
+  t.anisotropy = anisotropy;
 }
 
 let lut: Float32Array | null = null;
@@ -284,7 +310,7 @@ async function decodeInto(file: string, size: number, tint: readonly [number, nu
   }
 }
 
-function buildSet(names: readonly string[], plan: readonly LayerPlan[], size: number): TexArraySet {
+function buildSet(names: readonly string[], plan: readonly LayerPlan[], size: number, anisotropy: number): TexArraySet {
   const has = plan.map((l) => !!l.file);
   const avg = names.map((n) => new THREE.Color(PLACEHOLDER[n] ?? '#808080'));
   const uniform = { value: makePlaceholder(names) };
@@ -304,7 +330,7 @@ function buildSet(names: readonly string[], plan: readonly LayerPlan[], size: nu
     }
     if (!has.some(Boolean)) return;
     const tex = new THREE.DataArrayTexture(data, size, size, names.length);
-    configureArray(tex);
+    configureArray(tex, anisotropy);
     tex.needsUpdate = true;
     uniform.value = tex;
   })();
@@ -324,7 +350,9 @@ export function requestGroundSet(cb: (set: TexArraySet) => void): void {
     if (!groundSet) {
       const plan = planLayers(GROUND_LAYERS, files);
       if (!groundPlanUsable(plan)) return;
-      groundSet = buildSet(GROUND_LAYERS, plan, texSizesFor(worldArtQuality()).ground);
+      // the ground is seen at grazing angles: full anisotropy (low tier: cheap filtering)
+      const q = worldArtQuality();
+      groundSet = buildSet(GROUND_LAYERS, plan, texSizesFor(q).ground, q === 'low' ? 2 : 8);
     }
     cb(groundSet);
   });
@@ -340,7 +368,9 @@ export function requestStructSet(cb: (set: TexArraySet) => void): void {
     if (!structSet) {
       const plan = planLayers(STRUCT_LAYERS, files);
       if (!structPlanUsable(plan)) return;
-      structSet = buildSet(STRUCT_LAYERS, plan, texSizesFor(worldArtQuality()).struct);
+      // walls and roofs face the camera: 4× is plenty (low tier: none)
+      const q = worldArtQuality();
+      structSet = buildSet(STRUCT_LAYERS, plan, texSizesFor(q).struct, q === 'low' ? 1 : 4);
     }
     cb(structSet);
   });
@@ -357,6 +387,10 @@ export interface SkyArt {
   /** linear mean colours: the band just above the painted horizon, and the top rows */
   horizon: THREE.Color;
   zenith: THREE.Color;
+  /** texture v of the painted horizon (skyHorizonV) */
+  horizonV: number;
+  /** small sRGB RGBA copy of the painting (analysis / fog LUT) */
+  preview: { px: Uint8ClampedArray; w: number; h: number };
 }
 
 /** Brightest-blob centroid of an RGBA image (the painted sun), or null when there is no clear peak. */
@@ -446,7 +480,7 @@ export function requestSkyArt(cb: (art: SkyArt) => void): void {
           t.anisotropy = 4;
           t.needsUpdate = true;
           skyTexValue = t;
-          const horizonV = skyHorizonV(sun.v, w / h);
+          const horizonV = skyHorizonV(sun.v);
           return {
             tex: t,
             aspect: w / h,
@@ -454,6 +488,8 @@ export function requestSkyArt(cb: (art: SkyArt) => void): void {
             sunV: sun.v,
             horizon: band(horizonV - 0.08, horizonV - 0.02),
             zenith: band(0, 0.06),
+            horizonV,
+            preview: { px, w: aw, h: ah },
           };
         } catch (err) {
           console.warn('[render] sky panorama failed', err);
@@ -476,12 +512,25 @@ export function setSkySunElevation(rad: number): void {
 }
 
 /**
- * Texture v of the painted horizon when the panorama wraps 360° at its own
- * aspect (square pixels) and the painted sun sits at the light's elevation.
+ * Elevation span of the panorama's full height (radians). The 21:9 painting
+ * wraps 360° horizontally; at square pixels its height would span ~150° and
+ * the painted ranges would tower 40° over the map, so it is squeezed to 80°
+ * (pixels ~1.9× wider than tall: ranges read broad and distant, clouds long).
  */
-export function skyHorizonV(sunV: number, aspect: number): number {
-  const vPerRad = aspect / (Math.PI * 2); // image heights per radian
-  return Math.min(0.9, Math.max(0.55, sunV + sunElevation * vPerRad));
+export const SKY_RAD_PER_IMAGE = (80 * Math.PI) / 180;
+
+/** Highest elevation (rad) the painted sun is lifted to: it is painted low, near the ranges. */
+const PAINTED_SUN_MAX_EL = 0.34;
+
+/**
+ * Texture v of the painted horizon. The panorama is turned so the painted sun
+ * sits at the light's azimuth; vertically it follows the light's elevation up
+ * to ~20° (lifting a low painted sun to the 31° key light would push the
+ * painted ranges into the sky), which keeps the misty bases of the ranges on
+ * the real horizon.
+ */
+export function skyHorizonV(sunV: number): number {
+  return Math.min(0.88, Math.max(0.62, sunV + Math.min(sunElevation, PAINTED_SUN_MAX_EL) / SKY_RAD_PER_IMAGE));
 }
 
 /** Resolves when every world texture that was requested has settled (never rejects). */

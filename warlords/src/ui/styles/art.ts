@@ -1,7 +1,7 @@
 // Painted-art presentation: portrait crops, face avatars, full-bleed key art
-// (title, menu backdrop, match loading), hero detail splash. Every rule is keyed
+// (title, menu backdrop, match loading), hero detail medallion. Every rule is keyed
 // to a class that only exists when the art ships (`.portrait.art`, `.sg-ava`,
-// `.sg-art-bg`, `.has-art`, `.menu-art`, `.sg-loading.art`, `.has-splash`,
+// `.sg-art-bg`, `.has-art`, `.menu-art`, `.sg-loading.art`, `.hd-medal`,
 // `.duo`), so without art the procedural look is untouched.
 const u = (n: number): string => `calc(var(--u) * ${n})`;
 
@@ -115,20 +115,11 @@ export const ART_CSS = /* css */ `
 }
 
 /* ── hero detail ───────────────────────────────────────── */
-.hd-splash {
-  position: relative;
-  flex: none;
-  aspect-ratio: 2 / 1;
-  border-radius: 6px 6px 0 0;
-  overflow: hidden;
-  background: radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--kc) 55%, #fff 15%), color-mix(in srgb, var(--kc) 55%, #000 55%));
-  -webkit-mask-image: linear-gradient(180deg, #000 58%, transparent 100%);
-  mask-image: linear-gradient(180deg, #000 58%, transparent 100%);
-}
-.hd-splash .portrait { position: absolute; inset: 0; }
-.hd-splash .ph { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-display); font-size: 6em; font-weight: 900; color: rgba(255, 245, 220, 0.25); }
-.sg-hero-detail.has-splash .hd-head { margin-top: -1.5em; position: relative; z-index: 1; }
-.sg-hero-detail.has-splash .hd-head .sg-kd { box-shadow: 0 0 0 2px #e9c874, 0 0 0 3px rgba(0, 0, 0, 0.5), 0 3px 10px rgba(0, 0, 0, 0.55); }
+/* hero select: painted face medallion with the kingdom seal on its rim (same footprint as the header) */
+/* the margin keeps the rings inside the scrolling .detail-body (which clips at its edges) */
+.hd-medal { position: relative; flex: none; display: inline-block; width: 2.9em; height: 2.9em; margin: 5px 0.1em 5px 5px; }
+.hd-medal .hd-ava { --sz: 2.9em; display: block; box-shadow: 0 0 0 2px var(--kc), 0 0 0 3.5px #e2bd68, 0 0 0 4.5px rgba(90, 60, 20, 0.45), 0 3px 10px rgba(40, 20, 5, 0.45); }
+.hd-medal .sg-kd { --sz: 1.3em; position: absolute; right: -0.3em; bottom: -0.2em; z-index: 1; box-shadow: 0 0 0 1.5px #e9c874, 0 0 0 2.5px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.5); }
 .hd-visual.paint { background: #1a120c; aspect-ratio: 2 / 1; }
 .hd-visual.duo { display: flex; aspect-ratio: 16 / 9; }
 .hd-visual.duo .hd-paint { position: relative; flex: none; height: 100%; aspect-ratio: 3 / 4; overflow: hidden; box-shadow: 1px 0 0 var(--gold-lo), 3px 0 12px rgba(0, 0, 0, 0.35); z-index: 1; }

@@ -73,7 +73,7 @@ export interface GameHandle {
 export interface LoadProgress {
   /** 0..1 */
   progress: number;
-  stage: 'scene' | 'shaders' | 'warmup' | 'ready' | 'failed';
+  stage: 'scene' | 'models' | 'shaders' | 'warmup' | 'ready' | 'failed';
   error?: string;
 }
 

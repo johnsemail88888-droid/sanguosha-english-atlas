@@ -20,13 +20,20 @@ import {
   pavilionPillars,
 } from '../../sim/map/props';
 
-/** Brick courses on both long faces of a local box. */
+/**
+ * Brick courses on both long faces of a local box — procedural-look detail
+ * only: the brick texture paints its own mortar, so the textured material
+ * drops these strips (SURF.procDetail).
+ */
 function courses(c: PropCtx, x0: number, x1: number, y0: number, y1: number, zFront: number, zBack: number, color: ColorLike): void {
   const step = 0.9;
+  const prev = c.b.extra;
+  surf(c, SURF.procDetail);
   for (let y = y0 + step; y < y1 - 0.2; y += step) {
     c.b.boxAt((x0 + x1) / 2, y, zFront - 0.015, x1 - x0, 0.05, 0.04, color);
     c.b.boxAt((x0 + x1) / 2, y, zBack + 0.015, x1 - x0, 0.05, 0.04, color);
   }
+  c.b.extra = prev;
 }
 
 /** Merlons along X on top of y0 (crenellated parapet), thickness t at z. */

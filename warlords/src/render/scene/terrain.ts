@@ -5,8 +5,8 @@
 //
 // AI-art mode (tex/grass, dirt, cliff, paving, mud shipped): the same meshes
 // get a per-vertex ground-use splat (terrainSplat.ts) and ONE material that
-// blends the two dominant layers of a texture array per fragment (≤ 4 texture
-// samples: anti-tiling on each layer, biplanar projection on cliffs), world-
+// blends the two dominant layers of a texture array per fragment (≤ 5 texture
+// samples: anti-tiling on each layer, side projections on cliffs), world-
 // space UVs, macro variation and height-based transitions. Without the files
 // the material stays the procedural vertex-colour one.
 import * as THREE from 'three';
@@ -17,6 +17,7 @@ import { col } from '../core/geo';
 import { fbm2, valueNoise2 } from '../core/noise';
 import { onWorldArtQuality, requestGroundSet, worldArtQuality, type TexArraySet } from '../core/worldArt';
 import { computeGroundSplat, dryness, FLOW_STRIDE, SPLAT_STRIDE, type GroundSplat } from './terrainSplat';
+import { applySkyArtFog, skyArtFogKey } from '../core/skyArtFog';
 
 const CHUNKS = 4;
 
@@ -28,12 +29,19 @@ const artUniforms = {
   uWaterLevel: { value: 0 },
   uGrassAvg: { value: new THREE.Color(0.2, 0.3, 0.08) },
   uCliffAvg: { value: new THREE.Color(0.25, 0.23, 0.2) },
+  uGrassTexAvg: { value: new THREE.Color(0.2, 0.3, 0.08) },
+  /** the Red Cliffs (赤壁) landmark: rock within (x, z, radius) warms to red sandstone; w = strength */
+  uRedRock: { value: new THREE.Vector4(0, 0, 1, 0) },
 };
 
-/** Tile size (m) per ground layer: grass, dirt, cliff, paving, mud. */
+/** Tile size (m) per ground layer: grass, dirt, cliff, paving, mud (cliffs: see CLIFF_*). */
 export const GROUND_TILE_M = [5.6, 4.6, 14.0, 3.6, 6.0] as const;
-/** Large-scale cliff tile (m): far / big rock faces read as strata, not masonry. */
-const CLIFF_FAR_M = 46.0;
+/** Cliff strata sample: metres per image (u along the face, v up) — long, low slabs. */
+const CLIFF_STRATA_M = [62.0, 24.0] as const;
+/** Cliff fracture sample: metres per image, turn (degrees) and the distance it has faded out by. */
+const CLIFF_FRACTURE_M = 13.0;
+const CLIFF_FRACTURE_DEG = 32;
+const CLIFF_FRACTURE_FAR = 180.0;
 
 const ART_PARS_VERTEX = /* glsl */ `
 #ifdef WORLD_TEX
@@ -61,12 +69,20 @@ uniform highp sampler2DArray uGroundTex;
 uniform float uWaterLevel;
 uniform vec3 uGrassAvg;
 uniform vec3 uCliffAvg;
+uniform vec3 uGrassTexAvg;
+uniform vec4 uRedRock;
 varying vec4 vSplat;
 varying vec2 vFlow;
 varying vec3 vWNrmT;
 const float G_TILE[5] = float[5](${GROUND_TILE_M.map((t) => t.toFixed(2)).join(', ')});
 
-float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+// arithmetic hash (no sin: cheaper on every GPU and in software rasterisers, and
+// stable at large world coordinates)
+float gHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
 float gNoise(vec2 p) {
   vec2 i = floor(p); vec2 f = fract(p);
   f = f * f * (3.0 - 2.0 * f);
@@ -79,7 +95,11 @@ vec3 gTex(float layer, vec2 uv, vec2 gx, vec2 gy, float orient, float road, bool
 #ifdef GROUND_LQ
   lq = true;
 #endif
-  if (lq) return textureGrad(uGroundTex, vec3(uv, layer), gx, gy).rgb;
+  if (lq) {
+    // one sample: turned to follow the road where one runs, no anti-tiling pair
+    bool turn = road * orient > 0.5;
+    return textureGrad(uGroundTex, vec3(turn ? uv.yx : uv, layer), turn ? gx.yx : gx, turn ? gy.yx : gy).rgb;
+  }
   // offset index changes about once per tile (IQ technique 3)
   float k = gNoise(uv * 0.85 + layer * 7.31);
   float l = k * 8.0; float i = floor(l); float f = l - i;
@@ -91,36 +111,93 @@ vec3 gTex(float layer, vec2 uv, vec2 gx, vec2 gy, float orient, float road, bool
   float t = mix(smoothstep(0.2, 0.8, f - 0.1 * dot(a - b, vec3(1.0))), orient, road);
   return mix(a, b, t);
 }
-// cliffs: biplanar side projections (strata stay horizontal, no stretching on
-// steep faces); a projection with negligible weight is skipped (2 samples on
-// most cliff pixels, 4 only where the face turns through 45°)
-vec3 gCliffProj(vec2 q, vec2 qx, vec2 qy, float farW, bool lq) {
-  float s = 1.0 / G_TILE[2];
-  vec3 near = textureGrad(uGroundTex, vec3(q * s, 2.0), qx * s, qy * s).rgb;
-  vec3 c = near;
+// cliffs: side projections around the face heading (no stretching on steep faces). The
+// painted cliff is a stacked-stone pattern (2 × 2 repeats per image), so it is
+// never shown as-is over a whole face: the strata sample stretches it into
+// long, low beds (${CLIFF_STRATA_M[0]} × ${CLIFF_STRATA_M[1]} m per image, domain-warped so no joint lines
+// up), and a finer copy turned ${CLIFF_FRACTURE_DEG}° crosses them as fractures — its value
+// only — breaking every course into irregular blocks (axe-cut strokes, 斧劈皴)
+// and hiding both repeats. Far away the strata blur into tonal masses with
+// soft weathering streaks. ≤ 2 samples per projection; the vertical warp is
+// shared by the projections so their beds line up where they blend.
+vec3 gCliffProj(vec2 q, vec2 qx, vec2 qy, float warpV, float detW, float blur, float soften, bool lq) {
 #ifdef GROUND_LQ
   lq = true;
 #endif
-  if (!lq) {
-    // big rock faces: the same strata at ~3x scale, faded in with distance
-    float sf = 1.0 / ${CLIFF_FAR_M.toFixed(1)};
-    vec3 far = textureGrad(uGroundTex, vec3(q * sf + 0.41, 2.0), qx * sf, qy * sf).rgb;
-    c = mix(near, far, farW);
+  float wu = gNoise(q * vec2(0.019, 0.031) + 5.3) - 0.5;
+  vec2 wq = q + vec2(wu * 34.0, warpV);
+  const vec2 SM = vec2(${(1 / CLIFF_STRATA_M[0]).toFixed(5)}, ${(1 / CLIFF_STRATA_M[1]).toFixed(5)});
+  vec3 c = textureGrad(uGroundTex, vec3(wq * SM + 0.41, 2.0), qx * SM * blur, qy * SM * blur).rgb;
+  // soften the painted joints: the regular dark grid is what reads as masonry
+  float la = dot(c, vec3(0.333)) / max(dot(uCliffAvg, vec3(0.333)), 0.02);
+  c *= mix(1.0, clamp(0.62 / max(la, 0.05), 1.0, 2.2), soften);
+  if (!lq && detW > 0.01) {
+    const mat2 RT = mat2(${Math.cos((CLIFF_FRACTURE_DEG * Math.PI) / 180).toFixed(4)}, ${Math.sin((CLIFF_FRACTURE_DEG * Math.PI) / 180).toFixed(4)}, ${(-Math.sin((CLIFF_FRACTURE_DEG * Math.PI) / 180)).toFixed(4)}, ${Math.cos((CLIFF_FRACTURE_DEG * Math.PI) / 180).toFixed(4)});
+    const float SD = ${(1 / CLIFF_FRACTURE_M).toFixed(5)};
+    vec2 dq = RT * (q + vec2(warpV * 0.7, wu * 5.0)) * SD;
+    float d = dot(textureGrad(uGroundTex, vec3(dq + vec2(0.17, 0.63), 2.0), RT * qx * SD, RT * qy * SD).rgb, vec3(0.333));
+    c *= mix(1.0, clamp(d / max(dot(uCliffAvg, vec3(0.333)), 0.02), 0.45, 1.5), detW);
   }
-  // ink-wash rock: the blocky detail recedes with distance and vertical
-  // weathering streaks (皴 strokes) take over, so a 600 m face never reads as masonry
-  float streak = gNoise(vec2(q.x * 0.11, q.y * 0.012)) * 0.6 + gNoise(vec2(q.x * 0.37, q.y * 0.03) + 9.0) * 0.4;
-  c = mix(uCliffAvg, c, mix(1.0, 0.42, farW)) * (0.72 + 0.56 * streak);
-  return c;
+  // weathering streaks running down the face
+  float streak = gNoise(vec2(q.x * 0.085, q.y * 0.014 + wu));
+  return c * (0.9 + 0.18 * streak);
+}
+// one side projection, heading k·45° (k = 0..3): u along the face, v up
+vec3 gCliffSide(float k, vec3 p, vec3 dpx, vec3 dpy, float warpV, float detW, float blur, float soften, bool lq) {
+  float th = k * 0.78539816;
+  vec2 t = vec2(-sin(th), cos(th));
+  vec2 q = vec2(dot(p.xz, t) + k * 11.3, p.y);
+  return gCliffProj(q, vec2(dot(dpx.xz, t), dpx.y), vec2(dot(dpy.xz, t), dpy.y), warpV, detW, blur, soften, lq);
 }
 vec3 gCliff(vec3 p, vec3 n, vec3 dpx, vec3 dpy, bool lq) {
-  vec2 w = pow(abs(n.xz) + 0.001, vec2(6.0)); w /= (w.x + w.y);
+  // four side projections every 45°: the two nearest the face's heading,
+  // blended only in a narrow band between them — at most 8 % stretch and far
+  // less ghosting than two axis projections (whose 45° blend drew an X on the
+  // round peaks); still ≤ 2 projections per fragment, mostly 1
+  float hl = length(n.xz);
+  float f = mod((hl > 1e-4 ? atan(n.z, n.x) : 0.0) / 0.78539816, 4.0);
+  float k0 = floor(f);
+  float k1 = mod(k0 + 1.0, 4.0);
+  float tb = smoothstep(0.34, 0.66, f - k0);
   float dist = length(p - cameraPosition);
-  float farW = 0.25 + 0.75 * smoothstep(20.0, 160.0, dist);
-  vec3 c = vec3(0.0); float ws = 0.0;
-  if (w.x > 0.03) { c += w.x * gCliffProj(p.zy, dpx.zy, dpy.zy, farW, lq); ws += w.x; }
-  if (w.y > 0.03) { c += w.y * gCliffProj(p.xy + 0.37, dpx.xy, dpy.xy, farW, lq); ws += w.y; }
-  return c / max(ws, 1e-4);
+  // fracture strength: full up close, a hint at mid range, gone far away
+  float detW = 0.8 - 0.45 * smoothstep(10.0, 60.0, dist) - 0.35 * smoothstep(90.0, ${CLIFF_FRACTURE_FAR.toFixed(1)}, dist);
+  // far faces: the strata turn into tonal masses (mip bias), never a pattern
+  float blur = 1.0 + 2.5 * smoothstep(140.0, 420.0, dist);
+  // bed warp along the height, the same for both projections: a broad fold
+  // plus a tighter one that pinches and swells the beds (thin / thick courses)
+  float hc = p.x * 0.8 + p.z * 0.6;
+  float warpV = (gNoise(vec2(hc * 0.017, p.y * 0.045)) - 0.5) * 9.0 + (gNoise(vec2(hc * 0.031 + 3.7, p.y * 0.1)) - 0.5) * 5.5;
+  // joint softening: the painted joints give close rock its definition, but a
+  // big face far away would show them as a regular grid (or grain on a peak)
+  float soften = 0.5 + 0.35 * smoothstep(40.0, 220.0, dist);
+  vec3 c;
+  if (tb < 0.01) c = gCliffSide(k0, p, dpx, dpy, warpV, detW, blur, soften, lq);
+  else if (tb > 0.99) c = gCliffSide(k1, p, dpx, dpy, warpV, detW, blur, soften, lq);
+  else c = mix(gCliffSide(k0, p, dpx, dpy, warpV, detW, blur, soften, lq), gCliffSide(k1, p, dpx, dpy, warpV, detW, blur, soften, lq), tb);
+  // far faces (the great corner peaks): calmer rock with irregular ledges
+  // following the beds, so a tall face reads as terraced stone (not grain)
+  float farT = smoothstep(110.0, 320.0, dist);
+  if (farT > 0.0) {
+    float lb = gNoise(vec2(hc * 0.021 + 1.3, (p.y + warpV) * 0.085));
+    float ledge = smoothstep(0.6, 0.74, lb);
+    c = mix(c, mix(c, uCliffAvg, 0.5), farT);
+    // lit ledges with scrub on them (苔点), shaded bands between
+    c *= 1.0 + farT * (0.34 * ledge - 0.1);
+    c = mix(c, c * vec3(0.84, 1.06, 0.78), ledge * farT * 0.7);
+  }
+  // 赤壁: the landmark's cliffs are red sandstone
+  float red = uRedRock.w * (1.0 - smoothstep(uRedRock.z * 0.6, uRedRock.z, length(p.xz - uRedRock.xy)));
+  c *= mix(vec3(1.0), vec3(1.45, 0.86, 0.66), red);
+  // green-and-blue landscape (青绿山水): moss and scrub on the faces that tilt
+  // up, cooler and sparser with distance — shaded by the rock under it
+  float mn = gNoise(p.xz * 0.045 + p.y * 0.03) * 0.65 + gNoise(p.xz * 0.21 + p.y * 0.13) * 0.35 - 0.5;
+  float moss = smoothstep(0.46, 0.53, n.y + mn * 0.55);
+  moss *= 0.85 - 0.3 * smoothstep(60.0, 300.0, dist);
+  float rock = dot(c, vec3(0.333)) / max(dot(uCliffAvg, vec3(0.333)), 0.02);
+  vec3 mossC = uGrassTexAvg * vec3(0.8, 0.88, 0.74) * (0.97 + 0.5 * mn) * clamp(rock, 0.45, 1.3);
+  mossC = mix(vec3(dot(mossC, vec3(0.3, 0.59, 0.11))), mossC, 0.75);
+  return mix(c, mossC, moss);
 }
 vec3 gLayer(float layer, vec3 p, vec3 n, vec3 dpx, vec3 dpy, float orient, float road, bool lq) {
   if (layer > 1.5 && layer < 2.5) return gCliff(p, n, dpx, dpy, lq);
@@ -128,19 +205,19 @@ vec3 gLayer(float layer, vec3 p, vec3 n, vec3 dpx, vec3 dpy, float orient, float
   float r = (layer > 0.5 && layer < 3.5) ? road : 0.0;
   float s = 1.0 / G_TILE[int(layer)];
   vec3 c = gTex(layer, p.xz * s, dpx.xz * s, dpy.xz * s, orient, r, lq);
+  // grass seen from afar: a 3.4x larger copy takes over so its blotches never form a grid
+  float farG = layer < 0.5 ? smoothstep(18.0, 80.0, length(p - cameraPosition)) : 0.0;
 #ifndef GROUND_LQ
-  if (layer < 0.5 && !lq) {
-    // grass seen from afar: a 3.4x larger copy takes over so its blotches never form a grid
-    float farW = smoothstep(18.0, 80.0, length(p - cameraPosition));
-    if (farW > 0.01) {
-      float sf = s * 0.29;
-      vec3 cf = textureGrad(uGroundTex, vec3(p.xz * sf + 0.53, 0.0), dpx.xz * sf, dpy.xz * sf).rgb;
-      c = mix(c, cf, farW * 0.75);
-    }
+  if (farG > 0.01 && !lq) {
+    float sf = s * 0.29;
+    vec3 cf = textureGrad(uGroundTex, vec3(p.xz * sf + 0.53, 0.0), dpx.xz * sf, dpy.xz * sf).rgb;
+    c = mix(c, cf, farG * 0.75);
   }
 #endif
   // painterly grass is very saturated: pull it toward the warm late-afternoon palette
   if (layer < 0.5) c = mix(vec3(dot(c, vec3(0.3, 0.59, 0.11))), c, 0.8) * vec3(1.04, 1.0, 0.9);
+  // and the orange painted dirt toward trodden loess
+  else if (layer < 1.5) c = mix(vec3(dot(c, vec3(0.3, 0.59, 0.11))), c, 0.72) * vec3(1.0, 0.98, 0.95);
   return c;
 }
 #endif`;
@@ -197,7 +274,8 @@ const ART_FRAGMENT = /* glsl */ `
   float dry = vSplat.w;
   vec3 dryTint = mix(vec3(0.86, 1.0, 0.82), vec3(1.16, 1.04, 0.66), dry);
   c *= mix(vec3(1.0), dryTint, grassShare * 0.85);
-  float macro = gNoise(p.xz * 0.011 + 5.0) * 0.65 + gNoise(p.xz * 0.037) * 0.35;
+  // (height term: on steep faces the variation runs both ways, not in vertical bands)
+  float macro = gNoise(p.xz * 0.011 + p.y * 0.013 + 5.0) * 0.65 + gNoise(p.xz * 0.037 - p.y * 0.041) * 0.35;
   c *= 0.86 + 0.26 * macro;
   // the old vertex colours' brightness as a faint tint keeps shores / high ground readable
   const vec3 LUMA = vec3(0.3, 0.59, 0.11);
@@ -206,6 +284,8 @@ const ART_FRAGMENT = /* glsl */ `
   float wet = smoothstep(uWaterLevel + 0.9, uWaterLevel + 0.1, p.y);
   c *= mix(vec3(1.0), vec3(0.72, 0.7, 0.66), wet);
   c *= mix(vec3(1.0), vec3(0.62, 0.72, 0.7), smoothstep(uWaterLevel - 0.2, uWaterLevel - 1.6, p.y));
+  // aerial perspective: far ground loses saturation before the fog takes it
+  c = mix(c, vec3(dot(c, LUMA)), 0.35 * smoothstep(110.0, 480.0, length(p - cameraPosition)));
   diffuseColor.rgb = c;
 }
 #endif`;
@@ -216,12 +296,15 @@ export function terrainMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   m.name = 'terrain';
   m.onBeforeCompile = (shader) => {
+    applySkyArtFog(shader, m);
     const art = m.defines?.WORLD_TEX !== undefined;
     if (art) {
       shader.uniforms.uGroundTex = artUniforms.uGroundTex;
       shader.uniforms.uWaterLevel = artUniforms.uWaterLevel;
       shader.uniforms.uGrassAvg = artUniforms.uGrassAvg;
       shader.uniforms.uCliffAvg = artUniforms.uCliffAvg;
+      shader.uniforms.uGrassTexAvg = artUniforms.uGrassTexAvg;
+      shader.uniforms.uRedRock = artUniforms.uRedRock;
     }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\nvarying vec3 vWorldPosT;${ART_PARS_VERTEX}`)
@@ -255,7 +338,7 @@ float tNoise(vec2 p) {
 #endif${ART_FRAGMENT}`,
       );
   };
-  m.customProgramCacheKey = () => 'terrain_v2';
+  m.customProgramCacheKey = () => `terrain_v3${skyArtFogKey()}`;
   terrainMat = m;
   return m;
 }
@@ -427,15 +510,20 @@ export function buildTerrain(map: MapData): TerrainMeshes {
     artUniforms.uGroundTex.value = set.uniform.value;
     artUniforms.uWaterLevel.value = map.waterLevel;
     artUniforms.uGrassAvg.value.copy(col(NATURE.grass));
+    const rc = map.regions.find((r) => r.id === 'redcliffs');
+    if (rc) artUniforms.uRedRock.value.set(rc.center.x, rc.center.z, Math.max(40, rc.radius * 2.6), 1);
+    else artUniforms.uRedRock.value.set(0, 0, 1, 0);
     activeSet = set;
     applyArtDefines(mat, set);
     groundArt = { splat, grassAvg: set.avg[0] };
     for (const cb of groundArtSubs) cb();
     artUniforms.uCliffAvg.value.copy(set.avg[2]);
+    artUniforms.uGrassTexAvg.value.copy(set.avg[0]);
     void set.ready.then(() => {
       if (disposed) return;
       artUniforms.uGroundTex.value = set.uniform.value;
       artUniforms.uCliffAvg.value.copy(set.avg[2]);
+      artUniforms.uGrassTexAvg.value.copy(set.avg[0]);
       groundArt = { splat, grassAvg: set.avg[0] };
       for (const cb of groundArtSubs) cb();
     });

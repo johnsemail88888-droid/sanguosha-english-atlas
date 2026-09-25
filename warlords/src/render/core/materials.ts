@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { disposeWorldArt } from './worldArt';
 import { disposeStructureMaterial } from './structureMaterial';
+import { applySkyArtFog, skyArtFogKey } from './skyArtFog';
 
 /** Uniforms shared by every animated shader (updated once per frame by the renderer). */
 export const sharedUniforms = {
@@ -25,6 +26,7 @@ export function worldMaterial(): THREE.MeshStandardMaterial {
       metalness: 0.0,
     });
     worldMat.name = 'world';
+    withSkyArtFog(worldMat, 'world');
   }
   return worldMat;
 }
@@ -35,8 +37,15 @@ export function worldMaterialDouble(): THREE.MeshStandardMaterial {
     worldMatDouble = worldMaterial().clone();
     worldMatDouble.side = THREE.DoubleSide;
     worldMatDouble.name = 'worldDouble';
+    withSkyArtFog(worldMatDouble, 'worldDouble');
   }
   return worldMatDouble;
+}
+
+/** Painted-sky fog for a material without other shader changes (core/skyArtFog.ts). */
+function withSkyArtFog(mat: THREE.Material, key: string): void {
+  mat.onBeforeCompile = (shader) => applySkyArtFog(shader, mat);
+  mat.customProgramCacheKey = () => `${key}${skyArtFogKey()}`;
 }
 
 /** Unlit vertex-coloured material for emissive details (lanterns, embers, gold glints). */
@@ -54,6 +63,7 @@ export function glowMaterial(): THREE.MeshBasicMaterial {
  */
 export function addWindSway(mat: THREE.Material, strength = 0.06, heightScale = 0.25): void {
   mat.onBeforeCompile = (shader) => {
+    applySkyArtFog(shader, mat);
     shader.uniforms.uTime = sharedUniforms.uTime;
     shader.uniforms.uWind = sharedUniforms.uWind;
     shader.vertexShader = shader.vertexShader
@@ -78,7 +88,7 @@ uniform vec2 uWind;`,
 }`,
       );
   };
-  mat.customProgramCacheKey = () => `wind_${strength}_${heightScale}`;
+  mat.customProgramCacheKey = () => `wind_${strength}_${heightScale}${skyArtFogKey()}`;
 }
 
 /** Foliage material: vertex coloured, flat, with wind sway. */

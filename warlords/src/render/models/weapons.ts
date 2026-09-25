@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import type { WeaponDef, WeaponModelSpec } from '../../data/types';
 import { WEAPON_BY_ID } from '../../data';
 import { GeoBuilder, PRIM, col, mixCol, shade, trs, type ColorLike } from '../core/geo';
+import { CHARACTER_FOG_MAX } from '../core/materials';
+import { useSkyArtFog } from '../core/skyArtFog';
 
 export type HoldStyle = 'rifle' | 'pistol' | 'akimbo' | 'bow' | 'launcher' | 'hip' | 'pole' | 'sword' | 'none';
 
@@ -37,6 +39,36 @@ export function weaponMaterial(): THREE.MeshStandardMaterial {
     weaponMat.name = 'weapon';
   }
   return weaponMat;
+}
+
+let heldMat: THREE.MeshStandardMaterial | null = null;
+/**
+ * Material of a weapon held by a GLB body (a separate mesh on the hand bone):
+ * the weapon look with the character fog clamp (FOG_MAX, scene/skyfog.ts), so
+ * a far hero's gun never fogs out while the hero stays readable. Shared.
+ */
+export function heldWeaponMaterial(): THREE.MeshStandardMaterial {
+  if (!heldMat) {
+    heldMat = cloneKeepingDefines(weaponMaterial());
+    heldMat.name = 'weaponHeld';
+    heldMat.defines = { ...heldMat.defines, FOG_MAX: CHARACTER_FOG_MAX.toFixed(2) };
+    useSkyArtFog(heldMat, 'weaponHeld');
+  }
+  return heldMat;
+}
+
+/**
+ * Material.clone() that keeps `defines`: three's MeshStandardMaterial.copy()
+ * resets them to { STANDARD: '' }, which would drop custom switches such as the
+ * character fog clamp (FOG_MAX).
+ */
+export function cloneKeepingDefines<M extends THREE.Material & { defines?: Record<string, unknown> }>(m: M): M {
+  const c = m.clone() as M;
+  if (m.defines) c.defines = { ...m.defines };
+  // shader hooks (painted-sky fog, core/skyArtFog.ts useSkyArtFog) are not copied by three either
+  c.onBeforeCompile = m.onBeforeCompile;
+  c.customProgramCacheKey = m.customProgramCacheKey;
+  return c;
 }
 
 /** Best-effort model spec for an id the data tables don't know (yet). */

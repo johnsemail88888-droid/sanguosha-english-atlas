@@ -92,8 +92,11 @@ export interface HeroDetailOpts {
   lore?: boolean;
   /** a 3D turntable or portrait visual at the top */
   visual?: 'turntable' | 'portrait' | 'none';
-  /** hero select: the painted portrait as a splash above the name (only when the art ships) */
-  splash?: boolean;
+  /**
+   * hero select: the painted face as a medallion in place of the kingdom badge (only
+   * when the art ships). Same footprint as the header, so the abilities keep their room.
+   */
+  medallion?: boolean;
 }
 
 export function heroDetail(ctx: UiCtx, heroId: string, opts: HeroDetailOpts = {}): { el: HTMLElement; dispose(): void } {
@@ -132,21 +135,25 @@ export function heroDetail(ctx: UiCtx, heroId: string, opts: HeroDetailOpts = {}
       vis.appendChild(ctx.portraits.layer(heroId, 512, 'bust'));
     }
     el.appendChild(vis);
-  } else if (opts.splash) {
-    const splash = (): void => {
-      el.classList.add('has-splash');
-      el.prepend(h('div', { class: 'hd-splash' }, ctx.portraits.layer(heroId, 512, 'bust')));
-    };
-    if (art) splash();
-    // art listing still loading (first screen of a deep link): add the splash once it is known
-    else if (ctx.portraits.artState(heroId) === null) void ctx.portraits.whenKnown().then(() => !bag.isDisposed && ctx.portraits.hasArt(heroId) && splash());
+  }
+
+  let badge = kingdomBadge(def.kingdom, '2.4em');
+  if (opts.medallion && !opts.visual) {
+    // painted face with the kingdom seal on its rim; the plain badge without art
+    const medal = (): HTMLElement => h('span', { class: 'hd-medal' }, ctx.portraits.avatar(heroId, 'hd-ava'), kingdomBadge(def.kingdom));
+    if (art) badge = medal();
+    // art listing still loading (first screen of a deep link): swap once it is known
+    else if (ctx.portraits.artState(heroId) === null) {
+      const plain = badge;
+      void ctx.portraits.whenKnown().then(() => !bag.isDisposed && ctx.portraits.hasArt(heroId) && plain.replaceWith(medal()));
+    }
   }
 
   const weapon = WEAPON_BY_ID[def.signatureWeapon];
   const troop = TROOP_BY_ID[def.troopType];
   appendChildren(el,
     h('div', { class: 'hd-head' },
-      kingdomBadge(def.kingdom, '2.4em'),
+      badge,
       h('div', { class: 'hd-names' },
         h('div', { class: 'hd-name' }, heroName(heroId), h('span', { class: 'hd-title' }, heroTitle(heroId))),
         h('div', { class: 'hd-meta' },

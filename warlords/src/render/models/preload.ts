@@ -7,26 +7,31 @@ import { assetList } from '../../game/assets';
 import { HERO_BY_ID, TROOPS } from '../../data';
 import { CLIP_IDS, clipFilePath, CLIP_SPECS, loadClip } from '../anim/glbClips';
 import { heroModelPath, loadCharTemplate, troopModelPath } from './glb';
+import type { CharacterArt } from '../quality';
 
 /** Give up waiting (the loading bar moves on; late files still swap in when they arrive). */
 export const PRELOAD_BUDGET_MS = 25_000;
 
-/** Model files a match needs: its heroes + every troop / NPC model. */
-export function matchModelPaths(heroIds: Iterable<string>): string[] {
+/** Model files a match needs: its heroes + (tier 'all') every troop / NPC model. */
+export function matchModelPaths(heroIds: Iterable<string>, art: CharacterArt = 'all'): string[] {
   const paths = new Set<string>();
+  if (art === 'none') return [];
   for (const id of heroIds) if (HERO_BY_ID[id]) paths.add(heroModelPath(id));
+  if (art === 'heroes') return [...paths];
   for (const t of TROOPS) paths.add(troopModelPath({ headgear: t.visual.headgear, kingdom: t.kingdom === 'neutral' ? undefined : t.kingdom, id: t.id }));
   for (const k of ['shu', 'wei', 'wu', 'qun']) paths.add(troopModelPath({ kingdom: k }));
   return [...paths];
 }
 
 /**
- * Load the match's character art. `onProgress` gets 0..1 (files settled / files
- * shipped). Instant (0 files) when the deploy ships no art.
+ * Load the match's character art for the quality tier `art` (low: heroes only;
+ * a later switch to a higher tier loads the troop models then). `onProgress`
+ * gets 0..1 (files settled / files shipped). Instant (0 files) when the deploy
+ * ships no art.
  */
-export async function preloadCharacterArt(heroIds: Iterable<string>, onProgress?: (f: number) => void): Promise<void> {
+export async function preloadCharacterArt(heroIds: Iterable<string>, onProgress?: (f: number) => void, art: CharacterArt = 'all'): Promise<void> {
   const list = await assetList();
-  const models = matchModelPaths(heroIds).filter((p) => list.has(p));
+  const models = matchModelPaths(heroIds, art).filter((p) => list.has(p));
   const clips = CLIP_IDS.filter((id) => {
     const f = CLIP_SPECS[id].file;
     return f ? list.has(clipFilePath(f)) : true;

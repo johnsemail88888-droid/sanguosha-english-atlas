@@ -26,7 +26,7 @@ import { HERO_BY_ID, ROLE_BY_ID, TROOP_BY_ID } from '../../data';
 import { CharacterRig, type RigUpdate } from '../models/character';
 import { heroMountCoat, heroSpec, troopLook, troopMountCoat } from '../models';
 import { GLB_HERO_HEIGHT, heroModelPath, troopModelPath } from '../models/glb';
-import { qualityPreset } from '../quality';
+import { qualityPreset, type CharacterArt } from '../quality';
 import { settings } from '../../game/settings';
 import { kingdomColor } from '../palette';
 import { AuraSet } from './auras';
@@ -61,6 +61,9 @@ export const TROOP_ANIM_LOD_FAR = 70;
 export const HERO_SHADOW_DIST = 60;
 /** Troops / NPCs cast shadows within this distance (m) of the camera. */
 export const TROOP_SHADOW_DIST = 25;
+/** Held weapons (a separate shadow draw on AI-art bodies) cast shadows within these distances (m). */
+export const HERO_WEAPON_SHADOW_DIST = 20;
+export const TROOP_WEAPON_SHADOW_DIST = 8;
 /** Hero nameplates fade out beyond this distance (m). */
 const PLATE_MAX_DIST = 140;
 
@@ -97,6 +100,8 @@ export class CharacterView {
   /** near-camera / camera-line fade (non-local characters), 1 = opaque, 0 = hidden */
   private camFade = 1;
   private readonly fadeOpts: CamFadeOptions = { squad: false, camDir: null, fovDeg: 60 };
+  /** this character's AI-art model file (see models/glb.ts) */
+  private readonly glbPath: string;
   /** dt accumulated while a far hero skips animation frames */
   private animDt = 0;
   private farLod = false;
@@ -123,16 +128,15 @@ export class CharacterView {
   corpseBaseY: number | undefined;
   last: ViewEntity;
 
-  constructor(e: ViewEntity) {
+  /** `art`: which characters use their AI-art body (the renderer's active quality preset) */
+  constructor(e: ViewEntity, art: CharacterArt = qualityPreset(settings.get().quality).glbCharacters) {
     this.id = e.id;
     this.kind = e.kind;
     this.sub = e.sub;
     this.last = e;
-    // AI-art bodies (GLB) when the deploy ships them; the procedural rig until they load / without them
-    const glb = qualityPreset(settings.get().quality).glbCharacters;
     if (e.kind === 'hero') {
       this.rig = new CharacterRig(heroSpec(e.sub, e.kingdom));
-      if (glb !== 'none') this.rig.useGlb(heroModelPath(e.sub), GLB_HERO_HEIGHT);
+      this.glbPath = heroModelPath(e.sub);
       this.defaultWeapon = HERO_BY_ID[e.sub]?.signatureWeapon ?? null;
     } else {
       const look = troopLook(e.sub, e.kingdom);
@@ -141,14 +145,23 @@ export class CharacterView {
       this.rig = new CharacterRig(look.spec);
       this.rig.root.scale.setScalar(look.rootScale);
       if (look.mount) this.rig.setMount(look.mount, troopMountCoat(look.mount), look.spec.kingdom, '#d8ac4c');
-      if (glb === 'all') {
-        const kingdom = tdef ? (tdef.kingdom === 'neutral' ? undefined : tdef.kingdom) : e.kingdom;
-        this.rig.useGlb(troopModelPath({ headgear: tdef?.visual.headgear, kingdom, id: e.sub }), this.rig.standHeight());
-      }
+      const kingdom = tdef ? (tdef.kingdom === 'neutral' ? undefined : tdef.kingdom) : e.kingdom;
+      this.glbPath = troopModelPath({ headgear: tdef?.visual.headgear, kingdom, id: e.sub });
     }
+    this.setCharacterArt(art);
     this.root.add(this.rig.root);
     this.root.add(this.auras.group);
     this.root.name = `${e.kind}_${e.id}`;
+  }
+
+  /**
+   * AI-art body (GLB) when the deploy ships it and the quality tier includes
+   * this kind of character; the procedural rig until it loads / without it.
+   * Called again when the quality changes mid-match (bodies swap in place).
+   */
+  setCharacterArt(art: CharacterArt): void {
+    const on = this.kind === 'hero' ? art !== 'none' : art === 'all';
+    this.rig.useGlb(on ? this.glbPath : null, this.kind === 'hero' ? GLB_HERO_HEIGHT : this.rig.standHeight());
   }
 
   /** Height of the head top above the feet (for plates / auras). */
@@ -247,7 +260,8 @@ export class CharacterView {
     this.rig.setStealth((e.flags & VF_STEALTH) !== 0);
     // revealed (观星 / 狼顾 / 鬼谋): red silhouette through walls
     this.rig.setXray((e.flags & VF_EXPOSED) !== 0 && !isLocal && (e.flags & VF_DEAD) === 0);
-    this.rig.setShadows(ctx.shadows && dist < (isHero ? HERO_SHADOW_DIST : TROOP_SHADOW_DIST));
+    const shadow = ctx.shadows && dist < (isHero ? HERO_SHADOW_DIST : TROOP_SHADOW_DIST);
+    this.rig.setShadows(shadow, shadow && dist < (isHero ? HERO_WEAPON_SHADOW_DIST : TROOP_WEAPON_SHADOW_DIST));
     // far LOD (the local hero never; hysteresis so it does not flicker at the threshold)
     const lodDist = isHero ? HERO_LOD_DIST : TROOP_LOD_DIST;
     if (isLocal) this.farLod = false;

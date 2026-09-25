@@ -4,20 +4,28 @@
 // a tight near/far range (good depth precision, no z-fighting).
 //
 // AI-art mode (env/sky.webp shipped): the dome shows the painted panorama
-// instead — wrapped once around 360° at its own aspect (square pixels, no
-// stretching), turned so the painted sun sits exactly in the scene light's
-// direction (azimuth AND elevation), the image edges cross-faded into each
-// other behind the sun, the top blended into the painting's zenith colour
-// (no pole pinch) and the horizon into the sky-matched fog colour so distant
-// terrain melts into it. The painting is pre-compensated for the ACES tone
-// mapping so it reads as painted. The mountain rings take its horizon tint.
+// instead — wrapped once around 360° and squeezed to 80° of elevation (see
+// SKY_RAD_PER_IMAGE), turned so the painted sun sits in the scene light's
+// azimuth (and as high as the painting allows), the image edges cross-faded
+// into each other behind the sun, the top blended into the painting's zenith
+// colour (no pole pinch) and the horizon into the sky-matched fog colour so
+// distant terrain melts into it. The painting is pre-compensated for the ACES
+// tone mapping so it reads as painted. The mountain rings take its horizon tint.
 import * as THREE from 'three';
 import { SKY } from '../palette';
 import { col, mixCol } from '../core/geo';
 import { fbm2, valueNoise2 } from '../core/noise';
 import { sharedUniforms } from '../core/materials';
-import { requestSkyArt, setSkySunElevation, skyHorizonV } from '../core/worldArt';
-import { skyFogGlsl } from './skyfog';
+import { SKY_FILE, SKY_RAD_PER_IMAGE, requestSkyArt, setSkySunElevation, withWorldArtListing } from '../core/worldArt';
+import {
+  activateSkyArtFog,
+  buildPaintedFogLut,
+  disposeSkyArtFog,
+  makeSkyFogLutTexture,
+  setSkyArtFogGain,
+  setSkyArtFogLut,
+  skyArtFogUniforms,
+} from '../core/skyArtFog';
 
 export interface SkyLayer {
   scene: THREE.Scene;
@@ -41,10 +49,12 @@ const SKY_ART_PARS = /* glsl */ `
 uniform sampler2D uSkyTex;
 uniform vec2 uSunUV;
 uniform float uSunAz;
-uniform float uAspect;
+uniform float uVPerRad;
 uniform float uHorizonV;
 uniform vec3 uArtZenith;
 uniform float uExposure;
+uniform sampler2D uFogSkyTex;
+uniform vec4 uFogSkyMap;
 const float SEAM = 0.07;
 // inverse of three's ACESFilmicToneMapping (what the OutputPass applies), so
 // the painting comes out of the tone mapper as painted
@@ -55,15 +65,15 @@ vec3 invRRT(vec3 y) {
   return (-B - sqrt(max(B * B - 4.0 * A * C, 0.0))) / (2.0 * A);
 }
 vec3 invACES(vec3 c) {
-  const mat3 ACESInputMat = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
-  const mat3 ACESOutputMat = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  // inverses of three's ACESInputMat / ACESOutputMat (precomputed: no per-pixel matrix inversion)
+  const mat3 INV_IN = mat3(vec3(1.764741, -0.147028, -0.036337), vec3(-0.675778, 1.160252, -0.162436), vec3(-0.088963, -0.013224, 1.198773));
+  const mat3 INV_OUT = mat3(vec3(0.643038, 0.059269, 0.005962), vec3(0.311187, 0.931436, 0.063929), vec3(0.045775, 0.009295, 0.930118));
   c = clamp(c, 0.0, 0.97);
-  c = clamp(inverse(ACESOutputMat) * c, 0.0, 0.97);
+  c = clamp(INV_OUT * c, 0.0, 0.97);
   c = invRRT(c);
-  c = max(inverse(ACESInputMat) * c, 0.0);
+  c = max(INV_IN * c, 0.0);
   return c * 0.6 / uExposure;
 }
-${'${SKY_FOG}'}
 #endif`;
 
 const SKY_FRAG = /* glsl */ `
@@ -100,16 +110,22 @@ void main() {
     vec2 du = -(dot(dA, dA) < dot(dB, dB) ? dA : dB);
     float u = fract(uSunUV.x + uSunAz / 6.2831853 - a); // turning right = azimuth decreasing = u increasing
     float el = asin(clamp(d.y, -1.0, 1.0));
-    float v = uHorizonV - el * uAspect / 6.2831853;
-    vec2 dv = -vec2(dFdx(el), dFdy(el)) * uAspect / 6.2831853;
+    float v = uHorizonV - el * uVPerRad;
+    vec2 dv = -vec2(dFdx(el), dFdy(el)) * uVPerRad;
     // texture space is v-down: flipY is on for canvas textures, so sample at 1 - v
-    vec3 c1 = textureGrad(uSkyTex, vec2(u, 1.0 - v), vec2(du.x, -dv.x), vec2(du.y, -dv.y)).rgb;
-    vec3 c2 = textureGrad(uSkyTex, vec2(1.0 - u, 1.0 - v), vec2(-du.x, -dv.x), vec2(-du.y, -dv.y)).rgb;
-    vec3 c = mix(c1, c2, smoothstep(1.0 - SEAM, 1.0, u)); // right edge fades into the (mirrored) left edge
-    c = mix(c, uArtZenith, smoothstep(1.05, 1.4, el));    // no pinch at the pole
+    vec3 c = textureGrad(uSkyTex, vec2(u, 1.0 - v), vec2(du.x, -dv.x), vec2(du.y, -dv.y)).rgb;
+    if (u > 1.0 - SEAM) {
+      // the right edge fades into the (mirrored) left edge: seamless over 360°
+      vec3 c2 = textureGrad(uSkyTex, vec2(1.0 - u, 1.0 - v), vec2(-du.x, -dv.x), vec2(-du.y, -dv.y)).rgb;
+      c = mix(c, c2, smoothstep(1.0 - SEAM, 1.0, u));
+    }
+    // above the painting's top edge: its zenith colour (no clamp streaks, no pinch at the pole)
+    float topEl = uHorizonV / uVPerRad;
+    c = mix(c, uArtZenith, smoothstep(topEl - 0.32, topEl - 0.02, el));
     c = invACES(c);
-    // horizon: melt into the sky-matched fog colour the far terrain fades to
-    c = mix(c, skyFogColor(d), smoothstep(0.09, -0.04, d.y) * 0.85);
+    // horizon: melt into the sky-matched fog colour the far terrain fades to (the fog LUT of this painting)
+    vec3 fogC = texture2D(uFogSkyTex, vec2(fract(uFogSkyMap.x - a), clamp((el + uFogSkyMap.y) * uFogSkyMap.z, 0.0, 1.0))).rgb * uFogSkyMap.w;
+    c = mix(c, fogC, smoothstep(0.09, -0.04, d.y) * 0.85);
     gl_FragColor = vec4(c, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -147,7 +163,7 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
 
   const skyMat = new THREE.ShaderMaterial({
     vertexShader: SKY_VERT,
-    fragmentShader: SKY_FRAG.replace('${SKY_ART_PARS}', SKY_ART_PARS.replace('${SKY_FOG}', skyFogGlsl(sunN))),
+    fragmentShader: SKY_FRAG.replace('${SKY_ART_PARS}', SKY_ART_PARS),
     uniforms: {
       uZenith: { value: col(SKY.zenith).clone() },
       uHorizon: { value: col(SKY.horizon).clone() },
@@ -158,10 +174,12 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
       uSkyTex: { value: null as THREE.Texture | null },
       uSunUV: { value: new THREE.Vector2(0.81, 0.56) },
       uSunAz: { value: Math.atan2(sunN.x, sunN.z) },
-      uAspect: { value: 2.36 },
+      uVPerRad: { value: 1 / SKY_RAD_PER_IMAGE },
       uHorizonV: { value: 0.76 },
       uArtZenith: { value: new THREE.Color(0.05, 0.1, 0.25) },
       uExposure: { value: 1.15 },
+      uFogSkyTex: skyArtFogUniforms.uFogSkyTex,
+      uFogSkyMap: skyArtFogUniforms.uFogSkyMap,
     },
     side: THREE.BackSide,
     depthWrite: false,
@@ -172,8 +190,12 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
   skyMesh.renderOrder = -10;
   skyMesh.frustumCulled = false;
   // the painted sky is pre-compensated for the renderer's tone mapping exposure
+  let paintedFog = false;
   skyMesh.onBeforeRender = (r) => {
-    skyMat.uniforms.uExposure.value = r.toneMapping === THREE.ACESFilmicToneMapping ? r.toneMappingExposure : 0.6;
+    const exposure = r.toneMapping === THREE.ACESFilmicToneMapping ? r.toneMappingExposure : 0.6;
+    skyMat.uniforms.uExposure.value = exposure;
+    // the painted fog LUT is stored for exposure 1, like the dome's invACES()
+    if (paintedFog) setSkyArtFogGain(1 / exposure);
   };
   scene.add(skyMesh);
 
@@ -199,14 +221,22 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
   // AI-art panorama (callback only when shipped + decoded)
   let disposed = false;
   setSkySunElevation(Math.asin(Math.min(1, Math.max(-1, sunDirN.y))));
+  // the deploy ships a painting: world materials compile the LUT fog right away
+  // (procedural gradient in the LUT until the painting has decoded)
+  withWorldArtListing((files) => {
+    if (!disposed && files.has(SKY_FILE)) activateSkyArtFog(sunDirN);
+  });
   requestSkyArt((art) => {
     if (disposed) return;
     const u = skyMat.uniforms;
     u.uSkyTex.value = art.tex;
     u.uSunUV.value.set(art.sunU, art.sunV);
-    u.uAspect.value = art.aspect;
-    u.uHorizonV.value = skyHorizonV(art.sunV, art.aspect);
+    u.uHorizonV.value = art.horizonV;
     u.uArtZenith.value.copy(art.zenith);
+    activateSkyArtFog(sunDirN);
+    const lut = buildPaintedFogLut(art.preview, { horizonV: art.horizonV, vPerRad: 1 / SKY_RAD_PER_IMAGE, seam: 0.07, zenith: art.zenith });
+    setSkyArtFogLut(makeSkyFogLutTexture(lut), art.sunU + u.uSunAz.value / (Math.PI * 2));
+    paintedFog = true;
     skyMat.defines = { ...skyMat.defines, SKY_ART: '' };
     skyMat.needsUpdate = true;
     // distant ridges pick up the painting's horizon haze
@@ -228,6 +258,7 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
     },
     dispose(): void {
       disposed = true;
+      disposeSkyArtFog();
       skyMesh.geometry.dispose();
       skyMat.dispose();
       mountains.traverse((o) => {

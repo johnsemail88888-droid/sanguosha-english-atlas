@@ -4,6 +4,14 @@
 // edge. Implemented by overriding three's fog shader chunks (installed once;
 // only affects materials with fog enabled). Materials that define FOG_MAX
 // (characters) clamp the fog factor to it.
+//
+// AI-art sky (env/sky.webp): the world materials (terrain, structures, props,
+// vegetation, water) compile a SKY_ART_FOG variant that reads the fog colour
+// from a small direction LUT of the painted panorama (blurred, pre-compensated
+// for the tone mapping like the dome), so a peak rising into the painted sky
+// fades into exactly the colour behind it instead of a pale column. Until the
+// painting has decoded the LUT holds the procedural gradient (same look as
+// the chunk below). Other materials keep the procedural gradient.
 import * as THREE from 'three';
 import { SKY } from '../palette';
 
@@ -55,11 +63,22 @@ export function installSkyFog(sunDir: THREE.Vector3): void {
     uniform float fogNear;
     uniform float fogFar;
   #endif
+  #ifdef SKY_ART_FOG
+  uniform sampler2D uFogSkyTex;
+  uniform vec4 uFogSkyMap;
+  vec3 fogSkyColor() {
+    vec3 d = normalize((vec4(vFogView, 0.0) * viewMatrix).xyz);
+    float u = fract(uFogSkyMap.x - atan(d.x, d.z) * 0.15915494);
+    float v = clamp((asin(clamp(d.y, -1.0, 1.0)) + uFogSkyMap.y) * uFogSkyMap.z, 0.0, 1.0);
+    return texture2D(uFogSkyTex, vec2(u, v)).rgb * uFogSkyMap.w;
+  }
+  #else
   ${skyFogGlsl(sunDir)}
   vec3 fogSkyColor() {
     vec3 wdir = normalize((vec4(vFogView, 0.0) * viewMatrix).xyz);
     return skyFogColor(wdir);
   }
+  #endif
 #endif`;
   C.fog_fragment = /* glsl */ `
 #ifdef USE_FOG

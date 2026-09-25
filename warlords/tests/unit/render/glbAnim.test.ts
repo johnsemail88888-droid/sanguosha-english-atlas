@@ -2,7 +2,7 @@
 // math), the state → weights blend, the two-bone reach, model-path mapping and
 // scale normalisation — plus a synthetic-rig integration test of GlbBody +
 // GlbAnimator (no asset files needed).
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import {
@@ -35,6 +35,7 @@ import {
 import {
   BACK_ENTER,
   BACK_EXIT,
+  CLOTH_FOLLOW,
   L,
   U,
   WARP_MAX,
@@ -48,10 +49,29 @@ import {
 } from '../../../src/render/anim/glbAnimator';
 import { twoBoneReach } from '../../../src/render/anim/ik';
 import { CLIP_IDS, setClipsForTests, type ClipId } from '../../../src/render/anim/glbClips';
-import { buildLod, canonicaliseHips, evictUnusedTemplates, normalizeScale, releaseTemplate, retainTemplate, troopModelPath, type CharTemplate } from '../../../src/render/models/glb';
+import {
+  CLOTH_BONES,
+  blurFields,
+  buildLod,
+  canonicaliseHips,
+  distToChain,
+  evictUnusedTemplates,
+  normalizeScale,
+  releaseTemplate,
+  remapClothWeights,
+  retainTemplate,
+  topInfluences,
+  troopModelPath,
+  type CharTemplate,
+} from '../../../src/render/models/glb';
 import { GlbBody } from '../../../src/render/models/glbBody';
+import { cloneKeepingDefines, heldWeaponMaterial, weaponMaterial } from '../../../src/render/models/weapons';
+import { skyArtFogMaterialCount, useSkyArtFog } from '../../../src/render/core/skyArtFog';
+import { CHARACTER_FOG_MAX } from '../../../src/render/core/materials';
 import { matchModelPaths } from '../../../src/render/models/preload';
 import { CharacterRig } from '../../../src/render/models/character';
+import { CharacterView } from '../../../src/render/entities/characterView';
+import type { ViewEntity } from '../../../src/core/types';
 import { heroSpec } from '../../../src/render/models';
 import { setAssetListForTests } from '../../../src/game/assets';
 
@@ -477,6 +497,9 @@ describe('model paths and scale', () => {
     expect(paths).toContain('assets/models/heroes/guanyu.glb');
     expect(paths.some((p) => p.includes('nobody'))).toBe(false);
     for (const k of ['shu', 'wei', 'wu', 'qun', 'npc_yellowTurban', 'npc_barbarian']) expect(paths).toContain(`assets/models/troops/${k}.glb`);
+    // quality tiers: low preloads the heroes only, 'none' nothing
+    expect(matchModelPaths(['guanyu'], 'heroes')).toEqual(['assets/models/heroes/guanyu.glb']);
+    expect(matchModelPaths(['guanyu'], 'none')).toEqual([]);
   });
 
   it('builds a far LOD that shares the vertex buffers with fewer triangles', async () => {
@@ -502,7 +525,13 @@ describe('model paths and scale', () => {
 
 // ── synthetic rig: GlbBody + GlbAnimator ────────────────────────────────────
 
-function syntheticTemplate(): CharTemplate {
+interface ExtraVertex {
+  /** bind position (armature units = cm) */
+  p: [number, number, number];
+  bone: string;
+}
+
+function syntheticTemplate(opts: { extra?: ExtraVertex[]; cloth?: boolean } = {}): CharTemplate {
   const defs: [string, string | null, number, number, number][] = [
     ['Hips', null, 0, 95, 0],
     ['Spine02', 'Hips', 0, 12, 0],
@@ -545,16 +574,24 @@ function syntheticTemplate(): CharTemplate {
     si.push(i, 0, 0, 0);
     sw.push(1, 0, 0, 0);
   });
+  for (const e of opts.extra ?? []) {
+    pos.push(...e.p);
+    si.push(list.findIndex((b) => b.name === e.bone), 0, 0, 0);
+    sw.push(1, 0, 0, 0);
+  }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
   geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
   const material = new THREE.MeshStandardMaterial();
+  // as models/glb.ts prepare(): characters clamp their fog
+  material.defines = { FOG_MAX: CHARACTER_FOG_MAX.toFixed(2) };
   const mesh = new THREE.SkinnedMesh(geo, material);
   armature.add(mesh);
   mesh.bind(new THREE.Skeleton(list));
+  if (opts.cloth) remapClothWeights(mesh, 1);
   const rest = new Map<string, { p: THREE.Vector3; q: THREE.Quaternion }>();
-  for (const b of list) rest.set(b.name, { p: b.position.clone(), q: b.quaternion.clone() });
+  for (const b of mesh.skeleton.bones) rest.set(b.name, { p: b.position.clone(), q: b.quaternion.clone() });
   return {
     url: 'test',
     scene,
@@ -630,6 +667,58 @@ describe('GlbBody + GlbAnimator on a synthetic rig', () => {
     expect(evictUnusedTemplates()).toBe(0);
   });
 
+  it('keeps the character fog clamp (FOG_MAX) on the instance, its weapon and their faded variants', () => {
+    setClipsForTests(syntheticClips());
+    const tpl = syntheticTemplate();
+    const body = new GlbBody(tpl, 1.8);
+    body.setWeapon('carbine', 'rifle', false);
+    const fogMax = CHARACTER_FOG_MAX.toFixed(2);
+    // three's MeshStandardMaterial.copy() resets defines: the clone must restore them
+    expect(body.material).not.toBe(tpl.material);
+    expect(body.material.defines?.FOG_MAX).toBe(fogMax);
+    const weapons: THREE.Mesh[] = [];
+    body.group.traverse((o) => {
+      if (o.name.startsWith('weapon_carbine')) weapons.push(o as THREE.Mesh);
+    });
+    expect(weapons.length).toBe(1);
+    const wm = (): THREE.MeshStandardMaterial => weapons[0].material as THREE.MeshStandardMaterial;
+    expect(wm().defines?.FOG_MAX).toBe(fogMax);
+    // the shared world weapon material (pickups, racks) is not clamped
+    expect(weaponMaterial().defines?.FOG_MAX).toBeUndefined();
+    body.setOpacity(0.4);
+    expect(wm().transparent).toBe(true);
+    expect(wm().defines?.FOG_MAX).toBe(fogMax);
+    expect(body.material.defines?.FOG_MAX).toBe(fogMax);
+    body.setOpacity(1);
+    expect(wm()).toBe(heldWeaponMaterial());
+    body.dispose();
+  });
+
+  it('cloneKeepingDefines keeps custom shader switches', () => {
+    const m = new THREE.MeshStandardMaterial();
+    m.defines = { FOG_MAX: '0.45', X: '' };
+    expect(m.clone().defines?.FOG_MAX).toBeUndefined(); // the three behaviour this guards against
+    const c = cloneKeepingDefines(m);
+    expect(c.defines).toEqual({ FOG_MAX: '0.45', X: '' });
+    expect(c.defines).not.toBe(m.defines);
+  });
+
+  it('painted-sky fog hook survives the clone and registers the clone, not its source', () => {
+    const m = new THREE.MeshStandardMaterial();
+    useSkyArtFog(m, 'glbCharacter');
+    const c = cloneKeepingDefines(m);
+    expect(c.customProgramCacheKey()).toBe('glbCharacter');
+    const before = skyArtFogMaterialCount();
+    const shader = { uniforms: {}, fragmentShader: 'void main() {}', vertexShader: '' };
+    c.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, null as unknown as THREE.WebGLRenderer);
+    expect(skyArtFogMaterialCount()).toBe(before + 1);
+    // a disposed per-instance clone is forgotten (no growth over a match)
+    c.dispose();
+    expect(skyArtFogMaterialCount()).toBe(before);
+    // the held-weapon material carries the hook too
+    expect(heldWeaponMaterial().customProgramCacheKey()).toBe('weaponHeld');
+  });
+
   it('CharacterRig stays procedural when the deploy ships no model (and never throws)', async () => {
     setAssetListForTests([]);
     setClipsForTests(syntheticClips());
@@ -643,6 +732,144 @@ describe('GlbBody + GlbAnimator on a synthetic rig', () => {
     expect(rig.usesGlb).toBe(false);
     expect(rig.mesh.visible).toBe(true);
     rig.dispose();
+    setAssetListForTests(null);
+  });
+});
+
+// ── cloth (capes / robes skinned to the limbs) ──────────────────────────────
+
+describe('cloth weight remap', () => {
+  afterEach(() => setClipsForTests(null));
+
+  // synthetic rig (cm): hips at 95, T-pose arms at 143, legs straight down at x = ±10
+  const extra: ExtraVertex[] = [
+    { p: [0, 60, -25], bone: 'RightArm' }, // 0: lower cape behind the legs, auto-rigged to an arm
+    { p: [13, 70, 4], bone: 'LeftUpLeg' }, // 1: the thigh itself
+    { p: [32, 30, 0], bone: 'LeftLeg' }, // 2: a robe hem well outside the shin
+    { p: [0, 115, -14], bone: 'LeftArm' }, // 3: upper cape on the back, auto-rigged to an arm
+    { p: [50, 128, 3], bone: 'LeftForeArm' }, // 4: a sleeve hanging under the forearm
+  ];
+  const first = 24; // the joint vertices come first (one per bone)
+  const influences = (m: THREE.SkinnedMesh, i: number): Record<string, number> => {
+    const si = m.geometry.getAttribute('skinIndex');
+    const sw = m.geometry.getAttribute('skinWeight');
+    const out: Record<string, number> = {};
+    for (let k = 0; k < 4; k++) {
+      const w = sw.getComponent(i, k);
+      if (w > 1e-6) out[m.skeleton.bones[si.getComponent(i, k)].name] = (out[m.skeleton.bones[si.getComponent(i, k)].name] ?? 0) + w;
+    }
+    return out;
+  };
+  const restPositions = (m: THREE.SkinnedMesh): THREE.Vector3[] => {
+    m.parent!.updateMatrixWorld(true);
+    const pos = m.geometry.getAttribute('position');
+    return Array.from({ length: pos.count }, (_, i) => m.applyBoneTransform(i, new THREE.Vector3().fromBufferAttribute(pos, i)));
+  };
+
+  it('moves far limb weights to the torso / thigh followers, keeps limbs and sleeves, leaves the rest pose unchanged', () => {
+    const before = syntheticTemplate({ extra });
+    const tpl = syntheticTemplate({ extra, cloth: true });
+    const m = tpl.mesh;
+    expect(m.skeleton.bones.map((b) => b.name)).toEqual(expect.arrayContaining([CLOTH_BONES.Left, CLOTH_BONES.Right]));
+    expect(m.skeleton.getBoneByName(CLOTH_BONES.Left)!.parent!.name).toBe('Hips');
+    // lower cape: off the arm, onto both thigh followers (back centre)
+    const cape = influences(m, first);
+    expect(cape.RightArm ?? 0).toBeLessThan(0.01);
+    expect(cape[CLOTH_BONES.Left]).toBeCloseTo(0.5, 2);
+    expect(cape[CLOTH_BONES.Right]).toBeCloseTo(0.5, 2);
+    // the thigh keeps its thigh
+    expect(influences(m, first + 1)).toEqual({ LeftUpLeg: 1 });
+    // the hem follows the left thigh follower
+    expect(influences(m, first + 2)[CLOTH_BONES.Left]).toBeGreaterThan(0.99);
+    // upper cape: blended between the spine joints at its height
+    const up = influences(m, first + 3);
+    expect(up.LeftArm ?? 0).toBeLessThan(0.01);
+    expect(up.Spine02).toBeGreaterThan(0.2);
+    expect(up.Spine01).toBeGreaterThan(0.4);
+    // the sleeve stays on the forearm
+    expect(influences(m, first + 4)).toEqual({ LeftForeArm: 1 });
+    // every weight set sums to 1 and the bind pose is unchanged
+    for (let i = 0; i < first + extra.length; i++) expect(Object.values(influences(m, i)).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 5);
+    const a = restPositions(before.mesh);
+    const b = restPositions(m);
+    for (let i = 0; i < a.length; i++) expect(a[i].distanceTo(b[i])).toBeLessThan(1e-4);
+    // idempotent
+    expect(remapClothWeights(m, 1)).toBe(0);
+  });
+
+  it('a model without cloth gets no followers', () => {
+    const tpl = syntheticTemplate({ cloth: true });
+    expect(tpl.mesh.skeleton.getBoneByName(CLOTH_BONES.Left)).toBeUndefined();
+  });
+
+  it('quantised weights keep the four largest and sum exactly to one', () => {
+    const r = topInfluences([3, 7, 1, 9, 4], [0.1, 0.3, 0.05, 0.35, 0.2], 255);
+    expect(r.idx).toEqual([9, 7, 4, 3]);
+    expect(r.w.reduce((a, b) => a + b, 0) * 255).toBeCloseTo(255, 6);
+    for (const w of r.w) expect(Math.abs(w * 255 - Math.round(w * 255))).toBeLessThan(1e-6);
+    const f = topInfluences([2, 5], [0.25, 0.75], 0);
+    expect(f.idx).toEqual([5, 2, 0, 0]);
+    expect(f.w).toEqual([0.75, 0.25, 0, 0]);
+  });
+
+  it('distance to a bone chain and the spatial blur', () => {
+    const chain = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 1, 0)];
+    expect(distToChain(new THREE.Vector3(0.3, 0.5, 0), chain)).toBeCloseTo(0.3);
+    expect(distToChain(new THREE.Vector3(0.5, 1.2, 0), chain)).toBeCloseTo(0.2);
+    // two close vertices (1 cm apart) average, a far one keeps its value
+    const px = new Float32Array([0, 0, 0, 0.01, 0, 0, 1, 0, 0]);
+    const f = new Float32Array([0, 1, 1]);
+    blurFields(px, [f], 0.04);
+    expect(Math.abs(f[0] - f[1])).toBeLessThan(0.2);
+    expect(f[0]).toBeGreaterThan(0.3);
+    expect(f[1]).toBeLessThan(0.7);
+    expect(f[2]).toBe(1);
+  });
+
+  it('the animator turns the followers by a damped share of the thigh swing', () => {
+    setClipsForTests(syntheticClips());
+    const tpl = syntheticTemplate({ extra, cloth: true });
+    const body = new GlbBody(tpl, 1.8);
+    expect(tpl.mesh.skeleton.bones.length).toBe(26);
+    let bones: Record<string, THREE.Bone> = {};
+    body.group.traverse((o) => {
+      if ((o as THREE.Bone).isBone) bones[o.name] = o as THREE.Bone;
+    });
+    const restC = tpl.rest.get(CLOTH_BONES.Left)!.q;
+    const restT = tpl.rest.get('LeftUpLeg')!.q;
+    let maxC = 0;
+    let maxT = 0;
+    const fi = { dt: 1 / 30, speed: 5, moveX: 0, moveZ: 1, pitch: 0, flags: 0, hold: 'none' as const, mounted: false, meleeStyle: 'thrust' as const, mountHip: 0, mountBob: 0, reloadTime: 2 };
+    for (let i = 0; i < 60; i++) {
+      body.update(fi);
+      if (i < 15) continue;
+      maxC = Math.max(maxC, angleBetween(bones[CLOTH_BONES.Left].quaternion, restC));
+      maxT = Math.max(maxT, angleBetween(bones.LeftUpLeg.quaternion, restT));
+      for (const v of bones[CLOTH_BONES.Left].quaternion.toArray()) expect(Number.isFinite(v)).toBe(true);
+    }
+    expect(maxT).toBeGreaterThan(0.2);
+    expect(maxC).toBeGreaterThan(0.01);
+    expect(maxC).toBeLessThan(maxT * CLOTH_FOLLOW * 1.2);
+    body.dispose();
+    bones = {};
+  });
+});
+
+describe('character art tier', () => {
+  it('views pick AI-art or procedural bodies from the tier and swap in place when it changes', () => {
+    setAssetListForTests([]);
+    const hero = new CharacterView({ id: 1, kind: 'hero', sub: 'zhaoyun', kingdom: 'shu' } as unknown as ViewEntity, 'heroes');
+    const troop = new CharacterView({ id: 2, kind: 'troop', sub: 'wu_crossbow', kingdom: 'wu' } as unknown as ViewEntity, 'heroes');
+    const hs = vi.spyOn(hero.rig, 'useGlb');
+    const ts = vi.spyOn(troop.rig, 'useGlb');
+    troop.setCharacterArt('all');
+    expect(ts).toHaveBeenLastCalledWith('assets/models/troops/wu.glb', troop.rig.standHeight());
+    hero.setCharacterArt('none');
+    expect(hs).toHaveBeenLastCalledWith(null, expect.any(Number));
+    troop.setCharacterArt('heroes');
+    expect(ts).toHaveBeenLastCalledWith(null, expect.any(Number));
+    hero.setCharacterArt('heroes');
+    expect(hs).toHaveBeenLastCalledWith('assets/models/heroes/zhaoyun.glb', expect.any(Number));
     setAssetListForTests(null);
   });
 });

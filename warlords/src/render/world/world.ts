@@ -7,7 +7,7 @@ import type { MapData, MapProp, PropType } from '../../core/map';
 import { GeoBuilder, trs } from '../core/geo';
 import { glowMaterial, worldMaterial, worldMaterialDouble } from '../core/materials';
 import { bindStructureSet, structureMaterial } from '../core/structureMaterial';
-import { requestStructSet, withWorldArtListing, worldArtDisabledByUser } from '../core/worldArt';
+import { requestStructSet, withWorldArtListing, worldArtPossible } from '../core/worldArt';
 import { assetListSync } from '../../game/assets';
 import { buildPropModels, fullyReplacedTypes, glbPropKind, propModelPath, type GlbPropType, type PropModelSet } from './propModels';
 import { buildGateTower, buildHouse, buildPalace, buildPavilion, buildWall, buildWatchtower } from './buildings';
@@ -85,7 +85,8 @@ export interface WorldBuild {
 function swappable(p: MapProp, files: ReadonlySet<string> | null): GlbPropType | null {
   const k = glbPropKind(p);
   if (!k || p.type === 'tree' || p.type === 'pine' || p.type === 'bamboo' || p.type === 'rock') return null; // nature: separate instanced meshes already
-  if (files === null) return worldArtDisabledByUser() ? null : k;
+  if (!worldArtPossible()) return null; // single-file build, tests, user switch: plain chunks
+  if (files === null) return k; // listing not loaded yet: keep the option open
   return files.has(propModelPath(k)) ? k : null;
 }
 

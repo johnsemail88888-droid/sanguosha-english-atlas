@@ -13,11 +13,14 @@
 // tints) survive and the image only adds material detail.
 import * as THREE from 'three';
 import { STRUCT_LAYERS, type TexArraySet } from './worldArt';
+import { applySkyArtFog, skyArtFogKey } from './skyArtFog';
 
 /**
  * Surface ids (integer part of aSurf; the fraction carries the prop yaw).
  * 0 = plain vertex colour. Ids 1..6 index STRUCT_LAYERS + 1; WOOD_V is the
  * planks layer turned 90° (vertical grain: posts, palisades, poles).
+ * PROC_DETAIL marks procedural-only detail (painted brick courses) that the
+ * textured look replaces: its triangles collapse once the brick texture is in.
  */
 export const SURF = {
   plain: 0,
@@ -28,20 +31,30 @@ export const SURF = {
   paving: 5,
   stone: 6,
   woodV: 7,
+  procDetail: 8,
 } as const;
 export type SurfId = (typeof SURF)[keyof typeof SURF];
+
+/**
+ * The yaw fraction lives in [SURF_YAW_LO, SURF_YAW_LO + SURF_YAW_SPAN], well
+ * inside (0, 1): the interpolated varying can sit a hair below / above the
+ * vertex value, and a fraction packed at exactly 0 would wrap to 0.9999 in
+ * fract() — a 7° turn of the world-space UVs, i.e. a texel mosaic.
+ */
+export const SURF_YAW_LO = 0.02;
+export const SURF_YAW_SPAN = 0.96;
 
 /** Pack a surface id + yaw (radians) into the aSurf channel value. */
 export function packSurf(id: SurfId, yaw = 0): number {
   if (id === SURF.plain) return 0;
   const t = yaw / (Math.PI * 2);
-  return id + (t - Math.floor(t)) * 0.98;
+  return id + SURF_YAW_LO + (t - Math.floor(t)) * SURF_YAW_SPAN;
 }
 
-/** Inverse of packSurf (tests / tools). */
+/** Inverse of packSurf (tests / tools). Mirrors the shader's decode. */
 export function unpackSurf(v: number): { id: number; yaw: number } {
-  const id = Math.floor(v + 1e-4);
-  return { id, yaw: ((v - id) / 0.98) * Math.PI * 2 };
+  const id = Math.floor(v);
+  return { id, yaw: ((v - id - SURF_YAW_LO) / SURF_YAW_SPAN) * Math.PI * 2 };
 }
 
 /** Metres per texture repeat, per STRUCT_LAYERS entry. */
@@ -57,9 +70,14 @@ const uniforms = {
 
 const PARS_VERTEX = /* glsl */ `
 attribute float aSurf;
+uniform float uStructHas[${STRUCT_LAYERS.length}];
 varying float vSurf;
 varying vec3 vSPos;
 varying vec3 vSNrm;`;
+
+// procedural-only detail (brick courses): degenerate once the brick texture draws the real mortar
+const COLLAPSE_VERTEX = /* glsl */ `
+if (aSurf > ${SURF.procDetail.toFixed(1)} && aSurf < ${(SURF.procDetail + 1).toFixed(1)} && uStructHas[0] > 0.5) transformed = vec3(0.0);`;
 
 const VERTEX = /* glsl */ `
 vSurf = aSurf;
@@ -82,8 +100,8 @@ const FRAGMENT = /* glsl */ `
   vec3 sp = vSPos;
   vec3 sdx = dFdx(sp);
   vec3 sdy = dFdy(sp);
-  float sid = floor(vSurf + 0.0001);
-  if (sid > 0.5) {
+  float sid = floor(vSurf);
+  if (sid > 0.5 && sid < ${(SURF.procDetail - 0.5).toFixed(1)}) {
     vec3 n = normalize(vSNrm);
     bool roof = sid > 2.5 && sid < 3.5;
     bool vgrain = sid > 6.5;
@@ -94,7 +112,7 @@ const FRAGMENT = /* glsl */ `
     float hl = length(hn);
     if ((roof && hl < 0.08) || (!roof && flatness > 0.8)) {
       // horizontal: the prop's own frame
-      float yaw = fract(vSurf) / 0.98 * 6.2831853;
+      float yaw = (clamp(vSurf - sid, ${SURF_YAW_LO.toFixed(3)}, ${(SURF_YAW_LO + SURF_YAW_SPAN).toFixed(3)}) - ${SURF_YAW_LO.toFixed(3)}) / ${SURF_YAW_SPAN.toFixed(3)} * 6.2831853;
       float c = cos(yaw); float s = sin(yaw);
       mat2 R = mat2(c, s, -s, c);
       uv = R * sp.xz; gx = R * sdx.xz; gy = R * sdy.xz;
@@ -122,17 +140,19 @@ export function structureMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.86, metalness: 0 });
   m.name = 'structure';
   m.onBeforeCompile = (shader) => {
+    applySkyArtFog(shader, m);
     shader.uniforms.uStructTex = uniforms.uStructTex;
     shader.uniforms.uStructAvg = uniforms.uStructAvg;
     shader.uniforms.uStructHas = uniforms.uStructHas;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>${PARS_VERTEX}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>${COLLAPSE_VERTEX}`)
       .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>${VERTEX}`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>${PARS_FRAGMENT}`)
       .replace('#include <color_fragment>', `#include <color_fragment>${FRAGMENT}`);
   };
-  m.customProgramCacheKey = () => 'structure_v1';
+  m.customProgramCacheKey = () => `structure_v2${skyArtFogKey()}`;
   mat = m;
   return m;
 }

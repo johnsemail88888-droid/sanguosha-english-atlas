@@ -113,7 +113,7 @@ export const CROPS: Readonly<Record<PortraitCrop, CropSpec>> = {
   thumb: { aspect: 5 / 7, head: 0.3, ax: 0.5, ay: 0.36, maxZoom: 2.4 },
   /** round / square avatar: the face */
   face: { aspect: 1, head: 0.56, ax: 0.5, ay: 0.47, maxZoom: 3.4 },
-  /** 2:1 splash (hero detail header): head and shoulders */
+  /** 2:1 banner (hero detail visual when no 3D turntable mounts): head and shoulders */
   bust: { aspect: 2, head: 0.36, ax: 0.5, ay: 0.42, maxZoom: 1.8 },
   /** the whole painting in a 3:4 frame */
   full: { aspect: 3 / 4, head: 0, ax: 0.5, ay: 0.5, maxZoom: 1 },

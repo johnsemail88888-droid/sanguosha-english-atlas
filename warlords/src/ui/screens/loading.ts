@@ -30,6 +30,7 @@ export const LOADING_TIPS: readonly [string, string][] = [
 const STAGES: Record<string, [number, string, string]> = {
   sim: [0.15, '生成战场与地形…', 'Generating the battlefield…'],
   scene: [0.4, '搭建城池与山河…', 'Building the world…'],
+  models: [0.62, '点将列阵（载入模型）…', 'Loading models…'],
   shaders: [0.62, '研墨点彩（编译着色器）…', 'Compiling shaders…'],
   warmup: [0.88, '整军待发…', 'Mustering the troops…'],
   ready: [1, '开战！', 'To battle!'],

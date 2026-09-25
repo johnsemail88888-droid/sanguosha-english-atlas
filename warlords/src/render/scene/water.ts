@@ -7,6 +7,7 @@ import { NATURE, SKY } from '../palette';
 import { col } from '../core/geo';
 import { sharedUniforms } from '../core/materials';
 import { requestSkyArt } from '../core/worldArt';
+import { applySkyArtFog, skyArtFogKey } from '../core/skyArtFog';
 
 const VERT = /* glsl */ `
 attribute float aDepth;
@@ -136,6 +137,8 @@ export function buildWater(map: MapData, sunDir: THREE.Vector3): WaterMesh {
     fog: true,
   });
   mat.uniforms.uTime = sharedUniforms.uTime;
+  mat.onBeforeCompile = (shader) => applySkyArtFog(shader, mat);
+  mat.customProgramCacheKey = () => `water${skyArtFogKey()}`;
   // AI-art sky: reflect the painted sky's horizon haze (mixed with a touch of its zenith blue)
   let disposed = false;
   requestSkyArt((art) => {

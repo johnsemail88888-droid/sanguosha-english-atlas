@@ -14,7 +14,9 @@
 //                  an aim solve that turns the torso until the held weapon
 //                  points along the camera aim (pitch included), recoil kick,
 //                  hit flinch, stun wobble, saddle placement, left-hand IK on
-//                  the foregrip.
+//                  the foregrip, and the cloth followers (capes / robes
+//                  skinned to models/glb.ts CLOTH_BONES trail the thighs at a
+//                  damped amplitude).
 //
 // Locomotion set: every movement in the game is a run (heroes 5 m/s, troops
 // 5-6 m/s, ADS 3 m/s, sprint 7.5 m/s) while the shipped walk clips are slow
@@ -39,7 +41,7 @@ import {
   VF_STUNNED,
 } from '../../core/types';
 import type { HoldStyle } from '../models/weapons';
-import type { CharTemplate } from '../models/glb';
+import { CLOTH_BONES, type CharTemplate } from '../models/glb';
 import { CLIP_SPECS, modelClip, type ClipId, type ModelClip } from './glbClips';
 import { twoBoneReach } from './ik';
 
@@ -103,6 +105,12 @@ export const CAST_TIME = 0.9;
 export const MELEE_TIME = 0.62;
 export const HIT_TIME = 0.4;
 export const BOW_SHOT_TIME = 0.7;
+/** Share of the thigh's rotation the cloth followers take (capes / robes / skirts, see models/glb.ts remapClothWeights). */
+export const CLOTH_FOLLOW = 0.35;
+/** How fast (1/s) the cloth followers catch up with their target (a little trailing motion). */
+export const CLOTH_RATE = 14;
+/** Share of the way the cloth followers swing back toward hanging straight down (gravity). */
+export const CLOTH_GRAVITY = 0.5;
 
 export interface GlbAnimInput {
   dt: number;
@@ -449,6 +457,7 @@ const SPINE = ['Spine02', 'Spine01', 'Spine'] as const;
 /** Share of the torso solves taken by each spine joint. */
 const SPINE_SHARE = [0.3, 0.3, 0.4];
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const DOWN_AXIS = new THREE.Vector3(0, -1, 0);
 const RIGHT_AXIS = new THREE.Vector3(-1, 0, 0); // the model's right in armature space (it faces +Z)
 const FWD_AXIS = new THREE.Vector3(0, 0, 1);
 
@@ -496,6 +505,9 @@ export class GlbAnimator {
   private readonly hipsRest: THREE.Vector3;
   /** input adapter for the pure blend (reused) */
   private readonly inp: GlbAnimInput;
+  /** cloth followers (left, right), their thighs and rest rotations; empty when the model has none */
+  private readonly cloth: { bone: THREE.Bone; thigh: THREE.Bone; rest: THREE.Quaternion }[] = [];
+  private clothSettled = false;
 
   constructor(tpl: CharTemplate, root: THREE.Object3D, bones: Bones, unitM: number) {
     this.tpl = tpl;
@@ -503,6 +515,12 @@ export class GlbAnimator {
     this.unitM = unitM;
     this.mixer = new THREE.AnimationMixer(root);
     this.hipsRest = (tpl.rest.get('Hips')?.p ?? new THREE.Vector3()).clone();
+    for (const side of ['Left', 'Right'] as const) {
+      const bone = bones[CLOTH_BONES[side]];
+      const thigh = bones[`${side}UpLeg`];
+      const rest = tpl.rest.get(CLOTH_BONES[side])?.q;
+      if (bone && thigh && rest) this.cloth.push({ bone, thigh, rest });
+    }
     const self = this;
     this.inp = {
       dt: 0,
@@ -819,6 +837,30 @@ export class GlbAnimator {
     // 3. left hand on the foregrip
     if (attach && attach.foreInHand && b.leftHandIk && b.weaponVisible && this.wUp[U.aim] > 0.5 && this.wUp[U.reload] < 0.05) {
       this.leftHandIk(attach, this.wUp[U.aim] * this.aimW);
+    }
+
+    // 4. cloth: a damped share of each thigh's final rotation, pulled toward
+    //    hanging straight down (a bent-over or leaning body does not lift its
+    //    cape into a wall), trailing slightly
+    if (this.cloth.length) {
+      const follow = this.clothSettled ? 1 - Math.exp(-dt * CLOTH_RATE) : 1;
+      for (let i = 0; i < this.cloth.length; i++) {
+        const c = this.cloth[i];
+        _q.copy(c.rest).slerp(c.thigh.quaternion, CLOTH_FOLLOW);
+        // armature-space hang axis (the thigh's bone axis, toward the knee)
+        _qa.copy(hips.quaternion).multiply(_q);
+        _v.copy(Y_AXIS).applyQuaternion(_qa);
+        // −_v.y = cos(angle to straight down); upside down (mid-roll) the pull fades out
+        const g = CLOTH_GRAVITY * smooth01(-0.85, -0.45, -_v.y);
+        if (g > 1e-3) {
+          _q2.setFromUnitVectors(_v, DOWN_AXIS);
+          _q2.slerp(IDENTITY_Q, 1 - g);
+          _qa.premultiply(_q2);
+          _q.copy(hips.quaternion).invert().multiply(_qa);
+        }
+        c.bone.quaternion.slerp(_q, follow);
+      }
+      this.clothSettled = true;
     }
   }
 

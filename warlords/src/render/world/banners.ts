@@ -1,6 +1,7 @@
 // War banners (军旗): every banner cloth on the map is merged into ONE mesh with
 // a shared glyph atlas (魏 蜀 吴 群 黄 蛮 汉 令) and a vertex-shader wind wave.
 import * as THREE from 'three';
+import { applySkyArtFog, skyArtFogKey } from '../core/skyArtFog';
 import type { MapProp } from '../../core/map';
 import { KINGDOM_COLORS } from '../palette';
 import { makeCanvas, CALLIGRAPHY_FONT, whiteTexture } from '../core/textures';
@@ -158,6 +159,7 @@ export function buildBanners(props: readonly MapProp[]): BannerMesh {
   g.computeBoundingSphere();
   const mat = new THREE.MeshStandardMaterial({ map: bannerAtlas(), side: THREE.DoubleSide, roughness: 0.9 });
   mat.onBeforeCompile = (shader) => {
+    applySkyArtFog(shader, mat);
     shader.uniforms.uTime = sharedUniforms.uTime;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uTime;\nattribute vec2 aWave;')
@@ -172,7 +174,7 @@ export function buildBanners(props: readonly MapProp[]): BannerMesh {
 }`,
       );
   };
-  mat.customProgramCacheKey = () => 'banner_wave';
+  mat.customProgramCacheKey = () => `banner_wave${skyArtFogKey()}`;
   const mesh = new THREE.Mesh(g, mat);
   mesh.name = 'banners';
   mesh.castShadow = true;

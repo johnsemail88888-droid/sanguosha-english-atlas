@@ -65,6 +65,16 @@ export default defineConfig(({ mode }) => ({
     assetsInlineLimit: mode === 'single' ? 100_000_000 : 4096,
   },
   server: { port: 5173 },
+  // dev: the AI-art loaders are imported lazily; pre-bundle them so the first
+  // load does not answer 504 "Outdated Optimize Dep" and reload the page
+  optimizeDeps: {
+    include: [
+      'three/addons/loaders/GLTFLoader.js',
+      'three/addons/libs/meshopt_decoder.module.js',
+      'three/addons/libs/meshopt_simplifier.module.js',
+      'three/addons/utils/SkeletonUtils.js',
+    ],
+  },
   test: {
     include: ['tests/unit/**/*.test.ts'],
     environment: 'node',

@@ -29,8 +29,6 @@ export type ClipId =
   | 'idle'
   | 'aim'
   | 'walkBack'
-  | 'strafeA'
-  | 'strafeB'
   | 'run'
   | 'sprint'
   | 'jump'
@@ -52,7 +50,12 @@ export type ClipId =
 export interface ClipSpec {
   /** assets/anim/<file>.glb */
   file?: string;
-  /** derived by mirroring another clip left ↔ right */
+  /**
+   * derived by mirroring another clip left ↔ right (unused: the walking strafe
+   * walk_gun_left is ≤ 1 m/s while every sideways move in the game is a run, so
+   * strafes turn the run's hips instead — see anim/glbAnimator; a run-speed
+   * strafe clip would be mirrored here)
+   */
   mirrorOf?: ClipId;
   /** derived: the time-averaged pose of another clip (stride shortening) */
   meanOf?: ClipId;
@@ -72,8 +75,6 @@ export const CLIP_SPECS: Record<ClipId, ClipSpec> = {
   // Walk_Forward_While_Shooting: its upper body is THE aimed-rifle pose
   aim: { file: 'walk_gun_fwd', root: 'loco', ground: true, loop: true },
   walkBack: { file: 'walk_gun_back', root: 'loco', ground: true, loop: true, gait: true },
-  strafeA: { file: 'walk_gun_left', root: 'loco', ground: true, loop: true, gait: true },
-  strafeB: { mirrorOf: 'strafeA', root: 'loco', ground: true, loop: true, gait: true },
   run: { file: 'run_gun', root: 'loco', ground: true, loop: true, gait: true },
   sprint: { file: 'sprint', root: 'loco', ground: true, loop: true, gait: true },
   jump: { file: 'jump', root: 'none', ground: false, loop: false },
@@ -89,7 +90,8 @@ export const CLIP_SPECS: Record<ClipId, ClipSpec> = {
   cast: { file: 'cast', root: 'noXZ', ground: false, loop: false },
   sit: { file: 'sit', root: 'none', ground: false, loop: true },
   bow: { file: 'bow_walk', root: 'loco', ground: true, loop: true },
-  bowShot: { file: 'bow_shot', root: 'noXZ', ground: false, loop: false },
+  // Archery_Shot is 5 s (quiver, nock, draw, hold, lower): only the release from full draw
+  bowShot: { file: 'bow_shot', root: 'noXZ', ground: false, loop: false, from: 2.9, to: 3.6 },
   knockdown: { file: 'knockdown', root: 'noXZ', ground: false, loop: false },
   crawl: { file: 'crawl', root: 'noXZ', ground: false, loop: true, gait: true },
   runMean: { meanOf: 'run', root: 'loco', ground: true, loop: true },

@@ -14,7 +14,7 @@ import { InputController } from '../game/input';
 import { GameRenderer } from './renderer';
 import type { ViewSource } from './view';
 
-export type LoadStage = 'scene' | 'shaders' | 'warmup' | 'ready' | 'failed';
+export type LoadStage = 'scene' | 'models' | 'shaders' | 'warmup' | 'ready' | 'failed';
 
 export interface LoadProgress {
   /** 0..1 */
@@ -160,11 +160,11 @@ export function mountGameView(container: HTMLElement, view: ViewSource, opts: Mo
     afterPaint(() => {
       if (disposed) return;
       if (!build()) return;
-      setProgress({ progress: 0.62, stage: 'shaders' });
+      setProgress({ progress: 0.62, stage: 'models' });
       afterPaint(() => {
         if (disposed || !renderer) return;
-        // shaders: 0.62 → 0.88 as the warm-up batches link
-        void renderer.warmup((f) => setProgress({ progress: 0.62 + 0.26 * Math.min(1, f), stage: 'shaders' })).then(() => {
+        // models (AI-art bodies / props / textures), then shaders: 0.62 → 0.88 as the warm-up batches link
+        void renderer.warmup((f, stage) => setProgress({ progress: 0.62 + 0.26 * Math.min(1, f), stage })).then(() => {
           if (disposed) return;
           setProgress({ progress: 0.88, stage: 'warmup' });
           afterPaint(() => {

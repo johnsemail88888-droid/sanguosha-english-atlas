@@ -3,7 +3,7 @@ import type { GameResult, HeroSelectView, PublicPlayerView, RoleDealView } from 
 import { isFatalSessionError } from '../../../src/ui/app';
 import { terrainRgb } from '../../../src/ui/hud/minimap';
 import { wheelChoices } from '../../../src/ui/hud/overlays';
-import { selectTurn, takenHeroes } from '../../../src/ui/screens/heroSelect';
+import { lordPickedParts, selectTurn, takenHeroes } from '../../../src/ui/screens/heroSelect';
 import { ZONE_TABLE } from '../../../src/ui/screens/help';
 import { ZONE_PHASES } from '../../../src/sim/zone';
 import { inviteLink } from '../../../src/ui/screens/lobby';
@@ -11,7 +11,7 @@ import { buildOverRows, outcomeFor } from '../../../src/ui/screens/gameOver';
 import { errorMessage, isValidRoomCode, normalizeRoomCode } from '../../../src/ui/screens/online';
 import { crownSecret, crownSeats, shownSeatRole } from '../../../src/ui/screens/roles';
 import { shouldUseTouch, stickVector } from '../../../src/ui/touch';
-import { overrideLang } from '../../../src/ui/i18n';
+import { overrideLang, t } from '../../../src/ui/i18n';
 
 describe('online room codes', () => {
   it('normalizes typed codes and pasted invite links', () => {
@@ -95,6 +95,19 @@ describe('roles & hero select', () => {
     const c = wheelChoices();
     expect(c).toHaveLength(8);
     expect(c.filter((x) => x.kind === 'claim')).toHaveLength(3);
+  });
+});
+
+describe('crown-pick toast', () => {
+  it('splits the sentence around the hero name in both languages', () => {
+    for (const lang of ['zh', 'en'] as const) {
+      overrideLang(lang);
+      const { pre, post } = lordPickedParts();
+      expect(pre.length).toBeGreaterThan(0);
+      expect(pre).toBe(pre.trimEnd());
+      expect(`${pre} 刘备${post}`).toBe(t('select.lordPicked', { hero: '刘备' }));
+    }
+    overrideLang(null);
   });
 });
 

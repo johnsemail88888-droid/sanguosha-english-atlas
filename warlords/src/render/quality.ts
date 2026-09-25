@@ -10,6 +10,9 @@ import { WEAPONS } from '../data';
  */
 export const HERO_VIEW_RANGE = Math.min(640, Math.max(300, WEAPONS.reduce((m, w) => Math.max(m, w.maxRange || 0), 0) + 30));
 
+/** Which characters use their AI-art (GLB) body: every one, heroes only, or none (procedural rigs). */
+export type CharacterArt = 'all' | 'heroes' | 'none';
+
 export interface QualityPreset {
   /** multiplier on devicePixelRatio, and an absolute cap */
   pixelRatioScale: number;
@@ -38,7 +41,7 @@ export interface QualityPreset {
    * AI-art (GLB) character bodies when the deploy ships them: every character,
    * heroes only (troops / NPCs keep the cheaper procedural bodies) or none.
    */
-  glbCharacters: 'all' | 'heroes' | 'none';
+  glbCharacters: CharacterArt;
 }
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
