@@ -530,11 +530,13 @@ export const WEI_HEROES: HeroDef[] = [
         nameZh: '倾国',
         nameEn: 'Nation-Toppling Beauty',
         sgsSkill: '倾国',
-        descZh: '移动中受到子弹攻击时，有 25% 几率完全闪避。',
-        descEn: 'While moving, each incoming bullet has a 25% chance to be completely evaded.',
+        descZh: '移动中受到子弹攻击时，有 35% 几率完全闪避。',
+        descEn: 'While moving, each incoming bullet has a 35% chance to be completely evaded.',
         // impl: AbilityImplEx.bulletEvadeChance returns `chance` while horizontal speed >= minSpeed; combat
         //       folds it with 八卦 / dodgeChance as 1 − Π(1 − p) under BULLET_EVASION_CAP and rolls once.
-        params: { chance: 0.25, minSpeed: 1.5 },
+        // balance (w2): 25 → 35 % — 甄姬 won 29 % of 80 forced bot matches against 42 % for her roles
+        //       (3 HP, low damage); 倾国 (every black card a 闪) is her defence, so it carries the buff.
+        params: { chance: 0.35, minSpeed: 1.5 },
         aiHint: 'defense',
       },
       {
@@ -545,7 +547,8 @@ export const WEI_HEROES: HeroDef[] = [
         sgsSkill: '洛神',
         descZh: '连续判定至多 4 次（60%/50%/40%/30%），每次成功得 1 个锦囊，失败即停。',
         descEn: 'Roll up to 4 times (60/50/40/30%); each success grants 1 item. Stops at the first failure.',
-        cooldown: 20,
+        // balance (w2): 20 → 16 s — 洛神 is her card engine (a judge every turn in 三国杀)
+        cooldown: 16,
         params: { maxDraws: 4, chance1: 0.6, chance2: 0.5, chance3: 0.4, chance4: 0.3, interval: 0.3 },
         targeting: 'self',
         aiHint: 'utility',
@@ -558,7 +561,8 @@ export const WEI_HEROES: HeroDef[] = [
         sgsSkill: '倾国',
         descZh: '闪现 10 米：落点 4 米内敌人受 45 冰霜伤害并减速；原地留下 4 米冰霜区 4 秒，敌人减速 40%、每秒受 15 伤害。',
         descEn: 'Blink 10 m: 45 frost damage + slow within 4 m of the landing; the frost field left behind slows 40% and deals 15/s for 4 s.',
-        cooldown: 14,
+        // balance (w2): 14 → 12 s — her one damage tool comes round a little sooner
+        cooldown: 12,
         // impl: burst = `damage` in `burstRadius` at the landing (+ slow `burstSlowTime`), the trailing
         //       field ticks fieldDps (per second) and slows. Frost shards: 'pierce' (armor does not help).
         params: { blink: 10, radius: 4, duration: 4, slow: 0.4, damage: 45, burstRadius: 4, burstSlowTime: 1.5, fieldDps: 15, fieldTime: 4 },

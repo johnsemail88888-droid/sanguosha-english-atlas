@@ -814,7 +814,7 @@ describe('郭嘉 Guo Jia', () => {
 
 // ── 甄姬 ────────────────────────────────────────────────────────────────────
 describe('甄姬 Zhen Ji', () => {
-  it('倾国 evades ~25 % of bullets while moving, none while standing or against ability damage', () => {
+  it('倾国 evades ~35 % of bullets while moving, none while standing or against ability damage', () => {
     const { w, me, foe } = duel('zhenji');
     const hitN = (n: number, weapon: boolean): number => {
       let dodged = 0;
@@ -830,13 +830,13 @@ describe('甄姬 Zhen Ji', () => {
     expect(hitN(200, true)).toBe(0);
     me.vel.x = 5;
     const d = hitN(800, true);
-    expect(d).toBeGreaterThan(800 * 0.25 - 60);
-    expect(d).toBeLessThan(800 * 0.25 + 60);
+    expect(d).toBeGreaterThan(800 * 0.35 - 60);
+    expect(d).toBeLessThan(800 * 0.35 + 60);
     expect(hitN(200, false)).toBe(0);
     // the hook only reports the chance (combat rolls it)
     const def = abilityOf('zhenji', 'passive');
     const ctx = { ...w.abilityCtx(me, def), req: { targetId: me.id, amount: 1, type: 'normal' as const, weaponId: 'carbine' }, other: foe };
-    expect(getAbility(def.id)!.bulletEvadeChance!(ctx)).toBeCloseTo(0.25, 5);
+    expect(getAbility(def.id)!.bulletEvadeChance!(ctx)).toBeCloseTo(0.35, 5);
     me.vel.x = 1;
     expect(getAbility(def.id)!.bulletEvadeChance!(ctx)).toBe(0);
   });
@@ -895,7 +895,7 @@ describe('甄姬 Zhen Ji', () => {
     place(w, foe, 30, 40);
     cast(w, me, 'e', { yaw: 0, pitch: 0 });
     expect(30 - me.pos.z).toBeGreaterThan(9);
-    expect(w.cooldownLeft(me.id, 'zhenji_lingbo')).toBeCloseTo(14, 1);
+    expect(w.cooldownLeft(me.id, 'zhenji_lingbo')).toBeCloseTo(12, 1);
     const field = hazards(w, 'lingboFrost');
     expect(field).toHaveLength(1);
     expect(Math.hypot(field[0].pos.x, field[0].pos.z - 30)).toBeLessThan(0.5);

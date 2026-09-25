@@ -4,7 +4,7 @@ import { registerAbility } from '../registry';
 import { canAct, flatDist, grantRandomItems, immobile, safeBlink, setCast } from './shared';
 
 // 倾国 (passive): while moving (horizontal speed ≥ 1.5 m/s) each dodgeable weapon bullet has a
-// 25 % chance to miss entirely. Combat folds the chance with 八卦 / dodgeChance statuses as
+// 35 % chance to miss entirely. Combat folds the chance with 八卦 / dodgeChance statuses as
 // 1 − Π(1 − p) under BULLET_EVASION_CAP and rolls once (never roll here).
 registerAbility({
   id: 'zhenji_qingguo',
@@ -12,7 +12,7 @@ registerAbility({
     const self = ctx.self;
     if (!self.hero || self.hero.downed || self.hero.dead) return 0;
     const speed = Math.hypot(self.vel.x, self.vel.z);
-    return speed >= param(ctx, 'minSpeed', 1.5) ? Math.min(1, Math.max(0, param(ctx, 'chance', 0.25))) : 0;
+    return speed >= param(ctx, 'minSpeed', 1.5) ? Math.min(1, Math.max(0, param(ctx, 'chance', 0.35))) : 0;
   },
 });
 

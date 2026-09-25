@@ -436,9 +436,9 @@
 
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
-| 被动<br>Passive | **倾国**<br>Nation-Toppling Beauty<br><sub>三国杀：倾国</sub> | — | 移动中受到子弹攻击时，有 25% 几率完全闪避。<br>While moving, each incoming bullet has a 25% chance to be completely evaded. |
-| Q | **洛神**<br>Goddess of the Luo<br><sub>三国杀：洛神</sub> | 20 s | 连续判定至多 4 次（60%/50%/40%/30%），每次成功得 1 个锦囊，失败即停。<br>Roll up to 4 times (60/50/40/30%); each success grants 1 item. Stops at the first failure. |
-| E | **凌波微步**<br>Graceful Steps<br><sub>三国杀：倾国</sub><br><sub>穿透伤害 · Piercing damage</sub> | 14 s | 闪现 10 米：落点 4 米内敌人受 45 冰霜伤害并减速；原地留下 4 米冰霜区 4 秒，敌人减速 40%、每秒受 15 伤害。<br>Blink 10 m: 45 frost damage + slow within 4 m of the landing; the frost field left behind slows 40% and deals 15/s for 4 s. |
+| 被动<br>Passive | **倾国**<br>Nation-Toppling Beauty<br><sub>三国杀：倾国</sub> | — | 移动中受到子弹攻击时，有 35% 几率完全闪避。<br>While moving, each incoming bullet has a 35% chance to be completely evaded. |
+| Q | **洛神**<br>Goddess of the Luo<br><sub>三国杀：洛神</sub> | 16 s | 连续判定至多 4 次（60%/50%/40%/30%），每次成功得 1 个锦囊，失败即停。<br>Roll up to 4 times (60/50/40/30%); each success grants 1 item. Stops at the first failure. |
+| E | **凌波微步**<br>Graceful Steps<br><sub>三国杀：倾国</sub><br><sub>穿透伤害 · Piercing damage</sub> | 12 s | 闪现 10 米：落点 4 米内敌人受 45 冰霜伤害并减速；原地留下 4 米冰霜区 4 秒，敌人减速 40%、每秒受 15 伤害。<br>Blink 10 m: 45 frost damage + slow within 4 m of the landing; the frost field left behind slows 40% and deals 15/s for 4 s. |
 
 **台词 Quotes**
 

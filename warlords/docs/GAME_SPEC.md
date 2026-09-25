@@ -201,7 +201,7 @@ are guidance; DATA tunes them for balance (TTK for a 400 HP hero under sustained
 | zhangliao | 张辽 | 4 | 突袭(被动): +50 % damage to targets facing away | 突袭: blink ≤ 12 m to crosshair target, steal 1 item from up to 2 enemies within 6 m, slow them | 威震逍遥津: 10 m shout: enemies silenced 2 s, their troops flee 3 s | — |
 | xuchu | 许褚 | 4 | 虎痴: immune to knockback; squad +1 | 裸衣: 8 s dmg ×1.6, damage taken ×1.25 | 虎卫猛击: ground slam 6 m, 80 dmg + knock-up | — |
 | guojia | 郭嘉 | 3 | 天妒/遗计: taking ≥ 35 dmg in one hit gives you 1 random item and refills your mag (5 s cd) | 遗计: call a supply airdrop at crosshair (lands in 3 s, 2 items; 20 s cd) | 鬼谋: mark target 7 s — takes +30 % from all sources and is revealed (14 s cd) | — |
-| zhenji | 甄姬 | 3 | 倾国: 25 % chance to evade bullets while moving | 洛神: gamble up to 4 draws (60 %, 50 %, 40 %, 30 %), each success = 1 random item | 凌波微步: blink 10 m — a frost burst at the landing (45 dmg + slow in 4 m), the frost field left behind slows 40 % and deals 15/s | — |
+| zhenji | 甄姬 | 3 | 倾国: 35 % chance to evade bullets while moving | 洛神: gamble up to 4 draws (60 %, 50 %, 40 %, 30 %), each success = 1 random item | 凌波微步: blink 10 m — a frost burst at the landing (45 dmg + slow in 4 m), the frost field left behind slows 40 % and deals 15/s | — |
 | xiahouyuan | 夏侯渊 | 4 | 神速(被动): +15 % move speed; sprint doesn't break ADS | 神速: blink 14 m to point + instant free 5-round volley | 虎步关右: 5 s haste 40 % + dodge recharge | — |
 
 ### 吴 Wu
