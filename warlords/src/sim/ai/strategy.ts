@@ -173,7 +173,7 @@ export class RoleStrategy {
     this.nextClaimAt = 35 + rng.next() * 60;
     this.fakeLoyal = rng.next() < 0.5;
     this.claimRebelAtPush = rng.next() < 0.5;
-    this.probeAt = rng.next() < 0.75 ? prof.lootPhase * 0.7 + rng.next() * 45 : -1;
+    this.probeAt = rng.next() < 0.85 ? prof.lootPhase * 0.6 + rng.next() * 45 : -1;
   }
 
   // ── who is who ──────────────────────────────────────────────────────────
@@ -259,7 +259,7 @@ export class RoleStrategy {
     // probe: a short hit-and-run on the lord well before the push
     if (this.probeState === 'waiting' && this.probeAt >= 0 && now >= this.probeAt) {
       const lp = lord ? v.posOf(lord, 10) : undefined;
-      const healthy = self.hp >= self.maxHp * 0.7;
+      const healthy = self.hp >= self.maxHp * 0.5;
       // hit and run needs reach: close-range weapons don't probe
       const w = v.weapon;
       const ranged = !!w && !w.melee && w.class !== 'shotgun' && w.class !== 'flamer';
