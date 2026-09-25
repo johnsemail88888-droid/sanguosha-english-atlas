@@ -22,6 +22,7 @@ import type { DamageRequest, DamageResult, ProjectileSpec, RayHit, SimApi } from
 import { BULLET_EVASION_CAP } from '../data';
 import { armorDef, heroDef, mountDef, usesAmmo, warnOnce, weaponDef } from './defs';
 import type { HitscanOptions } from './ext';
+import { flingGear } from './items/util';
 import { rayCylinder, raycastStatic, raySphere } from './physics';
 import type { StaticHit } from './physics';
 import { findStatus, nullifyEffect, removeStatusIf, statusValue } from './status';
@@ -1115,7 +1116,12 @@ export function applyWeaponSpecialOnHit(w: World, src: Entity, def: WeaponDef, t
       if (target.alive) w.applyStatus(target.id, 'burn', p.burnTime ?? 3, { sourceId: src.id, params: { dps: p.burnDps ?? 12 } });
       break;
     case 'dismount':
-      if (target.hero?.mount && (p.dropMount ?? 1) > 0) w.dismount(target.id);
+      if (target.hero?.mount && (p.dropMount ?? 1) > 0) {
+        // the horse bolts 2.5 m off and the rider can't climb back on for dropLock s (COMBAT-2)
+        const mount = target.hero.mount;
+        target.hero.mount = null;
+        flingGear(w, target, src.pos, [mount], { scatter: p.scatter ?? 2.5, lock: p.dropLock ?? 5 });
+      }
       if ((p.slow ?? 0) > 0 && target.alive) w.applyStatus(target.id, 'slow', p.slowTime ?? 1.5, { sourceId: src.id, params: { amount: p.slow } });
       break;
     case 'chainLightning': {

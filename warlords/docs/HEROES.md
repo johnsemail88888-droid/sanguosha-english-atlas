@@ -518,7 +518,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **锦帆**<br>Brocade Sails<br><sub>三国杀：奇袭</sub> | — | 移速 +10%；击杀任意单位后立即装满弹匣。<br>+10% move speed. Killing any unit instantly refills your magazine. |
-| Q | **奇袭**<br>EMP Raid<br><sub>三国杀：奇袭</sub> | 18 s | 向准星处敌人射出电磁弩：其护甲与坐骑掉落、护盾清空，并沉默 2.5 秒。<br>Fire an EMP bolt at the crosshair enemy: it drops its armor and mount, loses all shield, and is silenced 2.5 s. |
+| Q | **奇袭**<br>EMP Raid<br><sub>三国杀：奇袭</sub> | 18 s | 向准星处敌人射出电磁弩：其护甲与坐骑被震飞（5 秒内无法拾回）、护盾清空，并沉默 2.5 秒。<br>EMP bolt at the crosshair enemy: its armor and mount are knocked away (no pick-up for 5 s), shield cleared, silenced 2.5 s. |
 | E | **百骑劫营**<br>Hundred Riders Raid<br><sub>三国杀：奇袭</sub> | 28 s | 你与士兵潜行 8 秒；潜行中的首轮攻击（至多 1 秒连射）伤害 +60%。<br>You and your squad turn stealthy for 8 s. Your first attack from stealth (a burst of up to 1 s) deals +60% damage. |
 
 **台词 Quotes**
@@ -865,7 +865,7 @@ DPS = one trigger pull × fire rate (no reloads); TTK counts from the first shot
 | **贯石** Guanshi Grenade Launcher<br><sub>黄盖</sub> | 贯石斧 | 发射器 | 史诗 Epic | 116 | 1.82 / 2.73 s | 斧刃榴弹发射器：榴弹爆炸（3.5 米，80 伤害）无视闪避。<br>Axe-bladed grenade launcher: grenade blasts (3.5 m, 80 dmg) cannot be dodged. |
 | **朱雀羽扇** Vermilion Phoenix Flamer<br><sub>周瑜</sub> | 朱雀羽扇 | 喷火器 | 史诗 Epic | 144 | 2.06 / 2.75 s | 凤羽火焰喷射器：造成火焰伤害并点燃目标（每秒 12，3 秒）。<br>Phoenix-feather flamethrower: deals fire damage and ignites targets (12/s for 3 s). |
 | **方天画戟** Sky Piercer Rocket Pod | 方天画戟 | 发射器 | 传说 Legendary | 204 | 1.25 / 1.25 s | 三联装火箭发射器：每次齐射 3 枚火箭，自动追向准星附近至多 3 个不同目标。<br>Triple rocket pod: every volley fires 3 rockets that home onto up to 3 different targets near the aim point. |
-| **麒麟弓** Qilin Anti-Materiel Rifle | 麒麟弓 | 狙击枪 | 传说 Legendary | 94 | 3.08 / 3.08 s | 反器材狙击枪（3.5 倍镜）：命中骑乘者将其击落下马并减速 30%。<br>Anti-materiel sniper (3.5× scope): hits knock riders off their mount and slow them 30%. |
+| **麒麟弓** Qilin Anti-Materiel Rifle | 麒麟弓 | 狙击枪 | 传说 Legendary | 94 | 3.08 / 3.08 s | 反器材狙击枪（3.5 倍镜）：命中骑乘者将其击落下马（坐骑惊逃 2.5 米，5 秒内无法再骑）并减速 30%。<br>Anti-materiel sniper (3.5× scope): hits knock riders off their mount (it bolts 2.5 m away; no remounting for 5 s) and slow them 30%. |
 | **龙胆亮银枪** Longdan Bayonet Carbine<br><sub>赵云</sub> | — | 步枪 | 专属 Signature | 168 | 1.75 / 2.38 s | 赵云的亮银刺刀卡宾枪，射速快、腰射稳定。<br>Zhao Yun's silver bayonet carbine: fast-firing and steady from the hip. |
 | **烈弓** Liegong Sniper Bow<br><sub>黄忠</sub> | — | 弓 | 专属 Signature | 95 | 2.22 / 3.33 s | 黄忠的复合狙击弓：箭矢飞行下坠小，远距离一击重创。<br>Huang Zhong's compound sniper bow: flat-flying arrows that hit hard at long range. |
 | **锦帆双铃** Brocade Bell SMGs<br><sub>甘宁</sub> | — | 冲锋枪 | 专属 Signature | 168 | 1.71 / 2.36 s | 甘宁的双持冲锋枪，枪身系铃，未见其人先闻其声。<br>Gan Ning's twin SMGs hung with bells — you hear him before you see him. |

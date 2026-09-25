@@ -208,7 +208,7 @@ are guidance; DATA tunes them for balance (TTK for a 400 HP hero under sustained
 | id | 名 | HP | passive | Q | E | lord (G) |
 |---|---|---|---|---|---|---|
 | sunquan | 孙权 ★ | 4 | 制衡(被动): reload 20 % faster | 制衡: discard all items and redraw the same number +1; instantly reload everything; reset dodges | 坐断东南: recruit 2 troops (up to squad cap + 2) | 救援: 6 s: nearby Wu units take 30 % less; heals from Wu heroes on you ×2 |
-| ganning | 甘宁 | 4 | 锦帆: +10 % speed; kills refill your mag | 奇袭: EMP bolt — target drops armor & mount, loses shield, silenced 3 s | 百骑劫营: 8 s stealth for you + squad; first attack from stealth +60 % | — |
+| ganning | 甘宁 | 4 | 锦帆: +10 % speed; kills refill your mag | 奇袭: EMP bolt — target's armor & mount knocked 2.5 m away (locked for it 5 s), loses shield, silenced 2.5 s | 百骑劫营: 8 s stealth for you + squad; first attack from stealth +60 % | — |
 | lumeng | 吕蒙 | 4 | 克己: not firing for 4 s ⇒ stealth (breaks on firing) | 白衣渡江: 6 s stealth while moving + 30 % haste | 攻心: target disarmed 2.5 s and you steal 1 item | — |
 | huanggai | 黄盖 | 4 | 苦肉(被动): below 50 % HP, fire damage +30 % | 苦肉: lose 40 HP ⇒ gain 2 random items + fire-rate ×1.4 5 s | 诈降火船: launch a burning fire-ship drone (12 m/s), explodes 7 m: 120 fire + fire field | — |
 | zhouyu | 周瑜 | 3 | 英姿: reload +25 %, ability cooldowns −20 % | 反间: charm the crosshair enemy 3 s — they attack the nearest other hero; their troops turn on them (18 s cd) | 火烧赤壁: napalm strike along a 25 m line after 1.5 s: 110 fire + burning ground 18/s (24 s cd) | — |

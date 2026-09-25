@@ -4,6 +4,7 @@ import { BTN_FIRE } from '../../../core/types';
 import type { AbilityCtx } from '../../api';
 import { weaponDef } from '../../defs';
 import { ext } from '../../ext';
+import { flingGear } from '../../items/util';
 import { alive, getState, param, setState } from '../common';
 import { registerAbility } from '../registry';
 import { applyDebuff, centerOf, crosshairFoe, isUp, nullifiedBy, setCast } from './util';
@@ -40,8 +41,18 @@ registerAbility({
     if (outcome === 'nullified' || !alive(t)) return true;
     const x = ext(sim);
     if (t.hero) {
-      x.stripArmor(t.id, true);
-      x.dismount(t.id);
+      // knocked 2.5 m away and out of the victim's reach for 5 s (like 过河拆桥): dropped at its
+      // feet, a bot put it straight back on
+      const lost: string[] = [];
+      if (t.hero.armor) {
+        lost.push(t.hero.armor);
+        x.stripArmor(t.id, false); // 白银狮子 still heals on removal
+      }
+      if (t.hero.mount) {
+        lost.push(t.hero.mount);
+        t.hero.mount = null;
+      }
+      if (lost.length) flingGear(sim, t, self.pos, lost, { scatter: param(ctx, 'scatter', 2.5), lock: param(ctx, 'dropLock', 5) });
     }
     if (t.shield > 0 || sim.hasStatus(t.id, 'shield')) {
       sim.removeStatus(t.id, 'shield');
