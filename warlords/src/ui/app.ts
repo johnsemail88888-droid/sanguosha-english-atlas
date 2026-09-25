@@ -392,6 +392,7 @@ class App implements UiCtx {
     const prev = this.screen;
     this.screen = null;
     if (prev) {
+      this.portraits.release(prev.el);
       prev.dispose();
       prev.el.remove();
     }
@@ -634,6 +635,7 @@ class App implements UiCtx {
       console.error('[ui] hud dispose failed', err);
     }
     m.hud.el.remove();
+    this.portraits.release(m.hud.el);
     try {
       m.handle.dispose();
     } catch (err) {

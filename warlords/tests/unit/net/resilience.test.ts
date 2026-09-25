@@ -180,6 +180,8 @@ describe('seat reclaim', () => {
     const token = a.session.seatToken;
     expect(token).toMatch(/^[a-z2-9]{20}$/);
     starts = 0;
+    // mid-match: snapshots are flowing (before the first one the host counts as still loading: longer allowance)
+    await waitFor(() => (a!.session.snapshotStats?.full ?? 0) > 0, 2000, 'first snapshot');
 
     h.net.sever(oldId); // no close, no goodbye: the host still thinks the link is alive
     await waitFor(() => a!.session.myId !== oldId && a!.session.phase === 'playing' && starts === 1, 6000, 'auto rejoin');

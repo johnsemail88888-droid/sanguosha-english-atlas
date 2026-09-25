@@ -106,7 +106,8 @@ Append new sections at the end; mark `Status:` when applied.
 - **Status:** applied (G2) — both checks skip one round after a gap > 2 × interval + 1 s (client: `checkHost`,
   host: `pingPeers`); guests emit `status {key:'waitingHost'}` "等待主机响应… / Waiting for host…" after 3 s of
   host silence and `{key:'waitingHost', clear:true}` "主机已恢复响应 / Host is responding again" when it speaks
-  again. The host also exempts a peer that is loading a match from `peerTimeout` until it reports `loaded`
+  again. Until the first snapshot of a match arrives (the host is still building its own scene) a guest tolerates
+  `hostLoadingTimeoutMs` (45 s) of host silence instead of 15 s. The host exempts a peer that is loading a match from `peerTimeout` until it reports `loaded`
   (≤ `timings.loadGrace`, 30 s), and keeps a closed connection's seat for `timings.dropGrace` (5 s) before a bot
   takes over, so a blip + auto-rejoin never bounces the seat. Unit tests: tests/unit/net/rejoin.test.ts.
 - **Files / functions:** `src/net/clientSession.ts` `checkHost()` (1 s interval, `hostTimeoutMs` 15 s);

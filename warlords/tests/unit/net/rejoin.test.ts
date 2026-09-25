@@ -152,6 +152,21 @@ describe('stall-aware connection watchdogs (APP-6)', () => {
     expect(a.session.phase).toBe('playing');
   });
 
+  it('client: a host that goes quiet while loading the match (frozen page) gets the longer loading allowance', async () => {
+    const h = makeHost({ seed: 20, timings: { loadTimeout: 30 } });
+    const errors: string[] = [];
+    const a = await addClient(h, 'A', { hostTimeoutMs: 400, hostLoadingTimeoutMs: 2500, checkIntervalMs: 100 });
+    a.session.on('error', (e) => errors.push(e.code));
+    h.host.on('matchStart', () => h.host.setLocalLoading(new Promise<void>(() => {}))); // the host's view never gets ready
+    autoPick(h);
+    h.host.start();
+    await waitFor(() => a.session.view !== null, 5000, 'client view');
+    h.net.sever(a.session.myId); // the host page is busy compiling shaders: not a word
+    await sleep(1500);
+    expect(errors).toEqual([]); // way past hostTimeoutMs, but no snapshot yet: the host is still loading
+    await waitFor(() => errors.includes('connectionLost'), 3000, 'lost after the loading allowance');
+  });
+
   it('client: without the stall allowance a truly silent host is still detected', async () => {
     const h = makeHost({ seed: 15 });
     const errors: string[] = [];

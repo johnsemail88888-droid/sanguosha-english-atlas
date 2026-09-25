@@ -59,6 +59,13 @@ export interface ClientSessionOptions {
   waitingStatusMs?: number;
   /** host-silence watchdog period (ms, default 1000; tests) */
   checkIntervalMs?: number;
+  /**
+   * Host silence tolerated while the host is still loading the match (ms,
+   * default 45 000): from matchStart until its first snapshot the host's page
+   * builds its scene and compiles shaders — it can freeze for many seconds on
+   * a slow machine without being gone.
+   */
+  hostLoadingTimeoutMs?: number;
 }
 
 const now = (): number => performance.now();
@@ -120,6 +127,7 @@ export class ClientSession implements GameSession {
   private readonly rejoinDelays: readonly number[];
   private readonly waitingStatusMs: number;
   private readonly checkIntervalMs: number;
+  private readonly hostLoadingTimeoutMs: number;
   private transportUnsubs: (() => void)[] = [];
   private unwatchFocus: (() => void) | null = null;
 
@@ -186,6 +194,7 @@ export class ClientSession implements GameSession {
     this.rejoinDelays = opts.rejoinDelaysMs?.length ? opts.rejoinDelaysMs : DEFAULT_REJOIN_DELAYS;
     this.waitingStatusMs = opts.waitingStatusMs ?? 3000;
     this.checkIntervalMs = Math.max(10, opts.checkIntervalMs ?? CHECK_INTERVAL_MS);
+    this.hostLoadingTimeoutMs = opts.hostLoadingTimeoutMs ?? 45_000;
     this.token = opts.token ?? loadToken(opts.roomCode);
     this.attach(opts.transport);
     this.unwatchFocus = watchPageFocus({
@@ -671,7 +680,9 @@ export class ClientSession implements GameSession {
       return;
     }
     const silent = t - this.lastHostMsgAt;
-    if (silent > this.hostTimeoutMs) {
+    // no snapshot yet in this match: the host is still loading it (its page may be frozen)
+    const hostLoading = this.currentMatch !== null && (this.snapshots === null || this.snapshots.newest < 0);
+    if (silent > (hostLoading ? Math.max(this.hostTimeoutMs, this.hostLoadingTimeoutMs) : this.hostTimeoutMs)) {
       this.lost(new NetError('connectionLost'));
       return;
     }

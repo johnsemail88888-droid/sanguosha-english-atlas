@@ -4,7 +4,7 @@ import type { HeroSelectView, RoleDealView } from '../../core/types';
 import type { GameSession } from '../../game/session';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, s, setText } from '../dom';
-import { getLang, heroName, seatLabel, t } from '../i18n';
+import { getLang, heroName, seatLabel, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
 import { button, heroCard, seal } from '../widgets';
 import { heroDetail } from './heroDetail';
@@ -146,8 +146,9 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
     gridKey = key;
     cards.clear();
     cardState.clear();
-    // your options are drawn before the thumbnails of other seats' picks
-    ctx.portraits.prioritize?.(opts);
+    // your options are drawn before the thumbnails of other seats' picks (a free pick
+    // of all 30 heroes renders lazily, the visible cards first, still ahead of the strip)
+    if (opts.length <= 8) ctx.portraits.prioritize?.(opts);
     grid.className = `grid ${opts.length <= 3 ? 'n-small' : opts.length <= 8 ? 'n-mid' : 'n-large'}`;
     grid.replaceChildren(
       ...opts.map((id) => {
@@ -261,7 +262,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
     el.classList.toggle('locked', !!picked);
     waitNote.replaceChildren();
     if (waiting) {
-      const who = crowns.map((c) => `${seatName(session, c)}（${seatLabel(c)}）`).join(' · ');
+      const who = crowns.map((c) => tx(`${seatName(session, c)}（${seatLabel(c)}）`, `${seatName(session, c)} (${seatLabel(c)})`)).join(' · ');
       waitNote.append(h('span', { class: 'sg-spinner' }), ' ', t(crowns.length > 1 ? 'select.crownsPicking' : 'select.waitLord'), h('span', { class: 'sg-mute' }, ` · ${who}`));
     }
     renderDetail(focused, turn);
@@ -341,6 +342,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
       detail?.dispose();
       detail = null;
       bag.dispose();
+      ctx.portraits.release?.(el);
       cards.clear();
       cardState.clear();
       grid.replaceChildren();

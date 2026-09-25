@@ -114,7 +114,7 @@ export function createRolesScreen(ctx: UiCtx, session: GameSession): Screen {
       announce.appendChild(h('div', { class: 'lordline' }, h('span', { class: 'crown' }, '♛'), t('roles.lordIs', { name: seatName(session, crowns[0]), seat: seatLabel(crowns[0]) })));
     } else if (crowns.length > 1) {
       announce.appendChild(h('div', { class: 'lordline' }, h('span', { class: 'crown' }, '♛♛'), t('roles.twoCrowns')));
-      announce.appendChild(h('div', { class: 'sg-mute' }, crowns.map((c) => `${seatName(session, c)}（${seatLabel(c)}）`).join(tx('、', ', '))));
+      announce.appendChild(h('div', { class: 'sg-mute' }, crowns.map((c) => tx(`${seatName(session, c)}（${seatLabel(c)}）`, `${seatName(session, c)} (${seatLabel(c)})`)).join(tx('、', ', '))));
       const secret = crownSecret(deal, me);
       if (secret) {
         const vars = { name: seatName(session, secret.seat), seat: seatLabel(secret.seat) };

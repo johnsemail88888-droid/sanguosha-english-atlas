@@ -246,7 +246,13 @@ export class Hud {
     this.applySettings();
     this.bag.add(settings.subscribe(() => this.applySettings()));
     this.bag.add(this.handle.onEvents((evs) => this.onEvents(evs)));
-    this.bag.add(this.session.on('chat', (c) => this.chat.add({ from: this.speaker(c.from), text: c.text }, performance.now() / 1000)));
+    this.bag.add(
+      this.session.on('chat', (c) => {
+        // lobby notices (join / leave / kick) also arrive as 'status' below: show them once
+        if ((c as { system?: boolean }).system) return;
+        this.chat.add({ from: this.speaker(c.from), text: c.text }, performance.now() / 1000);
+      }),
+    );
     // connection notices (player left / replaced by a bot / reconnected) show as system lines
     this.bag.add(
       this.session.on('status', (st) => {
@@ -589,7 +595,7 @@ export class Hud {
     const aboutMe = ev.target === myId;
     this.feed.push(killer, victim, { mine, aboutMe, now });
     if (mine && !aboutMe) {
-      this.killStamp.show(`${heroName(victim.heroId)}${victim.role ? `（${roleName(victim.role)}）` : ''}`);
+      this.killStamp.show(`${heroName(victim.heroId)}${victim.role ? tx(`（${roleName(victim.role)}）`, ` (${roleName(victim.role)})`) : ''}`);
       this.crosshair.hit('kill');
     }
     if (aboutMe) {

@@ -85,15 +85,26 @@ interface PortraitJob {
  * Memoizes deps.renderHeroPortrait and builds <img> layers with a calligraphy
  * placeholder. Portraits are keyed by hero only (one render per hero, not one per
  * size) and rendered one at a time from a priority queue, so the cards a player
- * must choose from are drawn before the picks strip / other seats.
+ * must choose from are drawn before the picks strip / other seats. Between two
+ * renders the queue yields to the browser (a render is a synchronous WebGL draw
+ * with shader compiles — back to back they froze hero select for the whole
+ * countdown), and a layer only asks for its portrait once it scrolls into view.
  */
 export class PortraitCache {
   private cache = new Map<string, Promise<string>>();
   private queue: PortraitJob[] = [];
   private running = 0;
   private seq = 0;
+  private pumpTimer: ReturnType<typeof setTimeout> | null = null;
+  private io: IntersectionObserver | null = null;
+  private readonly lazy = new WeakMap<Element, () => void>();
 
-  constructor(private readonly render: (heroId: string, size?: number) => Promise<string>, private readonly concurrency = 1) {}
+  constructor(
+    private readonly render: (heroId: string, size?: number) => Promise<string>,
+    private readonly concurrency = 1,
+    /** ms to yield between two renders (input, rAF and timers run meanwhile) */
+    private readonly gapMs = 30,
+  ) {}
 
   /** The portrait data URL of a hero ('' when it could not be rendered). `size` is ignored (always PORTRAIT_SIZE). */
   get(heroId: string, _size?: number, priority = 0): Promise<string> {
@@ -147,24 +158,74 @@ export class PortraitCache {
         .then((url) => job.resolve(url))
         .finally(() => {
           this.running--;
-          this.pump();
+          this.schedulePump();
         });
     }
   }
 
-  /** A `.portrait` layer: placeholder glyph now, image once rendered. */
+  /** The next render starts in a later task, never in the microtask chain of the last one. */
+  private schedulePump(): void {
+    if (this.pumpTimer !== null || !this.queue.length) return;
+    this.pumpTimer = setTimeout(() => {
+      this.pumpTimer = null;
+      this.pump();
+    }, this.gapMs);
+  }
+
+  private observer(): IntersectionObserver | null {
+    if (this.io) return this.io;
+    if (typeof IntersectionObserver === 'undefined') return null;
+    this.io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          this.io?.unobserve(e.target);
+          const start = this.lazy.get(e.target);
+          this.lazy.delete(e.target);
+          start?.();
+        }
+      },
+      { rootMargin: '160px' },
+    );
+    return this.io;
+  }
+
+  /**
+   * Stop watching the not-yet-rendered layers under `root` (a screen / the HUD
+   * being torn down): an IntersectionObserver keeps its targets alive.
+   */
+  release(root: Element): void {
+    const io = this.io;
+    if (!io) return;
+    const layers = root.matches('.portrait') ? [root] : [];
+    for (const el of root.querySelectorAll('.portrait')) layers.push(el);
+    for (const el of layers) {
+      if (!this.lazy.has(el)) continue;
+      this.lazy.delete(el);
+      io.unobserve(el);
+    }
+  }
+
+  /** A `.portrait` layer: placeholder glyph now, image once rendered (rendered when it comes into view). */
   layer(heroId: string, _size = PORTRAIT_SIZE, priority = 0): HTMLElement {
     const def = HERO_BY_ID[heroId];
     const glyph = def ? def.nameZh.slice(-1) : '?';
     const wrap = h('div', { class: 'portrait' }, h('div', { class: 'ph' }, glyph));
-    void this.get(heroId, undefined, priority).then((url) => {
-      // tiny data URLs are the 1×1 stub — keep the placeholder
-      if (!url || url.length < 200) return;
-      const img = h('img', { alt: '', draggable: false });
-      img.decoding = 'async';
-      img.src = url;
-      wrap.appendChild(img);
-    });
+    const start = (): void => {
+      void this.get(heroId, undefined, priority).then((url) => {
+        // tiny data URLs are the 1×1 stub — keep the placeholder
+        if (!url || url.length < 200) return;
+        const img = h('img', { alt: '', draggable: false });
+        img.decoding = 'async';
+        img.src = url;
+        wrap.appendChild(img);
+      });
+    };
+    const io = this.cache.has(heroId) ? null : this.observer();
+    if (io) {
+      this.lazy.set(wrap, start);
+      io.observe(wrap);
+    } else start();
     return wrap;
   }
 }
