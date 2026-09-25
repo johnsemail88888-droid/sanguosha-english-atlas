@@ -345,5 +345,12 @@
  "public/assets/models/weapons/jinfan.glb": "87c60c2e2967327aa7ca3810c8268541ff85343e",
  "public/assets/models/weapons/manwang.glb": "910063465fc40039e8f649e21ea60d99602bd232",
  "public/assets/models/weapons/taiping.glb": "500dc314cb368a5a48a55221951572188252350b",
- "public/assets/models/weapons/jiguan.glb": "7ea49f009e55c5adf1aa8d60b1dbf0706526bb53"
+ "public/assets/models/weapons/jiguan.glb": "7ea49f009e55c5adf1aa8d60b1dbf0706526bb53",
+ "public/assets/models/props/sandbags.glb": "32f6460c1a911f4f60950b047a8e706347f3c4cd",
+ "public/assets/models/props/nanmanTent.glb": "7cbb4c5ce17a6c287cc8babcdc492240e3467f93",
+ "public/assets/tex/farm.webp": "17a60c9b4f8f678a6c466ac91aa7758ebeee57ef",
+ "assets-src/previews/mounts/horse.webp": "c856dd4e09cb934de88af94534d1673cc8405e61",
+ "assets-src/previews/mounts/elephant.webp": "1f58ebdb58f1452ced5eeb2d2f9779a617b5d62b",
+ "assets-src/previews/props/sandbags.webp": "84846155d3a8f82c5a2e44f3dbd638421f80ebab",
+ "assets-src/previews/props/nanmanTent.webp": "8c4a205cb1c94b666f0cd68c2d9ddccd717ae04d"
 }
