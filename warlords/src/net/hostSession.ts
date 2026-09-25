@@ -54,6 +54,7 @@ import {
   type RoleDeal,
 } from './flow';
 import { LocalView } from './localView';
+import { adaptiveTimeoutMs, maxStepFor, RecentSilence, ResponsiveClock, SILENCE_DECAY_MS } from './stall';
 import { FixedStepLoop } from './ticker';
 import type { Channel, Payload, PeerId, Transport } from './transport';
 import { neutralInput, sanitizeInputPacket } from './validate';
@@ -72,7 +73,11 @@ export interface FlowTimings {
   /** keep simulating after game over (s) */
   postGame: number;
   pingInterval: number;
-  /** no traffic from a peer for this long ⇒ disconnected (s) */
+  /**
+   * No traffic from a peer for this long ⇒ disconnected (s). Counted in time
+   * the host's own page was responsive (stall.ts): a host frozen for a while
+   * does not blame its peers for the silence.
+   */
   peerTimeout: number;
   /**
    * A player whose connection closed mid-match keeps the seat (hero idle) this
@@ -81,11 +86,18 @@ export interface FlowTimings {
    */
   dropGrace: number;
   /**
-   * A player who is loading the match (just received matchStart: map build,
-   * shader compilation freeze the page) is exempt from peerTimeout until it
-   * reports 'loaded', at most this long (s).
+   * Silence tolerated from a player who is loading the match, instead of
+   * peerTimeout (s): from matchStart until it reports 'loaded' its page builds
+   * the map and the scene and compiles shaders, and on a slow device it freezes
+   * for many seconds at a time. There is no cap on the loading itself: a slow
+   * player that still answers in between keeps its seat (NET-4).
    */
   loadGrace: number;
+  /**
+   * dropGrace for a player whose connection closed while it was loading the
+   * match (s): its busy page needs longer to reconnect and rejoin.
+   */
+  loadDropGrace: number;
 }
 
 export const DEFAULT_TIMINGS: FlowTimings = {
@@ -98,7 +110,8 @@ export const DEFAULT_TIMINGS: FlowTimings = {
   pingInterval: 2,
   peerTimeout: 15,
   dropGrace: 5,
-  loadGrace: 30,
+  loadGrace: 60,
+  loadDropGrace: 20,
 };
 
 export const MAX_PLAYERS = 8;
@@ -196,7 +209,12 @@ interface SeatRec {
 interface PeerRec {
   id: PeerId;
   seat: number | null;
+  /** wall time of the last message (name-based reclaim of a dead link) */
   lastSeen: number;
+  /** silence since the last message, in time the host's page was responsive (ms, the timeout check) */
+  silentMs: number;
+  /** its longest recent silence (decaying): a peer that stalls a lot gets a longer timeout for a while */
+  recentSilence: RecentSilence;
   rtt: number | null;
   pingSeq: number;
   inputQueue: InputFrame[];
@@ -214,8 +232,8 @@ interface PeerRec {
   snapAck: number;
   loaded: boolean;
   chatTimes: number[];
-  /** exempt from the peerTimeout check until then (loading a match), ms */
-  graceUntil: number;
+  /** loading the match (matchStart sent, 'loaded' not yet received): timed out after loadGrace, not peerTimeout */
+  loading: boolean;
   /** arrival time of the previous input packet (ms, 0 = none yet) */
   lastInputAt: number;
   /** longest recent gap between input packets (decays), ms */
@@ -306,8 +324,8 @@ export class HostSession implements GameSession {
   private readonly bannedNames = new Set<string>();
   /** seats whose connection closed mid-match, waiting out timings.dropGrace */
   private readonly dropTimers = new Map<number, ReturnType<typeof setTimeout>>();
-  /** when the peer-timeout check last ran (stall detection, ms) */
-  private lastPingCheckAt = 0;
+  /** steps of the peer-timeout check in time this page was responsive (stall detection) */
+  private pingClock: ResponsiveClock | null = null;
 
   constructor(opts: HostSessionOptions) {
     this.transport = opts.transport ?? null;
@@ -343,7 +361,7 @@ export class HostSession implements GameSession {
         t.onPeerLeave((p) => this.onPeerLeave(p)),
         t.onClose((err) => this.onTransportClosed(err)),
       );
-      this.lastPingCheckAt = now();
+      this.pingClock = new ResponsiveClock(maxStepFor(this.timings.pingInterval * 1000), now);
       this.pingTimer = setInterval(() => this.pingPeers(), this.timings.pingInterval * 1000);
       this.status('房间已创建，等待玩家加入…', 'Room created — waiting for players…');
     }
@@ -526,7 +544,7 @@ export class HostSession implements GameSession {
       peer.neutralized = false;
       peer.sent.clear();
       peer.snapAck = -1;
-      peer.graceUntil = 0;
+      peer.loading = false;
       peer.lastInputAt = 0;
       peer.inputGapMs = 0;
     }
@@ -809,6 +827,8 @@ export class HostSession implements GameSession {
       id,
       seat: null,
       lastSeen: now(),
+      silentMs: 0,
+      recentSilence: new RecentSilence(SILENCE_DECAY_MS, now),
       rtt: null,
       pingSeq: 0,
       inputQueue: [],
@@ -821,13 +841,14 @@ export class HostSession implements GameSession {
       snapAck: -1,
       loaded: false,
       chatTimes: [],
-      graceUntil: 0,
+      loading: false,
       lastInputAt: 0,
       inputGapMs: 0,
     });
   }
 
-  private onPeerLeave(id: PeerId): void {
+  /** `said`: the peer sent 'leave' (a reload or a real leave) — its link did not just fail under it. */
+  private onPeerLeave(id: PeerId, said = false): void {
     const peer = this.peers.get(id);
     if (!peer) return;
     this.peers.delete(id);
@@ -853,7 +874,10 @@ export class HostSession implements GameSession {
     }
     if (this.phaseValue === 'loading') this.maybeBeginPlaying();
     this.cancelDrop(rec.seat);
-    const grace = Math.max(0, this.timings.dropGrace) * 1000;
+    // a player whose link failed while it was loading the match needs longer to come
+    // back: its page is busy building the scene
+    const busy = peer.loading && !said;
+    const grace = Math.max(0, busy ? Math.max(this.timings.dropGrace, this.timings.loadDropGrace) : this.timings.dropGrace) * 1000;
     if (grace <= 0) {
       this.finishDrop(rec);
       return;
@@ -927,6 +951,8 @@ export class HostSession implements GameSession {
       if (!peer) return;
     }
     peer.lastSeen = now();
+    if (peer.silentMs > 0) peer.recentSilence.note(peer.silentMs);
+    peer.silentMs = 0;
     if (typeof data !== 'string') {
       if (binaryTag(data) === BIN_INPUT) this.onInput(peer, data);
       return;
@@ -981,13 +1007,13 @@ export class HostSession implements GameSession {
       }
       case 'loaded':
         peer.loaded = true;
-        peer.graceUntil = 0;
+        peer.loading = false;
         this.waitingLoad.delete(from);
         this.maybeBeginPlaying();
         break;
       case 'leave':
         this.transport?.disconnect(from);
-        this.onPeerLeave(from);
+        this.onPeerLeave(from, true);
         break;
       default:
         break;
@@ -1156,23 +1182,34 @@ export class HostSession implements GameSession {
   }
 
   private pingPeers(): void {
+    const clock = this.pingClock;
+    if (!clock) return;
     const t = now();
-    const intervalMs = this.timings.pingInterval * 1000;
-    // stall-aware (APP-6): after this page itself was frozen (shader compile,
-    // throttled tab, sleep) the timer may run before the messages that queued up
-    // meanwhile — skip one round of timeout checks so they are processed first
-    const gap = t - this.lastPingCheckAt;
-    this.lastPingCheckAt = t;
-    const stalled = gap > 2 * intervalMs + 1000;
+    // stall-aware (APP-6, NET-4): silence counts only while this page was
+    // responsive (a frozen host could not have heard its peers), and right after
+    // such a stall the timer may run before the messages that queued up meanwhile
+    // — no timeout verdicts this round, so they are processed first
+    const step = clock.tick();
     for (const peer of [...this.peers.values()]) {
-      if (stalled) peer.lastSeen = Math.max(peer.lastSeen, t - intervalMs);
-      else if (t >= peer.graceUntil && t - peer.lastSeen > this.timings.peerTimeout * 1000) {
+      peer.silentMs += step;
+      if (!clock.stalled && peer.silentMs > this.peerTimeoutMs(peer)) {
         this.transport?.disconnect(peer.id);
         this.onPeerLeave(peer.id);
         continue;
       }
       this.sendTo(peer.id, { t: 'ping', id: ++peer.pingSeq, ts: t });
     }
+  }
+
+  /**
+   * Silence after which `peer` counts as disconnected (NET-4): loadGrace while it
+   * loads the match; afterwards peerTimeout, raised for a while after it was
+   * silent for long (a slow device still busy with its first frames).
+   */
+  private peerTimeoutMs(peer: PeerRec): number {
+    const base = this.timings.peerTimeout * 1000;
+    const loading = Math.max(base, this.timings.loadGrace * 1000);
+    return peer.loading ? loading : adaptiveTimeoutMs(base, peer.recentSilence.current(), loading);
   }
 
   /** Neutral-input threshold for `peer`: adapts to how bursty its input stream is (see INPUT_STALE_TICKS). */
@@ -1495,8 +1532,9 @@ export class HostSession implements GameSession {
     peer.neutralized = false;
     peer.sent.clear();
     peer.snapAck = -1;
-    // it is building the map / compiling shaders now (a frozen page): no timeout until 'loaded'
-    peer.graceUntil = now() + this.timings.loadGrace * 1000;
+    // it is building the map / scene and compiling shaders now (a page frozen for
+    // seconds at a time on a slow device): the long loading timeout until 'loaded'
+    peer.loading = true;
     // input cadence is learnt afresh (the gap before this match / during the blip says nothing)
     peer.lastInputAt = 0;
     peer.inputGapMs = 0;

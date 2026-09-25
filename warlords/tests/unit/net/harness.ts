@@ -22,6 +22,7 @@ export const FAST: Partial<FlowTimings> = {
   peerTimeout: 5,
   // a closed connection hands the seat to a bot at once (tests of the drop grace set their own)
   dropGrace: 0,
+  loadDropGrace: 0,
 };
 
 export interface ClientRec {

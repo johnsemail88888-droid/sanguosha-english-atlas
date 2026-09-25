@@ -11,6 +11,7 @@ import type { DataConnection, Peer, PeerOptions } from 'peerjs';
 import type { NetServerConfig } from '../game/settings';
 import { NetError } from './errors';
 import { generateRoomCode, hostPeerIdFor } from './roomCode';
+import { StallAwareTimeout } from './stall';
 import { BaseTransport, toPayload, type Channel, type Payload, type PeerId } from './transport';
 
 /** China-reachable STUN first, then global fallbacks (GAME_SPEC §11). */
@@ -265,17 +266,18 @@ export class PeerTransport extends BaseTransport {
       const done = (err: NetError | null): void => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        timer.cancel();
         this.peer.off('error', onPeerError);
         if (err) reject(err);
         else resolve();
       };
       let r: DataConnection | undefined;
-      const timer = setTimeout(() => {
+      // responsive time (stall.ts): a page frozen meanwhile still gets to handle the queued 'open'
+      const timer = new StallAwareTimeout(timeoutMs, () => {
         // the host answered but ICE never connected ⇒ NAT / firewall trouble
         const ice = r?.peerConnection?.iceConnectionState;
         done(ice === 'checking' || ice === 'failed' || ice === 'disconnected' ? new NetError('networkRestricted', `ICE ${ice}`) : new NetError('timeout'));
-      }, timeoutMs);
+      });
       // peer-level errors: 'peer-unavailable' = no such room, else signalling trouble
       const onPeerError = (err: { type?: string }): void => done(mapPeerError(err.type));
       this.peer.on('error', onPeerError);
@@ -419,7 +421,7 @@ function openPeer(PeerImpl: PeerCtor, id: string | null, net: NetServerConfig, t
     const finish = (err: NetError | null): void => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      timer.cancel();
       peer.off('open', onOpen);
       peer.off('error', onError);
       if (err) {
@@ -435,7 +437,7 @@ function openPeer(PeerImpl: PeerCtor, id: string | null, net: NetServerConfig, t
     };
     const onOpen = (): void => finish(null);
     const onError = (err: { type?: string }): void => finish(mapPeerError(err.type));
-    const timer = setTimeout(() => finish(new NetError('networkRestricted', 'signalling timeout')), timeoutMs);
+    const timer = new StallAwareTimeout(timeoutMs, () => finish(new NetError('networkRestricted', 'signalling timeout')));
     peer.on('open', onOpen);
     peer.on('error', onError);
   });

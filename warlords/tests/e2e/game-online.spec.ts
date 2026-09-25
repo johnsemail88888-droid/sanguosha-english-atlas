@@ -3,11 +3,15 @@
 // contexts) use the UI: host creates a room in 服务器 (ws) mode — same-origin
 // relay, no configuration — guests open the invite link and join by room code;
 // everyone picks a hero, reaches 'playing' and sees the other players' heroes move.
+// The guests play on "slow phones" (NET-4): while they build the match scene their
+// pages freeze for 12 s at a time — nobody may be dropped or reconnect for that.
 // Then connection trouble mid-match (NET-3): one guest's relay socket drops (it must
 // rejoin by itself within seconds, same view, seat never handed to a bot) and the
 // host's page freezes ~8 s (the guests wait for it, then the match goes on).
-// A second test joins over P2P from an invite link and reloads the guest (F5): the
-// tab keeps its seat token across the reload and gets its hero back.
+// A second test joins over P2P from an invite link and reloads the guest (F5) while
+// the host's link to the PeerJS signalling server is down (NET-4: the signalling
+// server reports the host peer unavailable for a while): the tab keeps its seat
+// token across the reload, keeps asking, and gets its hero back.
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import {
   PORT_OFFSET,
@@ -84,6 +88,39 @@ async function recordStatus(page: Page): Promise<void> {
 }
 
 const statusLog = (page: Page): Promise<string[]> => page.evaluate(() => (window as StatusWindow).__e2eStatus ?? []);
+
+/** NET-4: each guest page freezes this long, this many times back to back, while it builds the match scene. */
+const SLOW_PHONE_FREEZES = [12_000, 12_000, 12_000];
+
+type SlowWindow = SgwlWindow & { __e2eFrozen?: number };
+
+/**
+ * Make this page a slow phone: once its match view exists (the scene build starts),
+ * it freezes SLOW_PHONE_FREEZES[i] ms at a time with only a short breath in between.
+ */
+async function slowPhone(page: Page): Promise<void> {
+  await page.evaluate((freezes) => {
+    const w = window as SlowWindow;
+    w.__e2eFrozen = 0;
+    let armed = true;
+    w.__sgwl!.session!.on('matchStart', () => {
+      if (!armed) return;
+      armed = false;
+      const next = (i: number): void => {
+        if (i >= freezes.length) return;
+        setTimeout(() => {
+          const end = performance.now() + freezes[i]!;
+          while (performance.now() < end) {
+            /* building the scene on a slow device */
+          }
+          w.__e2eFrozen! += freezes[i]!;
+          next(i + 1);
+        }, 150);
+      };
+      next(0);
+    });
+  }, SLOW_PHONE_FREEZES);
+}
 const sessionId = (page: Page): Promise<string> => page.evaluate(() => (window as SgwlWindow).__sgwl!.session!.myId);
 const matchClock = (page: Page): Promise<number> => page.evaluate(() => (window as SgwlWindow).__sgwl!.elapsed());
 const humansSeen = (page: Page): Promise<number> => page.evaluate(() => (window as SgwlWindow).__sgwl!.players().filter((p) => !p.isBot).length);
@@ -208,6 +245,9 @@ test('online (ws relay, same origin): host + 2 guests join by room code, play, s
       await g.page.locator('.lobby-foot .sg-btn.gold').click(); // ready
     }
     await expect(host.page.locator('.seat:not(.empty):not(.bot)')).toHaveCount(3, { timeout: 30_000 });
+    // from here on every connection status line is recorded; the guests are slow phones
+    for (const g of pages) await recordStatus(g.page);
+    for (const g of pages.slice(1)) await slowPhone(g.page);
     await host.page.locator('.lobby-foot .sg-btn.gold').click();
     // (all guests are ready: no "start anyway?" confirm — accept it if it shows up)
     const confirm = host.page.locator('.sg-modal .actions .sg-btn').last();
@@ -217,12 +257,21 @@ test('online (ws relay, same origin): host + 2 guests join by room code, play, s
     await Promise.all(pages.map((g) => expect(g.page.locator('[data-screen="roles"]')).toBeVisible({ timeout: 60_000 })));
     const heroes = await Promise.all(pages.map((g) => pickHero(g.page)));
     console.log(`[online e2e] heroes: ${heroes.join(', ')}`);
+    const loadStart = Date.now();
     await Promise.all(pages.map((g) => waitMatch(g.page, 300_000)));
-    // a guest whose page stalled while building the scene may drop and rejoin (the host shows
-    // "断开连接 … 重新连接"): its seat comes back within seconds — poll instead of reading once
+    const frozenMs = () => Promise.all(pages.slice(1).map((g) => g.page.evaluate(() => (window as SlowWindow).__e2eFrozen ?? 0)));
+    // (the last freeze may land on the first frames right after loading)
+    const total = SLOW_PHONE_FREEZES.reduce((a, b) => a + b, 0);
+    await expect.poll(frozenMs, { message: 'the slow-phone freezes ran', timeout: 60_000 }).toEqual(pages.slice(1).map(() => total));
+    const loadLines = await Promise.all(pages.map((g) => statusLog(g.page)));
+    console.log(`[online e2e] slow phones: match up after ${((Date.now() - loadStart) / 1000).toFixed(0)} s, each guest frozen ${total} ms; status lines: ${JSON.stringify(loadLines)}`);
+    // NET-4: nobody was dropped for building the scene slowly — no "disconnected / a bot
+    // takes over" on the host, no "connection lost — reconnecting" on a guest
+    expect(loadLines.flat().filter((l) => /disconnected|bot takes over|lost|reconnect/i.test(l))).toEqual([]);
     for (const g of pages) {
+      // (a guest's view may need a snapshot or two for the full player list)
       const st = () => g.page.evaluate(() => ({ phase: (window as SgwlWindow).__sgwl!.phase, humans: (window as SgwlWindow).__sgwl!.players().filter((p) => !p.isBot).length }));
-      await expect.poll(st, { message: 'every client plays with 3 humans', timeout: 60_000 }).toEqual({ phase: 'playing', humans: 3 });
+      await expect.poll(st, { message: 'every client plays with 3 humans', timeout: 10_000 }).toEqual({ phase: 'playing', humans: 3 });
     }
 
     // everyone walks forward; every client must see the two other heroes move
@@ -319,15 +368,46 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
       (window as Window & { __seatAtBoot?: string | null }).__seatAtBoot = sessionStorage.getItem(k);
     }, tokenKey);
 
+    // NET-4: the host's link to the PeerJS signalling server drops now and stays down
+    // (its automatic reconnect is held) until the reloading guest has been told "peer
+    // unavailable" at least once: a transient answer the guest must not take for
+    // "room not found" — it keeps asking, and gets in once the host is back.
+    await host.page.evaluate(() => {
+      type HeldPeer = { reconnect(): void; disconnect(): void };
+      const w = window as SgwlWindow & { __e2eSignallingBack?: () => void };
+      const peer = ((w.__sgwl!.session as unknown as { transport: { peer: HeldPeer } }).transport).peer;
+      const reconnect = peer.reconnect.bind(peer);
+      peer.reconnect = () => undefined; // PeerTransport's reconnect after 2 s does nothing …
+      peer.disconnect();
+      w.__e2eSignallingBack = () => {
+        peer.reconnect = reconnect; // … until the network is back
+        reconnect();
+      };
+    });
+    const retries: string[] = [];
+    guest.page.on('console', (m) => {
+      if (/^\[net\] room not found .*asking again/.test(m.text())) retries.push(m.text());
+    });
+
     // F5 mid-match: the tab rejoins the same room over P2P and gets its hero back.
     // The reload cancels the old page's in-flight art downloads (GLB bodies, clips and
     // textures still streaming in after the load budget), and the dying page logs
     // "Failed to fetch" for each. That is not an error of the game: drop what the old
     // document logged before the new one commits, and keep checking the new page.
     const loggedBeforeF5 = guest.errors.length;
+    const f5At = Date.now();
     await guest.page.reload({ waitUntil: 'commit' });
     guest.errors.splice(loggedBeforeF5);
+    const joinState = async (): Promise<string> => {
+      if (retries.length > 0) return 'keeps asking';
+      const err = await guest.page.evaluate(() => document.querySelector('[data-screen="online"] .err')?.textContent ?? null).catch(() => null);
+      return err ? `gave up: ${err}` : 'joining';
+    };
+    await expect.poll(joinState, { message: 'the reloaded guest keeps asking for the unavailable host peer', timeout: 90_000 }).toBe('keeps asking');
+    const downFor = Date.now() - f5At;
+    await host.page.evaluate(() => (window as SgwlWindow & { __e2eSignallingBack?: () => void }).__e2eSignallingBack!());
     await waitMatch(guest.page, 300_000);
+    console.log(`[online e2e] host signalling down ${(downFor / 1000).toFixed(1)} s after the F5; guest retries: ${JSON.stringify(retries)}; back in the match ${((Date.now() - f5At) / 1000).toFixed(1)} s after the F5`);
     const after = await guest.page.evaluate((k) => {
       const g = (window as SgwlWindow).__sgwl!;
       return {
