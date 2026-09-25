@@ -71,6 +71,11 @@ function poseOf(tpl: CharTemplate, clip: PreparedClip | null | undefined, t: num
 
 const grips = new WeakMap<CharTemplate, Map<string, Grip>>();
 
+/** A one-handed pistol's support hand (weapon frame, m): cupping the grip from the left, below. */
+export const PISTOL_CUP = new THREE.Vector3(-0.035, -0.045, 0.01);
+/** A bow's drawing wrist (weapon frame, m) from the nock: behind it (the fingers hook the string). */
+export const DRAW_WRIST = new THREE.Vector3(0.01, -0.02, 0.07);
+
 /**
  * Weapon-in-hand transform for a hold style, derived once per model from the
  * clip that holds it (aimed rifle / bow): barrel along the hands' line (bow:
@@ -231,12 +236,17 @@ export class GlbBody {
     holder.add(main.mesh);
     this.weapons[0] = main;
     const dirInHand = new THREE.Vector3(0, 0, -1).applyQuaternion(g.q);
-    let foreInHand: THREE.Vector3 | null = null;
-    if (main.info.fore && hold !== 'bow') foreInHand = main.info.fore.clone().divideScalar(this.unitM).applyQuaternion(g.q).add(g.p);
-    this.attach = { hand: g.hand, dirInHand, foreInHand };
+    // left-hand target (weapon frame, m): the foregrip; a pistol's support hand cups the grip;
+    // a bow's is the RIGHT hand's, on the string just behind the nock (AI-art bows: modelled drawn)
+    let fore: THREE.Vector3 | null = null;
+    if (hold === 'bow') fore = main.mesh.userData.weaponArt && main.info.fore ? main.info.fore.clone().add(DRAW_WRIST) : null;
+    else fore = main.info.fore?.clone() ?? (hold === 'pistol' ? PISTOL_CUP.clone() : null);
+    const foreInHand = fore ? fore.divideScalar(this.unitM).applyQuaternion(g.q).add(g.p) : null;
+    this.attach = { hand: g.hand, dirInHand, foreInHand, originInHand: g.p.clone(), grip: g.q.clone(), gripL: null };
     if (akimbo) {
       // the left gun is the right one mirrored (its ejection side / ornaments face out)
       const gl = gripFor(this.template, hold, true);
+      this.attach.gripL = gl.q.clone();
       const second = buildWeapon(id);
       second.mesh.material = heldMaterialOf(second);
       second.mesh.scale.x = -1;

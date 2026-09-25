@@ -9,7 +9,8 @@
 // coat colour — except on tack: texels that are gold / brass, crimson lacquer
 // or grey metal, and the saddle + pad region and the hooves (rest-pose
 // position boxes, per fragment). Optional lower-leg colour (爪黄飞电) and a
-// forehead blaze (的卢) use rest-pose regions too.
+// blaze (的卢: a narrow stripe from the forehead down the nose) use rest-pose
+// regions too.
 //
 // Absent files: nothing is fetched and the procedural mounts stay.
 import * as THREE from 'three';
@@ -30,7 +31,7 @@ export interface CoatVariant {
   coat: string | null;
   /** lower legs (below knee / hock) */
   legs: string | null;
-  /** forehead blaze */
+  /** blaze: forehead-to-nose stripe */
   blaze: string | null;
 }
 
@@ -106,6 +107,23 @@ export function recolourCoat(c: THREE.Color, coat: THREE.Color, coatRef: number,
   return out;
 }
 
+const _ab = new THREE.Vector3();
+const _bq = new THREE.Vector3();
+
+/**
+ * CPU twin of the shader's blaze stripe: 0..1 coverage of a rest-pose point
+ * (rig space) — a capsule from the forehead (a) to the nose (b), its
+ * half-width across the face tapering from a to b.
+ */
+export function blazeMask(p: THREE.Vector3, r: Pick<MountRegions, 'blazeA' | 'blazeB' | 'blazeW'>): number {
+  _ab.subVectors(r.blazeB, r.blazeA);
+  const t = Math.min(1, Math.max(0, _bq.subVectors(p, r.blazeA).dot(_ab) / Math.max(_ab.lengthSq(), 1e-8)));
+  _bq.copy(r.blazeA).addScaledVector(_ab, t).sub(p).negate();
+  const w = r.blazeW.x + (r.blazeW.y - r.blazeW.x) * t;
+  const e = Math.hypot(_bq.x / w, Math.hypot(_bq.y, _bq.z) / r.blazeW.z);
+  return 1 - ss(0.6, 1.0, e);
+}
+
 /**
  * Linear luminance of the painted coat: a high percentile of the warm,
  * saturated, non-tack texels of an sRGB RGBA image (the coat's lit value).
@@ -145,8 +163,10 @@ export interface MountRegions {
   /** lower-leg band: bottom, front top, hind top; legs with z < splitZ are front legs */
   legs: THREE.Vector3;
   splitZ: number;
-  blazeC: THREE.Vector3;
-  blazeR: THREE.Vector3;
+  /** blaze stripe: forehead end, nose end, (half-width at a, half-width at b, depth tolerance) */
+  blazeA: THREE.Vector3;
+  blazeB: THREE.Vector3;
+  blazeW: THREE.Vector3;
   /** rig units per model unit (transition widths) */
   unit: number;
 }
@@ -218,7 +238,8 @@ export function rigMountMesh(kind: QuadKind, mesh: THREE.Mesh, seatHeight: numbe
     return { min: bb.min, max: bb.max };
   };
   const rigid = calib.rigid.map((r) => ({ bone: r.bone, ...box(r) }));
-  const w = quadSkinWeights(P.array as Float32Array, bones, rigid);
+  const exclusive = (calib.exclusive ?? []).map((r) => ({ bones: r.bones, ...box(r), fade: r.fade * unit }));
+  const w = quadSkinWeights(P.array as Float32Array, bones, rigid, exclusive);
   geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(w.skinIndex, 4));
   geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(w.skinWeight, 4));
   geometry.computeBoundingBox();
@@ -232,8 +253,9 @@ export function rigMountMesh(kind: QuadKind, mesh: THREE.Mesh, seatHeight: numbe
     hoofY: yOf(r.hoofY),
     legs: new THREE.Vector3(yOf(r.legs.bottom), yOf(r.legs.front), yOf(r.legs.hind)),
     splitZ: bones.find((b) => b.name === 'body')?.pos.z ?? 0,
-    blazeC: r.blaze ? new THREE.Vector3(...r.blaze.c).applyMatrix4(m) : new THREE.Vector3(0, -100, 0),
-    blazeR: r.blaze ? new THREE.Vector3(...r.blaze.r).multiplyScalar(unit) : new THREE.Vector3(1, 1, 1),
+    blazeA: r.blaze ? new THREE.Vector3(...r.blaze.a).applyMatrix4(m) : new THREE.Vector3(0, -100, 0),
+    blazeB: r.blaze ? new THREE.Vector3(...r.blaze.b).applyMatrix4(m) : new THREE.Vector3(0, -99, 0),
+    blazeW: r.blaze ? new THREE.Vector3(r.blaze.width[0], r.blaze.width[1], r.blaze.depth).multiplyScalar(unit) : new THREE.Vector3(1, 1, 1),
     unit,
   };
   return { kind, geometry, bones: bones.map((b) => ({ name: b.name, parent: b.parent, pos: b.pos })), regions };
@@ -342,8 +364,9 @@ export interface MountMaterialUniforms {
   uHoofY: { value: number };
   uLegBand: { value: THREE.Vector3 };
   uSplitZ: { value: number };
-  uBlazeC: { value: THREE.Vector3 };
-  uBlazeR: { value: THREE.Vector3 };
+  uBlazeA: { value: THREE.Vector3 };
+  uBlazeB: { value: THREE.Vector3 };
+  uBlazeW: { value: THREE.Vector3 };
   uUnit: { value: number };
 }
 
@@ -364,8 +387,9 @@ uniform vec3 uTackMax;
 uniform float uHoofY;
 uniform vec3 uLegBand;
 uniform float uSplitZ;
-uniform vec3 uBlazeC;
-uniform vec3 uBlazeR;
+uniform vec3 uBlazeA;
+uniform vec3 uBlazeB;
+uniform vec3 uBlazeW;
 uniform float uUnit;
 varying vec3 vRest;`;
 
@@ -396,8 +420,12 @@ if (uCoatOn + uLegOn + uBlazeOn > 0.5) {
   float legTop = p.z < uSplitZ ? uLegBand.y : uLegBand.z;
   float legs = (1.0 - smoothstep(legTop - 0.035 * uUnit, legTop + 0.03 * uUnit, p.y)) * smoothstep(uLegBand.x, uLegBand.x + 0.02 * uUnit, p.y);
   c = mix(c, uLegCol * k, legs * free * uLegOn);
-  float e = length((p - uBlazeC) / uBlazeR);
-  c = mix(c, uBlazeCol * clamp(pow(ratio, 0.5), 0.5, 1.3), (1.0 - smoothstep(0.55, 1.0, e)) * free * uBlazeOn);
+  // blaze: a tapered capsule along the face (forehead a → nose b), narrow across it
+  vec3 ab = uBlazeB - uBlazeA;
+  float bt = clamp(dot(p - uBlazeA, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+  vec3 bq = p - (uBlazeA + ab * bt);
+  float e = length(vec2(bq.x / mix(uBlazeW.x, uBlazeW.y, bt), length(bq.yz) / uBlazeW.z));
+  c = mix(c, uBlazeCol * clamp(pow(ratio, 0.5), 0.5, 1.3), (1.0 - smoothstep(0.6, 1.0, e)) * free * uBlazeOn);
   diffuseColor.rgb = c;
 }`;
 
@@ -424,8 +452,9 @@ export function mountMaterial(tpl: MountTemplate, variant: CoatVariant): THREE.M
     uHoofY: { value: r.hoofY },
     uLegBand: { value: r.legs },
     uSplitZ: { value: r.splitZ },
-    uBlazeC: { value: r.blazeC },
-    uBlazeR: { value: r.blazeR },
+    uBlazeA: { value: r.blazeA },
+    uBlazeB: { value: r.blazeB },
+    uBlazeW: { value: r.blazeW },
     uUnit: { value: r.unit },
   };
   m.userData.mountUniforms = u;
@@ -439,6 +468,6 @@ export function mountMaterial(tpl: MountTemplate, variant: CoatVariant): THREE.M
       .replace('#include <common>', `#include <common>${PARS_FRAGMENT}`)
       .replace('#include <map_fragment>', `#include <map_fragment>\n${FRAGMENT}`);
   };
-  m.customProgramCacheKey = () => `mountGlb_v1${skyArtFogKey()}`;
+  m.customProgramCacheKey = () => `mountGlb_v2${skyArtFogKey()}`;
   return m;
 }

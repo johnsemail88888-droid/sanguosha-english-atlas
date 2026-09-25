@@ -47,12 +47,18 @@ export interface WeaponGlbCal {
   fit?: 'length' | 'height';
   /** the point that sits at the hand's wrist target (the weapon frame origin) */
   grip: WeaponPoint;
-  /** left-hand target (foregrip / handguard / staff); null = one-handed */
+  /** left-hand target (foregrip / handguard / staff; bows: the nock, where the drawing hand holds the string); null = one-handed */
   fore: WeaponPoint | null;
   /** magazine (reload hand target); null = none */
   mag: WeaponPoint | null;
   /** where shots leave the weapon (bore end — not the tip of a bayonet or blade) */
   muzzle: WeaponPoint;
+  /**
+   * bows whose model carries a nocked arrow far longer than a drawn one: every
+   * vertex ahead of u = `from` (the arrow clear of the bow) moves back along the
+   * barrel by `shift` (calibrated units), so the head sits just past the bow
+   */
+  arrow?: { from: number; shift: number };
 }
 
 // Target sizes follow the weapon classes (wave-2 spec): pistol ~0.25 m, smg
@@ -76,9 +82,11 @@ export const WEAPON_GLB_CAL: Readonly<Record<string, WeaponGlbCal>> = {
   fangtian: { fwd: '+z', up: '+y', roll: Math.PI / 2, size: 1.4, grip: [0.4, 0.0], fore: [0.55, 0.0], mag: [0.5, 0.0], muzzle: [0.9, 0.0] },
   qilin: { fwd: '+z', up: '+y', size: 1.2, grip: [0.22, 0.0], fore: [0.45, 0.0], mag: [0.3, -0.05], muzzle: [0.95, 0.02] },
   longdan: { fwd: '+z', up: '+y', size: 1.0, grip: [0.09, 0.04], fore: [0.45, 0.02], mag: [0.25, -0.04], muzzle: [0.62, 0.06] },
-  liegong: { fwd: '-z', up: '+x', size: 1.3, fit: 'height', grip: [0.45, 0.0], fore: [0.3, 0.0], mag: null, muzzle: [0.55, 0.0] },
+  // the model's arrow runs 1 m past the grip: its shaft + head beyond the stabiliser (u 0.67) move back to end ~0.35 m ahead
+  liegong: { fwd: '-z', up: '+x', size: 1.3, fit: 'height', grip: [0.45, 0.0], fore: [0.19, -0.015], mag: null, muzzle: [0.62, -0.015], arrow: { from: 0.67, shift: 0.36 } },
   jinfan: { fwd: '+z', up: '+y', size: 0.5, grip: [0.3, 0.0], fore: [0.6, 0.0], mag: [0.4, -0.1], muzzle: [1, 0.1] },
-  xiaoji: { fwd: '+z', up: '+x', size: 1.12, fit: 'height', grip: [0.61, 0.0], fore: [0.3, 0.0], mag: null, muzzle: [0.72, 0.0] },
+  // modelled at full draw: the string's nock at the rear end
+  xiaoji: { fwd: '+z', up: '+x', size: 1.12, fit: 'height', grip: [0.61, 0.0], fore: [0.0, 0.0], mag: null, muzzle: [0.72, 0.0] },
   taiping: { fwd: '-x', up: '+y', size: 1.6, grip: [0.4, 0.0], fore: [0.62, 0.0], mag: null, muzzle: [0.98, 0.0] },
   wushuang: { fwd: '+z', up: '+y', size: 1.0, grip: [0.22, 0.02], fore: [0.58, 0.02], mag: [0.35, -0.08], muzzle: [0.98, 0.09] },
   huben: { fwd: '+x', up: '+y', size: 1.1, grip: [0.25, 0.0], fore: [0.63, 0.05], mag: [0.4, -0.1], muzzle: [1, 0.13] },
@@ -152,6 +160,11 @@ export function calibrateWeaponGeometry(src: THREE.BufferGeometry, cal: WeaponGl
   const s = length / E;
   // model point (rotated frame) of a calibration point
   const at = (p: WeaponPoint): THREE.Vector3 => new THREE.Vector3(xc + (p[2] ?? 0) * E, yc + p[1] * E, box.max.z - p[0] * E);
+  // a too-long nocked arrow: its front part moves back along the barrel (+Z)
+  if (cal.arrow) {
+    const zFrom = box.max.z - cal.arrow.from * E;
+    for (let i = 0; i < n; i++) if (out[i * 3 + 2] < zFrom) out[i * 3 + 2] += cal.arrow.shift * E;
+  }
   const g = at(cal.grip);
   for (let i = 0; i < n; i++) {
     out[i * 3] = (out[i * 3] - g.x) * s;
@@ -197,8 +210,8 @@ export function calibratedInfo(id: string, c: CalibratedWeapon): WeaponModelInfo
   const hold = proc.hold;
   return {
     hold,
-    // bows: the right hand draws the string behind the grip (same as the procedural bow)
-    fore: hold === 'bow' ? proc.fore : c.points.fore,
+    // bows: the nock, where the right hand draws the string (the procedural bow's point when uncalibrated)
+    fore: c.points.fore ?? (hold === 'bow' ? proc.fore : null),
     mag: c.points.mag,
     muzzle: c.points.muzzle,
     length: c.length,

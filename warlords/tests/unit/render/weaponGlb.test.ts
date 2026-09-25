@@ -128,6 +128,26 @@ describe('calibrateWeaponGeometry', () => {
     expect(c.length).toBeCloseTo(1.3 / 0.7, 6);
   });
 
+  it('moves an over-long nocked arrow back: everything ahead of `from` shifts along the barrel, the rest stays', () => {
+    // bow lying flat: limbs along X (0.7), arrow along −Z (1.0); a thin "arrow" box pokes 0.5 past the bow's front
+    const bow = new THREE.BoxGeometry(0.7, 0.1, 0.5).translate(0, 0, 0.25).toNonIndexed();
+    const arrow = new THREE.BoxGeometry(0.02, 0.02, 0.5).translate(0, 0, -0.25).toNonIndexed();
+    const src = new THREE.BufferGeometry();
+    src.setAttribute('position', new THREE.Float32BufferAttribute([...bow.getAttribute('position').array, ...arrow.getAttribute('position').array], 3));
+    const base = { fwd: '-z', up: '+x', size: 1.3, fit: 'height', grip: [0.4, 0], fore: [0.1, 0], mag: null, muzzle: [0.6, 0] } as const satisfies WeaponGlbCal;
+    const plain = calibrateWeaponGeometry(src, base);
+    const trimmed = calibrateWeaponGeometry(src, { ...base, arrow: { from: 0.55, shift: 0.3 } });
+    const pb = plain.geo.boundingBox!;
+    const tb = trimmed.geo.boundingBox!;
+    const L = plain.length;
+    // the tip comes back by shift × length; the rear (string / nock) stays; the points keep their places
+    expect(tb.min.z - pb.min.z).toBeCloseTo(0.3 * L, 5);
+    expect(tb.max.z).toBeCloseTo(pb.max.z, 6);
+    expect(trimmed.length).toBeCloseTo(L, 9);
+    expect(trimmed.points.fore!.distanceTo(plain.points.fore!)).toBeLessThan(1e-9);
+    expect(trimmed.points.muzzle.distanceTo(plain.points.muzzle)).toBeLessThan(1e-9);
+  });
+
   it('merges every primitive into one indexed geometry, keeping normals only when all have them', () => {
     const { scene } = gunScene();
     const m = mergeSceneGeometry(scene)!;
@@ -186,6 +206,8 @@ describe('WEAPON_GLB_CAL', () => {
       // two-handed guns put the left hand in front of the right (a pistol's support hand cups the grip)
       if (c.fore && hold !== 'bow' && hold !== 'pistol') expect(c.fore[0], id).toBeGreaterThan(c.grip[0]);
       if (hold === 'bow') expect(c.fit, id).toBe('height');
+      // bows: the fore point is the nock, where the drawing hand holds the string, well behind the grip
+      if (hold === 'bow') expect(c.grip[0] - c.fore![0], id).toBeGreaterThan(0.2);
     }
   });
 
@@ -213,6 +235,11 @@ describe('WEAPON_GLB_CAL', () => {
       const longest = Math.max(size.x, size.y, size.z);
       if (c.fit === 'height') expect(Math.max(along(c.fwd), along(c.up)), id).toBeCloseTo(longest, 3);
       else expect(along(c.fwd), id).toBeCloseTo(longest, 3);
+      if (c.fit === 'height') {
+        // a bow's nocked arrow ends a little past the grip (a drawn arrow), not ~1 m out (烈弓's model arrow is moved back)
+        const length = (c.size * along(c.fwd)) / along(c.up);
+        expect((1 - c.grip[0] - (c.arrow?.shift ?? 0)) * length, id).toBeLessThan(0.5);
+      }
     }
   });
 

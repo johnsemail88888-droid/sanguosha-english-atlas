@@ -19,7 +19,11 @@
 // elbow / stifle a vertex takes either its leg's chain only (its best bone is a
 // leg bone: legs strictly to their own chain) or the body chain only (a tail or
 // trunk hanging next to a leg), and a vertex inside a rigid region (saddle,
-// pad, howdah, breastplate) is bound 100 % to that region's bone.
+// pad, howdah, breastplate) is bound 100 % to that region's bone. A vertex
+// inside an exclusive region (the horse's tail hair, fused to the buttocks in
+// the scan) takes only that region's bones (faded in below its top edge), so a
+// lifted tail swings as one rope instead of leaving its front surface on the
+// rump and the thighs (a stretched sheet).
 import * as THREE from 'three';
 
 export type QuadKind = 'horse' | 'elephant';
@@ -53,6 +57,11 @@ export interface QuadCalib {
   bones: readonly QuadBoneSpec[];
   /** vertices inside these boxes (model units, min / max) are bound to `bone` only */
   rigid: readonly { bone: string; min: V3; max: V3 }[];
+  /**
+   * vertices inside these boxes (model units) are weighted among `bones` only;
+   * within `fade` below the box top the normal weights blend back in
+   */
+  exclusive?: readonly ExclusiveRegion<V3>[];
   /** coat recolour regions (model units): tack boxes kept, lower-leg band, forehead blaze */
   regions: {
     tack: readonly { min: V3; max: V3 }[];
@@ -60,8 +69,21 @@ export interface QuadCalib {
     hoofY: number;
     /** lower-leg band: from `bottom` up to the front knee / hind hock */
     legs: { bottom: number; front: number; hind: number };
-    blaze: { c: V3; r: V3 } | null;
+    /**
+     * forehead-to-muzzle streak (的卢): a tapered capsule along the face from
+     * `a` (forehead) to `b` (nose), half-widths across the face at a / b, and
+     * how far off the line (in the face's mid plane) it still counts
+     */
+    blaze: { a: V3; b: V3; width: readonly [number, number]; depth: number } | null;
   };
+}
+
+/** An exclusive skinning region (see QuadCalib.exclusive). */
+export interface ExclusiveRegion<P> {
+  bones: readonly string[];
+  min: P;
+  max: P;
+  fade: number;
 }
 
 const leg = (id: LegId, parent: string, names: readonly string[], radii: readonly number[]): QuadBoneSpec[] => {
@@ -110,9 +132,10 @@ export const HORSE_CALIB: QuadCalib = {
     neck1: [0, 0.47, 0.52],
     poll: [0, 0.64, 0.71],
     muzzle: [0, 0.43, 0.93],
-    tail0: [0, 0.29, -0.83],
-    tail1: [0, 0.02, -0.93],
-    tail2: [0, -0.42, -0.92],
+    // the dock, then down the middle of the hair (0.12 deep, 0.14 wide)
+    tail0: [0, 0.26, -0.81],
+    tail1: [0, 0.0, -0.87],
+    tail2: [0, -0.4, -0.885],
     ...legJoints('FL', mirror(HORSE_FRONT)),
     ...legJoints('FR', HORSE_FRONT),
     ...legJoints('BL', mirror(HORSE_HIND)),
@@ -126,8 +149,8 @@ export const HORSE_CALIB: QuadCalib = {
     { name: 'neck', parent: 'chest', at: 'neck0', seg: ['neck0', 'neck1'], r: 0.15 },
     { name: 'neck2', parent: 'neck', at: 'neck1', seg: ['neck1', 'poll'], r: 0.11 },
     { name: 'head', parent: 'neck2', at: 'poll', seg: ['poll', 'muzzle'], r: 0.1 },
-    { name: 'tail', parent: 'pelvis', at: 'tail0', seg: ['tail0', 'tail1'], r: 0.07 },
-    { name: 'tail2', parent: 'tail', at: 'tail1', seg: ['tail1', 'tail2'], r: 0.06 },
+    { name: 'tail', parent: 'pelvis', at: 'tail0', seg: ['tail0', 'tail1'], r: 0.075 },
+    { name: 'tail2', parent: 'tail', at: 'tail1', seg: ['tail1', 'tail2'], r: 0.075 },
     ...leg('FL', 'chest', ['FL0', 'FL1', 'FL2', 'FL3', 'FL4'], [0.08, 0.045, 0.035, 0.04]),
     ...leg('FR', 'chest', ['FR0', 'FR1', 'FR2', 'FR3', 'FR4'], [0.08, 0.045, 0.035, 0.04]),
     ...leg('BL', 'pelvis', ['BL0', 'BL1', 'BL2', 'BL3', 'BL4'], [0.1, 0.055, 0.035, 0.04]),
@@ -139,11 +162,19 @@ export const HORSE_CALIB: QuadCalib = {
     // the lamellar breastplate hangs from the chest (spans both front legs)
     { bone: 'chest', min: [-0.26, -0.09, 0.3], max: [0.26, 0.16, 0.48] },
   ],
+  // the tail hair behind the buttocks (0.14 wide; its front surface is 1-6 cm off
+  // them below the dock, fused into one surface): tail chain only, blending in the
+  // rump at the dock; the hocks (|x| ≥ 0.08) stay out
+  exclusive: [{ bones: ['tail', 'tail2'], min: [-0.082, -0.5, -1.0], max: [0.082, 0.17, -0.8], fade: 0.08 }],
   regions: {
     tack: [{ min: [-0.3, 0.075, -0.34], max: [0.3, 0.56, 0.135] }],
     hoofY: -0.705,
     legs: { bottom: -0.705, front: -0.342, hind: -0.3 },
-    blaze: { c: [0, 0.585, 0.86], r: [0.03, 0.065, 0.08] },
+    // a stripe from between the eyes down the nose bridge to above the nostrils, wider at
+    // the top. The line hugs the face profile (the forelock hangs to y 0.6 / z 0.82, then
+    // the bridge runs straight to y 0.45 / z 0.93 — a line from the forelock's top left
+    // the flat forehead below it uncovered), the forelock hair itself stays as painted.
+    blaze: { a: [0, 0.605, 0.818], b: [0, 0.45, 0.929], width: [0.032, 0.02], depth: 0.03 },
   },
 };
 
@@ -359,12 +390,18 @@ export interface QuadWeights {
  * Skin weights for rig-space positions `pos` (see the file header). `rigid`
  * boxes are in rig space too.
  */
-export function quadSkinWeights(pos: ArrayLike<number>, bones: readonly QuadBone[], rigid: readonly { bone: string; min: THREE.Vector3; max: THREE.Vector3 }[]): QuadWeights {
+export function quadSkinWeights(
+  pos: ArrayLike<number>,
+  bones: readonly QuadBone[],
+  rigid: readonly { bone: string; min: THREE.Vector3; max: THREE.Vector3 }[],
+  exclusive: readonly ExclusiveRegion<THREE.Vector3>[] = [],
+): QuadWeights {
   const n = pos.length / 3;
   const skinIndex = new Uint16Array(n * 4);
   const skinWeight = new Float32Array(n * 4);
   const index = new Map(bones.map((b, i) => [b.name, i]));
   const body = bones.map((b, i) => (b.leg || b.r <= 0 ? -1 : i)).filter((i) => i >= 0);
+  const allowed = exclusive.map((r) => new Set(r.bones.map((b) => index.get(b) ?? -1)));
   const legChain = new Map<LegId, number[]>();
   for (const id of LEG_IDS) legChain.set(id, bones.map((b, i) => (b.leg === id ? i : -1)).filter((i) => i >= 0));
   // quadrant split: the barrel's centre (body bone pivot) and the midline
@@ -422,6 +459,32 @@ export function quadSkinWeights(pos: ArrayLike<number>, bones: readonly QuadBone
       const s2 = s * s;
       w[i] = 1 / (s2 * s2);
       sum += w[i];
+    }
+    // exclusive region: only its bones (the normal weights fade back in below its top edge)
+    for (let r = 0; r < exclusive.length; r++) {
+      const e = exclusive[r];
+      if (x < e.min.x || x > e.max.x || y < e.min.y || y > e.max.y || z < e.min.z || z > e.max.z) continue;
+      const k = e.fade > 0 ? Math.min(1, (e.max.y - y) / e.fade) : 1;
+      const own = allowed[r];
+      // the region's bones by the same falloff (whatever the below-the-stifle split decided)
+      let sumA = 0;
+      for (const i of cand) {
+        if (!own.has(i)) continue;
+        const s = Math.max(score[i], 0.05);
+        const s2 = s * s;
+        sumA += 1 / (s2 * s2);
+      }
+      if (sumA <= 0) break;
+      for (const i of cand) {
+        let a = 0;
+        if (own.has(i)) {
+          const s = Math.max(score[i], 0.05);
+          const s2 = s * s;
+          a = 1 / (s2 * s2) / sumA;
+        }
+        w[i] = (sum > 0 ? ((1 - k) * w[i]) / sum : 0) + k * a;
+      }
+      break;
     }
     // top 4
     for (let k = 0; k < 4; k++) {
