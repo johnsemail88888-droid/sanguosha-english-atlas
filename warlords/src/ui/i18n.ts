@@ -69,7 +69,7 @@ const DICT = {
   'online.join': ['加入房间', 'Join a room'],
   'online.joinDesc': ['输入好友的房间号。', 'Enter your friend’s room code.'],
   'online.code': ['房间号', 'Room code'],
-  'online.codePh': ['例如 ABCD', 'e.g. ABCD'],
+  'online.codePh': ['例如 KX7PQ', 'e.g. KX7PQ'],
   'online.joinBtn': ['加入', 'Join'],
   'online.via': ['连接方式', 'Connection'],
   'online.peer': ['公共P2P', 'Public P2P'],

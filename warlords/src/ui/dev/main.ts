@@ -54,7 +54,8 @@ if (params.get('real') === '1') {
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
 
-const opts: MountAppOptions = { version: 'dev' };
+// `?nowebgl=1` previews the title screen of a browser without WebGL 2
+const opts: MountAppOptions = { version: 'dev', ...(params.get('nowebgl') === '1' ? { webgl: false } : {}) };
 const online = params.get('online') !== '0';
 const isHost = params.get('host') !== '0';
 const view = { weaponId: params.get('weapon') ?? undefined, ads: params.get('ads') === '1', outside: params.get('outside') === '1' };

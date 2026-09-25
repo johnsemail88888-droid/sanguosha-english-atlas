@@ -5,6 +5,9 @@
 // (bigger while moving / against fast targets). Moving targets and projectile
 // flight are led according to leadSkill. The result is the frame's yaw/pitch
 // and aimPoint (the host trusts a bot's aimPoint for hit resolution).
+// Abilities and cards use the same model (aimAtPoint for ground casts and
+// skillshots, track for lock-ons): there is no instant "snap" anywhere — the
+// view only ever moves through turnToward, capped at the difficulty's turn speed.
 import type { Vec3 } from '../../core/math';
 import type { Rng } from '../../core/rng';
 import type { Entity, EntityId } from '../../core/types';

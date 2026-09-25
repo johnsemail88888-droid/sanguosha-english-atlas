@@ -2,7 +2,7 @@
 import { settings } from '../../game/settings';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, s } from '../dom';
-import { getLang, t } from '../i18n';
+import { getLang, t, tx } from '../i18n';
 import { button, seal } from '../widgets';
 
 /** Periodic ridge line (period = width/2) so the layer can scroll seamlessly. */
@@ -89,9 +89,29 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
       title: 'Language / 语言',
     });
 
-    const menuItem = (label: string, sub: string | null, onClick: () => void, cls = ''): HTMLButtonElement =>
-      button([h('span', { class: 'lbl' }, label), sub ? h('span', { class: 'sub' }, sub) : null], onClick, { cls: `sg-menu-btn ${cls}`, sfx: 'confirm' });
+    const menuItem = (label: string, sub: string | null, onClick: () => void, cls = '', disabled = false): HTMLButtonElement =>
+      button([h('span', { class: 'lbl' }, label), sub ? h('span', { class: 'sub' }, sub) : null], onClick, {
+        cls: `sg-menu-btn ${cls}`,
+        sfx: 'confirm',
+        disabled,
+        title: disabled ? tx('需要 WebGL 2', 'Needs WebGL 2') : undefined,
+      });
 
+    // no WebGL 2: a match would be a black screen — explain, and keep play disabled
+    const noGl = !ctx.webgl.ok;
+    const glNotice = noGl
+      ? h('div', { class: 'sg-webgl-warn', role: 'alert' },
+          h('b', null, tx('无法启动 3D 画面', "3D graphics can't start")),
+          h('p', null, tx(
+            '你的浏览器未启用 WebGL 2，暂时无法开始对局。请在浏览器设置中开启「硬件加速」（或「使用图形加速」），更新显卡驱动或浏览器（推荐最新版 Chrome / Edge / Firefox，Safari 15 以上），然后刷新页面。',
+            'WebGL 2 is not available in this browser, so no match can start. Turn on hardware acceleration in the browser settings, update your graphics driver or browser (latest Chrome / Edge / Firefox, Safari 15+), then reload the page.',
+          )),
+          ctx.webgl.reason ? h('p', { class: 'why' }, ctx.webgl.reason) : null,
+          button(tx('刷新页面', 'Reload'), () => location.reload(), { cls: 'small gold' }),
+        )
+      : null;
+
+    el.classList.toggle('no-gl', noGl);
     el.append(
       h('div', { class: 'sg-title-top' }, langBtn),
       h('div', { class: 'sg-title-main' },
@@ -103,9 +123,10 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
         ),
         h('div', { class: 'sg-tagline' }, t('title.pressStart')),
         h('div', { class: 'sg-title-menu' },
+          glNotice,
           h('label', { class: 'sg-name' }, h('span', null, t('title.name')), name),
-          menuItem(t('title.single'), t('title.singleSub'), () => ctx.go('single'), 'primary'),
-          menuItem(t('title.online'), t('title.onlineSub'), () => ctx.go('online')),
+          menuItem(t('title.single'), t('title.singleSub'), () => ctx.go('single'), noGl ? 'primary off' : 'primary', noGl),
+          menuItem(t('title.online'), t('title.onlineSub'), () => ctx.go('online'), '', noGl),
           h('div', { class: 'row' },
             menuItem(t('title.gallery'), null, () => ctx.go('gallery'), 'dark'),
             menuItem(t('title.help'), null, () => ctx.go('help'), 'dark'),

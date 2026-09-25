@@ -53,11 +53,11 @@ const CONTEST = 0.88;
 /** rebels move to the staging ring this long before the push */
 const STAGE_TIME = 22;
 /**
- * staging ring radius around the lord (m). Roles are hidden: nobody shoots a hero who has done
- * nothing, and a bot rebel's own soldiers hold fire until he opens up (troopBrain follows the
- * commander), so rebels can walk right up to the lord's escort and strike together.
+ * staging ring radius around the lord (m): at the edge of his soldiers' reach (smg / shotgun
+ * squads reach 25 m, rifles 40, crossbows 50), close enough for long guns. Roles are hidden: nobody
+ * shoots a hero who has done nothing, and a bot rebel's own soldiers hold fire until he opens up.
  */
-const STAGE_RADIUS = 24;
+const STAGE_RADIUS = 36;
 /** recent damage (decaying ~4 s) that counts as being attacked, not a stray bullet */
 const PROVOKE_DMG = 22;
 /** recent damage to a crown that makes the lord side retaliate */
@@ -175,7 +175,7 @@ export class RoleStrategy {
     private readonly rng: Rng,
   ) {
     // each rebel's own push time, seeded per match (the first to reach it calls the others)
-    this.pushAt = prof.lootPhase + 70 + rng.next() * 110;
+    this.pushAt = prof.lootPhase + 110 + rng.next() * 100;
     this.gearUntil = Math.min(prof.lootPhase - 35, 80) + rng.next() * 12;
     this.campUntil = prof.lootPhase + 55;
     this.escortAngle = ((seat * 2.39996) % (Math.PI * 2)) + rng.next() * 0.4;
@@ -326,20 +326,12 @@ export class RoleStrategy {
         if (op && hyp(op, lp) < 40 && v.beliefs.rebelness(sim, self, o) >= 0.45) friends++;
       }
     }
-    // lord-side heroes seen around the lord (the escort we are up against)
-    let guards = 0;
-    if (lp) {
-      for (const o of sim.heroes()) {
-        if (o === self || o === lord || !o.hero || o.hero.dead || o.hero.downed) continue;
-        const op = v.posOf(o, 3);
-        if (op && hyp(op, lp) < 30 && (wearsCrown(sim, o) || v.beliefs.lordSideness(sim, self, o) >= 0.5)) guards++;
-      }
-    }
+    // a push commits: only a rebel about to die (nothing to heal with) or one left alone at a
+    // healthy lord breaks off — half-hearted pushes that peel away one by one lose the match
     const beaten = hp < (hasTao ? 0.22 : 0.32) && lordHp > 0.45;
-    const outnumbered = now - this.pushSince > 10 && lordHp > 0.75 && guards > friends && hp < 0.6;
-    const stalled = now - this.pushSince > PUSH_FAIL_AFTER && lordHp > 0.7 && friends < 2;
+    const stalled = now - this.pushSince > PUSH_FAIL_AFTER && lordHp > 0.8 && friends < 2;
     // the endgame circle leaves no time to regroup
-    if ((beaten || stalled || outnumbered) && pressure(now) < 0.7) {
+    if ((beaten || stalled) && pressure(now) < 0.7) {
       this.failedPushes++;
       this.regroupUntil = now + REGROUP_TIME + this.rng.next() * 20;
       // come back with a fresh staging window (and a fresh 跟我来)
@@ -597,6 +589,10 @@ export class RoleStrategy {
           // from strength (healed up), or when he is already on his knees
           if (!endgame) {
             hst = 0;
+            // …but a crown this 内奸 KNOWS is the 影武者 (the other one was seen casting a lord skill)
+            // is fair game while the lord side is ahead and busy with the rebels
+            const other = aliveCrowns(sim, self).find((c) => c !== x);
+            if (other && beliefs.crownLordTell(other.id) > 0 && beliefs.crownLordTell(x.id) === 0 && ready && this.balance(v) < 0.85 && this.busyWithRebels(v, x)) hst = 0.9;
           } else if (aliveCrowns(sim, self).length >= 2) {
             // two crowns: the 影武者 must die first (killing the real lord while the decoy lives
             // hands the win to the rebels) — go for the crown that looks less like the lord
@@ -610,17 +606,13 @@ export class RoleStrategy {
           const bal = this.balance(v);
           // keep the balance, third-party style: while the lord side is ahead, pick off loyalists
           // that are busy with (or weakened by) the rebels; while the rebels are ahead, hit rebels
-          let busyWithRebels = false;
-          for (const o of sim.heroes()) {
-            if (o === x || o === self || !o.hero || o.hero.dead) continue;
-            if (beliefs.rebelness(sim, self, o) > 0.6 && obs.recentDamage(sim, o.id, x.id) >= 10) {
-              busyWithRebels = true;
-              break;
-            }
-          }
+          const busyWithRebels = this.busyWithRebels(v, x);
           const hitLoyal = bal < 0.85 ? (busyWithRebels || v.hpFrac(x) < 0.5 ? 1 : 0.6) : bal < 1.1 ? 0.3 : 0;
           const hitRebels = bal > 1.2 ? 1 : bal > 0.85 ? 0.5 : 0.3;
           hst = Math.min(cap, Math.max(ls * hitLoyal, rb * hitRebels));
+          // the lord side is ahead and this loyal-looking hero is tied up with the rebels: strike now,
+          // while nobody can tell who fired (the classic 内奸 moment)
+          if (bal < 0.85 && busyWithRebels && ls >= 0.4 && ready) hst = Math.max(hst, 0.9);
           if (this.challenge(v, x, ls, rb, tr)) hst = Math.max(hst, Math.min(cap, this.challengeLevel()));
           // the lord is going down: save him from whoever is hitting him (rebels would win)
           for (const c of aliveCrowns(sim, self)) {
@@ -665,6 +657,16 @@ export class RoleStrategy {
       if (p && hyp(p, x.pos) < 25) return false;
     }
     return true;
+  }
+
+  /** Is `x` seen trading fire with a hero that looks like a rebel (from this seat)? */
+  private busyWithRebels(v: BotView, x: Entity): boolean {
+    const { sim, self, beliefs, obs } = v;
+    for (const o of sim.heroes()) {
+      if (o === x || o === self || !o.hero || o.hero.dead) continue;
+      if (beliefs.rebelness(sim, self, o) > 0.6 && (obs.recentDamage(sim, o.id, x.id) >= 10 || obs.recentDamage(sim, x.id, o.id) >= 10)) return true;
+    }
+    return false;
   }
 
   /** Hostility of a field challenge: just enough to open fire at this difficulty. */

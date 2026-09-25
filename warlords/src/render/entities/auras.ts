@@ -50,16 +50,18 @@ void main() {
 
 let bubbleGeo: THREE.BufferGeometry | null = null;
 const bubbleMats = new Map<string, THREE.ShaderMaterial>();
-function bubbleMaterial(key: 'shield' | 'invuln'): THREE.ShaderMaterial {
+/** `faint`: the local hero's own bubble — it sits in the middle of the third-person view, so it is only a hint. */
+function bubbleMaterial(kind: 'shield' | 'invuln', faint = false): THREE.ShaderMaterial {
+  const key = faint ? `${kind}:faint` : kind;
   let m = bubbleMats.get(key);
   if (!m) {
     m = new THREE.ShaderMaterial({
       vertexShader: BUBBLE_VERT,
       fragmentShader: BUBBLE_FRAG,
       uniforms: {
-        uColor: { value: key === 'shield' ? new THREE.Color(0.5, 0.9, 2.2) : new THREE.Color(2.2, 1.7, 0.6) },
+        uColor: { value: kind === 'shield' ? new THREE.Color(0.5, 0.9, 2.2) : new THREE.Color(2.2, 1.7, 0.6) },
         uTime: { value: 0 },
-        uAlpha: { value: 0.8 },
+        uAlpha: { value: faint ? 0.22 : 0.8 },
       },
       transparent: true,
       depthWrite: false,
@@ -194,18 +196,18 @@ export class AuraSet {
    * @param headY  top of the head in the character's local frame
    * @param world  world position of the character's feet (for particle emitters)
    */
-  update(flags: number, headY: number, world: THREE.Vector3, dt: number, time: number, fx: Effects, fovDeg: number, camDist: number, emit: boolean): void {
+  update(flags: number, headY: number, world: THREE.Vector3, dt: number, time: number, fx: Effects, fovDeg: number, camDist: number, emit: boolean, local = false): void {
     const dead = (flags & VF_DEAD) !== 0;
     // bubble: invuln (gold) wins over shield (blue)
     const bubbleKind = dead ? null : flags & VF_INVULN ? 'invuln' : flags & VF_SHIELDED ? 'shield' : null;
     if (bubbleKind) {
       if (!this.bubble) {
         if (!bubbleGeo) bubbleGeo = new THREE.IcosahedronGeometry(1, 2);
-        this.bubble = new THREE.Mesh(bubbleGeo, bubbleMaterial(bubbleKind));
+        this.bubble = new THREE.Mesh(bubbleGeo, bubbleMaterial(bubbleKind, local));
         this.bubble.renderOrder = 22;
         this.group.add(this.bubble);
       }
-      this.bubble.material = bubbleMaterial(bubbleKind);
+      this.bubble.material = bubbleMaterial(bubbleKind, local);
       this.bubble.visible = true;
       this.bubble.position.set(0, headY * 0.52, 0);
       this.bubble.scale.set(0.85, headY * 0.62, 0.85);

@@ -35,6 +35,8 @@ English section below → [English](#english).*
 
 手机横屏也能玩（自动切换触屏操作：左侧摇杆、右侧拖动瞄准、射击 / 开镜 / 跳跃 / 闪避 / 技能按钮）。
 
+需要 WebGL 2。若标题画面提示「无法启动 3D 画面」，请在浏览器设置里开启硬件加速（图形加速）、更新显卡驱动或浏览器后刷新。
+
 ### 操作
 
 | 按键 | 作用 |
@@ -169,7 +171,7 @@ P2P 模式需要双方能打洞。对称型 NAT、手机 4G/5G（运营商级 NA
 | `npm run electron` | 以桌面应用运行 |
 | `npm run dist:win` / `dist:mac` / `dist:linux` | 打包桌面版到 `release/` |
 
-- 调试：在网址后加 `?debug=1` 会暴露 `window.__sgwl`（当前会话、视图、本地英雄、事件统计、加载耗时，以及主机端作弊：`cheats.timeScale(4)`、`cheats.god()`、`cheats.give('tao')`、`cheats.teleport(x, z)` 等），供自动化测试与试玩使用。
+- 调试：在网址后加 `?debug=1` 会暴露 `window.__sgwl`（当前会话、视图、本地英雄、事件统计、加载耗时，以及仅限本地单人练习的作弊：`cheats.timeScale(4)`、`cheats.god()`、`cheats.give('tao')`、`cheats.teleport(x, z)` 等；联机房主与客人均不可用），供自动化测试与试玩使用。
 - e2e 默认使用 `/opt/pw-browsers/chromium`，可用 `CHROMIUM_PATH` 覆盖；`SGWL_E2E_SKIP_BUILD=1` 复用上次的测试构建。
 
 ### 项目结构
@@ -217,6 +219,7 @@ squad of soldiers, and a shrinking beacon-fire zone plus airdrops keep 5–8 pla
 - **Desktop:** download from GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases) — Windows portable / installer, macOS `.dmg`, Linux `.AppImage`. The desktop app embeds the LAN server.
 - **Offline single file:** [`sanguo-warlords-offline.html`](https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/sanguo-warlords-offline.html) (or `npm run build:single` → `dist-single/index.html`); double-click to play single player without a network.
 - Switch the UI language on the title screen (中文 / English).
+- Needs WebGL 2. If the title screen says "3D graphics can't start", turn on hardware acceleration in the browser settings, update the graphics driver or browser, and reload.
 
 ### Controls
 WASD move · mouse aim (click to lock the pointer) · LMB fire · RMB aim down sights · R reload · Shift sprint ·
@@ -293,8 +296,8 @@ Node.js 22 LTS (Vite 8 needs ≥ 20.19 / 22.12). In `warlords/`: `npm ci`, `npm 
 `npm run typecheck`, `npm test` (vitest), `npm run e2e` (Playwright on SwiftShader: full single-player flow, three
 browsers joining over the WebSocket relay, the `file://` single-file build, phone touch controls), `npm run server`,
 `npm run electron`, `npm run dist:win|mac|linux`. Append `?debug=1` to the URL to get `window.__sgwl` (session,
-view, local hero, event counters, load timings and host-side cheats such as `cheats.timeScale(4)`, `cheats.god()`,
-`cheats.give('tao')`) for automated play-testing. Layout: `src/core` contracts · `src/data` content · `src/sim`
+view, local hero, event counters, load timings and — in local single-player matches only, never online — cheats such as `cheats.timeScale(4)`,
+`cheats.god()`, `cheats.give('tao')`) for automated play-testing. Layout: `src/core` contracts · `src/data` content · `src/sim`
 headless authoritative simulation + AI + map generator · `src/net` sessions & transports · `src/render` three.js ·
 `src/ui` DOM screens & HUD · `src/audio` procedural audio · `src/game` input/settings/debug · `server/` Node server ·
 `electron/` desktop shell · `tests/` unit + e2e · `docs/` design spec and hero guide.

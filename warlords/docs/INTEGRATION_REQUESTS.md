@@ -45,7 +45,10 @@ Append new sections at the end; mark `Status:` when applied.
   watchdog periods.
 
 ## APP-3 · NET · let the host's own 3D view finish loading before the sim starts
-- **Status:** open (the UI side is done)
+- **Status:** open (the UI side is done) — **still hurts players:** measured on the host (single player, SwiftShader) the sim
+  reaches `phase:playing` 3.3–4.8 s before the host's view is ready (`__sgwl.timings`: phase:playing 22 289 ms vs
+  load:ready 25 618 ms). Bots move, shoot and loot during that time while the human sits on the loading screen; with a
+  close spawn (see APP-8) 吕布 wiped a player's whole squad 38 s into a match.
 - **File / function:** `src/net/hostSession.ts` `onSimReady` / `maybeBeginPlaying`; `src/net/clientSession.ts` `buildMatch`.
 - **Now:** `matchStart` is emitted and `beginPlaying()` runs synchronously right after, so the host's sim
   (and the bots) start while the host's renderer is still building the scene and compiling shaders
@@ -81,7 +84,8 @@ Append new sections at the end; mark `Status:` when applied.
     return;
   }
   ```
-  The HUD shows 「准星需对准目标 / Aim at a target first」 for `itemDenied` / `abilityDenied` (throttled) and the
+  The HUD shows a warning for `itemDenied` / `abilityDenied` (throttled; text from `deniedText()`, 「准星需对准目标」 when
+  the event carries `reason: 'noTarget'` — see APP-7) and the
   audio catalog maps both to the UI error blip (`src/audio/catalog.ts` aliases) — until now `itemDenied` was dropped
   by the audio resolver, so card denials were silent too.
 
@@ -105,3 +109,39 @@ Append new sections at the end; mark `Status:` when applied.
 - **APP side (done):** `GameRenderer.warmup()` now compiles + links shaders in batches with yields, so the longest
   loading freeze dropped from ~4–5 s to ~1.3 s in SwiftShader (measured with a `longtask` observer), which makes the
   false timeouts much rarer — but real browsers can still freeze longer (tab throttling, sleep).
+
+## APP-7 · SIM · say *why* a card / ability was refused (`reason`, `item` on the denied sfx event)
+- **Status:** open (the HUD already reads the optional fields; without them it shows a neutral text)
+- **File / function:** `src/sim/inventory.ts` `itemDenied(w, e)` and its two call sites; `src/sim/world.ts` the
+  `abilityDenied` emit of APP-5 (when applied).
+- **Observed:** every `itemDenied` showed 「准星需对准目标 / Aim at a target first」, but the sim also emits it whenever a
+  card's `use()` returns false — 桃 at full HP, 闪 at its dodge cap… — which misled players (shots/p2-02-denied-peach.png).
+  The HUD now says 「现在无法使用 / Can't use that now」 unless it is told the reason.
+- **Change (additive, optional fields on the existing event):**
+  ```ts
+  function itemDenied(w: World, e: Entity, itemId: string, reason?: 'noTarget' | 'fullHp' | 'cap' | 'blocked'): void {
+    if (!w.isBotHero(e)) w.emit({ t: 'sfx', name: 'itemDenied', pos: { ...e.pos }, privateTo: e.id, item: itemId, reason } as GameEvent);
+  }
+  ```
+  - `useItem` enemy targeting with no `aimTarget` → `reason: 'noTarget'`;
+  - after `impl.use(ctx)` returned false → let the card say why: `ctx.deniedReason` (optional `ItemCtx` field that
+    `tao` / `jiu` set to `'fullHp'`, `shan` to `'cap'`, …); `undefined` is fine (neutral text).
+  - `abilityDenied` (APP-5): `reason: 'noTarget'` when the ability needed a target and `aimTarget` found none.
+  The HUD mapping lives in `src/ui/hud/logic.ts` `deniedText()` (unit-tested). If `sfx` must stay `{ name, pos }` in
+  `core/types.ts`, add `item?: string; reason?: string` there (additive).
+
+## APP-8 · SIM · minimum distance between hero spawns
+- **Status:** open
+- **Files / functions:** `src/sim/world.ts` `spawnHeroes()`; `src/sim/map/spots.ts` `chooseSpawns()`.
+- **Observed:** `generateMap` spawns for seeds 1 and 2 are as close as 36.8 m (the ring keeps only a 36 m minimum pair
+  distance, and the angular offsets let neighbouring sectors slide together). `spawnHeroes` takes the *shuffled* list in
+  order, so in an 8-player match two heroes regularly start 20–40 m apart — 吕布 spawned ~25 m from the player and killed
+  the whole squad at 0:38 (shots/gy-10-e.png, 「麾下已无兵」), before the player had even left the loading screen (APP-3).
+- **Change:**
+  1. `spawnHeroes`: pick spawns by farthest-point assignment instead of list order — keep the shuffle for fairness, then
+     for each non-lord seat take the remaining spawn that maximises the minimum distance to every spawn already used
+     (seed the "used" set with `map.lordSpawn`). Deterministic (same rng), O(n²) for n ≤ 10.
+  2. `chooseSpawns`: raise the pair-distance rejection from 36 m to ~55 m (fall back to the old 36 m only if a sector
+     would otherwise stay empty), so 8 players on the ~110 m ring are ≥ 60 m apart in practice.
+  3. (nice to have) a unit test: for seeds 1..20 and 8 seats, min pairwise hero spawn distance ≥ 55 m.
+

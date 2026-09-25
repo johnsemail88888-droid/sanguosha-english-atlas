@@ -120,30 +120,60 @@ test('single player: full flow, controls, HUD, bots fight, leave', async () => {
     await page.locator('.pm-box .sg-btn.gold').click();
     await enterGame(page);
 
-    // bots fight: god mode for us, sim sped up; a hero death shows in the kill feed
+    // bots fight: god mode for us, sim sped up; wait for a hero death in the sim
+    // (__sgwl.events.deaths). Which bot dies first is random: if it is the Lord the
+    // match ends at once and the HUD (with its kill feed) gives way to the game-over
+    // screen, so the DOM kill feed is checked only while the match is still on —
+    // through a MutationObserver, as entries expire after 7 sim-seconds (≈1 s at 6×).
+    await page.evaluate(() => {
+      const w = window as SgwlWindow & { __kfSeen?: string[] };
+      w.__kfSeen = [];
+      const feed = document.querySelector('.hud-feed');
+      if (!feed) return;
+      new MutationObserver((muts) => {
+        for (const m of muts)
+          for (const n of m.addedNodes)
+            if (n instanceof HTMLElement && n.matches('.kf:not(.claim)')) w.__kfSeen!.push(n.textContent ?? '');
+      }).observe(feed, { childList: true, subtree: true });
+    });
     const cheats = await page.evaluate(() => {
       const c = (window as SgwlWindow).__sgwl!.cheats;
       return { god: c.god(true), scale: c.timeScale(6) };
     });
     expect(cheats.god && cheats.scale, 'debug cheats available in single player').toBe(true);
     const tStart = await page.evaluate(() => (window as SgwlWindow).__sgwl!.elapsed());
-    await expect(page.locator('.hud-feed .kf:not(.claim)').first()).toBeVisible({ timeout: 8 * 60_000 });
-    const tKill = await page.evaluate(() => (window as SgwlWindow).__sgwl!.elapsed());
-    const deaths = await page.evaluate(() => (window as SgwlWindow).__sgwl!.events);
-    console.log(`[game e2e] first kill-feed entry after ${(tKill - tStart).toFixed(0)} sim-s: ${JSON.stringify(deaths)}`);
-    await shot('06-killfeed');
-    // …and the heroes really fought each other (not only zone deaths)
     await expect
-      .poll(() => page.evaluate(() => (window as SgwlWindow).__sgwl!.events.heroHits), { timeout: 5 * 60_000, intervals: [2000] })
+      .poll(() => page.evaluate(() => (window as SgwlWindow).__sgwl!.events.deaths.length), { timeout: 8 * 60_000, intervals: [1000] })
       .toBeGreaterThan(0);
-    await page.evaluate(() => (window as SgwlWindow).__sgwl!.cheats.timeScale(1));
+    const after = await page.evaluate(() => {
+      const g = (window as SgwlWindow).__sgwl!;
+      g.cheats.timeScale(1);
+      return { t: g.elapsed(), phase: g.phase, screen: g.screen, events: g.events, kf: (window as unknown as { __kfSeen: string[] }).__kfSeen };
+    });
+    console.log(`[game e2e] first hero death after ${(after.t - tStart).toFixed(0)} sim-s (phase ${after.phase}): ${JSON.stringify(after.events.deaths)}`);
+    // …and the heroes really fought each other (not only zone deaths)
+    const fought = (ev: typeof after.events): boolean => ev.heroHits > 0 || ev.deaths.some((d) => d.killer !== undefined && d.killer !== d.target);
+    if (after.phase === 'playing') {
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __kfSeen: string[] }).__kfSeen.length), { timeout: 30_000 }).toBeGreaterThan(0);
+      await shot('06-killfeed');
+      await expect
+        .poll(async () => fought(await page.evaluate(() => (window as SgwlWindow).__sgwl!.events)), { timeout: 5 * 60_000, intervals: [2000] })
+        .toBe(true);
 
-    // leave → title
-    await page.keyboard.press('Escape');
-    await page.evaluate(() => document.exitPointerLock());
-    await expect(page.locator('.sg-hud[data-overlay="pause"] .pm-box')).toBeVisible();
-    await page.locator('.pm-box .sg-btn', { hasText: /离开|Leave/ }).click();
-    await page.locator('.sg-modal .actions .sg-btn').last().click();
+      // leave → title
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => document.exitPointerLock());
+      await expect(page.locator('.sg-hud[data-overlay="pause"] .pm-box')).toBeVisible();
+      await page.locator('.pm-box .sg-btn', { hasText: /离开|Leave/ }).click();
+      await page.locator('.sg-modal .actions .sg-btn').last().click();
+    } else {
+      // the first death ended the match (the Lord fell): the game-over screen names the winners
+      expect(after.phase, 'match over').toBe('gameOver');
+      expect(fought(after.events), 'the Lord fell in a fight').toBe(true);
+      await expect(page.locator('[data-screen="gameOver"]')).toBeVisible({ timeout: 30_000 });
+      await shot('06-gameover');
+      await page.locator('[data-screen="gameOver"] .sg-btn', { hasText: /返回标题|Main menu/ }).click();
+    }
     await expect(page.locator('[data-screen="title"]')).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.sg-game canvas')).toHaveCount(0);
 

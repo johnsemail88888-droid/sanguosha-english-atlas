@@ -32,4 +32,6 @@ export interface EntityCtx {
    * for orbit / free cameras: characters between the camera and it fade out.
    */
   focusPos?: THREE.Vector3 | null;
+  /** normalised camera forward (screen-coverage fade of your own squad) */
+  camDir?: THREE.Vector3 | null;
 }

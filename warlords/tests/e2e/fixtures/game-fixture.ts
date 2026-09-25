@@ -138,7 +138,8 @@ export async function openGame(browser: Browser, url: string, opts: OpenOptions 
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(`console: ${m.text()}`);
+    // the failing URL is only in the location for "Failed to load resource" messages
+    if (m.type() === 'error') errors.push(`console: ${m.text()}${m.location()?.url ? ` @ ${m.location().url}` : ''}`);
     // our own "something broke but the frame went on" warnings count as errors too
     else if (m.type() === 'warning' && /^\[(render|vfx|hud|ui|app)\].*(fail|error)/i.test(m.text())) errors.push(`warning: ${m.text()}`);
   });
@@ -146,9 +147,26 @@ export async function openGame(browser: Browser, url: string, opts: OpenOptions 
   return { ctx, page, errors };
 }
 
-/** Console noise that is not a game bug: no internet in CI (STUN/PeerJS cloud), missing favicon. */
+/**
+ * Network noise that is not a game bug: no internet in CI (STUN servers, the
+ * PeerJS cloud, ICE gathering). Deliberately narrow — case-sensitive, anchored to
+ * the actual messages — so real errors ("reading 'slice'", "device", a 404 of one
+ * of our own chunks) are never dropped.
+ */
+const NETWORK_NOISE = /\bstun:|\bturns?:|\bICE (candidate|server|failed|connection)|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_PROXY_CONNECTION_FAILED|0\.peerjs\.com|peerjs\.com\//;
+/** "Failed to load resource" is noise only for the favicon or a URL on another host (no internet). */
+const LOAD_FAILED = /Failed to load resource.* @ (\S+)$/;
+
+function isOwnUrl(u: string): boolean {
+  return /^(file:|data:|blob:)/.test(u) || /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(u);
+}
+
 export function relevantErrors(errs: readonly string[]): string[] {
-  return errs.filter((e) => !/stun|ICE|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|peerjs\.com|favicon|Failed to load resource/i.test(e));
+  return errs.filter((e) => {
+    const lf = LOAD_FAILED.exec(e);
+    if (lf) return isOwnUrl(lf[1]!) && !/\/favicon\.(png|ico)(\?|$)/.test(lf[1]!);
+    return !NETWORK_NOISE.test(e);
+  });
 }
 
 export type SgwlWindow = Window & { __sgwl?: SgwlDebug };

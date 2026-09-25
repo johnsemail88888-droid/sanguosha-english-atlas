@@ -12,6 +12,7 @@ import {
   cooldownFraction,
   crosshairStyle,
   cycleSpectate,
+  deniedText,
   deriveInteract,
   distanceOutsideZone,
   entityLabel,
@@ -313,5 +314,21 @@ describe('minimap visibility', () => {
     // everyone else: both crowns look the same
     expect(crownKind('rebel', { id: 7, role: 'lord' }, new Set())).toBe('plain');
     expect(crownKind('loyalist', { id: 9, role: 'lord' }, new Set())).toBe('plain');
+  });
+});
+
+describe('refused card / ability text', () => {
+  it('stays neutral without a reason (桃 at full HP is not an aiming problem)', () => {
+    expect(deniedText({}).en).toBe("Can't use that now");
+    expect(deniedText({ item: 'tao' }).zh).toContain('现在无法使用');
+    expect(deniedText({ item: 'tao' }).zh).not.toContain('准星');
+  });
+  it('explains when the sim says why', () => {
+    expect(deniedText({ reason: 'noTarget' }).en).toBe('Aim at a target first');
+    expect(deniedText({ reason: 'fullHp', item: 'tao' }).zh).toBe('体力已满');
+    expect(deniedText({ reason: 'cap', item: 'shan' }).en).toMatch(/limit/);
+  });
+  it('ignores junk fields', () => {
+    expect(deniedText({ reason: 3, item: 'no-such-card' }).en).toBe("Can't use that now");
   });
 });

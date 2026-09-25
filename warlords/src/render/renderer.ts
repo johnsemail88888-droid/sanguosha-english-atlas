@@ -577,6 +577,7 @@ export class GameRenderer {
     c.time = this.time;
     c.dt = dt;
     c.fovDeg = this.camera.fov;
+    c.camDir = this.camera.getWorldDirection(this.camDirVec);
     c.localId = localId;
     c.local = local;
     c.lang = settings.get().lang;
@@ -641,6 +642,7 @@ export class GameRenderer {
   }
 
   private readonly focusVec = new THREE.Vector3();
+  private readonly camDirVec = new THREE.Vector3();
   private injected: GameEvent[] = [];
 
   /**

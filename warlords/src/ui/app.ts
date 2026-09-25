@@ -23,6 +23,7 @@ import { createGalleryScreen } from './screens/gallery';
 import { createHelpScreen } from './screens/help';
 import { createSettingsPanel } from './screens/settings';
 import { Hud } from './hud/hud';
+import { probeWebGL, type WebGLSupport } from './webgl';
 
 export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
 
@@ -84,6 +85,8 @@ export interface MountAppOptions {
   initialSession?: { session: GameSession; kind: 'single' | 'online' };
   /** open the settings modal on this tab right after mounting */
   initialSettings?: SettingsTab;
+  /** override the WebGL 2 probe (dev harness: `false` previews the "no WebGL" title) */
+  webgl?: boolean;
 }
 
 type MusicTrack = 'menu' | 'battle' | 'victory' | 'defeat' | null;
@@ -139,6 +142,10 @@ class App implements UiCtx {
   private roomCode: string | null;
   private lang = getLang();
   readonly version: string;
+  /** WebGL 2 is available (probed once at boot): without it no match can render */
+  readonly webgl: WebGLSupport;
+  /** the 3D view of the current match failed to start (the failure modal is up) */
+  private loadFailed = false;
 
   constructor(
     host: HTMLElement,
@@ -147,6 +154,8 @@ class App implements UiCtx {
   ) {
     injectStyles(host.ownerDocument);
     this.version = opts.version ?? '0.1.0';
+    this.webgl = opts.webgl === undefined ? probeWebGL(host.ownerDocument) : { ok: opts.webgl, reason: opts.webgl ? null : 'disabled (dev harness)' };
+    if (!this.webgl.ok) console.warn('[ui] WebGL 2 unavailable:', this.webgl.reason);
     this.portraits = new PortraitCache((id, size) => deps.renderHeroPortrait(id, size));
     this.root = h('div', { class: 'sg-root', data: { lang: this.lang } });
     applyRootVars(this.root);
@@ -178,7 +187,8 @@ class App implements UiCtx {
         }
       }),
     );
-    this.go(opts.initialScreen ?? (this.roomCode ? 'online' : 'title'));
+    // no WebGL: an invite link still lands on the title, which explains why nothing can start
+    this.go(opts.initialScreen ?? (this.roomCode && this.webgl.ok ? 'online' : 'title'));
     if (opts.initialSession) {
       const { session, kind } = opts.initialSession;
       this.attachSession(session, kind);
@@ -285,16 +295,57 @@ class App implements UiCtx {
     }
   }
 
-  /** the 3D view finished its staged build (or there is none / it failed) */
+  /** the 3D view finished its staged build (or there is none). A failed view is never "ready". */
   private matchReady(): boolean {
+    if (this.loadFailed) return false;
     const hd = this.match?.handle;
     return !hd || !hd.isReady || hd.isReady();
   }
 
   private onLoadProgress(p: LoadProgress): void {
     this.setLoad(p);
-    if (p.stage === 'failed') this.toast(tx('3D 画面初始化失败（WebGL 不可用？）', '3D view failed to start (WebGL unavailable?)'), 'error');
-    if ((p.stage === 'ready' || p.stage === 'failed') && this.session?.phase === 'playing' && this.screenId === 'loading') this.go('match');
+    if (p.stage === 'failed') {
+      this.onViewFailed(p.error);
+      return;
+    }
+    if (p.stage === 'ready' && this.session?.phase === 'playing' && this.screenId === 'loading') this.go('match');
+  }
+
+  /**
+   * The 3D view could not start (no WebGL, context lost, out of memory…): a match
+   * without a picture is unplayable, so say why and offer the way back instead of
+   * routing into a black screen.
+   */
+  private onViewFailed(error: string | undefined): void {
+    if (this.loadFailed) return;
+    this.loadFailed = true;
+    this.sfx('error');
+    const back = h('div', { class: 'sg-modal-back sg-view-failed', role: 'alertdialog', aria: { modal: 'true' } });
+    const close = (): void => {
+      back.remove();
+      this.leaveSession(true);
+    };
+    const ok = button(t('over.toTitle'), close, { cls: 'gold', sfx: 'back' });
+    back.append(
+      h('div', { class: 'sg-modal sg-panel sg-corners' },
+        h('h2', { class: 'sg-h2' }, tx('3D 画面无法启动', 'The 3D view could not start')),
+        h('p', null, tx(
+          '你的浏览器没能创建 WebGL 2 画面，这局无法进行。请在浏览器设置中开启「硬件加速」，更新显卡驱动或浏览器（推荐最新版 Chrome / Edge / Firefox），然后刷新页面再试。',
+          'Your browser could not create a WebGL 2 view, so this match cannot be played. Turn on hardware acceleration in the browser settings, update your graphics driver or browser (latest Chrome / Edge / Firefox), then reload and try again.',
+        )),
+        error ? h('p', { class: 'sg-fail-detail' }, error) : null,
+        h('div', { class: 'actions' }, ok),
+      ),
+    );
+    this.modalLayer.appendChild(back);
+    ok.focus();
+  }
+
+  /** false (after telling the player why) when this device cannot render a match */
+  private canPlay(): boolean {
+    if (this.webgl.ok) return true;
+    void this.alert(tx('无法开始对局', "Can't start a match"), tx('此浏览器不支持 WebGL 2，无法显示 3D 画面。', 'This browser has no WebGL 2, so the 3D view cannot be shown.'));
+    return false;
   }
 
   playerName(): string {
@@ -336,6 +387,7 @@ class App implements UiCtx {
   }
 
   startSingle(patch: Partial<MatchSettings>): void {
+    if (!this.canPlay()) return;
     let s = this.sessionKind === 'single' ? this.session : null;
     if (!s || s.phase !== 'lobby') {
       this.leaveSession(false);
@@ -353,11 +405,13 @@ class App implements UiCtx {
   }
 
   async hostOnline(mode: 'peer' | 'ws'): Promise<void> {
+    if (!this.canPlay()) return;
     const s = await this.deps.hostOnline(this.playerName(), mode);
     this.adoptOnline(s);
   }
 
   async joinOnline(code: string, mode: 'peer' | 'ws'): Promise<void> {
+    if (!this.canPlay()) return;
     const s = await this.deps.joinOnline(code, this.playerName(), mode);
     this.adoptOnline(s);
   }
@@ -499,7 +553,7 @@ class App implements UiCtx {
     } catch (err) {
       console.error('[ui] mountGame failed', err);
       container.remove();
-      this.toast(t('error.generic'), 'error');
+      this.onViewFailed(err instanceof Error ? err.message : String(err));
       return;
     }
     const hud = new Hud(this, { view, handle, session: s });
@@ -516,6 +570,7 @@ class App implements UiCtx {
   }
 
   private unmountMatch(): void {
+    this.loadFailed = false;
     const m = this.match;
     if (!m) return;
     this.match = null;

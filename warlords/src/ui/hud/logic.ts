@@ -332,3 +332,28 @@ export class UiKeyDeduper {
     return true;
   }
 }
+
+// ── refused cards / abilities ────────────────────────────────────────────────
+
+/**
+ * Warning text for a refused card / ability of ours (sfx 'itemDenied' /
+ * 'abilityDenied'). Most refusals are NOT about aiming (桃 at full HP, 闪 at its
+ * cap…), so without a `reason` from the sim the text stays neutral. The optional
+ * `reason` / `item` fields are requested from SIM (INTEGRATION_REQUESTS APP-6).
+ */
+export function deniedText(ev: { reason?: unknown; item?: unknown }): { zh: string; en: string } {
+  const reason = typeof ev.reason === 'string' ? ev.reason : '';
+  const it = typeof ev.item === 'string' ? ITEM_BY_ID[ev.item] : undefined;
+  switch (reason) {
+    case 'noTarget':
+      return { zh: '准星需对准目标', en: 'Aim at a target first' };
+    case 'fullHp':
+      return { zh: '体力已满', en: 'Already at full health' };
+    case 'cap':
+      return { zh: it ? `「${it.nameZh}」已达上限` : '已达上限', en: it ? `${it.nameEn}: already at the limit` : 'Already at the limit' };
+    case 'blocked':
+      return { zh: '此处无法使用', en: "Can't use that here" };
+    default:
+      return it ? { zh: `「${it.nameZh}」现在无法使用`, en: `Can't use ${it.nameEn} now` } : { zh: '现在无法使用', en: "Can't use that now" };
+  }
+}

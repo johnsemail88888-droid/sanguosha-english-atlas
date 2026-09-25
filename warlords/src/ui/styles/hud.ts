@@ -27,7 +27,7 @@ export const HUD_CSS = /* css */ `
 .role-chip .sg-seal { font-size: ${fs(14)}; }
 .role-chip .rc-text { display: flex; flex-direction: column; min-width: 0; }
 .role-chip .rc-text b { font-family: var(--font-display); font-size: ${fs(18, 12)}; color: var(--rc); letter-spacing: 0.1em; line-height: 1.2; }
-.role-chip .goal { font-size: ${fs(12, 10)}; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.role-chip .goal { font-size: ${fs(12, 10)}; opacity: 0.85; line-height: 1.3; white-space: normal; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .role-chip .bounty { font-size: ${fs(12, 10)}; color: #ffc38a; }
 .hud-topcenter { position: absolute; left: 50%; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: ${u(4)}; }
 .hud-zone { display: inline-flex; align-items: center; gap: ${u(8)}; padding: ${u(4)} ${u(16)}; background: var(--hud-bg); border: 1px solid var(--hud-line); border-radius: 999px; font-size: ${fs(15, 11)}; white-space: nowrap; }
@@ -35,7 +35,7 @@ export const HUD_CSS = /* css */ `
 .hud-zone.shrinking { border-color: #ff7840; }
 .hud-zone.shrinking .ztext { color: #ffb08a; }
 .hud-zone.soon { animation: sg-hud-blink 0.8s ease-in-out infinite alternate; }
-.match-info { font-size: ${fs(13, 10)}; opacity: 0.85; display: flex; gap: ${u(6)}; }
+.match-info { font-size: ${fs(13, 10)}; display: flex; gap: ${u(6)}; padding: ${u(1)} ${u(12)}; background: var(--hud-bg); border: 1px solid var(--hud-line); border-radius: 999px; color: rgba(248, 236, 210, 0.95); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
 .match-info .clock { font-variant-numeric: tabular-nums; font-weight: 700; }
 @keyframes sg-hud-blink { from { box-shadow: 0 0 0 rgba(255, 120, 60, 0); } to { box-shadow: 0 0 ${u(14)} rgba(255, 120, 60, 0.7); } }
 

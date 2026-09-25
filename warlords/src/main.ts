@@ -9,7 +9,7 @@ import { mountGameView, mountHeroTurntable, renderHeroPortrait } from './render'
 import type { ViewSource } from './render/view';
 import { registerAllVfx } from './render/vfx/registerAll';
 import { mountApp, type AppDeps, type GameHandle } from './ui/app';
-import { DebugHooks, debugEnabled } from './game/debug';
+import { DebugHooks, debugEnabled, type DebugSessionKind } from './game/debug';
 
 registerAllVfx();
 
@@ -71,12 +71,12 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
   return gameHandle;
 }
 
-const track = <T extends GameSession>(s: T): T => (debug ? debug.trackSession(s) : s);
+const track = <T extends GameSession>(s: T, kind: DebugSessionKind): T => (debug ? debug.trackSession(s, kind) : s);
 
 const deps: AppDeps = {
-  createLocalSession: (name) => track(createLocalSession({ name })),
-  hostOnline: async (name, mode) => track(await hostOnlineSession({ name, mode })),
-  joinOnline: async (code, name, mode) => track(await joinOnlineSession(code, { name, mode })),
+  createLocalSession: (name) => track(createLocalSession({ name }), 'local'),
+  hostOnline: async (name, mode) => track(await hostOnlineSession({ name, mode }), 'host'),
+  joinOnline: async (code, name, mode) => track(await joinOnlineSession(code, { name, mode }), 'guest'),
   mountGame,
   renderHeroPortrait,
   mountHeroTurntable,
@@ -91,7 +91,10 @@ const root = document.getElementById('app');
 if (!root) throw new Error('#app root missing');
 root.textContent = '';
 const app = mountApp(root, deps, { version: pkg.version });
-window.addEventListener('pagehide', () => {
+// Tear down on a real unload only: a page kept in the back/forward cache
+// (persisted) must come back exactly as it was, not as an empty #app.
+window.addEventListener('pagehide', (ev) => {
+  if ((ev as PageTransitionEvent).persisted) return;
   app.dispose();
   audio.dispose();
 });

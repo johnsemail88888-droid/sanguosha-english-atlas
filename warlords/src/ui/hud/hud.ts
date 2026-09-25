@@ -18,7 +18,7 @@ import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, I
 import { Announcer, ChatBox, KillFeed, type FeedParty } from './feed';
 import { drawMinimap, type MarkerInput } from './minimap';
 import { BigMap, PauseMenu, Scoreboard, Wheel, type WheelChoice } from './overlays';
-import { UiKeyDeduper, cycleSpectate, entityLabel } from './logic';
+import { UiKeyDeduper, cycleSpectate, deniedText, entityLabel } from './logic';
 import type { HudFrame } from './types';
 import { trackViewport } from './viewport';
 
@@ -466,10 +466,11 @@ export class Hud {
             if (ev.who === myId) this.announcer.push(t('hud.pickup', { name: pickupName(ev.item) }), 'info', undefined, now);
             break;
           case 'sfx':
-            // the sim refused a card / ability of ours (no valid target under the crosshair)
+            // the sim refused a card / ability of ours: say why when the sim tells us, else stay neutral
             if ((ev.name === 'itemDenied' || ev.name === 'abilityDenied') && (ev.privateTo === undefined || ev.privateTo === myId) && now - this.lastDenied > 1.2) {
               this.lastDenied = now;
-              this.announcer.push(tx('准星需对准目标', 'Aim at a target first'), 'warn', undefined, now);
+              const msg = deniedText(ev as { reason?: unknown; item?: unknown });
+              this.announcer.push(tx(msg.zh, msg.en), 'warn', undefined, now);
             }
             break;
           case 'command':

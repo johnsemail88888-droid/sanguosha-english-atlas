@@ -1,7 +1,15 @@
-// Near-camera fade for characters other than the local hero: a troop / NPC /
-// hero whose body is within ~1.6 m of the camera, or that stands on the line
-// between the camera and the hero it follows, turns translucent (and its
-// nameplate / pennant hides) so your own squad never fills the screen.
+// Near-camera fade for characters other than the local hero, so nothing ever
+// fills the screen in the third-person view:
+//   - any troop / NPC / hero whose body surface is closer than CAM_FADE_HIDE to
+//     the camera is hidden outright (mesh, nameplate, badge, auras), and fades
+//     back in until CAM_FADE_NEAR;
+//   - your OWN squad fades earlier (CAM_FADE_SQUAD_NEAR) and also by screen
+//     coverage: a soldier whose projected height exceeds ~40 % of the viewport
+//     turns translucent wherever it stands (they follow you around in formation);
+//   - a character standing on the line between the camera and the hero it follows
+//     turns translucent.
+// Enemies are only faded when they are practically inside the camera: you must
+// always be able to see what is shooting you.
 // Pure math: unit-tested in tests/unit/render/camFade.test.ts.
 
 export interface P3 {
@@ -10,30 +18,61 @@ export interface P3 {
   z: number;
 }
 
-/** Fully opaque when the body surface is at least this far (m) from the camera. */
-export const CAM_FADE_NEAR = 1.8;
-/** Fully faded (CAM_FADE_MIN) when the body surface is this close (m). */
-export const CAM_FADE_FULL = 0.5;
-/** Minimum opacity of a faded character. */
-export const CAM_FADE_MIN = 0.08;
+/** Hidden (opacity 0) when the body surface is closer than this (m) to the camera. */
+export const CAM_FADE_HIDE = 0.9;
+/** Fully opaque from this distance (m) of the body surface to the camera. */
+export const CAM_FADE_NEAR = 2.4;
+/** Own squad: fully opaque only from this distance (m). */
+export const CAM_FADE_SQUAD_NEAR = 3.6;
+/** Own squad: start fading when the projected body height exceeds this fraction of the viewport height… */
+export const CAM_FADE_COVER_START = 0.4;
+/** …and reach CAM_FADE_COVER_MIN at this fraction. */
+export const CAM_FADE_COVER_FULL = 0.62;
+/** Opacity of an own soldier covering most of the view. */
+export const CAM_FADE_COVER_MIN = 0.18;
 /** Opacity of a character blocking the camera → followed hero line. */
 export const CAM_FADE_BLOCKING = 0.22;
+/** At or below this opacity the view hides the character entirely (visible = false). */
+export const CAM_FADE_HIDDEN = 0.04;
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
+export interface CamFadeOptions {
+  /** the character belongs to the local player's squad (fades earlier and by screen coverage) */
+  squad?: boolean;
+  /** normalised camera forward (needed for the screen-coverage fade) */
+  camDir?: P3 | null;
+  /** vertical field of view in degrees (screen-coverage fade) */
+  fovDeg?: number;
+}
+
 /**
- * Target opacity (CAM_FADE_MIN..1) for a character standing at `p` (feet) with
- * body height `height` and radius `radius`.
- * `focus` = chest of the hero the camera follows (null: orbit / free camera).
+ * Target opacity (0..1) for a character standing at `p` (feet) with body height
+ * `height` and radius `radius`. 0 = hide it. `focus` = chest of the hero the
+ * camera follows (null: orbit / free camera).
  */
-export function cameraFadeTarget(cam: P3, focus: P3 | null, p: P3, height: number, radius = 0.45): number {
+export function cameraFadeTarget(cam: P3, focus: P3 | null, p: P3, height: number, radius = 0.45, opts: CamFadeOptions = {}): number {
   const y0 = p.y + 0.05;
   const y1 = p.y + Math.max(0.5, height);
   // 1. distance from the camera to the body (vertical capsule axis)
   const cy = cam.y < y0 ? y0 : cam.y > y1 ? y1 : cam.y;
   const d = Math.max(0, Math.hypot(cam.x - p.x, cam.y - cy, cam.z - p.z) - radius);
-  let fade = CAM_FADE_MIN + (1 - CAM_FADE_MIN) * clamp01((d - CAM_FADE_FULL) / (CAM_FADE_NEAR - CAM_FADE_FULL));
-  // 2. standing between the camera and the followed hero
+  const near = opts.squad ? CAM_FADE_SQUAD_NEAR : CAM_FADE_NEAR;
+  let fade = clamp01((d - CAM_FADE_HIDE) / (near - CAM_FADE_HIDE));
+  if (fade <= 0) return 0;
+  // 2. own squad: projected height on screen (fraction of the viewport height)
+  if (opts.squad && opts.camDir && opts.fovDeg) {
+    const mx = p.x - cam.x;
+    const my = (y0 + y1) * 0.5 - cam.y;
+    const mz = p.z - cam.z;
+    const depth = mx * opts.camDir.x + my * opts.camDir.y + mz * opts.camDir.z;
+    if (depth > 0.05) {
+      const cover = (y1 - y0) / (2 * depth * Math.tan(((opts.fovDeg * Math.PI) / 180) * 0.5));
+      const k = clamp01((cover - CAM_FADE_COVER_START) / (CAM_FADE_COVER_FULL - CAM_FADE_COVER_START));
+      fade = Math.min(fade, 1 - (1 - CAM_FADE_COVER_MIN) * k);
+    }
+  }
+  // 3. standing between the camera and the followed hero
   if (focus) {
     const dx = focus.x - cam.x;
     const dy = focus.y - cam.y;

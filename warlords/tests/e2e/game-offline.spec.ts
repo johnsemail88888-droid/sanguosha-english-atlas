@@ -3,8 +3,8 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test, type Browser } from '@playwright/test';
+import { readFileSync, readdirSync } from 'node:fs';
 import { DIST_SINGLE, ensureBuilt, enterGame, holdKeyUntilMoved, launchBrowser, openGame, playSingle, relevantErrors, type GamePage } from './fixtures/game-fixture';
-import { readdirSync } from 'node:fs';
 
 let browser: Browser;
 
@@ -19,9 +19,14 @@ test.afterAll(async () => {
 
 test('single-file build runs from file:// (title → single-player match)', async () => {
   test.setTimeout(10 * 60_000);
-  // one file only: everything (scripts, styles, icon) is inlined
+  // one file only: everything (scripts, styles, icon) is inlined — the Pages workflow
+  // ships index.html alone as sanguo-warlords-offline.html
   const files = readdirSync(DIST_SINGLE).filter((f) => !f.startsWith('.'));
-  expect(files.filter((f) => f.endsWith('.js') || f.endsWith('.css'))).toEqual([]);
+  expect(files).toEqual(['index.html']);
+  const html = readFileSync(path.join(DIST_SINGLE, 'index.html'), 'utf8');
+  const relRefs = html.match(/\b(?:href|src)=["'](?!data:|https?:|#|mailto:)[^"']+["']/g) ?? [];
+  expect(relRefs, 'no references to files next to the offline HTML').toEqual([]);
+  expect(html).toMatch(/<link rel="icon"[^>]+href="data:image\/png;base64,/);
   const url = `${pathToFileURL(path.join(DIST_SINGLE, 'index.html')).href}?debug=1`;
   let g: GamePage | null = null;
   try {

@@ -33,6 +33,8 @@ export interface UiCtx {
   readonly portraits: PortraitCache;
   readonly session: GameSession | null;
   readonly sessionKind: 'single' | 'online' | null;
+  /** WebGL 2 probe at boot: without it no match can render (the title explains and blocks play) */
+  readonly webgl: { ok: boolean; reason: string | null };
   sfx(name: SfxName): void;
   toast(text: string, kind?: 'info' | 'error'): void;
   confirm(text: string, opts?: { ok?: string; cancel?: string; title?: string }): Promise<boolean>;

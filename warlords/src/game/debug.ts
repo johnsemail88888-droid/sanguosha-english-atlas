@@ -9,8 +9,9 @@
 //   __sgwl.players()                 public player list
 //   __sgwl.events                    counts of GameEvents seen this match (by type) + hero deaths
 //   __sgwl.timings                   load milestones (ms since navigation start)
-//   __sgwl.cheats.*                  host-only sim cheats (single player / hosting): time scale,
-//                                    god mode, give item/weapon, teleport, kill, win
+//   __sgwl.cheats.*                  sim cheats for LOCAL single-player sessions only (never an
+//                                    online host: guests are real people): time scale, god mode,
+//                                    give item/weapon, teleport, kill, down
 import type { EntityId, GameEvent, PrivateHeroView, PublicPlayerView, Vec3, ViewEntity } from '../core/types';
 import type { ViewSource } from '../render/view';
 import { HEROES, ITEMS, isPassiveAbility } from '../data';
@@ -61,8 +62,13 @@ export interface DebugGame {
   gameHandle: unknown;
 }
 
+/** How a session was created: cheats only ever touch a 'local' (single-player, no network) one. */
+export type DebugSessionKind = 'local' | 'host' | 'guest';
+
 export interface SgwlDebug {
   readonly version: string;
+  /** kind of the current session (null: none / unknown) */
+  readonly sessionKind: DebugSessionKind | null;
   readonly phase: string | null;
   readonly screen: string | null;
   readonly session: GameSession | null;
@@ -85,6 +91,7 @@ export interface SgwlDebug {
    */
   vfxSmoke(perFrame?: number): Promise<number>;
   cheats: {
+    /** true only in a local single-player match (not when hosting or joining online) */
     available(): boolean;
     timeScale(scale: number): boolean;
     god(on?: boolean): boolean;
@@ -93,6 +100,7 @@ export interface SgwlDebug {
     equip(id: string): boolean;
     heal(): boolean;
     teleport(x: number, z: number): boolean;
+    /** kill a hero (other entity kinds are refused) */
     kill(entityId: EntityId): boolean;
     /** knock your own hero down (濒死) — or `entityId`'s */
     down(entityId?: EntityId): boolean;
@@ -124,6 +132,7 @@ export function debugEnabled(): boolean {
 
 export class DebugHooks {
   private session: GameSession | null = null;
+  private readonly kinds = new WeakMap<GameSession, DebugSessionKind>();
   private game: DebugGame | null = null;
   private readonly timings: Record<string, number> = {};
   private events = { counts: {} as Record<string, number>, deaths: [] as DebugDeath[], downed: 0, total: 0, heroHits: 0, heroDamage: 0 };
@@ -138,9 +147,10 @@ export class DebugHooks {
     this.install();
   }
 
-  /** Remember the newest session (wrap every session factory with this). */
-  trackSession<T extends GameSession>(s: T): T {
+  /** Remember the newest session (wrap every session factory with this) and how it was made. */
+  trackSession<T extends GameSession>(s: T, kind: DebugSessionKind): T {
     this.session = s;
+    this.kinds.set(s, kind);
     this.mark('session');
     try {
       s.on('phase', (p) => this.mark(`phase:${p}`));
@@ -216,9 +226,16 @@ export class DebugHooks {
     return evs.length;
   }
 
+  private kindOf(s: GameSession | null): DebugSessionKind | null {
+    return s ? this.kinds.get(s) ?? null : null;
+  }
+
+  /** The in-process host of a LOCAL session (single player). Online hosts get no cheats. */
   private host(): HostLike | null {
-    const s = this.session as unknown as HostLike | null;
-    return s && s.simHost !== undefined ? s : null;
+    const s = this.session;
+    if (!s || this.kindOf(s) !== 'local') return null;
+    const hs = s as unknown as HostLike;
+    return hs.simHost !== undefined ? hs : null;
   }
 
   private world(): WorldLike | null {
@@ -241,6 +258,9 @@ export class DebugHooks {
     const w = (): WorldLike | null => self.world();
     const api: SgwlDebug = {
       version: this.version,
+      get sessionKind() {
+        return self.kindOf(self.session);
+      },
       get phase() {
         return self.session?.phase ?? null;
       },
@@ -368,7 +388,7 @@ export class DebugHooks {
         kill: (entityId) => {
           const world = w();
           const e = world?.get(entityId);
-          if (!world?.killHero || !e) return false;
+          if (!world?.killHero || !e || e.kind !== 'hero' || e.dead) return false;
           world.killHero(e, this.meId() ?? undefined);
           return true;
         },
@@ -376,7 +396,7 @@ export class DebugHooks {
           const world = w();
           const id = entityId ?? this.meId();
           const e = id !== null && id !== undefined ? world?.get(id) : undefined;
-          if (!world?.downHero || !e) return false;
+          if (!world?.downHero || !e || e.kind !== 'hero') return false;
           if (id === this.meId()) this.stopGod();
           world.downHero(e, undefined);
           return true;

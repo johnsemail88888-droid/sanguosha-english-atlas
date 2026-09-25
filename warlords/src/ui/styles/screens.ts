@@ -70,6 +70,19 @@ export const SCREENS_CSS = /* css */ `
 .sg-menu-btn .lbl { font-size: 1.05em; }
 .sg-menu-btn .sub { font-family: var(--font-body); font-size: 0.7em; font-weight: 400; letter-spacing: 0.02em; opacity: 0.82; text-shadow: none; }
 .sg-menu-btn.primary { font-size: 1.2em; min-height: 2.9em; animation: sg-breathe 3.2s ease-in-out infinite; }
+.sg-menu-btn.primary.off { animation: none; }
+.sg-webgl-warn { padding: 0.7em 0.95em 0.8em; border: 1px solid rgba(220, 70, 50, 0.9); border-left-width: 4px; border-radius: 4px; background: rgba(38, 10, 7, 0.9); color: #f6e7c8; font-size: 0.88em; line-height: 1.5; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
+.sg-webgl-warn b { display: block; color: #ff9b7e; font-family: var(--font-display); font-size: 1.12em; letter-spacing: 0.08em; margin-bottom: 0.25em; }
+.sg-webgl-warn p { margin: 0 0 0.5em; }
+.sg-webgl-warn .why { font: 0.85em/1.4 ui-monospace, Menlo, Consolas, monospace; color: rgba(246, 231, 200, 0.6); }
+/* no WebGL: the notice makes the menu taller — let it scroll instead of clipping the logo, compact on short screens */
+.sg-title.no-gl { overflow-y: auto; align-items: safe center; }
+@media (max-height: 560px) {
+  .sg-title.no-gl .sg-tagline, .sg-title.no-gl .sg-logo .en, .sg-title.no-gl .sg-title-foot, .sg-webgl-warn .why { display: none; }
+  .sg-title.no-gl .sg-title-main { gap: 0.6em; padding-top: 0.8em; }
+  .sg-webgl-warn { font-size: 0.78em; padding: 0.5em 0.8em 0.6em; }
+}
+.sg-view-failed .sg-fail-detail { font: 0.82em/1.4 ui-monospace, Menlo, Consolas, monospace; opacity: 0.7; word-break: break-word; }
 .sg-title-foot { position: absolute; left: 0; right: 0; bottom: 0.7em; z-index: 2; display: flex; justify-content: center; gap: 1.2em; flex-wrap: wrap; font-size: 0.78em; color: rgba(240, 220, 180, 0.55); text-shadow: 0 1px 2px #000; padding: 0 1em; text-align: center; }
 
 /* ── generic menu sheet ───────────────────────────────── */

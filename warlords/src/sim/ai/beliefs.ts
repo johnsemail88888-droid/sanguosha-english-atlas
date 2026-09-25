@@ -59,7 +59,6 @@ export class Beliefs {
   private readonly deeds = new Map<EntityId, Deed[]>();
   /** lord-skill tells per crown (only the real lord has lord skills, the 影武者 none) */
   private readonly crownTell = new Map<EntityId, number>();
-  private cursor = 0;
   private lastDecay = -1;
   private nextRecompute = 0;
   private lastRecompute = -99;

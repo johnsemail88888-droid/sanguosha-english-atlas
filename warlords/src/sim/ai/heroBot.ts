@@ -553,7 +553,8 @@ export class HeroBot implements BotBrain, BotView {
       if (this.focus && this.focus.id === c.id) s *= 1.8;
       // the rebels' push focuses ONE crown (the agreed one) and ignores soldiers when it is in reach
       if (pushing) {
-        if (c.kind === 'hero' && wearsCrown(sim, c)) s *= c === focusCrown ? 2.2 : 0.4;
+        // the crown down on the ground: finish him before his escort gets a 桃 into him
+        if (c.kind === 'hero' && wearsCrown(sim, c)) s *= c === focusCrown ? (c.hero?.downed ? 4 : 2.2) : 0.4;
         else if (c.kind !== 'hero' && crownInReach) s *= 0.35;
       }
       if (lordSide && c.kind === 'hero') {
@@ -987,7 +988,7 @@ export class HeroBot implements BotBrain, BotView {
         lo = Math.max(lo, 54);
         hi = Math.max(hi, 64);
       } else if (this.weapon.class !== 'shotgun' && this.weapon.class !== 'flamer' && this.hpFrac(t) > 0.3) {
-        hi = Math.max(hi, Math.min(this.weapon.maxRange * 0.6, 38));
+        hi = Math.max(hi, Math.min(this.weapon.maxRange * 0.6, 42));
       }
     }
     // WEI-11: an enemy-targeted dash (张辽 突袭) is ready: step inside its reach (wins over the above)

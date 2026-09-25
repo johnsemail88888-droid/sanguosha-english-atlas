@@ -29,7 +29,7 @@ import { kingdomColor } from '../palette';
 import { AuraSet } from './auras';
 import { Nameplate, type PlateData } from './nameplate';
 import type { EntityCtx } from './context';
-import { cameraFadeTarget } from './camFade';
+import { CAM_FADE_HIDDEN, cameraFadeTarget, type CamFadeOptions } from './camFade';
 import { displayName } from '../../game/names';
 
 const _v = new THREE.Vector3();
@@ -85,8 +85,9 @@ export class CharacterView {
   private bubble: { text: string; until: number } | null = null;
   private readonly defaultWeapon: string | null;
   private deadFor = 0;
-  /** near-camera / camera-line fade (non-local characters), 1 = opaque */
+  /** near-camera / camera-line fade (non-local characters), 1 = opaque, 0 = hidden */
   private camFade = 1;
+  private readonly fadeOpts: CamFadeOptions = { squad: false, camDir: null, fovDeg: 60 };
   /** dt accumulated while a far hero skips animation frames */
   private animDt = 0;
   // per-frame scratch (no allocations in update)
@@ -232,24 +233,38 @@ export class CharacterView {
     this.rig.setXray((e.flags & VF_EXPOSED) !== 0 && !isLocal && (e.flags & VF_DEAD) === 0);
     this.rig.setShadows(ctx.shadows && dist < (isHero ? HERO_SHADOW_DIST : TROOP_SHADOW_DIST));
     this.applyTint(e.flags, dt, ctx.time);
-    // characters hugging the camera or standing between it and the followed hero turn translucent
+    const inSquad = ctx.squad.has(e.id);
+    // characters hugging the camera, your own soldiers filling the view, and anyone
+    // standing between the camera and the followed hero turn translucent / hide
     if (!isLocal) {
-      const target = dist < 12 ? cameraFadeTarget(ctx.camPos, ctx.focusPos ?? null, pos, this.headHeight(), 0.45 * this.rig.root.scale.x) : 1;
-      this.camFade += (target - this.camFade) * (1 - Math.exp(-dt * 14));
+      let target = 1;
+      if (dist < 12) {
+        const fo = this.fadeOpts;
+        fo.squad = inSquad;
+        fo.camDir = ctx.camDir ?? null;
+        fo.fovDeg = ctx.fovDeg;
+        target = cameraFadeTarget(ctx.camPos, ctx.focusPos ?? null, pos, this.headHeight(), 0.45 * this.rig.root.scale.x, fo);
+      }
+      // hiding is immediate (a body inside the camera must never flash on screen), fading back in is smooth
+      if (target <= CAM_FADE_HIDDEN) this.camFade = 0;
+      else this.camFade += (target - this.camFade) * (1 - Math.exp(-dt * 14));
       if (target === 1 && this.camFade > 0.985) this.camFade = 1;
-      this.rig.setFade(this.camFade);
-    }
+      const shown = this.camFade > CAM_FADE_HIDDEN;
+      this.rig.root.visible = shown;
+      if (shown) this.rig.setFade(this.camFade);
+    } else if (!this.rig.root.visible) this.rig.root.visible = true;
     const plateFade = Math.max(0, Math.min(1, (this.camFade - 0.35) / 0.55));
+    // crown / chevron / status auras go with the body
+    this.auras.group.visible = plateFade > 0.25;
 
     // death bookkeeping (plates fade a few seconds after death)
     if (e.flags & VF_DEAD) this.deadFor += dt;
     else this.deadFor = 0;
 
     const head = this.headHeight();
-    const inSquad = ctx.squad.has(e.id);
     // your own crown / chevron would sit in the middle of the TPS view
     const auraFlags = isLocal ? e.flags & ~(VF_LORD | VF_MARKED) : e.flags;
-    this.auras.update(auraFlags, head, pos, dt, ctx.time, ctx.fx, ctx.fovDeg, dist, true);
+    this.auras.update(auraFlags, head, pos, dt, ctx.time, ctx.fx, ctx.fovDeg, dist, true, isLocal);
 
     // overhead UI
     if (isHero) {
