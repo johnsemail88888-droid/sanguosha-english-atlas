@@ -2141,6 +2141,18 @@
    "out": "public/assets/icons/abilities/menghuo_xiangbing.webp",
    "maxSize": 256,
    "quality": 82
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061910_c38ffb47-eb4e-4b52-a5d0-4599247f04bd.glb",
+   "out": "assets-src/previews/weapons3d/qinglong.glb",
+   "texSize": 512
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061912_be6664c9-c789-4f95-ad03-dc2070b6a5ad.glb",
+   "out": "assets-src/previews/weapons3d/pistol.glb",
+   "texSize": 512
   }
  ]
 }
