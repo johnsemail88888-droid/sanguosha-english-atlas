@@ -1,11 +1,15 @@
 // Role-aware 三国杀 bot hero (wave 2). One instance per bot seat; produces an
 // InputFrame per tick exactly like a human client would (movement, view,
-// buttons, edge actions). It only knows what a human in its seat would know
-// (knowledge.ts / observer.ts / beliefs.ts) and plays its role (strategy.ts):
+// buttons, edge actions). It only knows what a human in its seat would know:
+//   knowledge.ts (own role, public roles, the role table), sight.ts (where the
+//   other heroes are: eyes + minimap), witness.ts (what it saw happen, the
+//   kill feed, chat) and beliefs.ts (who is probably what) — and plays its
+//   role (strategy.ts):
 //   perceive (cadenced threat scan, LOS cache) → decide (mode: fight / retreat /
 //   revive / loot / zone / role objective) → act (navigate, strafe, dodge,
 //   cover, aim with human-like error, fire discipline, reload, weapon swaps,
-//   interact) → abilities / items / squad orders / claims & quick-chat.
+//   interact) → abilities / items (aimed like a human: turn, settle, press when
+//   on target) / squad orders / claims & quick-chat.
 import type { Vec3 } from '../../core/math';
 import { Rng } from '../../core/rng';
 import type { BotDifficulty, Entity, EntityId, InputFrame, RoleId } from '../../core/types';
@@ -17,10 +21,11 @@ import { getAbility } from '../abilities/registry';
 import { cameraRig } from '../aim';
 import { ext } from '../ext';
 import type { SimExt } from '../ext';
-import { AbilityUser } from './abilityUse';
+import { AbilityUser, groundPointOf } from './abilityUse';
 import { Aimer } from './aimer';
+import type { AimOut } from './aimer';
 import { Beliefs } from './beliefs';
-import type { BotMode, BotView, Threat } from './botTypes';
+import type { AbilityPlan, BotMode, BotView, ItemPlan, Threat } from './botTypes';
 import { findCover } from './cover';
 import { difficultyProfile } from './difficulty';
 import type { DifficultyProfile } from './difficulty';
@@ -29,10 +34,12 @@ import { ItemUser } from './itemUse';
 import { ownBountyTarget, ownRole, wearsCrown } from './knowledge';
 import { Navigator } from './navigator';
 import { observerFor } from './observer';
+import type { ObsEvent } from './observer';
 import { registerMind } from './registry';
-import type { WorldObserver } from './observer';
+import { Sight } from './sight';
 import { UNIT_KINDS, aimPointOf, dist2d, hasLineOfSight, hazardEscape, isTargetable } from './perception';
 import { RoleStrategy, clampIntoZone, pressure } from './strategy';
+import { Witness } from './witness';
 
 const DECIDE_EVERY = 0.25;
 const LOS_EVERY = 0.12;
@@ -47,10 +54,33 @@ const DEG = Math.PI / 180;
 const RETREAT_MAX = 10;
 /** how far the lord strays from his anchor (loyalists / squad) in a fight */
 const LORD_LEASH = 12;
+/** how far an escort chases an attacker away from the crown it guards */
+const ESCORT_LEASH = 45;
+/** non-hero units checked for line of sight per threat scan */
+const UNIT_LOS_BUDGET = 6;
+/** extra angular tolerance (beyond the target's own size) before pressing a lock-on cast */
+const LOCK_TOL: Record<BotDifficulty, number> = { easy: 3 * DEG, normal: 2 * DEG, hard: 1.5 * DEG };
+/** how close the crosshair must be to the intended point before pressing a point cast */
+const POINT_TOL: Record<BotDifficulty, number> = { easy: 4 * DEG, normal: 3 * DEG, hard: 2 * DEG };
+/** give up aiming a cast after this long */
+const CAST_DEADLINE: Record<BotDifficulty, number> = { easy: 2.2, normal: 1.6, hard: 1.2 };
+/** a squad order / mark / lock needs the target inside this cone (or its own angular size) */
+const ORDER_CONE = 4 * DEG;
 
 interface Seen {
   pos: Vec3;
   t: number;
+}
+
+interface CastState {
+  kind: 'ability' | 'item';
+  plan: AbilityPlan | ItemPlan;
+  /** aim key (a fresh key = a fresh flick with the full initial error) */
+  key: number;
+  since: number;
+  deadline: number;
+  losOk: boolean;
+  losAt: number;
 }
 
 /** Per-match counters (tests / metrics). */
@@ -63,6 +93,11 @@ export interface BotStats {
   claims: number;
   quickchats: number;
   stuckEvents: number;
+  /** casts that needed aiming and were pressed / abandoned because the aim never settled */
+  castsAimed: number;
+  castTimeouts: number;
+  /** abandoned casts per ability / item id */
+  timeoutsById: Record<string, number>;
 }
 
 export class HeroBot implements BotBrain, BotView {
@@ -75,6 +110,8 @@ export class HeroBot implements BotBrain, BotView {
   private readonly items = new ItemUser();
   private strategy: RoleStrategy | null = null;
   private beliefsObj: Beliefs | null = null;
+  readonly sight = new Sight();
+  private readonly witness = new Witness();
 
   // ── BotView (valid during think) ──
   sim!: SimApi;
@@ -82,7 +119,7 @@ export class HeroBot implements BotBrain, BotView {
   self!: Entity;
   now = 0;
   role: RoleId = 'opportunist';
-  obs!: WorldObserver;
+  obs: Witness = this.witness;
   target: Entity | undefined;
   targetDist = Infinity;
   targetLos = false;
@@ -141,7 +178,16 @@ export class HeroBot implements BotBrain, BotView {
   private readonly allyMemo = new Map<EntityId, number>();
   private readonly attackersCache = new Set<EntityId>();
   private hazardDir: { x: number; z: number } | null = null;
-  readonly stats: BotStats = { abilities: 0, items: 0, shotsFired: 0, revivesStarted: 0, cratesOpened: 0, claims: 0, quickchats: 0, stuckEvents: 0 };
+  private dodgeQueued = false;
+  private cast: CastState | null = null;
+  private castSerial = 0;
+  /** the last combat aim (weapon tracking) this tick */
+  private lastAim: { errAngle: number; targetAngle: number; point: Vec3 } | null = null;
+  /** 集火此人 from a believed ally: the unit it pointed at */
+  private focus: { id: EntityId; until: number } | null = null;
+  /** 需要桃 calls: hero → time */
+  private readonly peachCalls = new Map<EntityId, number>();
+  readonly stats: BotStats = { abilities: 0, items: 0, shotsFired: 0, revivesStarted: 0, cratesOpened: 0, claims: 0, quickchats: 0, stuckEvents: 0, castsAimed: 0, castTimeouts: 0, timeoutsById: {} };
 
   constructor(
     readonly seat: number,
@@ -153,6 +199,11 @@ export class HeroBot implements BotBrain, BotView {
     this.aimer = new Aimer(this.prof, this.rng);
     this.nav = new Navigator(this.rng);
     this.nextAbilityAt = 1 + this.rng.next() * 2;
+  }
+
+  /** Rebel push metrics (tests). */
+  pushStats(): { pushes: number; failed: number } {
+    return { pushes: this.strategy?.pushes ?? 0, failed: this.strategy?.failedPushes ?? 0 };
   }
 
   get beliefs(): Beliefs {
@@ -173,15 +224,19 @@ export class HeroBot implements BotBrain, BotView {
     this.now = sim.time;
     this.role = ownRole(self);
     if (!this.strategy) this.strategy = new RoleStrategy(this.seat, this.prof, this.rng);
-    this.obs = observerFor(sim);
-    this.obs.update(sim);
+    const world = observerFor(sim);
+    world.update(sim);
     registerMind(sim, self.id, this);
-    this.beliefs.update(sim, self, this.obs);
+    this.sight.refresh(sim, self, this.prof.visionRange, this.prof.scanEvery);
+    const heard = this.witness.consume(sim, self.id, world, this.sight);
+    this.beliefs.update(sim, self, heard, this.witness, this.sight);
+    this.hearChats(heard);
     this.trackHp();
     const aw = this.x.activeWeapon(self.id);
     this.weapon = aw?.def;
 
     if (h.downed) {
+      this.cast = null;
       this.downedThink(f, dt);
       this.wasDowned = true;
       this.strategy.comms(this, f);
@@ -194,15 +249,16 @@ export class HeroBot implements BotBrain, BotView {
       this.nav.reset();
     }
     this.perceive();
+    this.strategy.update(this);
     if (this.now >= this.nextDecide) {
       this.nextDecide = this.now + DECIDE_EVERY * (0.8 + this.rng.next() * 0.4);
       this.decide();
     }
     this.act(f, dt);
-    // one decision per frame for the view: a revive / pickup in progress keeps the crosshair
-    const busy = f.actions.some((a) => a.a === 'item' || a.a === 'interact');
-    if (!busy) this.maybeAbility(f);
-    if (!busy && !f.actions.some((a) => a.a === 'ability')) this.maybeItem(f);
+    // one thing at a time for the view: a revive / pickup in progress keeps the crosshair
+    const busy = f.actions.some((a) => a.a === 'item' || a.a === 'interact' || a.a === 'ability') || this.mode === 'revive';
+    if (!busy && !this.cast) this.maybeAbility(f);
+    if (!busy && !this.cast && !f.actions.some((a) => a.a === 'ability')) this.maybeItem(f);
     this.squad(f);
     this.strategy.comms(this, f);
     this.countActions(f);
@@ -226,6 +282,8 @@ export class HeroBot implements BotBrain, BotView {
     let v = this.hstMemo.get(e.id);
     if (v === undefined) {
       v = this.strategy!.heroHostility(this, e);
+      // 集火此人 from a believed ally: lean in (never for the 主公 — he must not execute a loyalist)
+      if (this.focus && this.focus.id === e.id && this.now < this.focus.until && this.role !== 'lord' && v > 0.3) v = Math.max(v, Math.min(0.9, v + 0.25));
       this.hstMemo.set(e.id, v);
     }
     return v;
@@ -254,14 +312,33 @@ export class HeroBot implements BotBrain, BotView {
     return this.hostility(e) >= this.engageAt(e);
   }
 
-  allies(includeDowned = false): Entity[] {
+  allies(includeDowned = false, maxAge = 2): Entity[] {
     const out: Entity[] = [];
     for (const e of this.sim.heroes()) {
       if (e === this.self || !e.hero || e.hero.dead) continue;
       if (e.hero.downed && !includeDowned) continue;
+      if (this.sight.posAge(e.id) > maxAge) continue;
       if (this.allyScore(e) >= 0.55) out.push(e);
     }
     return out;
+  }
+
+  posOf(e: Entity, maxAge = Infinity): Vec3 | undefined {
+    if (e === this.self) return e.pos;
+    return this.sight.lastPos(e.id, maxAge);
+  }
+
+  hpFrac(e: Entity): number {
+    if (e === this.self) return e.hp / Math.max(1, e.maxHp);
+    return this.sight.hpFrac(e.id);
+  }
+
+  seesNow(e: Entity): boolean {
+    return e === this.self || this.sight.seesNow(e.id);
+  }
+
+  get lootTarget(): Entity | undefined {
+    return this.mode === 'loot' && this.lootId !== undefined ? this.sim.get(this.lootId) : undefined;
   }
 
   zoneGoal(): Vec3 | null {
@@ -295,6 +372,47 @@ export class HeroBot implements BotBrain, BotView {
   private outsideZone(margin = 2): boolean {
     const z = this.x.zoneView();
     return dist2d(this.self.pos, z.center) > z.radius - margin;
+  }
+
+  // ── chat ────────────────────────────────────────────────────────────────
+  /** React to quick-chat heard this tick (humans' and bots' alike). */
+  private hearChats(heard: readonly ObsEvent[]): void {
+    const { sim, self, now } = this;
+    for (const ev of heard) {
+      if (ev.kind !== 'quickchat' || ev.actor === undefined || ev.actor === self.id) continue;
+      const who = sim.get(ev.actor);
+      if (!who?.hero || who.hero.dead) continue;
+      if (ev.chat === 'needPeach') {
+        this.peachCalls.set(who.id, now);
+      } else if (ev.chat === 'focus' && this.allyScore(who) >= 0.55 && this.seesNow(who)) {
+        // 集火此人: whatever the caller is pointing at (facing is public)
+        const t = this.facedUnit(who);
+        if (t && t !== self && this.allyScore(t) < 0.55) this.focus = { id: t.id, until: now + 10 };
+      }
+    }
+    if (this.focus && now >= this.focus.until) this.focus = null;
+  }
+
+  /** The unit `who` is pointing its crosshair at, among those this bot can see. */
+  private facedUnit(who: Entity): Entity | undefined {
+    const { sim, self } = this;
+    const ray = sim.aimRay(who);
+    let best: Entity | undefined;
+    let ba = 10 * DEG;
+    for (const e of sim.queryCone(ray.origin, ray.dir, 90, 10 * DEG, { kinds: UNIT_KINDS, exclude: [who.id] })) {
+      if (!isTargetable(sim, self, e)) continue;
+      if (e.kind === 'hero' ? !this.seesNow(e) : !hasLineOfSight(sim, self, e)) continue;
+      const c = aimPointOf(e);
+      const vx = c.x - ray.origin.x;
+      const vy = c.y - ray.origin.y;
+      const vz = c.z - ray.origin.z;
+      const a = Math.acos(Math.max(-1, Math.min(1, (vx * ray.dir.x + vy * ray.dir.y + vz * ray.dir.z) / (Math.hypot(vx, vy, vz) || 1))));
+      if (a < ba) {
+        ba = a;
+        best = e;
+      }
+    }
+    return best;
   }
 
   // ── HP tracking ─────────────────────────────────────────────────────────
@@ -364,12 +482,19 @@ export class HeroBot implements BotBrain, BotView {
     }
     const t = this.target;
     if (t) {
-      this.targetDist = dist2d(self.pos, t.pos);
       if (now >= this.nextLosAt) {
         this.nextLosAt = now + LOS_EVERY;
         this.targetLos = hasLineOfSight(sim, self, t);
       }
-      if (this.targetLos) this.seen.set(t.id, { pos: { ...t.pos }, t: now });
+      if (this.targetLos) {
+        this.seen.set(t.id, { pos: { ...t.pos }, t: now });
+        if (t.kind === 'hero') this.sight.noteEye(t, now);
+        this.targetDist = dist2d(self.pos, t.pos);
+      } else {
+        // out of sight: only where we last saw it
+        const s = this.seen.get(t.id);
+        this.targetDist = s ? dist2d(self.pos, s.pos) : Infinity;
+      }
     } else {
       this.targetDist = Infinity;
       this.targetLos = false;
@@ -390,24 +515,40 @@ export class HeroBot implements BotBrain, BotView {
     const cands = sim.queryRadius(self.pos, range, { kinds: UNIT_KINDS, exclude: [self.id] });
     const list: Threat[] = [];
     const wRange = this.weapon ? this.weapon.maxRange : 60;
-    const crownInReach = this.role === 'rebel' && aliveCrownsNear(sim, self, 50).length > 0;
+    const pushing = this.role === 'rebel' && this.strategy!.pushing(this);
+    const focusCrown = pushing ? this.strategy!.focusCrown(this) : undefined;
+    const crownInReach = this.role === 'rebel' && this.crownsNear(50).length > 0;
+    let unitLos = 0;
+    // non-hero units: nearest first, so the LOS budget goes to the ones that matter
+    cands.sort((a, b) => dist2d(self.pos, a.pos) - dist2d(self.pos, b.pos));
     for (const c of cands) {
       if (!c.alive || c.hero?.dead) continue;
       if (sim.isOwnSide(self, c)) continue;
       if (!isTargetable(sim, self, c)) continue;
+      // only what this seat can perceive: heroes in sight (or remembered), units in LOS
+      let visible: boolean;
+      if (c.kind === 'hero') visible = this.sight.seesNow(c.id);
+      else if (unitLos < UNIT_LOS_BUDGET) {
+        unitLos++;
+        visible = hasLineOfSight(sim, self, c);
+      } else visible = false;
+      const recentlySeen = (this.seen.get(c.id)?.t ?? -99) > now - SEEN_MEMORY || (c.kind === 'hero' && this.sight.seenWithin(c.id, SEEN_MEMORY));
+      if (!visible && !recentlySeen && !attackers.has(c.id)) continue;
       const hst = this.hostility(c);
       if (hst < 0.3) continue;
-      const d = dist2d(self.pos, c.pos);
+      const pos = visible ? c.pos : (this.seen.get(c.id)?.pos ?? this.posOf(c) ?? c.pos);
+      const d = dist2d(self.pos, pos);
       const kindW = c.kind === 'hero' ? 1 : c.kind === 'turret' ? 0.6 : c.kind === 'npc' ? 0.5 : 0.45;
-      const hpFrac = c.hp / Math.max(1, c.maxHp);
+      const hpFrac = c.kind === 'hero' ? this.hpFrac(c) : c.hp / Math.max(1, c.maxHp);
       let s = hst * kindW * (1 + 0.6 * (1 - hpFrac)) * (1 / (1 + d / 30));
       if (attackers.has(c.id)) s *= 1.5;
       if (c.hero?.downed) s *= hst >= 0.7 ? 1.25 : 0.2;
       if (c === this.target) s *= 1.3;
       if (bounty !== undefined && c.id === bounty) s *= 1.4;
-      // the rebels' push focuses the crown and ignores his soldiers when he is in reach
-      if (this.role === 'rebel' && this.strategy!.pushing(this)) {
-        if (c.kind === 'hero' && wearsCrown(sim, c)) s *= 2.2;
+      if (this.focus && this.focus.id === c.id) s *= 1.8;
+      // the rebels' push focuses ONE crown (the agreed one) and ignores soldiers when it is in reach
+      if (pushing) {
+        if (c.kind === 'hero' && wearsCrown(sim, c)) s *= c === focusCrown ? 2.2 : 0.4;
         else if (c.kind !== 'hero' && crownInReach) s *= 0.35;
       }
       if (lordSide && c.kind === 'hero') {
@@ -419,18 +560,14 @@ export class HeroBot implements BotBrain, BotView {
         }
       }
       if (d > wRange) s *= 0.6;
-      list.push({ e: c, hostility: hst, score: s, dist: d, los: false });
+      list.push({ e: c, hostility: hst, score: s, dist: d, los: visible });
     }
     list.sort((a, b) => b.score - a.score);
-    const n = Math.min(list.length, 5);
-    for (let i = 0; i < n; i++) list[i].los = hasLineOfSight(sim, self, list[i].e);
     this.threats = list.length > 8 ? list.slice(0, 8) : list;
     // choose the target
     let best: Threat | undefined;
     for (const t of this.threats) {
       if (t.hostility < this.engageAt(t.e)) continue;
-      const recentlySeen = (this.seen.get(t.e.id)?.t ?? -99) > now - SEEN_MEMORY;
-      if (!t.los && !attackers.has(t.e.id) && !recentlySeen) continue;
       const s = t.los ? t.score : t.score * 0.5;
       if (!best || s > (best.los ? best.score : best.score * 0.5)) best = t;
     }
@@ -470,6 +607,9 @@ export class HeroBot implements BotBrain, BotView {
     // a close duel may finish at the edge of a weak circle — never for the lord
     const fightingClose = this.role !== 'lord' && !!t && this.targetLos && this.targetDist < 15 && hpFrac > 0.6 && this.x.zoneView().dps <= 4;
     if (zg && out && !fightingClose) return this.setMode('zone', zg, 3, true);
+    // a probe that has done its job / a push that failed: break off to the rally point
+    const fallback = strat.disengage(this);
+    if (fallback) return this.setMode('retreat', fallback, 4, true);
     // disengage when hurt — but hiding forever at low HP with nothing to heal is a stalemate:
     // after a while without being hit, get back into it
     const canRetreat = now >= this.noRetreatUntil;
@@ -489,8 +629,8 @@ export class HeroBot implements BotBrain, BotView {
     // revive a believed ally
     const rv = this.reviveCandidate();
     if (rv) {
-      this.reviveId = rv.id;
-      return this.setMode('revive', rv.pos, 1.3, dist2d(self.pos, rv.pos) > 8);
+      this.reviveId = rv.e.id;
+      return this.setMode('revive', rv.p, 1.3, dist2d(self.pos, rv.p) > 8);
     }
     this.reviveId = undefined;
     // fight
@@ -510,7 +650,6 @@ export class HeroBot implements BotBrain, BotView {
     if (obj.goal) return this.setMode(obj.mode, obj.goal, obj.arrive, obj.sprint);
     this.mode = obj.mode;
     this.goal = null;
-    void h;
   }
 
   private setMode(mode: BotMode, goal: Vec3, arrive: number, sprint: boolean): void {
@@ -523,31 +662,33 @@ export class HeroBot implements BotBrain, BotView {
   private retreatGoal(threat: Entity | undefined): Vec3 | null {
     const { sim, self, now } = this;
     if (!threat) return null;
+    const tp = threat.kind === 'hero' ? (this.posOf(threat, SEEN_MEMORY) ?? this.seen.get(threat.id)?.pos) : threat.pos;
+    if (!tp) return null;
     // cover first (if this bot plays with cover)
     if (this.prof.coverUse > 0 && (this.coverSpot === null || now - this.coverAt > 1.5)) {
       this.coverAt = now;
-      this.coverSpot = this.rng.next() < this.prof.coverUse ? findCover(sim, self, { threats: [sim.eyePos(threat)], maxDist: 16, budget: 8, maxAdvance: 2 }) : null;
+      this.coverSpot = this.rng.next() < this.prof.coverUse ? findCover(sim, self, { threats: [{ x: tp.x, y: tp.y + 1.6, z: tp.z }], maxDist: 16, budget: 8, maxAdvance: 2 }) : null;
     }
     if (this.coverSpot && dist2d(this.coverSpot, self.pos) < 20) return this.coverSpot;
     // fall back behind believed allies (lord: behind the loyalists)
-    const allies = this.allies();
-    let best: Entity | undefined;
+    let best: Vec3 | undefined;
     let bd = 45;
-    for (const a of allies) {
-      const d = dist2d(a.pos, self.pos);
-      if (d < bd && dist2d(a.pos, threat.pos) > 6) {
+    for (const a of this.allies()) {
+      const ap = this.posOf(a)!;
+      const d = dist2d(ap, self.pos);
+      if (d < bd && dist2d(ap, tp) > 6) {
         bd = d;
-        best = a;
+        best = ap;
       }
     }
     if (best) {
-      const dx = best.pos.x - threat.pos.x;
-      const dz = best.pos.z - threat.pos.z;
+      const dx = best.x - tp.x;
+      const dz = best.z - tp.z;
       const l = Math.hypot(dx, dz) || 1;
-      return clampIntoZone(sim, { x: best.pos.x + (dx / l) * 5, y: best.pos.y, z: best.pos.z + (dz / l) * 5 }, now);
+      return clampIntoZone(sim, { x: best.x + (dx / l) * 5, y: best.y, z: best.z + (dz / l) * 5 }, now);
     }
-    const dx = self.pos.x - threat.pos.x;
-    const dz = self.pos.z - threat.pos.z;
+    const dx = self.pos.x - tp.x;
+    const dz = self.pos.z - tp.z;
     const l = Math.hypot(dx, dz) || 1;
     return clampIntoZone(sim, { x: self.pos.x + (dx / l) * 20, y: self.pos.y, z: self.pos.z + (dz / l) * 20 }, now);
   }
@@ -573,26 +714,34 @@ export class HeroBot implements BotBrain, BotView {
     return false;
   }
 
-  private reviveCandidate(): Entity | undefined {
+  /**
+   * A downed believed ally worth a 桃, at the spot this bot last saw it (downed
+   * is public on the scoreboard; where they lie is not). A 需要桃 call widens
+   * the search.
+   */
+  private reviveCandidate(): { e: Entity; p: Vec3 } | undefined {
     const { sim, self, now } = this;
     if (!this.hasTao() && !this.canReviveFree()) return undefined;
-    let best: Entity | undefined;
+    let best: { e: Entity; p: Vec3 } | undefined;
     let bs = Infinity;
     for (const e of sim.heroes()) {
       if (e === self || !e.hero || !e.hero.downed || e.hero.dead) continue;
-      const d = dist2d(e.pos, self.pos);
-      if (d > 35 || Math.abs(e.pos.y - self.pos.y) > 3) continue;
+      const called = now - (this.peachCalls.get(e.id) ?? -99) < 12;
+      const p = this.posOf(e, called ? 20 : 8);
+      if (!p) continue;
+      const d = dist2d(p, self.pos);
+      if (d > (called ? 50 : 35) || Math.abs(p.y - self.pos.y) > 3) continue;
       if (!this.strategy!.wantsRevive(this, e)) continue;
       const left = e.hero.downedUntil - now;
       if (left < d / 5 + 1.8) continue;
       // too dangerous? count hostile heroes close to the downed ally
       let danger = 0;
-      for (const t of this.threats) if (t.e.kind === 'hero' && t.hostility >= 0.5 && dist2d(t.e.pos, e.pos) < 18) danger++;
+      for (const t of this.threats) if (t.e.kind === 'hero' && t.hostility >= 0.5 && dist2d(t.e.pos, p) < 18) danger++;
       if (danger >= 2 || (danger >= 1 && self.hp < self.maxHp * 0.4)) continue;
-      const s = d - (wearsCrown(sim, e) ? 20 : 0);
+      const s = d - (wearsCrown(sim, e) ? 20 : 0) - (called ? 8 : 0);
       if (s < bs) {
         bs = s;
-        best = e;
+        best = { e, p };
       }
     }
     return best;
@@ -624,10 +773,10 @@ export class HeroBot implements BotBrain, BotView {
     let best: Entity | undefined;
     let bs = 0;
     // rebels keep away from the crowns (and their squads) until the push
-    const avoid = this.role === 'rebel' && !this.strategy!.pushing(this) ? aliveCrownsNear(sim, self, 140) : [];
+    const avoid = this.role === 'rebel' && !this.strategy!.pushing(this) ? this.crownsNear(140) : [];
     const consider = (e: Entity, maxD: number): void => {
       if ((this.lootBlacklist.get(e.id) ?? 0) > now) return;
-      for (const c of avoid) if (dist2d(c.pos, e.pos) < 62) return;
+      for (const c of avoid) if (dist2d(c, e.pos) < 62) return;
       const d = dist2d(e.pos, self.pos);
       if (d > maxD || Math.abs(e.pos.y - self.pos.y) > 4) return;
       const v = lootValue(e, self, this.role);
@@ -643,7 +792,7 @@ export class HeroBot implements BotBrain, BotView {
     };
     for (const e of sim.queryRadius(self.pos, radius, { kinds: ['loot', 'crate'] })) consider(e, radius);
     // airdrops are announced and marked on the map: worth a longer trip when safe
-    const airR = this.role === 'loyalist' || this.role === 'lord' ? Math.min(radius + 15, 40) : 90;
+    const airR = this.strategy!.airdropRadius(this, radius);
     for (const e of sim.queryRadius(self.pos, airR, { kinds: ['airdrop'] })) consider(e, airR);
     if (best && bs > 1.2) {
       this.lootId = best.id;
@@ -663,6 +812,7 @@ export class HeroBot implements BotBrain, BotView {
     let sprint = false;
     let aimed = false;
     const t = this.target;
+    this.lastAim = null;
 
     switch (this.mode) {
       case 'fight': {
@@ -677,14 +827,15 @@ export class HeroBot implements BotBrain, BotView {
       case 'revive': {
         const e = this.reviveId !== undefined ? this.sim.get(this.reviveId) : undefined;
         if (e && e.hero?.downed && !e.hero.dead) {
-          const d = dist2d(e.pos, self.pos);
+          const p = this.seesNow(e) ? e.pos : (this.posOf(e) ?? this.goal ?? e.pos);
+          const d = dist2d(p, self.pos);
           if (d > 1.6) {
-            const n = this.nav.steer(this.sim, self, e.pos, 1.2);
+            const n = this.nav.steer(this.sim, self, p, 1.2);
             mv = n;
             jump = n.jump;
             sprint = d > 8;
           }
-          if (d < INTERACT_RANGE) {
+          if (d < INTERACT_RANGE && this.seesNow(e)) {
             this.aimer.lookAt(self, aimPointOf(e), dt, 0.1);
             aimed = true;
             f.aimTargetId = e.id;
@@ -738,20 +889,29 @@ export class HeroBot implements BotBrain, BotView {
     if (this.nav.stuck > this.lastStuck) this.stats.stuckEvents++;
     this.lastStuck = this.nav.stuck;
 
-    // aim + fire
-    const shooting = this.aimAndFire(f, dt, aimed);
-    if (!shooting && !aimed) {
+    // view: a revive / pickup keeps it, then an aimed cast, then combat aiming
+    if (aimed || this.mode === 'revive' || (this.mode === 'loot' && aimed)) this.cast = null;
+    let shooting = false;
+    let viewSet = false;
+    if (!aimed && this.cast) viewSet = this.castAim(f, dt);
+    if (!viewSet) shooting = this.aimAndFire(f, dt, aimed);
+    else shooting = this.lastAim !== null;
+    if (!shooting && !aimed && !viewSet) {
       // face where we are going (or glance at a nearby threat)
       const look = this.threats.find((x) => x.los && x.dist < 40);
       if (look && this.mode !== 'zone') this.aimer.lookAt(self, aimPointOf(look.e), dt, 0.3);
       else if (Math.hypot(mv.x, mv.z) > 0.1) this.aimer.face(self, Math.atan2(-mv.x, -mv.z), dt, 0.15);
     }
-    if (!shooting) {
+    if (!shooting && !viewSet) {
       f.yaw = this.aimer.yaw;
       f.pitch = this.aimer.pitch;
       if (!f.aimPoint) f.aimPoint = crosshairAhead(self, this.aimer.yaw, this.aimer.pitch);
     }
-    if (shooting) sprint = false;
+    if (shooting || viewSet) sprint = false;
+    if (this.dodgeQueued) {
+      this.dodgeQueued = false;
+      f.actions.push({ a: 'dodge' });
+    }
     // local movement
     const loc = toLocal(f.yaw, mv.x, mv.z);
     f.moveX = clampUnit(loc.mx);
@@ -786,14 +946,25 @@ export class HeroBot implements BotBrain, BotView {
     const h = self.hero!;
     const t = this.target!;
     const d = this.targetDist;
-    const [lo, hi] = idealRange(this.weapon);
+    let [lo, hi] = idealRange(this.weapon);
+    // WEI-11: an enemy-targeted dash (张辽 突袭) is ready: step inside its reach
+    const cap = t.kind === 'hero' ? this.abilities.engageCap(this) : undefined;
+    if (cap !== undefined && cap < hi) {
+      hi = Math.max(3, cap);
+      lo = Math.min(lo, hi * 0.5);
+    }
+    // a probe is hit and run: stay at long range from the crown
+    if (t.kind === 'hero' && wearsCrown(sim, t) && this.strategy!.probing(this)) {
+      lo = Math.max(lo, 32);
+      hi = Math.max(hi, 45);
+    }
     let mx = 0;
     let mz = 0;
     let jump = false;
     let sprint = false;
     // reload behind cover
     const reloading = h.reloadUntil > now;
-    if (reloading && prof.coverUse > 0 && d < 45) {
+    if (reloading && prof.coverUse > 0 && d < 45 && this.targetLos) {
       if (this.coverSpot === null || now - this.coverAt > 2) {
         this.coverAt = now;
         this.coverSpot = this.rng.next() < prof.coverUse ? findCover(sim, self, { threats: [sim.eyePos(t)], maxDist: 9, budget: 6, maxAdvance: 1 }) : null;
@@ -804,15 +975,23 @@ export class HeroBot implements BotBrain, BotView {
       }
     }
     if (!this.targetLos) {
+      // hunt the last place it was seen (never where it really is)
       const seen = this.seen.get(t.id);
-      const goal = seen && now - seen.t < SEEN_MEMORY ? seen.pos : t.pos;
-      const n = this.nav.steer(sim, self, goal, 2);
+      if (!seen || now - seen.t > SEEN_MEMORY) return { x: 0, z: 0, jump: false, sprint: false };
+      const n = this.nav.steer(sim, self, seen.pos, 2);
       return { x: n.x, z: n.z, jump: n.jump, sprint: d > 25 && n.straight };
     }
     const dx = (t.pos.x - self.pos.x) / Math.max(1e-3, d);
     const dz = (t.pos.z - self.pos.z) / Math.max(1e-3, d);
     const anchor = this.role === 'lord' ? this.lordAnchor() : null;
-    if (anchor && dist2d(self.pos, anchor) > LORD_LEASH) {
+    const escortOf = this.role === 'loyalist' || this.role === 'double' ? this.escortAnchor() : null;
+    if (escortOf && dist2d(self.pos, escortOf) > ESCORT_LEASH && dist2d(t.pos, escortOf) > ESCORT_LEASH) {
+      // an escort does not chase a fleeing attacker across the map: back to the lord
+      const n = this.nav.steer(sim, self, escortOf, ESCORT_LEASH * 0.5);
+      mx = n.x;
+      mz = n.z;
+      jump = n.jump;
+    } else if (anchor && dist2d(self.pos, anchor) > LORD_LEASH) {
       // 主公 never charges off alone: fall back toward his loyalists / squad while fighting
       const n = this.nav.steer(sim, self, anchor, LORD_LEASH * 0.5);
       mx = n.x;
@@ -871,8 +1050,6 @@ export class HeroBot implements BotBrain, BotView {
     return { x: mx, z: mz, jump, sprint };
   }
 
-  private dodgeQueued = false;
-
   private incomingProjectile(): boolean {
     const { sim, self } = this;
     for (const p of sim.queryRadius(self.pos, 14, { kinds: ['projectile'] })) {
@@ -903,8 +1080,8 @@ export class HeroBot implements BotBrain, BotView {
     if (!t || !this.targetLos || !combatModes) {
       if (t && !this.targetLos && this.mode === 'fight') {
         const seen = this.seen.get(t.id);
-        const p = seen ? { x: seen.pos.x, y: seen.pos.y + 1.2, z: seen.pos.z } : aimPointOf(t);
-        const o = this.aimer.lookAt(self, p, dt, prof.trackTau * 2);
+        if (!seen) return false;
+        const o = this.aimer.lookAt(self, { x: seen.pos.x, y: seen.pos.y + 1.2, z: seen.pos.z }, dt, prof.trackTau * 2);
         f.yaw = o.yaw;
         f.pitch = o.pitch;
         f.aimPoint = o.point;
@@ -919,15 +1096,13 @@ export class HeroBot implements BotBrain, BotView {
     const d = this.targetDist;
     const ads = this.wantsAds(def, d);
     const o = this.aimer.track(sim, self, t, def, dt, ads);
+    this.lastAim = { errAngle: o.errAngle, targetAngle: o.targetAngle, point: o.point };
     f.yaw = o.yaw;
     f.pitch = o.pitch;
     f.aimPoint = o.point;
-    f.aimTargetId = t.id;
+    // the target counts as "under the crosshair" (squad orders, marks) only when it is
+    if (o.errAngle <= Math.max(o.targetAngle * 1.5, ORDER_CONE)) f.aimTargetId = t.id;
     if (ads) f.buttons |= BTN_ADS;
-    if (this.dodgeQueued) {
-      this.dodgeQueued = false;
-      f.actions.push({ a: 'dodge' });
-    }
     if (!def) return true;
     // don't shoot while channelling an item / revive / crate (it would cancel it)
     if (h.channel) return true;
@@ -960,13 +1135,24 @@ export class HeroBot implements BotBrain, BotView {
     return true;
   }
 
+  /** Loyalist / 影武者: where the crown it escorts is (known position), once the gear-up is over. */
+  private escortAnchor(): Vec3 | null {
+    const lord = this.strategy!.crownRef(this);
+    if (!lord || lord === this.self || this.now < this.strategy!.gearUntil) return null;
+    return this.posOf(lord, 5) ?? null;
+  }
+
   /** Where the lord's fight is anchored: his believed loyalists, else his squad, else null. */
   private lordAnchor(): Vec3 | null {
     const { sim, self } = this;
-    const friends = this.allies().filter((a) => dist2d(a.pos, self.pos) < 45);
-    if (friends.length > 0) return centroidOf(friends);
+    const friends: Vec3[] = [];
+    for (const a of this.allies()) {
+      const p = this.posOf(a)!;
+      if (dist2d(p, self.pos) < 45) friends.push(p);
+    }
+    if (friends.length > 0) return centroidOfPoints(friends);
     const squad = self.hero!.squad.map((id) => sim.get(id)).filter((e): e is Entity => !!e && e.alive && dist2d(e.pos, self.pos) < 30);
-    if (squad.length >= 2) return centroidOf(squad);
+    if (squad.length >= 2) return centroidOfPoints(squad.map((e) => e.pos));
     return null;
   }
 
@@ -1032,9 +1218,10 @@ export class HeroBot implements BotBrain, BotView {
   }
 
   /**
-   * Would this burst hit a believed ally or a bystander hero? Checked on a
-   * cadence (result cached): a raycast for whatever is first on the line, plus
-   * a corridor test for heroes standing next to the line (spread, pellets).
+   * Would this burst hit a believed ally or a bystander hero this bot can see?
+   * Checked on a cadence (result cached): a raycast for whatever is first on
+   * the line, plus a corridor test for visible heroes standing next to the
+   * line (spread, pellets).
    */
   private friendlyInLine(t: Entity, aim: Vec3): boolean {
     const { sim, self, now } = this;
@@ -1058,16 +1245,17 @@ export class HeroBot implements BotBrain, BotView {
     const hit = sim.raycast(eye, { x: dx / l, y: dy / l, z: dz / l }, Math.min(l, this.targetDist + 2), { ignore: [self.id], entities: true });
     if (hit && hit.entityId !== undefined && hit.entityId !== t.id) {
       const e = sim.get(hit.entityId);
-      if (e) blocked = protectedHero(this.x.commanderOf(e));
+      // something visible stands in the way (a stealthed hero is not "seen" in the way)
+      if (e && isTargetable(sim, self, e)) blocked = protectedHero(this.x.commanderOf(e));
     }
     if (!blocked) {
-      // heroes standing close to the line of fire (spread / pellets / splash)
+      // visible heroes close to the line of fire (spread / pellets / splash)
       const td = this.targetDist;
       const width = w ? (w.projectile && w.projectile.explodeRadius > 0 ? w.projectile.explodeRadius + 1 : w.pellets > 1 || w.projectile ? 1.8 : 0.9) : 0.9;
       const ux = dx / l;
       const uz = dz / l;
       for (const e of sim.heroes()) {
-        if (e === self || e === t || !e.hero || e.hero.dead) continue;
+        if (e === self || e === t || !e.hero || e.hero.dead || !this.seesNow(e)) continue;
         const rx = e.pos.x - eye.x;
         const rz = e.pos.z - eye.z;
         const along = rx * ux + rz * uz;
@@ -1084,7 +1272,7 @@ export class HeroBot implements BotBrain, BotView {
       const splash = splashRadius(w);
       if (splash > 0) {
         for (const e of sim.heroes()) {
-          if (e === self || e === t || !e.hero || e.hero.dead) continue;
+          if (e === self || e === t || !e.hero || e.hero.dead || !this.seesNow(e)) continue;
           if (dist2d(e.pos, t.pos) <= splash && protectedHero(e)) {
             blocked = true;
             this.splashBlockedUntil = now + 5;
@@ -1112,24 +1300,13 @@ export class HeroBot implements BotBrain, BotView {
     if (w.inst.mag <= 0 || (calm && frac < 0.6 && now - this.lastHurtAt > 1)) f.actions.push({ a: 'reload' });
   }
 
-  // ── abilities / items / squad ───────────────────────────────────────────
+  // ── abilities / items: planned, then aimed like a human ─────────────────
   private maybeAbility(f: InputFrame): void {
     const now = this.now;
     if (now < this.nextAbilityAt) return;
     this.nextAbilityAt = now + this.prof.abilityEvery * (0.7 + this.rng.next() * 0.6);
     const plan = this.abilities.consider(this);
-    if (!plan) return;
-    const prevYaw = f.yaw;
-    if (plan.yaw !== undefined && plan.pitch !== undefined) {
-      f.yaw = plan.yaw;
-      f.pitch = plan.pitch;
-      this.aimer.snap(plan.yaw, plan.pitch);
-    }
-    if (plan.aimPoint) f.aimPoint = plan.aimPoint;
-    f.aimTargetId = plan.aimTargetId;
-    f.actions.push({ a: 'ability', slot: plan.slot });
-    // re-express movement in the new view
-    this.reframe(f, prevYaw);
+    if (plan) this.startCast(f, 'ability', plan);
   }
 
   private maybeItem(f: InputFrame): void {
@@ -1139,60 +1316,185 @@ export class HeroBot implements BotBrain, BotView {
     const lordSide = this.role === 'loyalist' || this.role === 'double';
     const healAt = this.role === 'lord' ? 0.55 : this.prof.name === 'easy' ? 0.4 : 0.5;
     const plan = this.items.consider(this, { reserveTao: lordSide && this.strategy!.crownRef(this) !== undefined, healAt });
-    if (!plan) return;
-    const prevYaw = f.yaw;
-    if (plan.yaw !== undefined && plan.pitch !== undefined) {
-      f.yaw = plan.yaw;
-      f.pitch = plan.pitch;
-      this.aimer.snap(plan.yaw, plan.pitch);
-    }
-    if (plan.aimPoint) f.aimPoint = plan.aimPoint;
-    f.aimTargetId = plan.aimTargetId;
-    f.actions.push({ a: 'item', slot: plan.slot });
-    this.reframe(f, prevYaw);
+    if (plan) this.startCast(f, 'item', plan);
   }
 
-  /** Movement was computed for `prevYaw`: keep the world direction after a view flick. */
-  private reframe(f: InputFrame, prevYaw: number): void {
-    if (prevYaw === f.yaw) return;
-    const mv = fromLocal(prevYaw, f.moveX, f.moveZ);
-    const loc = toLocal(f.yaw, mv.x, mv.z);
-    f.moveX = clampUnit(loc.mx);
-    f.moveZ = clampUnit(loc.mz);
-    f.buttons &= ~BTN_SPRINT;
+  /** Self casts are pressed at once; aimed casts start turning the view (pressed in castAim). */
+  private startCast(f: InputFrame, kind: 'ability' | 'item', plan: AbilityPlan | ItemPlan): void {
+    const state: CastState = {
+      kind,
+      plan,
+      key: -1 - (this.castSerial++ % 1_000_000),
+      since: this.now,
+      deadline: this.now + CAST_DEADLINE[this.prof.name],
+      losOk: true,
+      losAt: this.now,
+    };
+    if (plan.mode === 'none') {
+      // no crosshair lock: never hand the world a target by accident (a 桃 on a downed enemy…)
+      f.aimTargetId = undefined;
+      this.press(f, state);
+      return;
+    }
+    this.cast = state;
+  }
+
+  private press(f: InputFrame, c: CastState): void {
+    if (c.kind === 'ability') {
+      const p = c.plan as AbilityPlan;
+      f.actions.push({ a: 'ability', slot: p.slot });
+      this.abilities.pressed(this, p);
+    } else {
+      const p = c.plan as ItemPlan;
+      f.actions.push({ a: 'item', slot: p.slot });
+      this.items.pressed(this, p);
+    }
+    if (c.plan.mode !== 'none') this.stats.castsAimed++;
+    this.cast = null;
+  }
+
+  private dropCast(timedOut: boolean): void {
+    const c = this.cast;
+    if (!c) return;
+    this.cast = null;
+    if (!timedOut) return;
+    this.stats.castTimeouts++;
+    const id = c.kind === 'ability' ? (c.plan as AbilityPlan).abilityId : (c.plan as ItemPlan).itemId;
+    this.stats.timeoutsById[id] = (this.stats.timeoutsById[id] ?? 0) + 1;
+    if (c.kind === 'ability') this.abilities.aimFailed(this, (c.plan as AbilityPlan).abilityId);
+    else this.items.aimFailed(this, (c.plan as ItemPlan).itemId);
+  }
+
+  /**
+   * Drive the view for the cast in progress: turn with lag and error, press
+   * once the crosshair is on target and the reaction time has passed. Returns
+   * true when it set the frame's view.
+   */
+  private castAim(f: InputFrame, dt: number): boolean {
+    const c = this.cast!;
+    const { sim, self, now, prof } = this;
+    const h = self.hero!;
+    const plan = c.plan;
+    if (h.channel || h.downed) {
+      this.dropCast(false);
+      return false;
+    }
+    if (now > c.deadline) {
+      this.dropCast(true);
+      return false;
+    }
+    if (c.kind === 'ability' ? !this.abilities.stillReady(this, (plan as AbilityPlan).abilityId) : h.items[(plan as ItemPlan).slot]?.id !== (plan as ItemPlan).itemId) {
+      this.dropCast(false);
+      return false;
+    }
+    const tgt = plan.targetId !== undefined ? sim.get(plan.targetId) : undefined;
+    if (plan.targetId !== undefined) {
+      if (!tgt || !isTargetable(sim, self, tgt)) {
+        this.dropCast(false);
+        return false;
+      }
+      if (now - c.losAt >= LOS_EVERY) {
+        c.losAt = now;
+        c.losOk = tgt === this.target ? this.targetLos : hasLineOfSight(sim, self, tgt);
+      }
+    }
+    const combatTarget = !!tgt && tgt === this.target;
+    const reacted = combatTarget ? now - this.targetSince >= prof.reaction : now - c.since >= prof.reaction * 0.6;
+    if (plan.mode === 'lock' && tgt) {
+      let o: { errAngle: number; targetAngle: number; point: Vec3 };
+      if (combatTarget && this.targetLos && this.aimAndFire(f, dt, false) && this.lastAim) {
+        // same target as the gun: keep shooting while the crosshair settles
+        o = this.lastAim;
+      } else {
+        const a: AimOut = this.aimer.track(sim, self, tgt, undefined, dt, false);
+        o = { errAngle: a.errAngle, targetAngle: a.targetAngle, point: a.point };
+        f.yaw = a.yaw;
+        f.pitch = a.pitch;
+        f.aimPoint = a.point;
+      }
+      if (c.losOk && reacted && o.errAngle <= o.targetAngle * 1.2 + LOCK_TOL[prof.name]) {
+        f.aimTargetId = tgt.id;
+        f.aimPoint = o.point;
+        this.press(f, c);
+      }
+      return true;
+    }
+    // point: a static spot, a spot at the target's feet, or the target itself (skillshots)
+    let pt: Vec3 | undefined = plan.point;
+    if (!pt && tgt) pt = plan.ground ? groundPointOf(this, tgt) : this.leadPoint(tgt, plan.leadSpeed);
+    if (!pt) {
+      this.dropCast(false);
+      return false;
+    }
+    const a = this.aimer.aimAtPoint(sim, self, pt, dt, c.key);
+    f.yaw = a.yaw;
+    f.pitch = a.pitch;
+    f.aimPoint = a.point;
+    if ((tgt ? c.losOk : true) && reacted && a.errAngle <= POINT_TOL[prof.name]) {
+      // the lock id only when the crosshair really is on the target
+      if (tgt) {
+        const tc = aimPointOf(tgt);
+        const eye = sim.eyePos(self);
+        const half = Math.atan2(Math.max(tgt.radius, 0.6), Math.max(0.5, Math.hypot(tc.x - eye.x, tc.y - eye.y, tc.z - eye.z)));
+        f.aimTargetId = this.aimer.crosshairAngleTo(self, tc) <= Math.max(half * 1.5, ORDER_CONE) ? tgt.id : undefined;
+      } else f.aimTargetId = undefined;
+      this.press(f, c);
+    }
+    return true;
+  }
+
+  /** Where to aim a skillshot at `t`: its centre, led by the flight time (difficulty lead skill). */
+  private leadPoint(t: Entity, speed: number | undefined): Vec3 {
+    const c = aimPointOf(t);
+    const d = dist2d(this.self.pos, t.pos);
+    const ft = (speed && speed > 0 ? d / speed : 0) + this.prof.trackTau * 0.8;
+    const k = ft * this.prof.leadSkill;
+    return { x: c.x + t.vel.x * k, y: c.y, z: c.z + t.vel.z * k };
   }
 
   private squad(f: InputFrame): void {
     const { self, now } = this;
     const h = self.hero!;
-    if (h.squad.length === 0 || now - this.lastCmdAt < COMMAND_GAP) return;
+    if (now - this.lastCmdAt < COMMAND_GAP) return;
     const t = this.target;
     if (this.mode === 'fight' && t && this.targetLos) {
+      // marks are public minimap pins: hard bots mark their target, the 主公 marks whoever
+      // attacks him, rebels mark the crown they push (normal / hard)
+      const markIt =
+        t.kind === 'hero' &&
+        this.markedId !== t.id &&
+        f.aimTargetId === t.id &&
+        (this.prof.name === 'hard' ||
+          (this.prof.name === 'normal' && ((this.role === 'lord' && this.obs.sinceAttack(this.sim, t.id, self.id) < 4) || (this.role === 'rebel' && t === this.strategy!.focusCrown(this)))));
+      if (markIt) {
+        f.actions.push({ a: 'mark' });
+        this.markedId = t.id;
+        this.lastCmdAt = now;
+      }
+      if (h.squad.length === 0) return;
       if (this.lastCmdKind !== 'attack' || this.lastCmdTarget !== t.id) {
         if (f.aimTargetId !== t.id) return; // the order needs the target under the crosshair
         f.actions.push({ a: 'command', order: 'attack' });
         this.lastCmdKind = 'attack';
         this.lastCmdTarget = t.id;
         this.lastCmdAt = now;
-        // hard bots also mark heroes for focus fire
-        if (this.prof.name === 'hard' && t.kind === 'hero' && this.markedId !== t.id) {
-          f.actions.push({ a: 'mark' });
-          this.markedId = t.id;
-        }
       }
       return;
     }
+    if (h.squad.length === 0) return;
     if (this.mode === 'escort') {
       const lord = this.strategy!.crownRef(this);
-      if (lord && this.x.sinceDamaged(lord.id) < 3 && dist2d(lord.pos, self.pos) < 25 && this.lastCmdKind !== 'hold') {
-        // guard the lord: squad holds around him
-        f.aimPoint = { ...lord.pos };
+      const lp = lord ? this.posOf(lord, 3) : undefined;
+      // the lord visibly under fire nearby: the squad holds around him
+      const lordHit = !!lord && !!lp && this.seesNow(lord) && this.x.sinceDamaged(lord.id) < 3 && dist2d(lp, self.pos) < 25;
+      if (lordHit && this.lastCmdKind !== 'hold') {
+        f.aimPoint = { ...lp! };
         f.actions.push({ a: 'command', order: 'hold' });
         this.lastCmdKind = 'hold';
         this.lastCmdAt = now;
         return;
       }
-      if (this.lastCmdKind === 'hold' && lord && (this.x.sinceDamaged(lord.id) < 10 && dist2d(lord.pos, self.pos) < 25)) return;
+      if (this.lastCmdKind === 'hold' && lord && lp && this.seesNow(lord) && this.x.sinceDamaged(lord.id) < 10 && dist2d(lp, self.pos) < 25) return;
     }
     if (this.lastCmdKind !== 'follow') {
       f.actions.push({ a: 'command', order: 'follow' });
@@ -1207,19 +1509,24 @@ export class HeroBot implements BotBrain, BotView {
     const { sim, self } = this;
     // 酒 / anything usable while downed — give a believed ally right next to us a moment to revive us first
     if (!this.wasDowned) this.downedAt = this.now;
-    const helper = this.allies().some((a) => dist2d(a.pos, self.pos) < 6);
+    const allies = this.allies();
+    const helper = allies.some((a) => dist2d(this.posOf(a)!, self.pos) < 6);
     if (!helper || this.now - this.downedAt > 3) {
       const plan = this.items.consider(this, { reserveTao: false, healAt: 0 });
-      if (plan) f.actions.push({ a: 'item', slot: plan.slot });
+      if (plan) {
+        f.actions.push({ a: 'item', slot: plan.slot });
+        this.items.pressed(this, plan);
+      }
     }
-    // crawl toward a believed ally, or away from the nearest hostile
+    // crawl toward a believed ally, or away from the nearest visible hostile
     let goal: Vec3 | null = null;
     let bd = 30;
-    for (const a of this.allies()) {
-      const d = dist2d(a.pos, self.pos);
+    for (const a of allies) {
+      const p = this.posOf(a)!;
+      const d = dist2d(p, self.pos);
       if (d < bd) {
         bd = d;
-        goal = a.pos;
+        goal = p;
       }
     }
     let dirx = 0;
@@ -1231,7 +1538,7 @@ export class HeroBot implements BotBrain, BotView {
       let threat: Entity | undefined;
       let td = 30;
       for (const e of sim.heroes()) {
-        if (e === self || !e.hero || e.hero.dead || e.hero.downed) continue;
+        if (e === self || !e.hero || e.hero.dead || e.hero.downed || !this.seesNow(e)) continue;
         const d = dist2d(e.pos, self.pos);
         if (d < td && this.hostility(e) >= 0.5) {
           td = d;
@@ -1250,6 +1557,17 @@ export class HeroBot implements BotBrain, BotView {
     }
     f.yaw = this.aimer.yaw;
     f.pitch = 0;
+  }
+
+  /** Last known positions of the living crowns (other than us) within `r` m. */
+  private crownsNear(r: number): Vec3[] {
+    const out: Vec3[] = [];
+    for (const e of this.sim.heroes()) {
+      if (e === this.self || !e.hero || e.hero.dead || !wearsCrown(this.sim, e)) continue;
+      const p = this.posOf(e, 10);
+      if (p && dist2d(p, this.self.pos) < r) out.push(p);
+    }
+    return out;
   }
 }
 
@@ -1287,14 +1605,6 @@ function toLocal(yaw: number, dx: number, dz: number): { mx: number; mz: number 
   return { mx: dx * rx + dz * rz, mz: dx * fx + dz * fz };
 }
 
-function fromLocal(yaw: number, mx: number, mz: number): { x: number; z: number } {
-  const fx = -Math.sin(yaw);
-  const fz = -Math.cos(yaw);
-  const rx = Math.cos(yaw);
-  const rz = -Math.sin(yaw);
-  return { x: mx * rx + mz * fx, z: mx * rz + mz * fz };
-}
-
 const clampUnit = (v: number): number => (v > 1 ? 1 : v < -1 ? -1 : Number.isFinite(v) ? v : 0);
 
 /** A point 30 m down the third-person crosshair ray (the aimPoint while not aiming at anything). */
@@ -1303,18 +1613,14 @@ function crosshairAhead(self: Entity, yaw: number, pitch: number): Vec3 {
   return { x: rig.origin.x + rig.dir.x * 30, y: rig.origin.y + rig.dir.y * 30, z: rig.origin.z + rig.dir.z * 30 };
 }
 
-function aliveCrownsNear(sim: SimApi, self: Entity, r: number): Entity[] {
-  return sim.heroes().filter((e) => e !== self && e.hero && !e.hero.dead && wearsCrown(sim, e) && dist2d(e.pos, self.pos) < r);
-}
-
-function centroidOf(list: readonly Entity[]): Vec3 {
+function centroidOfPoints(list: readonly Vec3[]): Vec3 {
   let x = 0;
   let y = 0;
   let z = 0;
-  for (const e of list) {
-    x += e.pos.x;
-    y += e.pos.y;
-    z += e.pos.z;
+  for (const p of list) {
+    x += p.x;
+    y += p.y;
+    z += p.z;
   }
   return { x: x / list.length, y: y / list.length, z: z / list.length };
 }

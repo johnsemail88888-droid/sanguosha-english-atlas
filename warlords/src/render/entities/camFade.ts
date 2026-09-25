@@ -10,10 +10,12 @@ export interface P3 {
   z: number;
 }
 
-/** Fully opaque at or beyond this distance (m) from the camera. */
-export const CAM_FADE_NEAR = 1.6;
+/** Fully opaque when the body surface is at least this far (m) from the camera. */
+export const CAM_FADE_NEAR = 1.8;
+/** Fully faded (CAM_FADE_MIN) when the body surface is this close (m). */
+export const CAM_FADE_FULL = 0.5;
 /** Minimum opacity of a faded character. */
-export const CAM_FADE_MIN = 0.1;
+export const CAM_FADE_MIN = 0.08;
 /** Opacity of a character blocking the camera → followed hero line. */
 export const CAM_FADE_BLOCKING = 0.22;
 
@@ -30,7 +32,7 @@ export function cameraFadeTarget(cam: P3, focus: P3 | null, p: P3, height: numbe
   // 1. distance from the camera to the body (vertical capsule axis)
   const cy = cam.y < y0 ? y0 : cam.y > y1 ? y1 : cam.y;
   const d = Math.max(0, Math.hypot(cam.x - p.x, cam.y - cy, cam.z - p.z) - radius);
-  let fade = CAM_FADE_MIN + (1 - CAM_FADE_MIN) * clamp01((d - 0.1) / (CAM_FADE_NEAR - radius - 0.1));
+  let fade = CAM_FADE_MIN + (1 - CAM_FADE_MIN) * clamp01((d - CAM_FADE_FULL) / (CAM_FADE_NEAR - CAM_FADE_FULL));
   // 2. standing between the camera and the followed hero
   if (focus) {
     const dx = focus.x - cam.x;

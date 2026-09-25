@@ -70,6 +70,22 @@ export interface MatchMetrics {
   tickP95Ms: number;
   tickMaxMs: number;
   lordKilledLoyal: number;
+  /** sim time of the first hero-on-hero hit that did damage (Infinity: none) */
+  firstHeroHitAt: number;
+  /** hero-on-hero damage dealt before 180 s */
+  heroDmgBefore180: number;
+  /** first / last hero death (NaN: none) */
+  firstDeathAt: number;
+  lastDeathAt: number;
+  /** damage rebels dealt to the real lord / to the 影武者 */
+  rebelDmgOnLord: number;
+  rebelDmgOnDouble: number;
+  /** bot casts pressed after aiming / abandoned (aim never settled) */
+  castsAimed: number;
+  castTimeouts: number;
+  /** rebel pushes started / broken off (summed over rebel bots) */
+  pushes: number;
+  failedPushes: number;
   /** death sequence: "time:role<killerRole" */
   deathLog: string[];
   /** exceptions thrown by bot / troop / NPC brains (must stay empty) */
@@ -87,6 +103,7 @@ interface MoveTrack {
 
 export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): MatchMetrics {
   const brainErrors: string[] = [];
+  const bots: HeroBot[] = [];
   const w: World = createWorld(makeBotInit(spec), {
     map: realMap(),
     onWarn: (m) => {
@@ -95,6 +112,7 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
     // every bot exception is recorded (the world would swallow it and idle the bot for a tick)
     botFactory: (seat, d, seed) => {
       const b = new HeroBot(seat, d, seed);
+      bots.push(b);
       return {
         think(sim, self, dt) {
           try {
@@ -116,6 +134,12 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
   let revives = 0;
   let lordKilledLoyal = 0;
   const deathLog: string[] = [];
+  let firstHeroHitAt = Infinity;
+  let heroDmgBefore180 = 0;
+  let firstDeathAt = NaN;
+  let lastDeathAt = NaN;
+  let rebelDmgOnLord = 0;
+  let rebelDmgOnDouble = 0;
   const tracks = new Map<EntityId, MoveTrack>();
   for (const h of heroes) tracks.set(h.id, { lastSample: null, minuteStart: 0, minuteDist: 0, minMinute: Infinity, idleAnchor: null, longestIdle: 0 });
   const times: number[] = [];
@@ -126,8 +150,20 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
     if (opts.timing) times.push(performance.now() - t0);
     for (const ev of w.drainEvents()) {
       switch (ev.t) {
+        case 'hit': {
+          const src = ev.src !== undefined ? w.get(ev.src) : undefined;
+          const tgt = w.get(ev.target);
+          if (!src?.hero || !tgt?.hero || src === tgt || ev.amount <= 0 || ev.blocked) break;
+          if (w.time < firstHeroHitAt) firstHeroHitAt = w.time;
+          if (w.time < 180) heroDmgBefore180 += ev.amount;
+          if (src.hero.role === 'rebel' && tgt.hero.role === 'lord') rebelDmgOnLord += ev.amount;
+          if (src.hero.role === 'rebel' && tgt.hero.role === 'double') rebelDmgOnDouble += ev.amount;
+          break;
+        }
         case 'death': {
           if (ev.kind !== 'hero') break;
+          if (Number.isNaN(firstDeathAt)) firstDeathAt = w.time;
+          lastDeathAt = w.time;
           const victim = w.get(ev.target);
           const killer = ev.killer !== undefined ? w.get(ev.killer) : undefined;
           deathLog.push(`${Math.round(w.time)}:${ev.role ?? '?'}<${killer?.hero ? killer.hero.role : killer ? killer.kind : 'zone'}`);
@@ -188,6 +224,16 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
     tickP95Ms: times.length ? times[Math.floor(times.length * 0.95)] : 0,
     tickMaxMs: times.length ? times[times.length - 1] : 0,
     lordKilledLoyal,
+    firstHeroHitAt,
+    heroDmgBefore180: Math.round(heroDmgBefore180),
+    firstDeathAt,
+    lastDeathAt,
+    rebelDmgOnLord: Math.round(rebelDmgOnLord),
+    rebelDmgOnDouble: Math.round(rebelDmgOnDouble),
+    castsAimed: bots.reduce((a, b) => a + b.stats.castsAimed, 0),
+    castTimeouts: bots.reduce((a, b) => a + b.stats.castTimeouts, 0),
+    pushes: bots.reduce((a, b) => a + b.pushStats().pushes, 0),
+    failedPushes: bots.reduce((a, b) => a + b.pushStats().failed, 0),
     deathLog,
     brainErrors,
   };
@@ -226,8 +272,9 @@ function sampleMovement(w: World, heroes: Entity[], tracks: Map<EntityId, MoveTr
 }
 
 export function formatTable(rows: MatchMetrics[]): string {
-  const head = ['#', 'players', 'mode', 'diff', 'seed', 'winner', 'dur(s)', 'combat', 'deaths h/n/z/o', 'abil', 'items', 'claims', 'revives', 'm/min', 'idle(s)', 'tick avg/p95 ms'];
+  const head = ['#', 'players', 'mode', 'diff', 'seed', 'winner', 'dur(s)', 'combat', 'deaths h/n/z/o', '1st hit', 'dmg<180', '1st/last death', 'abil', 'items', 'aimed/timeout', 'claims', 'revives', 'push/fail', 'm/min', 'idle(s)', 'tick avg/p95 ms'];
   const lines = [head.join(' | ')];
+  const t = (x: number): string => (Number.isFinite(x) ? x.toFixed(0) : '-');
   rows.forEach((r, i) => {
     lines.push(
       [
@@ -240,10 +287,15 @@ export function formatTable(rows: MatchMetrics[]): string {
         r.duration.toFixed(0),
         r.decidedByCombat ? 'yes' : 'no',
         `${r.deaths.hero}/${r.deaths.npc}/${r.deaths.zone}/${r.deaths.other}`,
+        t(r.firstHeroHitAt),
+        r.heroDmgBefore180,
+        `${t(r.firstDeathAt)}/${t(r.lastDeathAt)}`,
         r.abilities,
         r.items,
+        `${r.castsAimed}/${r.castTimeouts}`,
         r.claims,
         r.revives,
+        `${r.pushes}/${r.failedPushes}`,
         r.minMetersPerMinute,
         r.longestIdle,
         `${r.tickAvgMs.toFixed(2)}/${r.tickP95Ms.toFixed(2)}`,
@@ -251,4 +303,57 @@ export function formatTable(rows: MatchMetrics[]): string {
     );
   });
   return lines.join('\n');
+}
+
+/** Aggregate pacing / outcome summary of a set of matches. */
+export interface SampleSummary {
+  n: number;
+  wins: Record<string, number>;
+  winsByMode: Record<string, Record<string, number>>;
+  avgDuration: number;
+  combatShare: number;
+  /** share of matches with hero-on-hero damage before 180 s */
+  earlyDamageShare: number;
+  medianFirstHit: number;
+  medianFirstDeath: number;
+  /** mean seconds between the first and the last hero death (matches with ≥ 2 deaths) */
+  meanDeathSpread: number;
+  rebelOnLordShare: number;
+}
+
+export function summarize(rows: MatchMetrics[]): SampleSummary {
+  const median = (xs: number[]): number => {
+    const a = xs.filter((x) => Number.isFinite(x)).sort((p, q) => p - q);
+    return a.length ? a[Math.floor(a.length / 2)] : NaN;
+  };
+  const wins: Record<string, number> = {};
+  const winsByMode: Record<string, Record<string, number>> = {};
+  for (const r of rows) {
+    wins[r.winner] = (wins[r.winner] ?? 0) + 1;
+    const m = (winsByMode[r.spec.mode] ??= {});
+    m[r.winner] = (m[r.winner] ?? 0) + 1;
+  }
+  const spreads = rows.filter((r) => r.deaths.hero + r.deaths.npc + r.deaths.zone + r.deaths.other >= 2 && Number.isFinite(r.firstDeathAt)).map((r) => r.lastDeathAt - r.firstDeathAt);
+  const onLord = rows.reduce((s, r) => s + r.rebelDmgOnLord, 0);
+  const onDouble = rows.reduce((s, r) => s + r.rebelDmgOnDouble, 0);
+  return {
+    n: rows.length,
+    wins,
+    winsByMode,
+    avgDuration: rows.reduce((s, r) => s + r.duration, 0) / Math.max(1, rows.length),
+    combatShare: rows.filter((r) => r.decidedByCombat).length / Math.max(1, rows.length),
+    earlyDamageShare: rows.filter((r) => r.heroDmgBefore180 > 0).length / Math.max(1, rows.length),
+    medianFirstHit: median(rows.map((r) => r.firstHeroHitAt)),
+    medianFirstDeath: median(rows.map((r) => r.firstDeathAt)),
+    meanDeathSpread: spreads.length ? spreads.reduce((s, x) => s + x, 0) / spreads.length : NaN,
+    rebelOnLordShare: onLord + onDouble > 0 ? onLord / (onLord + onDouble) : NaN,
+  };
+}
+
+export function formatSummary(s: SampleSummary): string {
+  const f = (x: number, d = 0): string => (Number.isFinite(x) ? x.toFixed(d) : '-');
+  return [
+    `matches ${s.n} · wins ${JSON.stringify(s.wins)} · by mode ${JSON.stringify(s.winsByMode)}`,
+    `avg ${f(s.avgDuration)} s · combat-decided ${f(s.combatShare * 100)}% · hero damage before 180 s in ${f(s.earlyDamageShare * 100)}% · median first hit ${f(s.medianFirstHit)} s · median first death ${f(s.medianFirstDeath)} s · mean first→last death ${f(s.meanDeathSpread)} s · rebel damage on the real lord (乱世) ${f(s.rebelOnLordShare * 100)}%`,
+  ].join('\n');
 }

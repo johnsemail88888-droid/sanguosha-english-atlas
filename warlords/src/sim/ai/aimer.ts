@@ -77,15 +77,11 @@ export class Aimer {
    * Track `target` with `weapon`. `selfSpeed` = own horizontal speed (m/s),
    * `ads` = aiming down sights.
    */
-  track(sim: SimApi, self: Entity, target: Entity, weapon: WeaponDef | undefined, dt: number, ads: boolean): AimOut {
+  track(sim: SimApi, self: Entity, target: Entity, weapon: WeaponDef | undefined, dt: number, ads: boolean, leadSpeed?: number): AimOut {
     this.ensure(self);
     const now = sim.time;
     const p = this.prof;
-    if (this.targetId !== target.id) {
-      this.targetId = target.id;
-      this.since = now;
-      this.errNextAt = 0;
-    }
+    this.begin(target.id, now);
     const eye = sim.eyePos(self);
     const base = aimPointOf(target);
     const dist = Math.max(0.5, Math.hypot(base.x - eye.x, base.y - eye.y, base.z - eye.z));
@@ -94,7 +90,8 @@ export class Aimer {
     // lead: tracking lag compensation + projectile flight time (+ gravity drop)
     const proj = weapon?.projectile;
     let t = p.trackTau * 0.8;
-    if (proj && proj.speed > 0) t += dist / proj.speed;
+    if (leadSpeed !== undefined && leadSpeed > 0) t += dist / leadSpeed;
+    else if (proj && proj.speed > 0) t += dist / proj.speed;
     const lead = p.leadSkill;
     const tv = target.vel;
     const desired = { x: base.x + tv.x * t * lead, y: base.y + tv.y * t * lead * 0.3, z: base.z + tv.z * t * lead };
@@ -110,20 +107,7 @@ export class Aimer {
     if (selfSpeed > 1.5) sigmaDeg *= p.motionErr;
     if (targetSpeed > 3) sigmaDeg *= 1 + (p.motionErr - 1) * Math.min(1.5, targetSpeed / 6);
     if (ads) sigmaDeg *= 0.8;
-    if (now >= this.errNextAt) {
-      this.errNextAt = now + 0.28 + this.rng.next() * 0.3;
-      const sm = Math.tan(sigmaDeg * DEG) * dist;
-      // error in the plane facing the shooter: lateral + vertical
-      const fx = (base.x - eye.x) / dist;
-      const fz = (base.z - eye.z) / dist;
-      const lat = gauss(this.rng) * sm;
-      const vert = gauss(this.rng) * sm * 0.6;
-      this.errGoal = { x: -fz * lat, y: vert, z: fx * lat };
-    }
-    const ek = 1 - Math.exp(-dt / 0.22);
-    this.err.x += (this.errGoal.x - this.err.x) * ek;
-    this.err.y += (this.errGoal.y - this.err.y) * ek;
-    this.err.z += (this.errGoal.z - this.err.z) * ek;
+    this.wander(now, dt, sigmaDeg, base, eye, dist);
     desired.x += this.err.x;
     desired.y += this.err.y;
     desired.z += this.err.z;
@@ -155,6 +139,75 @@ export class Aimer {
     return o;
   }
 
+  /**
+   * Aim at a world point WITH the human error model (ground-targeted casts,
+   * skillshots, thrown cards): the view turns toward the point plus a
+   * wandering error that is large right after starting and settles over
+   * time; `key` identifies the aim (a new key = a fresh flick). errAngle is
+   * measured against the erroneous point the bot believes is right, so a cast
+   * released when errAngle is small lands with the bot's error.
+   */
+  aimAtPoint(sim: SimApi, self: Entity, point: Vec3, dt: number, key: number, errScale = 1): AimOut {
+    this.ensure(self);
+    const now = sim.time;
+    const p = this.prof;
+    this.begin(key, now);
+    const eye = sim.eyePos(self);
+    const dist = Math.max(0.5, Math.hypot(point.x - eye.x, point.y - eye.y, point.z - eye.z));
+    const tracked = now - this.since;
+    let sigmaDeg = (p.aimErrFloor + (p.aimErrStart - p.aimErrFloor) * Math.exp(-tracked / Math.max(0.05, p.settleTime))) * errScale;
+    if (Math.hypot(self.vel.x, self.vel.z) > 1.5) sigmaDeg *= p.motionErr;
+    this.wander(now, dt, sigmaDeg, point, eye, dist);
+    const desired = { x: point.x + this.err.x, y: point.y + this.err.y, z: point.z + this.err.z };
+    const downed = self.hero?.downed === true;
+    const want = solveAim(self.pos, desired, downed);
+    this.turnToward(want.yaw, want.pitch, tracked < 0.5 ? p.flickTau : p.trackTau, dt);
+    const rig = cameraRig(self.pos, this.yaw, this.pitch, downed);
+    const along = Math.hypot(desired.x - rig.origin.x, desired.y - rig.origin.y, desired.z - rig.origin.z);
+    const o = this.out;
+    o.yaw = this.yaw;
+    o.pitch = this.pitch;
+    o.point = { x: rig.origin.x + rig.dir.x * along, y: rig.origin.y + rig.dir.y * along, z: rig.origin.z + rig.dir.z * along };
+    // on screen: the angle between the crosshair ray and the point, seen from the camera
+    o.errAngle = angleBetween(rig.origin, o.point, desired);
+    o.targetAngle = 0;
+    return o;
+  }
+
+  /** Angle (rad) between the current crosshair ray and the direction from the eye to `p`. */
+  crosshairAngleTo(self: Entity, p: Vec3): number {
+    const rig = cameraRig(self.pos, this.yaw, this.pitch, self.hero?.downed === true);
+    const along = Math.max(1, Math.hypot(p.x - rig.origin.x, p.y - rig.origin.y, p.z - rig.origin.z));
+    const c = { x: rig.origin.x + rig.dir.x * along, y: rig.origin.y + rig.dir.y * along, z: rig.origin.z + rig.dir.z * along };
+    return angleBetween(rig.origin, c, p);
+  }
+
+  private begin(key: number, now: number): void {
+    if (this.targetId !== key) {
+      this.targetId = key;
+      this.since = now;
+      this.errNextAt = 0;
+    }
+  }
+
+  /** Advance the wandering aim error toward a fresh random goal every ~0.3–0.6 s. */
+  private wander(now: number, dt: number, sigmaDeg: number, base: Vec3, eye: Vec3, dist: number): void {
+    if (now >= this.errNextAt) {
+      this.errNextAt = now + 0.28 + this.rng.next() * 0.3;
+      const sm = Math.tan(sigmaDeg * DEG) * dist;
+      // error in the plane facing the shooter: lateral + vertical
+      const fx = (base.x - eye.x) / dist;
+      const fz = (base.z - eye.z) / dist;
+      const lat = gauss(this.rng) * sm;
+      const vert = gauss(this.rng) * sm * 0.6;
+      this.errGoal = { x: -fz * lat, y: vert, z: fx * lat };
+    }
+    const ek = 1 - Math.exp(-dt / 0.22);
+    this.err.x += (this.errGoal.x - this.err.x) * ek;
+    this.err.y += (this.errGoal.y - this.err.y) * ek;
+    this.err.z += (this.errGoal.z - this.err.z) * ek;
+  }
+
   /** Look toward a world point (no target): used while moving, reviving, looting. */
   lookAt(self: Entity, point: Vec3, dt: number, tau = 0.25): AimOut {
     this.ensure(self);
@@ -179,13 +232,6 @@ export class Aimer {
     this.turnToward(yaw, 0, tau, dt);
   }
 
-  /** Instantly set the view (ability flicks). */
-  snap(yaw: number, pitch: number): void {
-    this.yaw = yaw;
-    this.pitch = pitch;
-    this.init = true;
-  }
-
   private turnToward(yaw: number, pitch: number, tau: number, dt: number): void {
     const k = 1 - Math.exp(-dt / Math.max(0.02, tau));
     const maxStep = (TURN_SPEED[this.prof.name] ?? TURN_SPEED.normal) * dt;
@@ -196,6 +242,31 @@ export class Aimer {
     this.yaw = wrapAngle(this.yaw + dy);
     this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch + dp));
   }
+}
+
+/** aimAnglesFor with a few more fixed-point iterations (close points: the shoulder offset matters). */
+function solveAim(pos: Vec3, target: Vec3, downed: boolean): { yaw: number; pitch: number } {
+  let { yaw, pitch } = aimAnglesFor(pos, target, downed);
+  for (let i = 0; i < 4; i++) {
+    const rig = cameraRig(pos, yaw, pitch, downed);
+    const dx = target.x - rig.origin.x;
+    const dy = target.y - rig.origin.y;
+    const dz = target.z - rig.origin.z;
+    yaw = Math.atan2(-dx, -dz);
+    pitch = Math.atan2(dy, Math.hypot(dx, dz));
+  }
+  return { yaw, pitch };
+}
+
+function angleBetween(eye: Vec3, a: Vec3, b: Vec3): number {
+  const ax = a.x - eye.x;
+  const ay = a.y - eye.y;
+  const az = a.z - eye.z;
+  const bx = b.x - eye.x;
+  const by = b.y - eye.y;
+  const bz = b.z - eye.z;
+  const l = (Math.hypot(ax, ay, az) || 1) * (Math.hypot(bx, by, bz) || 1);
+  return Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by + az * bz) / l)));
 }
 
 /** Standard normal sample (Box–Muller) from the bot's own RNG. */

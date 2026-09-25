@@ -3,19 +3,20 @@
 // adds the targeting (who / where to throw it) and the tactical timing the
 // gate cannot know (don't channel a 桃 in the open under fire, keep a 桃 to
 // revive the lord, trap a charging enemy…). Items without the hook fall back
-// to ItemDef.aiHint + targeting.
+// to ItemDef.aiHint + targeting. Like abilities, a plan only says what to aim
+// at: HeroBot aims with the human model and presses when on target.
 import type { Vec3 } from '../../core/math';
 import type { Entity } from '../../core/types';
 import type { ItemDef } from '../../data/types';
-import { aimAnglesFor } from '../aim';
 import { itemDef } from '../defs';
 import type { ItemImplEx } from '../ext';
 import { getItem } from '../items/registry';
 import type { BotView, ItemPlan } from './botTypes';
-import { areaClear, wildSummonClear } from './abilityUse';
-import { aimPointOf, dist2d } from './perception';
+import { areaClear, knownHeroes, wildSummonClear } from './abilityUse';
+import { dist2d } from './perception';
 
 const FAIL_BACKOFF = 4;
+const AIM_BACKOFF = 1.5;
 
 export class ItemUser {
   private readonly backoff = new Map<string, number>();
@@ -46,12 +47,20 @@ export class ItemUser {
         }
       }
       const plan = this.plan(v, slot, st.id, def, gate, opts);
-      if (plan) {
-        this.pending = { id: st.id, slot, count: st.count, at: now };
-        return plan;
-      }
+      if (plan) return plan;
     }
     return null;
+  }
+
+  /** The bot pressed the item: watch whether it was consumed. */
+  pressed(v: BotView, plan: ItemPlan): void {
+    const st = v.self.hero!.items[plan.slot];
+    this.pending = { id: plan.itemId, slot: plan.slot, count: st?.count ?? 0, at: v.now };
+  }
+
+  /** The bot could not aim the card in time. */
+  aimFailed(v: BotView, itemId: string): void {
+    this.backoff.set(itemId, v.now + AIM_BACKOFF);
   }
 
   private checkPending(v: BotView): void {
@@ -74,7 +83,7 @@ export class ItemUser {
     const t = v.target;
     const d = v.targetDist;
     const fighting = !!t && v.targetLos && d < 50;
-    const base: ItemPlan = { slot, itemId: id };
+    const base: ItemPlan = { slot, itemId: id, mode: 'none' };
     if (h.downed) {
       // 酒 (or anything usable while downed): get back up
       return gate !== false ? base : null;
@@ -103,10 +112,10 @@ export class ItemUser {
         let friends = 0;
         let foes = 0;
         const r = def.params.radius ?? 15;
-        for (const e of sim.heroes()) {
-          if (e === self || !e.hero || e.hero.dead || dist2d(e.pos, self.pos) > r) continue;
-          if (v.allyScore(e) > 0.5) friends++;
-          else if (v.hostility(e) > 0.4) foes++;
+        for (const k of knownHeroes(v)) {
+          if (dist2d(k.p, self.pos) > r) continue;
+          if (v.allyScore(k.e) > 0.5) friends++;
+          else if (v.hostility(k.e) > 0.4) foes++;
         }
         return foes <= friends ? base : null;
       }
@@ -125,7 +134,7 @@ export class ItemUser {
         // only duel when winning (unless the card's own hint already judged the fight fair)
         if (id === 'juedou' && gate !== true && hpFrac < t.hp / Math.max(1, t.maxHp) + 0.1) return null;
         if (id === 'jiedao' && (t.kind !== 'hero' || (t.hero?.squad.length ?? 0) < 2)) return null;
-        return this.aimAt(v, base, t);
+        return { ...base, mode: 'lock', targetId: t.id };
       }
       case 'point':
       case 'direction': {
@@ -133,8 +142,8 @@ export class ItemUser {
         if (def.aiHint === 'defense') {
           // traps: drop them in the path of a close enemy
           if (d > 10) return null;
-          const mid = { x: (self.pos.x + t.pos.x) / 2, y: t.pos.y, z: (self.pos.z + t.pos.z) / 2 };
-          return this.aimPointAt(v, base, dist2d(self.pos, mid) <= def.range ? mid : t.pos);
+          const mid = { x: (self.pos.x + t.pos.x) / 2, y: t.pos.y + 0.3, z: (self.pos.z + t.pos.z) / 2 };
+          return dist2d(self.pos, mid) <= def.range ? { ...base, mode: 'point', point: mid } : { ...base, mode: 'point', targetId: t.id, ground: true };
         }
         if (d > def.range) return null;
         if (id === 'guohe' && t.kind === 'hero' && !t.hero?.armor && !t.hero?.mount && t.shield <= 0) return null;
@@ -147,11 +156,11 @@ export class ItemUser {
         const pt = { x: t.pos.x + t.vel.x * 0.4, y: t.pos.y, z: t.pos.z + t.vel.z * 0.4 };
         if (!areaClear(v, def.params, 'point', pt, t.id, def.range)) return null;
         if (def.aiHint === 'summon' && !wildSummonClear(v, pt, t.id)) return null;
-        return this.aimPointAt(v, base, pt);
+        return { ...base, mode: 'point', targetId: t.id, ground: true };
       }
       case 'ally': {
-        const ally = v.allies().find((a) => a !== self && !a.hero?.downed && a.hp < a.maxHp * 0.6 && dist2d(a.pos, self.pos) <= def.range);
-        if (ally) return this.aimAt(v, base, ally);
+        const ally = v.allies().find((a) => a !== self && !a.hero?.downed && v.seesNow(a) && v.hpFrac(a) < 0.6 && dist2d(a.pos, self.pos) <= def.range);
+        if (ally) return { ...base, mode: 'lock', targetId: ally.id };
         return hpFrac < 0.6 ? base : null;
       }
       default:
@@ -179,19 +188,7 @@ export class ItemUser {
   }
 
   private selfUse(base: ItemPlan): ItemPlan {
-    // make sure no downed hero is under the crosshair (a 桃 would revive them)
-    return { ...base, aimTargetId: undefined };
-  }
-
-  private aimAt(v: BotView, base: ItemPlan, e: Entity): ItemPlan {
-    const pt = aimPointOf(e);
-    const ang = aimAnglesFor(v.self.pos, pt);
-    return { ...base, yaw: ang.yaw, pitch: ang.pitch, aimPoint: pt, aimTargetId: e.id };
-  }
-
-  private aimPointAt(v: BotView, base: ItemPlan, pt: Vec3): ItemPlan {
-    const p = { x: pt.x, y: pt.y + 0.3, z: pt.z };
-    const ang = aimAnglesFor(v.self.pos, p);
-    return { ...base, yaw: ang.yaw, pitch: ang.pitch, aimPoint: p, aimTargetId: undefined };
+    // no lock target: a 桃 is drunk (HeroBot keeps downed heroes out of the crosshair's lock)
+    return { ...base, mode: 'none' };
   }
 }

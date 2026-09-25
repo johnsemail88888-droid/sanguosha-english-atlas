@@ -242,7 +242,11 @@ export class GameRenderer {
     }
 
     // 3. events → VFX, then re-emit to subscribers
-    const evs = view.drainEvents();
+    let evs = view.drainEvents();
+    if (this.injected.length) {
+      evs = evs.length ? [...evs, ...this.injected] : this.injected;
+      this.injected = [];
+    }
     if (evs.length) {
       handleEvents(evs, {
         fx: this.fx,
@@ -603,6 +607,15 @@ export class GameRenderer {
   }
 
   private readonly focusVec = new THREE.Vector3();
+  private injected: GameEvent[] = [];
+
+  /**
+   * Debug / tests: handle these events next frame exactly like drained ones
+   * (VFX + re-emitted to HUD / audio subscribers). Never used by gameplay.
+   */
+  injectEvents(evs: readonly GameEvent[]): void {
+    for (const e of evs) this.injected.push(e);
+  }
 
   /** Chest of the hero the camera is following (for the near-camera fade), null otherwise. */
   private cameraFocus(localEnt: ViewEntity | undefined): THREE.Vector3 | null {

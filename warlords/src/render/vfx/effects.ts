@@ -299,6 +299,30 @@ export class Effects {
         this.burst(pos, { count: Math.round(16 * k), tex: PT.smoke, color: col, speed: [1, 3.5], up: 0.3, life: [1.5, 2.8], size: [0.8, 3.2], additive: false, alpha: 0.6, drag: 1.2, gravity: -0.2, radius: r * 0.3 });
         return;
       }
+      case 'emp': {
+        // 过河拆桥: electric pulse that strips gear — no fire, blue-white arcs
+        const col = C(0.9, 1.4, 2.8);
+        this.fx.ring(ground, { color: col, radius0: 0.3, radius1: r * 1.3, life: 0.5, inner: 0.9, alpha: 1.3 });
+        this.fx.ring(ground, { color: C(2, 2, 2.4), radius0: 0.2, radius1: r * 0.8, life: 0.35, inner: 0.94, alpha: 1 });
+        this.fx.sphere(pos, col, 0.3, r, 0.3, 0.7);
+        this.burst(pos, { count: Math.round(26 * k + 6), tex: PT.spark, color: col, color1: C(2, 2, 2.4), speed: [5, 13], up: 0.3, life: [0.15, 0.4], size: [0.05, 0.02], stretch: 0.05, gravity: 4 });
+        for (let i = 0; i < 3; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const tip = pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.4 + Math.random(), Math.sin(a) * r));
+          this.beams.lightning(pos.clone().setY(pos.y + 0.6), tip, col, 0.12, 0.22);
+        }
+        this.lights.flash(pos, C(0.55, 0.75, 1.2), 14, r * 5 + 6, 0.2);
+        this.shakeAt(pos, 0.15, r);
+        return;
+      }
+      case 'shockwave': {
+        // shouts / slams without fire: dust ring + air ripple
+        this.fx.ring(ground, { color: C(1.6, 1.3, 0.9), radius0: 0.4, radius1: r * 1.2, life: 0.45, inner: 0.86, alpha: 0.9 });
+        this.fx.sphere(pos, C(1.1, 1.0, 0.85), 0.3, r, 0.3, 0.45);
+        this.burst(ground, { count: Math.round(12 * k + 4), tex: PT.dust, color: FX_COLORS.dust, speed: [4, 10], life: [0.5, 1.0], size: [0.5, 1.8], additive: false, alpha: 0.6, drag: 3, flat: true, radius: r * 0.3 });
+        this.shakeAt(pos, 0.25 * k + 0.1, r);
+        return;
+      }
       case 'ink': {
         this.inkSplash(pos, 3);
         this.fx.ring(ground, { color: C(0.15, 0.02, 0.02), radius0: 0.3, radius1: r, life: 0.6, inner: 0.6, additive: false, alpha: 0.8 });

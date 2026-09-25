@@ -8,6 +8,7 @@ import { PT } from '../core/textures';
 import type { EntityManager } from '../entities/manager';
 import { FX_COLORS, type Effects, type ShotClass } from './effects';
 import { genericAbilityVfx, getAbilityVfx, type AbilityVfxContext } from './abilities';
+import { getItemVfx } from './itemRegistry';
 import { QUICKCHAT, type QuickChatLine } from '../../ui/theme';
 
 const C = (r: number, g: number, b: number): THREE.Color => new THREE.Color(r, g, b);
@@ -257,14 +258,25 @@ export function handleEvents(evs: readonly GameEvent[], deps: EventVfxDeps): voi
           break;
         }
         case 'itemUse': {
-          const tv = entities.character(ev.target ?? ev.who);
-          const p = ev.pos ? _a.set(ev.pos.x, ev.pos.y, ev.pos.z) : tv ? tv.chestWorld(_a) : null;
-          if (!p) break;
+          const user = entities.character(ev.who);
+          const tgt = ev.target !== undefined ? entities.character(ev.target) : undefined;
           const item = ITEM_BY_ID[ev.item];
           const colr = new THREE.Color(item?.color ?? '#ffd070').multiplyScalar(1.8);
+          user?.onCast();
+          const bespoke = getItemVfx(ev.item);
+          if (bespoke) {
+            const userPos = user ? user.chestWorld(new THREE.Vector3()) : null;
+            const targetPos = tgt ? tgt.chestWorld(new THREE.Vector3()) : null;
+            const point = ev.pos ? new THREE.Vector3(ev.pos.x, ev.pos.y, ev.pos.z) : targetPos ?? userPos;
+            const dir = user ? new THREE.Vector3(-Math.sin(user.last.yaw), 0, -Math.cos(user.last.yaw)) : new THREE.Vector3(0, 0, -1);
+            bespoke({ fx, userPos, targetPos, point, dir, color: colr, localId: deps.localId }, ev);
+            break;
+          }
+          const tv = tgt ?? user;
+          const p = ev.pos ? _a.set(ev.pos.x, ev.pos.y, ev.pos.z) : tv ? tv.chestWorld(_a) : null;
+          if (!p) break;
           fx.sparkle(p, colr, 12);
           fx.fx.ring(_b.set(p.x, fx.groundY(p.x, p.z) + 0.08, p.z), { color: colr, radius0: 0.3, radius1: 1.8, life: 0.5, inner: 0.8 });
-          entities.character(ev.who)?.onCast();
           break;
         }
         case 'airdrop': {

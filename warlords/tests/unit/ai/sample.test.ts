@@ -1,9 +1,11 @@
 // Large-sample metrics run (opt-in: AI_SAMPLE=<n> npx vitest run tests/unit/ai/sample.test.ts).
-// Prints the per-match table and aggregate win rates; used for tuning and for
-// the report. Skipped in the normal test run (it takes minutes).
-import { describe, it } from 'vitest';
+// Prints the per-match table, aggregate win rates per mode and pacing; with
+// AI_SAMPLE ≥ 24 it also asserts win-rate floors per mode (rebels and the lord
+// side each win ≥ 20 % in standard AND 乱世) and early skirmishes. Used for
+// tuning and for the report. Skipped in the normal test run (it takes minutes).
+import { describe, expect, it } from 'vitest';
 import type { MatchMetrics, MatchSpec } from './harness';
-import { formatTable, runMatch } from './harness';
+import { formatSummary, formatTable, runMatch, summarize } from './harness';
 
 const N = Number(process.env.AI_SAMPLE ?? 0);
 const SEED0 = Number(process.env.AI_SEED ?? 1000);
@@ -27,13 +29,23 @@ describe.skipIf(!(N > 0))('AI large sample', () => {
       }
       const r = runMatch(spec, { timing: true });
       rows.push(r);
-      process.stdout.write(`[ai] ${i + 1}/${N} ${spec.players}p ${spec.mode} ${spec.difficulty} seed ${spec.seed}: ${r.winner} ${r.duration.toFixed(0)}s deaths ${JSON.stringify(r.deaths)} abil ${r.abilities} items ${r.items} m/min ${r.minMetersPerMinute} idle ${r.longestIdle} tick ${r.tickAvgMs.toFixed(2)}ms lordKilledLoyal ${r.lordKilledLoyal} | ${r.deathLog.join(' ')}\n`);
+      process.stdout.write(`[ai] ${i + 1}/${N} ${spec.players}p ${spec.mode} ${spec.difficulty} seed ${spec.seed}: ${r.winner} ${r.duration.toFixed(0)}s deaths ${JSON.stringify(r.deaths)} 1st hit ${r.firstHeroHitAt.toFixed(0)} dmg<180 ${r.heroDmgBefore180} push ${r.pushes}/${r.failedPushes} abil ${r.abilities} items ${r.items} aimed ${r.castsAimed}/${r.castTimeouts} m/min ${r.minMetersPerMinute} idle ${r.longestIdle} tick ${r.tickAvgMs.toFixed(2)}ms lordKilledLoyal ${r.lordKilledLoyal} | ${r.deathLog.join(' ')}\n`);
     }
     process.stdout.write(`\n${formatTable(rows)}\n`);
-    const wins: Record<string, number> = {};
-    for (const r of rows) wins[r.winner] = (wins[r.winner] ?? 0) + 1;
-    const avg = rows.reduce((s, r) => s + r.duration, 0) / rows.length;
-    const combat = rows.filter((r) => r.decidedByCombat).length / rows.length;
-    process.stdout.write(`\nwins ${JSON.stringify(wins)} avg ${avg.toFixed(0)}s combat ${(combat * 100).toFixed(0)}%\n`);
+    const sum = summarize(rows);
+    process.stdout.write(`\n${formatSummary(sum)}\n`);
+    // win-rate floors per mode (only meaningful on a real sample: AI_SAMPLE ≥ 24, mixed modes)
+    if (N >= 24 && !ONLY) {
+      const share = (mode: string, winner: string): number => {
+        const m = sum.winsByMode[mode] ?? {};
+        const n = Object.values(m).reduce((a, b) => a + b, 0);
+        return n > 0 ? (m[winner] ?? 0) / n : 0;
+      };
+      expect(share('chaos', 'rebel'), '乱世 rebel win rate').toBeGreaterThanOrEqual(0.2);
+      expect(share('standard', 'rebel'), 'standard rebel win rate').toBeGreaterThanOrEqual(0.2);
+      expect(share('chaos', 'lord'), '乱世 lord win rate').toBeGreaterThanOrEqual(0.2);
+      expect(share('standard', 'lord'), 'standard lord win rate').toBeGreaterThanOrEqual(0.2);
+      expect(sum.earlyDamageShare, 'matches with hero damage before 180 s').toBeGreaterThanOrEqual(0.6);
+    }
   }, 3_600_000);
 });

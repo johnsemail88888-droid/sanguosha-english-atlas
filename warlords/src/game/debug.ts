@@ -13,6 +13,7 @@
 //                                    god mode, give item/weapon, teleport, kill, win
 import type { EntityId, GameEvent, PrivateHeroView, PublicPlayerView, Vec3, ViewEntity } from '../core/types';
 import type { ViewSource } from '../render/view';
+import { HEROES, ITEMS, isPassiveAbility } from '../data';
 import type { GameSession } from './session';
 
 export interface DebugDeath {
@@ -40,6 +41,7 @@ interface WorldLike {
   groundHeight?(x: number, z: number): number;
   heal?(id: EntityId, amount: number): number;
   killHero?(e: unknown, creditId: EntityId | undefined): void;
+  downHero?(e: unknown, creditId: EntityId | undefined): void;
   setCooldown?(id: EntityId, abilityId: string, seconds: number): void;
 }
 
@@ -68,7 +70,7 @@ export interface SgwlDebug {
   readonly handle: unknown;
   readonly gameHandle: unknown;
   readonly timings: Record<string, number>;
-  readonly events: { counts: Record<string, number>; deaths: DebugDeath[]; downed: number; total: number };
+  readonly events: { counts: Record<string, number>; deaths: DebugDeath[]; downed: number; total: number; heroHits: number; heroDamage: number };
   localId(): EntityId | null;
   localEntity(): ViewEntity | null;
   local(): PrivateHeroView | null;
@@ -77,6 +79,11 @@ export interface SgwlDebug {
   elapsed(): number;
   stats(): unknown;
   mark(name: string): void;
+  /**
+   * Fire every ability / item-card / explosion VFX once in front of your hero
+   * (synthetic events through the renderer, a few per frame). Resolves with the count.
+   */
+  vfxSmoke(perFrame?: number): Promise<number>;
   cheats: {
     available(): boolean;
     timeScale(scale: number): boolean;
@@ -87,6 +94,8 @@ export interface SgwlDebug {
     heal(): boolean;
     teleport(x: number, z: number): boolean;
     kill(entityId: EntityId): boolean;
+    /** knock your own hero down (濒死) — or `entityId`'s */
+    down(entityId?: EntityId): boolean;
     killOthers(): number;
     resetCooldowns(): boolean;
   };
@@ -117,7 +126,7 @@ export class DebugHooks {
   private session: GameSession | null = null;
   private game: DebugGame | null = null;
   private readonly timings: Record<string, number> = {};
-  private events = { counts: {} as Record<string, number>, deaths: [] as DebugDeath[], downed: 0, total: 0 };
+  private events = { counts: {} as Record<string, number>, deaths: [] as DebugDeath[], downed: 0, total: 0, heroHits: 0, heroDamage: 0 };
   private scale = 1;
   private god = false;
   private godTimer: ReturnType<typeof setInterval> | null = null;
@@ -145,7 +154,7 @@ export class DebugHooks {
   attachGame(g: DebugGame): () => void {
     this.game = g;
     this.session = g.session;
-    this.events = { counts: {}, deaths: [], downed: 0, total: 0 };
+    this.events = { counts: {}, deaths: [], downed: 0, total: 0, heroHits: 0, heroDamage: 0 };
     this.scale = 1;
     this.mark('mountGame');
     return () => {
@@ -162,11 +171,48 @@ export class DebugHooks {
       if (e.t === 'death' && e.kind === 'hero') {
         this.events.deaths.push({ target: e.target, killer: e.killer, heroId: e.heroId, role: e.role, at: view?.elapsed() ?? 0 });
       } else if (e.t === 'downed') this.events.downed++;
+      else if (e.t === 'hit' && e.src !== undefined && e.src !== e.target && e.amount > 0 && view) {
+        // hero-vs-hero damage (bots fighting each other), attributed through owners (troops / turrets)
+        const src = view.get(e.src);
+        const tgt = view.get(e.target);
+        const srcHero = src?.kind === 'hero' ? src.id : src?.owner;
+        if (tgt?.kind === 'hero' && srcHero !== undefined && srcHero !== tgt.id) {
+          this.events.heroHits++;
+          this.events.heroDamage += e.amount;
+        }
+      }
     }
   }
 
   mark(name: string): void {
     if (this.timings[name] === undefined) this.timings[name] = Math.round(performance.now());
+  }
+
+  private async vfxSmoke(perFrame: number): Promise<number> {
+    const view = this.game?.view;
+    const r = (this.game?.handle as { renderer?: { injectEvents(evs: GameEvent[]): void } | null } | undefined)?.renderer;
+    const id = view?.localId();
+    const me = id !== null && id !== undefined ? view?.get(id) : undefined;
+    if (!view || !r || !me) return 0;
+    const dir = { x: -Math.sin(me.yaw), y: 0, z: -Math.cos(me.yaw) };
+    const pos = { x: me.x + dir.x * 6, y: me.y + 1, z: me.z + dir.z * 6 };
+    const evs: GameEvent[] = [];
+    for (const h of HEROES) {
+      for (const a of h.abilities) {
+        if (a.slot === 'passive' || isPassiveAbility(a)) continue;
+        evs.push({ t: 'ability', src: me.id, ability: a.id, pos, dir, target: me.id });
+      }
+    }
+    for (const it of ITEMS) evs.push({ t: 'itemUse', who: me.id, item: it.id, pos, target: me.id });
+    for (const kind of ['fire', 'frag', 'rocket', 'grenade', 'thunder', 'ice', 'holy', 'heal', 'gas', 'smoke', 'ink', 'emp', 'shockwave'])
+      evs.push({ t: 'explosion', pos, radius: 4, kind });
+    const nextFrame = (): Promise<void> => new Promise((res) => requestAnimationFrame(() => res()));
+    for (let i = 0; i < evs.length; i += perFrame) {
+      r.injectEvents(evs.slice(i, i + perFrame));
+      await nextFrame();
+      await nextFrame();
+    }
+    return evs.length;
   }
 
   private host(): HostLike | null {
@@ -233,6 +279,7 @@ export class DebugHooks {
         return r ? r.stats() : null;
       },
       mark: (n) => this.mark(n),
+      vfxSmoke: (perFrame = 6) => this.vfxSmoke(perFrame),
       cheats: {
         available: () => w() !== null,
         timeScale: (scale) => {
@@ -322,6 +369,15 @@ export class DebugHooks {
           const e = world?.get(entityId);
           if (!world?.killHero || !e) return false;
           world.killHero(e, this.meId() ?? undefined);
+          return true;
+        },
+        down: (entityId) => {
+          const world = w();
+          const id = entityId ?? this.meId();
+          const e = id !== null && id !== undefined ? world?.get(id) : undefined;
+          if (!world?.downHero || !e) return false;
+          if (id === this.meId()) this.stopGod();
+          world.downHero(e, undefined);
           return true;
         },
         killOthers: () => {

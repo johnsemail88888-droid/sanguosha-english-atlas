@@ -61,6 +61,8 @@ export interface BotView {
   readonly lastHurtAt: number;
   readonly weapon: WeaponDef | undefined;
   readonly mode: BotMode;
+  /** the loot / crate / airdrop this bot is heading for (mode 'loot') */
+  readonly lootTarget: Entity | undefined;
   hostility(e: Entity): number;
   /** 0..1 how much this bot treats `e` (a hero) as an ally */
   allyScore(e: Entity): number;
@@ -79,20 +81,34 @@ export interface BotView {
   zoneGoal(): Vec3 | null;
 }
 
-export interface AbilityPlan {
-  slot: 'q' | 'e' | 'lord';
-  abilityId: string;
-  yaw?: number;
-  pitch?: number;
-  aimPoint?: Vec3;
-  aimTargetId?: EntityId;
+/**
+ * How a cast (ability / card) must be aimed. The bot never snaps: HeroBot turns
+ * its view with the human aim model (aimer.ts) and only presses once the
+ * crosshair is on it (and its reaction time has passed).
+ *  - 'none':  press at once (self casts, buffs);
+ *  - 'lock':  crosshair on an entity (targeted abilities / cards) — aimTargetId
+ *             is sent only while the entity is inside the crosshair cone;
+ *  - 'point': crosshair on a world point (ground casts, skillshots, dashes) —
+ *             the aim error lands in the cast.
+ */
+export interface CastAim {
+  mode: 'none' | 'lock' | 'point';
+  /** lock target, or the entity a point aim follows */
+  targetId?: EntityId;
+  /** static world point (point aims without targetId) */
+  point?: Vec3;
+  /** the point follows the entity's feet (plus a little lead) instead of its centre */
+  ground?: boolean;
+  /** projectile speed (m/s) to lead a followed entity by */
+  leadSpeed?: number;
 }
 
-export interface ItemPlan {
+export interface AbilityPlan extends CastAim {
+  slot: 'q' | 'e' | 'lord';
+  abilityId: string;
+}
+
+export interface ItemPlan extends CastAim {
   slot: number;
   itemId: string;
-  aimPoint?: Vec3;
-  aimTargetId?: EntityId;
-  yaw?: number;
-  pitch?: number;
 }

@@ -184,7 +184,6 @@ describe('WU-10: redirectDamage', () => {
     inject(w, dq, {
       id: 't_liuli',
       modifyIncoming(ctx) {
-        ctx.sim.dealDamage; // SimApi face
         (ctx.sim as World).redirectDamage(ctx.req, other.id);
         return 0;
       },
