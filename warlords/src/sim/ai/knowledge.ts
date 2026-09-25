@@ -9,9 +9,10 @@
 // Everything else (who is a rebel …) is inferred by beliefs.ts from observed
 // behaviour. tests/unit/ai/knowledge.test.ts scans the other AI files to make
 // sure none of them reads hero.role / sim.roleOf directly.
-import type { Entity, EntityId, GameMode, MatchSettings, RoleId } from '../../core/types';
+import type { Entity, EntityId, GameMode, RoleId } from '../../core/types';
 import { ROLE_DISTRIBUTION } from '../../data';
 import type { SimApi } from '../api';
+import { ext } from '../ext';
 
 /** Roles that can hide behind a face (never the crowns). */
 export type HiddenRole = 'loyalist' | 'rebel' | 'traitor' | 'opportunist' | 'bounty';
@@ -87,9 +88,15 @@ export function realLordFor(sim: SimApi, viewer: Entity): Entity | undefined {
   return undefined;
 }
 
-function settingsOf(sim: SimApi): MatchSettings | undefined {
-  // lobby settings are public (player count, mode) — World exposes them read-only
-  return (sim as unknown as { settings?: MatchSettings }).settings;
+/** Public lobby facts (mode, player count) — SimExt.matchInfo (AI-2); undefined on bare SimApi mocks. */
+function matchModeOf(sim: SimApi): GameMode | undefined {
+  const x = ext(sim);
+  if (typeof x.matchInfo !== 'function') return undefined;
+  try {
+    return x.matchInfo().mode;
+  } catch {
+    return undefined;
+  }
 }
 
 const VARIANT_CACHE = new Map<string, RoleId[][]>();
@@ -156,8 +163,7 @@ export function tableKnowledge(sim: SimApi, viewer: Entity): TableKnowledge {
     else if (k === 'traitor') knownTraitorAlive++;
   }
   const hasDouble = crownsEver >= 2;
-  const settings = settingsOf(sim);
-  let variants = candidateTables(settings?.mode, n).filter((v) => v.includes('double') === hasDouble && v.includes(mine));
+  let variants = candidateTables(matchModeOf(sim), n).filter((v) => v.includes('double') === hasDouble && v.includes(mine));
   // revealed dead roles must fit the variant (multiset inclusion, plus our own card)
   variants = variants.filter((v) => {
     const pool = [...v];

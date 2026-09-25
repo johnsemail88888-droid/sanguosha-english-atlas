@@ -1,34 +1,46 @@
-// Public-event observer shared by all bots of one world. Humans learn who shot
-// whom, who healed / revived whom, who went down, who died (with the revealed
-// role) and who claimed what from hit markers, tracers, heal numbers, the kill
-// feed and nameplates — all of it public GameEvents. The sim offers no event
-// tap to brains (see docs/SIM_REQUESTS.md), so the observer reconstructs the
-// same information once per tick from public state: the attack log
-// (recentAttackers), HP deltas, heal/rescue counters, downed/dead flags and
-// claims. Every bot then reads the shared log through its own cursor.
-import type { Entity, EntityId, RoleId } from '../../core/types';
+// Public-event observer shared by all bots of one world. It turns the world's
+// public event feed (SimExt.publicEventsSince — only events WITHOUT privateTo)
+// into a compact log of hero-level observations: who hit whom (directly, with
+// troops / summons, or with a lingering field), who healed / revived whom, who
+// went down, who died (with the revealed role), claims, quick-chat and lord
+// skill casts. It knows nothing about any particular seat: each bot reads the
+// log through its own Witness (witness.ts), which keeps only what that seat
+// actually perceived (its own fights, heroes it saw act, the kill feed, chat).
+// Worlds without the event tap fall back to reconstructing the same log by
+// polling public state (attack log, HP deltas, heal / rescue counters).
+import type { Vec3 } from '../../core/math';
+import type { Entity, EntityId, GameEvent, RoleId } from '../../core/types';
+import { ABILITY_BY_ID } from '../../data';
 import type { SimApi } from '../api';
 import { ext } from '../ext';
 import { publicRole } from './knowledge';
 
-export type ObsKind = 'attack' | 'heal' | 'revive' | 'downed' | 'death' | 'claim' | 'squadGrow';
+export type ObsKind = 'attack' | 'heal' | 'revive' | 'downed' | 'death' | 'claim' | 'quickchat' | 'lordSkill';
 
 export interface ObsEvent {
   seq: number;
   time: number;
   kind: ObsKind;
-  /** acting hero (attacker, healer, reviver, killer, claimant) */
+  /** acting hero (attacker, healer, reviver, killer, claimant, chatter, caster) */
   actor?: EntityId;
-  /** affected hero */
+  /** affected hero (the commander when a soldier / summon was hit) */
   target: EntityId;
-  /** damage / healing amount (hp), squad growth */
+  /** damage / healing amount (hp); 0 for a blocked hit */
   amount: number;
-  /** attack on a unit of the target's squad rather than the hero itself */
+  /** a troop / turret / summon was involved on either side (not hero on hero) */
   viaSquad?: boolean;
   /** damage from a lingering field (hazard) only — someone may just have walked into it */
   field?: boolean;
+  /** the hit was dodged / nullified / made invulnerable / handed on: intent without effect */
+  blocked?: boolean;
   /** public role revealed on death, or the role claimed */
   role?: RoleId;
+  /** quick-chat line id */
+  chat?: string;
+  /** where it happened (hit point / cast point), when known */
+  pos?: Vec3;
+  /** known to everyone at once (kill feed, chat, claims): no line of sight needed */
+  public?: boolean;
 }
 
 interface HeroMem {
@@ -38,24 +50,20 @@ interface HeroMem {
   claim: RoleId | null;
   healing: number;
   rescues: number;
-  squad: number;
-  squadMax: number;
 }
 
 const LOG_CAP = 4096;
 const SQUAD_POLL_TICKS = 6;
-const PAIR_DECAY = 4;
+/** seconds of the world's attack log used to tell how a hit was dealt (weapon / squad / field) */
+const VIA_WINDOW = 0.12;
 
 export class WorldObserver {
   private lastTick = -1;
   private lastTime = 0;
   private seq = 0;
+  private feedSeq = 0;
   private readonly log: ObsEvent[] = [];
   private readonly mem = new Map<EntityId, HeroMem>();
-  /** who attacked whom last (actor → target → time), for retaliation checks */
-  private readonly lastAttack = new Map<EntityId, Map<EntityId, number>>();
-  /** decaying damage sums per (actor, target) pair: key actor * 65536 + target */
-  private readonly pairDmg = new Map<number, { v: number; n: number; t: number }>();
 
   /** Advance to the current tick (idempotent within a tick). */
   update(sim: SimApi): void {
@@ -64,6 +72,101 @@ export class WorldObserver {
     const window = first ? 0.05 : Math.max(1e-3, sim.time - this.lastTime) + 1e-6;
     this.lastTick = sim.tick;
     this.lastTime = sim.time;
+    const x = ext(sim);
+    if (typeof x.publicEventsSince === 'function') this.readFeed(sim);
+    else this.poll(sim, first, window);
+  }
+
+  // ── event feed (AI-1) ─────────────────────────────────────────────────────
+  private readFeed(sim: SimApi): void {
+    const x = ext(sim);
+    const { seq, events } = x.publicEventsSince(this.feedSeq);
+    this.feedSeq = seq;
+    for (const ev of events) {
+      if (ev.privateTo !== undefined) continue; // never hidden information
+      this.convert(sim, ev);
+    }
+  }
+
+  private convert(sim: SimApi, ev: GameEvent): void {
+    const x = ext(sim);
+    switch (ev.t) {
+      case 'hit': {
+        if (ev.src === undefined) return;
+        const actor = sim.get(ev.src);
+        if (!actor?.hero) return;
+        const unit = sim.get(ev.target);
+        if (!unit) return;
+        let target: Entity | undefined = unit;
+        let viaSquad = false;
+        if (!unit.hero) {
+          target = x.commanderOf(unit);
+          if (!target?.hero || target === unit) return; // camps / wild NPCs: no role information
+          viaSquad = true;
+        }
+        if (target.id === actor.id) return;
+        // how the credited hero dealt it: look at the source entities it used on this victim
+        let bits = 0;
+        for (const a of x.recentAttackers(unit.id, VIA_WINDOW)) {
+          if (a === actor.id || x.creditOf(a) !== actor.id) continue;
+          const k = sim.get(a)?.kind;
+          bits |= k === 'hazard' ? 4 : k === 'troop' || k === 'npc' || k === 'turret' ? 2 : 1;
+        }
+        const direct = bits === 0 || (bits & 1) !== 0;
+        if (!direct && (bits & 2) !== 0) viaSquad = true;
+        const field = !direct && (bits & 2) === 0 && (bits & 4) !== 0;
+        const blocked = ev.blocked !== undefined && ev.blocked !== 'shield' && ev.blocked !== 'armor';
+        this.push(sim, { kind: 'attack', actor: actor.id, target: target.id, amount: blocked ? 0 : Math.max(0, ev.amount), viaSquad, field, blocked, pos: ev.pos });
+        return;
+      }
+      case 'heal': {
+        if (ev.src === undefined || ev.src === ev.target || ev.amount < 1) return;
+        const healer = sim.get(ev.src);
+        const t = sim.get(ev.target);
+        if (!healer?.hero || !t?.hero) return;
+        this.push(sim, { kind: 'heal', actor: healer.id, target: t.id, amount: ev.amount });
+        return;
+      }
+      case 'revived': {
+        const t = sim.get(ev.target);
+        if (!t?.hero) return;
+        const by = ev.by !== undefined && ev.by !== ev.target && sim.get(ev.by)?.hero ? ev.by : undefined;
+        this.push(sim, { kind: 'revive', actor: by, target: t.id, amount: t.hp });
+        return;
+      }
+      case 'downed': {
+        const t = sim.get(ev.target);
+        if (!t?.hero) return;
+        const by = ev.src !== undefined && ev.src !== ev.target && sim.get(ev.src)?.hero ? ev.src : undefined;
+        this.push(sim, { kind: 'downed', actor: by, target: t.id, amount: 0 });
+        return;
+      }
+      case 'death': {
+        if (ev.kind !== 'hero') return;
+        const t = sim.get(ev.target);
+        this.push(sim, { kind: 'death', actor: ev.killer, target: ev.target, amount: 0, role: ev.role ?? (t ? publicRole(sim, t) : undefined), public: true });
+        return;
+      }
+      case 'claim':
+        this.push(sim, { kind: 'claim', actor: ev.who, target: ev.who, amount: 0, role: ev.role, public: true });
+        return;
+      case 'quickchat':
+        this.push(sim, { kind: 'quickchat', actor: ev.who, target: ev.who, amount: 0, chat: ev.id, public: true });
+        return;
+      case 'ability': {
+        // lord skills (active or passive procs): only the real 主公 has them — the 影武者 has none
+        if (ABILITY_BY_ID[ev.ability]?.slot !== 'lord') return;
+        if (!sim.get(ev.src)?.hero) return;
+        this.push(sim, { kind: 'lordSkill', actor: ev.src, target: ev.src, amount: 0, pos: ev.pos });
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  // ── polling fallback (worlds without the event tap) ────────────────────────
+  private poll(sim: SimApi, first: boolean, window: number): void {
     const x = ext(sim);
     const heroes = sim.heroes();
     const healers: { e: Entity; amount: number }[] = [];
@@ -74,76 +177,64 @@ export class WorldObserver {
       if (!h) continue;
       let m = this.mem.get(e.id);
       if (!m) {
-        m = { hp: e.hp, downed: h.downed, dead: h.dead, claim: h.claim, healing: h.stats.healing, rescues: h.stats.rescues, squad: h.squad.length, squadMax: h.squad.length };
+        m = { hp: e.hp, downed: h.downed, dead: h.dead, claim: h.claim, healing: h.stats.healing, rescues: h.stats.rescues };
         this.mem.set(e.id, m);
         if (first) continue;
       }
-      // attacks on this hero during the last tick (credited to heroes)
       if (!h.dead || !m.dead) {
-        const attackers = x.recentAttackers(e.id, window);
         const drop = Math.max(0, m.hp - e.hp);
-        // group the attack-log ids by credited hero; the other ids are the sources used
-        // (the log holds the credited hero AND the source entity of every hit)
         const heroAttackers: EntityId[] = [];
-        const via = new Map<EntityId, number>(); // bit 1 direct/projectile, 2 squad, 4 field
-        for (const a of attackers) {
+        const via = new Map<EntityId, number>();
+        for (const a of x.recentAttackers(e.id, window)) {
           const c = x.creditOf(a);
-          if (c === undefined || c === e.id) continue;
-          const ce = sim.get(c);
-          if (!ce?.hero) continue;
+          if (c === undefined || c === e.id || !sim.get(c)?.hero) continue;
           if (!heroAttackers.includes(c)) heroAttackers.push(c);
           if (a === c) continue;
           const k = sim.get(a)?.kind;
-          const bit = k === 'hazard' ? 4 : k === 'troop' || k === 'npc' || k === 'turret' ? 2 : 1;
-          via.set(c, (via.get(c) ?? 0) | bit);
+          via.set(c, (via.get(c) ?? 0) | (k === 'hazard' ? 4 : k === 'troop' || k === 'npc' || k === 'turret' ? 2 : 1));
         }
         const share = heroAttackers.length > 0 ? drop / heroAttackers.length : 0;
         for (const a of heroAttackers) {
           const bits = via.get(a) ?? 1;
-          const direct = (bits & 1) !== 0 || bits === 0;
-          this.push(sim, 'attack', a, e.id, Math.max(4, share), undefined, !direct && (bits & 2) !== 0, !direct && (bits & 2) === 0 && (bits & 4) !== 0);
+          const direct = (bits & 1) !== 0;
+          this.push(sim, { kind: 'attack', actor: a, target: e.id, amount: share, blocked: share <= 0, viaSquad: !direct && (bits & 2) !== 0, field: !direct && (bits & 2) === 0 && (bits & 4) !== 0 });
         }
       }
       if (h.stats.healing > m.healing + 0.01) healers.push({ e, amount: h.stats.healing - m.healing });
       if (e.hp > m.hp + 0.01 && !h.dead && !(m.downed && !h.downed)) healed.push({ e, amount: e.hp - m.hp });
       if (h.stats.rescues > m.rescues) rescuers.push(e);
-      // downed / revived / died
       if (h.downed && !m.downed && !h.dead) {
         const by = x.recentAttackers(e.id, window + 0.5).map((a) => x.creditOf(a)).find((c) => c !== undefined && c !== e.id && !!sim.get(c)?.hero);
-        this.push(sim, 'downed', by, e.id, 0);
+        this.push(sim, { kind: 'downed', actor: by, target: e.id, amount: 0 });
       }
       if (!h.downed && m.downed && !h.dead) {
         const by = rescuers.length > 0 ? rescuers[0] : heroes.find((o) => o !== e && o.hero && o.hero.stats.rescues > (this.mem.get(o.id)?.rescues ?? o.hero.stats.rescues));
-        this.push(sim, 'revive', by?.id, e.id, e.hp);
+        this.push(sim, { kind: 'revive', actor: by?.id, target: e.id, amount: e.hp });
       }
-      if (h.dead && !m.dead) {
-        this.push(sim, 'death', h.killerId, e.id, 0, publicRole(sim, e));
-      }
-      if (h.claim && h.claim !== m.claim) this.push(sim, 'claim', e.id, e.id, 0, h.claim);
+      if (h.dead && !m.dead) this.push(sim, { kind: 'death', actor: h.killerId, target: e.id, amount: 0, role: publicRole(sim, e), public: true });
+      if (h.claim && h.claim !== m.claim) this.push(sim, { kind: 'claim', actor: e.id, target: e.id, amount: 0, role: h.claim, public: true });
       m.hp = e.hp;
       m.downed = h.downed;
       m.dead = h.dead;
       m.claim = h.claim;
     }
-    // heal attribution: a healer whose counter rose healed the heroes whose HP rose (not himself)
-    for (const hl of healers) {
-      let rest = hl.amount;
-      const selfGain = healed.find((x2) => x2.e === hl.e)?.amount ?? 0;
-      rest -= Math.min(rest, selfGain);
-      if (rest < 1) continue;
+    // heal attribution: only when exactly one healer's counter rose (ambiguous ticks are dropped)
+    if (healers.length === 1) {
+      const hl = healers[0];
+      let rest = hl.amount - Math.min(hl.amount, healed.find((h2) => h2.e === hl.e)?.amount ?? 0);
       for (const t of healed) {
-        if (t.e === hl.e) continue;
-        this.push(sim, 'heal', hl.e.id, t.e.id, Math.min(rest, t.amount));
+        if (t.e === hl.e || rest < 1) continue;
+        const amt = Math.min(rest, t.amount);
+        rest -= amt;
+        this.push(sim, { kind: 'heal', actor: hl.e.id, target: t.e.id, amount: amt });
       }
     }
-    // counters after attribution
     for (const e of heroes) {
       const m = this.mem.get(e.id);
       if (!m || !e.hero) continue;
       m.healing = e.hero.stats.healing;
       m.rescues = e.hero.stats.rescues;
     }
-    // squads: attacks on soldiers, and squads growing (summons — the 主公's lord skill is one tell)
     if (sim.tick % SQUAD_POLL_TICKS === 0 && !first) this.pollSquads(sim);
   }
 
@@ -153,69 +244,30 @@ export class WorldObserver {
     for (const e of sim.heroes()) {
       const h = e.hero;
       if (!h || h.dead) continue;
-      const m = this.mem.get(e.id);
-      if (!m) continue;
       const seen = new Set<EntityId>();
       for (const tid of h.squad) {
         for (const a of x.recentAttackers(tid, win)) {
           const c = x.creditOf(a);
           if (c === undefined || c === e.id || seen.has(c) || !sim.get(c)?.hero) continue;
           seen.add(c);
-          this.push(sim, 'attack', c, e.id, 6, undefined, true);
+          this.push(sim, { kind: 'attack', actor: c, target: e.id, amount: 6, viaSquad: true });
         }
       }
-      const n = h.squad.length;
-      if (n > m.squadMax) {
-        this.push(sim, 'squadGrow', e.id, e.id, n - m.squadMax);
-        m.squadMax = n;
-      }
-      m.squad = n;
     }
   }
 
-  private push(sim: SimApi, kind: ObsKind, actor: EntityId | undefined, target: EntityId, amount: number, role?: RoleId, viaSquad?: boolean, field?: boolean): void {
-    const ev: ObsEvent = { seq: ++this.seq, time: sim.time, kind, actor, target, amount, role, viaSquad, field };
-    this.log.push(ev);
+  private push(sim: SimApi, ev: Omit<ObsEvent, 'seq' | 'time'>): void {
+    const full = ev as ObsEvent;
+    full.seq = ++this.seq;
+    full.time = sim.time;
+    this.log.push(full);
     if (this.log.length > LOG_CAP) this.log.splice(0, this.log.length - LOG_CAP);
-    if (kind === 'attack' && actor !== undefined && !field) {
-      // squad fire counts half (soldiers pick fights through the world's hostility rules)
-      if (viaSquad) amount *= 0.5;
-      let m = this.lastAttack.get(actor);
-      if (!m) {
-        m = new Map();
-        this.lastAttack.set(actor, m);
-      }
-      m.set(target, sim.time);
-      const key = actor * 65536 + target;
-      const p = this.pairDmg.get(key);
-      if (p) {
-        const k = Math.exp(-(sim.time - p.t) / PAIR_DECAY);
-        p.v = p.v * k + amount;
-        p.n = p.n * k + 1;
-        p.t = sim.time;
-      } else {
-        this.pairDmg.set(key, { v: amount, n: 1, t: sim.time });
-      }
-    }
-  }
-
-  /** Recent number of separate hits (ticks with damage) `actor` landed on `target` (decaying like recentDamage). */
-  recentHits(sim: SimApi, actor: EntityId, target: EntityId): number {
-    const p = this.pairDmg.get(actor * 65536 + target);
-    return p ? p.n * Math.exp(-(sim.time - p.t) / PAIR_DECAY) : 0;
-  }
-
-  /** Recent damage `actor` dealt to `target` (decaying, ~4 s memory). Public knowledge. */
-  recentDamage(sim: SimApi, actor: EntityId, target: EntityId): number {
-    const p = this.pairDmg.get(actor * 65536 + target);
-    return p ? p.v * Math.exp(-(sim.time - p.t) / PAIR_DECAY) : 0;
   }
 
   /** Events with seq > `after` (oldest first). */
   since(after: number): ObsEvent[] {
     const log = this.log;
     if (log.length === 0 || log[log.length - 1].seq <= after) return [];
-    // binary search the first event with seq > after
     let lo = 0;
     let hi = log.length;
     while (lo < hi) {
@@ -228,12 +280,6 @@ export class WorldObserver {
 
   get lastSeq(): number {
     return this.seq;
-  }
-
-  /** Seconds since `actor` last hurt `target` (Infinity if never). Public knowledge. */
-  sinceAttack(sim: SimApi, actor: EntityId, target: EntityId): number {
-    const t = this.lastAttack.get(actor)?.get(target);
-    return t === undefined ? Infinity : sim.time - t;
   }
 }
 

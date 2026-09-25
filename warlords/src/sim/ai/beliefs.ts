@@ -10,7 +10,11 @@
 //    killers of loyalists look rebel; subtle readers also re-read the dead
 //    hero's past (whom it shot / healed);
 //  - claims: 我是忠臣 is weak (traitors lie), 我是反贼 is an admission;
-//  - escorting a crown for a long time without shooting it → loyal-ish.
+//  - escorting a crown for a long time without shooting it → loyal-ish;
+//  - 保护主公 quick-chat → a little loyal-ish (anyone can say it);
+//  - only the real 主公 has lord skills: a crown seen casting one is the lord.
+// Only what this seat perceived feeds the model (witness.ts: the kill feed,
+// chat, its own fights and heroes it saw act — never hidden events).
 // Evidence decays (half-life per difficulty). Probabilities combine the
 // evidence likelihoods with the public role table and are made consistent
 // with it by a few Sinkhorn iterations (rows = heroes, columns = roles).
@@ -19,7 +23,9 @@ import type { SimApi } from '../api';
 import type { DifficultyProfile } from './difficulty';
 import { HIDDEN_ROLES, ownRole, roleKnownTo, tableKnowledge, wearsCrown } from './knowledge';
 import type { HiddenRole, RoleCounts, TableKnowledge } from './knowledge';
-import type { ObsEvent, WorldObserver } from './observer';
+import type { ObsEvent } from './observer';
+import type { Sight } from './sight';
+import type { Witness } from './witness';
 
 interface Evidence {
   /** lord-side behaviour */
@@ -51,7 +57,7 @@ export class Beliefs {
   private readonly ev = new Map<EntityId, Evidence>();
   private readonly probs = new Map<EntityId, RoleCounts>();
   private readonly deeds = new Map<EntityId, Deed[]>();
-  /** squad-growth tells per crown (the real lord can summon, the 影武者 cannot) */
+  /** lord-skill tells per crown (only the real lord has lord skills, the 影武者 none) */
   private readonly crownTell = new Map<EntityId, number>();
   private cursor = 0;
   private lastDecay = -1;
@@ -66,14 +72,10 @@ export class Beliefs {
 
   constructor(private readonly prof: DifficultyProfile) {}
 
-  /** Consume new observations and refresh probabilities on a cadence. */
-  update(sim: SimApi, self: Entity, obs: WorldObserver): void {
+  /** Consume this seat's newly perceived observations and refresh probabilities on a cadence. */
+  update(sim: SimApi, self: Entity, events: readonly ObsEvent[], obs: Witness, sight: Sight): void {
     const now = sim.time;
-    const events = obs.since(this.cursor);
-    if (events.length > 0) {
-      this.cursor = events[events.length - 1].seq;
-      for (const e of events) this.apply(sim, self, obs, e);
-    }
+    for (const e of events) this.apply(sim, self, obs, e);
     // decay
     if (this.lastDecay < 0) this.lastDecay = now;
     const dtDecay = now - this.lastDecay;
@@ -88,7 +90,7 @@ export class Beliefs {
     }
     if (this.prof.subtleReads && now >= this.nextProximity) {
       this.nextProximity = now + PROXIMITY_EVERY;
-      this.proximityReads(sim, self, obs);
+      this.proximityReads(sim, self, obs, sight);
     }
     if ((this.dirty && now - this.lastRecompute >= MIN_RECOMPUTE_GAP) || now >= this.nextRecompute) {
       this.nextRecompute = now + RECOMPUTE_EVERY;
@@ -125,7 +127,7 @@ export class Beliefs {
     return roleKnownTo(sim, self, e) === undefined;
   }
 
-  private apply(sim: SimApi, self: Entity, obs: WorldObserver, ev: ObsEvent): void {
+  private apply(sim: SimApi, self: Entity, obs: Witness, ev: ObsEvent): void {
     const g = this.prof.evidenceGain;
     const target = sim.get(ev.target);
     if (!target?.hero) return;
@@ -135,6 +137,7 @@ export class Beliefs {
         this.remember(ev.actor, { time: ev.time, kind: 'attack', target: ev.target, amount: ev.amount });
         const actor = sim.get(ev.actor);
         if (!actor?.hero) return;
+        // a blocked hit (dodged, nullified…) still shows intent, with the weight of a light hit
         const w = g * (Math.min(ev.amount, 120) / 60 + 0.1) * (ev.viaSquad ? 0.35 : 1) * (ev.field ? 0.2 : 1);
         // the lord side shooting someone: a weak hint that the victim is suspected
         if (wearsCrown(sim, actor) && this.hidden(sim, self, ev.target)) this.evOf(ev.target).anti += 0.12 * w;
@@ -233,23 +236,36 @@ export class Beliefs {
         this.dirty = true;
         return;
       }
-      case 'squadGrow':
-        if (wearsCrown(sim, target)) this.crownTell.set(target.id, (this.crownTell.get(target.id) ?? 0) + ev.amount);
+      case 'lordSkill':
+        if (wearsCrown(sim, target)) this.crownTell.set(target.id, (this.crownTell.get(target.id) ?? 0) + 1);
         return;
+      case 'quickchat': {
+        // 保护主公 from a hero we cannot see through: a (cheap) loyal claim
+        if (ev.chat !== 'protectLord' || !this.hidden(sim, self, ev.target)) return;
+        this.evOf(ev.target).pro += 0.12 * g;
+        this.dirty = true;
+        return;
+      }
       default:
         return;
     }
   }
 
-  /** Heroes that stay near a crown without shooting it look like escorts. */
-  private proximityReads(sim: SimApi, self: Entity, obs: WorldObserver): void {
-    const crowns = sim.heroes().filter((e) => e.hero && !e.hero.dead && wearsCrown(sim, e));
+  /** Heroes seen staying near a crown without shooting it look like escorts. */
+  private proximityReads(sim: SimApi, self: Entity, obs: Witness, sight: Sight): void {
+    const crowns: { id: EntityId; x: number; z: number }[] = [];
+    for (const e of sim.heroes()) {
+      if (!e.hero || e.hero.dead || !wearsCrown(sim, e)) continue;
+      const p = e === self ? e.pos : sight.locatedNow(e.id) ? sight.lastPos(e.id) : undefined;
+      if (p) crowns.push({ id: e.id, x: p.x, z: p.z });
+    }
     if (crowns.length === 0) return;
     for (const e of sim.heroes()) {
-      if (!this.hidden(sim, self, e.id)) continue;
+      if (!this.hidden(sim, self, e.id) || !sight.seesNow(e.id)) continue;
+      const ep = sight.lastPos(e.id)!;
       for (const c of crowns) {
-        if (c === e) continue;
-        const d = Math.hypot(c.pos.x - e.pos.x, c.pos.z - e.pos.z);
+        if (c.id === e.id) continue;
+        const d = Math.hypot(c.x - ep.x, c.z - ep.z);
         if (d < 14 && obs.sinceAttack(sim, e.id, c.id) > 25) {
           this.evOf(e.id).pro += 0.06 * this.prof.evidenceGain;
           break;
@@ -340,7 +356,7 @@ export class Beliefs {
     return e ? e.pro + e.anti + e.trait : 0;
   }
 
-  /** Squad-growth tell for a crown (higher = more likely the real lord). */
+  /** Lord-skill tell for a crown (casts this seat saw; > 0 = it is the real lord). */
   crownLordTell(id: EntityId): number {
     return this.crownTell.get(id) ?? 0;
   }

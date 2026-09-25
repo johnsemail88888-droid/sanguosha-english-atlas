@@ -6,6 +6,7 @@ file · function · exact proposed change · why · which ability needs it. The 
 ## ABILITIES-SHU (蜀) — 4 requests
 
 ### SHU-1 · dash / knockback overshoot (post-forced-movement slide) — correctness, affects every hero
+- **Status:** DONE (world.ts `updateHero` / troops.ts `driveUnit` cap the horizontal speed at WALK_SPEED / the unit's baseSpeed on the first tick after `forced` ends — shared `physics.ts brakeForcedEnd()`, replayed by `net/clientView.stepPrediction` on the same tick. `you.forced.remaining` now counts exactly the forced ticks after the snapshot's tick as (n − ½)·SIM_DT and is 0 while only the brake is pending (this also fixes a pre-existing one-tick over-replay). Related: `World.dash` moves on n = ⌈duration / SIM_DT⌉ ticks at distance / (n·SIM_DT), `until` = start + (n − ½)·SIM_DT (start = next tick if the unit already moved this tick), and a knockback of force F travels exactly F m. Shu `charge()` now passes the plain distance; Shu `brake()` / `brakeAfterForced()` and Wei `brakeAtDashEnd()` are harmless repeats. Tests: tests/unit/sim/prediction.test.ts "forced movement …" (host ⇄ client bit-for-bit).)
 - **Files / functions:** `src/sim/world.ts` `updateHero` (the `else { if (e.forced) e.forced = undefined; … predictMove }` branch);
   `src/sim/troops.ts` `driveUnit` (`if (u.forced) u.forced = undefined;`); `src/net/clientView.ts` `stepPrediction`
   (when `forced.left` runs out) so client prediction stays bit-identical.
@@ -34,6 +35,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   `speed = distance / (n * SIM_DT)`) — every hero's dash then covers exactly its data distance.
 
 ### SHU-2 · piercing projectiles re-hit their first target up to 4× in one tick — correctness
+- **Status:** DONE (combat.ts `updateProjectiles`: the skip closure reads `w.projPierced` live; `huangzhong.ts seedPierceSet()` removed. Test: tests/unit/sim/requests.test.ts SHU-2.)
 - **File / function:** `src/sim/combat.ts` `updateProjectiles`.
 - **Problem:** `const pierced = w.projPierced.get(p.id)` is read once, before the hit loop. On the first pierce the set is
   created (`w.projPierced.set(p.id, set)`) but the `skip` closure still sees the stale `undefined`, so the next raycast
@@ -45,6 +47,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   `seedPierceSet()` (creates the empty set right after `spawnProjectile`, duck-typed on `World.projPierced`).
 
 ### SHU-3 · let an ability tell the world where its cast really happened ({ t: 'ability' } event) — VFX/audio accuracy
+- **Status:** DONE (world.ts `activateAbility` copies `ctx.cast` pos / target / dir verbatim — type `AbilityCast` + helper `setAbilityCast()` in sim/ext.ts — and falls back to aimPoint(60) / aimTargetId / aim ray for the rest. RENDER may now take 青龙斩's end point from the event.)
 - **File / function:** `src/sim/world.ts` `activateAbility` (+ an additive type, e.g. in `src/sim/ext.ts`:
   `export interface AbilityCast { pos?: Vec3; target?: EntityId; dir?: Vec3 }`).
 - **Problem:** the event always carries `pos: aimPoint(e, 60)`, `target: input.aimTargetId`, `dir: aimRay.dir`. For many
@@ -64,6 +67,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   `near(ctx, dash, …)` instead (the sim then writes the real stop point).
 
 ### SHU-4 · `SimExt.dropAggro(unitId, seconds)` — 空城 writes brain state directly — robustness
+- **Status:** DONE (`SimExt.dropAggro(unitId, seconds)`: clears troop / NPC `targetId` and sets `ai.aggroHoldUntil` (both brains already honour it); `zhugeliang.ts loseAggro()` now calls it.)
 - **Files / functions:** `src/sim/ext.ts` (`SimExt`), `src/sim/world.ts` (implementation), `src/sim/ai/troopBrain.ts` +
   `src/sim/ai/npcBrain.ts` (honour it).
 - **Problem:** 诸葛亮 空城 ("soldiers / NPCs within 15 m lose aggro") has no API, so `sim/abilities/shu/zhugeliang.ts`
@@ -80,6 +84,7 @@ file · function · exact proposed change · why · which ability needs it. The 
 ## ABILITIES-QUN (群) — 7 requests (QUN-3 and QUN-5 withdrawn)
 
 ### QUN-1 · +1 for SHU-3 (ability event override) — same `ctx.cast` property
+- **Status:** DONE (same change as SHU-3; Qun's `setCastEvent()` is read as is.)
 - **File / function:** `src/sim/world.ts` `activateAbility` — exactly the SHU-3 change (read `ctx.cast` → `pos` / `target` / `dir`).
 - **Why (Qun):** 麻沸散 (≤ 30 m), 雷击 (≤ 50 m), 乱击 (≤ 60 m) and 南蛮入侵 (≤ 50 m) land at the range-clamped point, not at
   `aimPoint(e, 60)`; 青囊 falls back to Hua Tuo himself (the raw aim id may be an enemy hero → the heal VFX plays on the
@@ -89,6 +94,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   Shu's `setCast`). Until the world reads it, `render/vfx/abilities-qun.ts` clamps `ev.pos` to the ability's range itself.
 
 ### QUN-2 · shieldPierce should come from the hero's own hits, not its troops/summons — correctness (吕布 无双)
+- **Status:** DONE (combat.ts step 5: `src?.hero ? modifiers(src.id).shieldPierce : 0`.)
 - **File / function:** `src/sim/combat.ts` `dealDamage`, step 5 (shield):
   `const pierceFrac = credit?.hero ? Math.min(1, Math.max(0, w.modifiers(credit.id).shieldPierce)) : 0;`
 - **Problem:** the pierce is looked up on the *credited* hero, so Lü Bu's squad, and any other `shieldPierce` hero's
@@ -98,11 +104,13 @@ file · function · exact proposed change · why · which ability needs it. The 
 - **Who needs it:** 吕布 无双 (`lubu_wushuang.modifiers().shieldPierce`). No workaround on the ability side.
 
 ### QUN-3 · ~~basic bot: a failed activation locks the bot onto that slot forever~~ — WITHDRAWN
+- **Status:** WITHDRAWN (nothing to apply).
 - Already solved: `src/sim/ai/abilityUse.ts` `AbilityUser.checkPending` backs a slot off for ~5 s (`FAIL_BACKOFF`) when a
   press started no cooldown / spent no charge, and falls through to the next slot. In current all-Qun bot matches 离间
   and 连环计 are both cast. Nothing to apply.
 
 ### QUN-4 · HeroBot: the 急救 free revive is assumed ready while it is on cooldown — AI (华佗)
+- **Status:** DONE by the AI owner (`HeroBot.canReviveFree()` asks the passive's hook — see the AI status section).
 - **File / function:** `src/sim/ai/heroBot.ts` `HeroBot.canReviveFree()` (used by `reviveCandidate()`).
 - **Problem:** it only checks that one of the hero's passives *has* a `canReviveFree` hook, not that the free revive is
   ready. A 华佗 bot without a 桃 walks to downed allies while `huatuo_jijiu` is on its 30 s cooldown, and
@@ -115,11 +123,13 @@ file · function · exact proposed change · why · which ability needs it. The 
   first, see QUN-6.)
 
 ### QUN-5 · ~~basic bot: self-centred melee abilities are cast from 27 m away~~ — WITHDRAWN
+- **Status:** WITHDRAWN (nothing to apply).
 - Already solved: `abilityUse.ts` `abilityReach()` falls back to `params.radius`, and an 'offense' ability with
   `targeting: 'self'` and a radius ≤ 12 m is only pressed with ≥ 2 enemy points inside that radius
   (`enemiesWithin(p.radius)`), so 方天画戟 is no longer cast from afar. Nothing to apply.
 
 ### QUN-6 · a ready 急救 free revive should be used before the 桃 — gameplay (华佗) — worked around, please still apply
+- **Status:** DONE (inventory.ts `updateChannel`: a ready free revive goes first and the 桃 is kept; `completeItem`: a `canRevive` card used on a downed ally while a free revive is ready revives for free, keeps the card and emits no itemUse. `huatuo_jijiu`'s give-back workaround simply never triggers now.)
 - **File / function:** `src/sim/inventory.ts` `updateChannel`, the `ch.kind === 'revive'` completion
   (`const taoSlot = h.items.findIndex(...); if (taoSlot >= 0) { …consume… } else if (w.hooks.canReviveFree(e)) free = true;`).
 - **Problem:** Hua Tuo carrying a 桃 always spends it, even while his once-per-30 s free revive is ready. Every hero spawns
@@ -138,6 +148,7 @@ file · function · exact proposed change · why · which ability needs it. The 
 - **Who needs it:** 华佗 急救. The HUD's "need a 桃" hint (`ui/hud/logic.ts`) already treats a ready free revive as enough.
 
 ### QUN-7 · 铁索连环: an area fire / thunder hit multiplies on every chained unit inside it — correctness / balance
+- **Status:** DONE (combat.ts: fire / thunder hits without weaponId on a 'chained' target are deduped per tick by (credit, abilityId): the spread marks every unit it reaches, a later direct hit of the same strike on such a unit is skipped, spread targets already hit are skipped. Qun's `bolt()` workaround stays correct. Test: requests.test.ts QUN-7.)
 - **File / function:** `src/sim/combat.ts` `dealDamage`, step 9 (chained spread).
 - **Problem:** an area ability hits each unit in its area directly, and each direct hit on a 'chained' unit spreads to
   every other chained unit. With N chained units inside one blast, each takes the hit N times (3 chained heroes in one
@@ -162,6 +173,7 @@ file · function · exact proposed change · why · which ability needs it. The 
 ## ITEMS (锦囊 / 装备) — 12 requests
 
 ### ITEMS-1 · expose the 无懈可击 / 谦逊 gates on SimExt — needed by 5 items (worked around)
+- **Status:** DONE (`SimExt.nullifies(target, sourceId?)` and `SimExt.canBeAffected(target, status, sourceId?)` declared). DEFERRED → ITEMS: switch `items/util.ts nullified()` / `vetoes()` to `ext(sim).nullifies(...)` / `!ext(sim).canBeAffected(...)`.
 - **File:** `src/sim/ext.ts` `interface SimExt` (World already implements both as public methods — declaration only).
 - **Proposed change:** add
   ```ts
@@ -176,11 +188,13 @@ file · function · exact proposed change · why · which ability needs it. The 
   to "not cancelled / not vetoed" if they ever disappear — switch to `ext(sim).nullifies(...)` once declared.
 
 ### ITEMS-2 · `SimExt.squadCap(heroId)` — 征兵令 (and 孙权 坐断东南)
+- **Status:** DONE (`SimExt.squadCap(heroId)` = the world's spawn rule, used by spawnHeroes). DEFERRED → ITEMS: `items/tricks.ts squadCap()` / `util.ts troopsPerHero()` → `ext(sim).squadCap(self.id)`.
 - **Files:** `src/sim/ext.ts` (declare), `src/sim/world.ts` (implement with the formula already in `spawnHeroes`):
   `settings.troopsPerHero + heroDef.troopBonus + (role lord|double ? 2 : 0) + modifiers(id).squadBonus`.
 - **Why:** items only see SimApi; `items/util.ts troopsPerHero()` reads `world.settings` by duck-typing (default 4).
 
 ### ITEMS-3 · item-use events and hidden information (trap spot — worked around; stealthed users — open)
+- **Status:** DONE (`ItemImplEx.hiddenUse`; a user in stealth that is not publicly revealed, or a `hiddenUse` card, gets `itemUse` with `privateTo`; `ItemCtx.eventPos` set by `use()` replaces `point` in the event). DEFERRED → ITEMS (optional): traps back to `targeting: 'point'` + `hiddenUse: true` if the UI wants a reticle; `throwItem` users set `ctx.eventPos` to the landing point.
 - **Files:** `src/sim/ext.ts` `ItemImplEx` (+ `hiddenUse?: boolean`), `src/sim/inventory.ts` `completeItem`.
 - **Problem 1 (worked around, no longer leaks):** `completeItem` emits `{ t: 'itemUse', who, item, pos: point }` publicly,
   so every client (and the renderer's ring/sparkle at `pos`) learned exactly where each 乐不思蜀 / 兵粮寸断 trap was laid.
@@ -199,12 +213,14 @@ file · function · exact proposed change · why · which ability needs it. The 
   from where the grenade actually lands (`items/util.ts throwItem` knows the landing point).
 
 ### ITEMS-4 · hidden hazards should be sent within 6 m, not 8 m (low priority)
+- **Status:** DONE (snapshot.ts `HIDDEN_HAZARD_SEND_RANGE = 6` for hazards). Test: requests.test.ts ITEMS-4.
 - **File / function:** `src/sim/snapshot.ts` `hiddenFrom`.
 - **Current:** traps hide themselves with a keep-`stealth` instance on the hazard entity (`items/delayed.ts placeTrap`), so
   snapshots omit them for enemies beyond `STEALTH_SEND_RANGE` (8 m); the item design (data/items.ts header) says 6 m.
 - **Proposed change:** `const range = e.kind === 'hazard' ? 6 : STEALTH_SEND_RANGE; return d > range;`
 
 ### ITEMS-5 · source-scoped status removal — 决斗 early end (worked around, low priority)
+- **Status:** DONE (`SimExt.removeStatusFrom(targetId, id, sourceId)`). DEFERRED → ITEMS: `items/tricks.ts endDuelMark()` → `ext(sim).removeStatusFrom(target, 'marked', src)`.
 - **Files:** `src/sim/ext.ts` + `src/sim/world.ts`: `removeStatusFrom(targetId: EntityId, id: StatusId, sourceId: EntityId): void`
   → `const e = this.get(targetId); if (e) removeStatusFrom(this, e, id, sourceId);` (status.ts already has it).
 - **Why:** when a duel ends early (35 m apart, someone downed) its two 'marked' instances should go, but
@@ -213,18 +229,21 @@ file · function · exact proposed change · why · which ability needs it. The 
   removes them that tick with their 'off' events. Same need as WU-3 — one API serves both.
 
 ### ITEMS-6 · discrete custom hazard kinds (low priority, worked around)
+- **Status:** DONE (`HazardKindImpl.discrete`: the custom tick runs outside `periodic()`, so its hostile effects consume / are cancelled by 无懈可击). DEFERRED → ITEMS: set `discrete: true` on the trap / 闪电 kinds and drop the `schedule(0)` detour.
 - **File / function:** `src/sim/hazards.ts` `updateHazards` + `HazardKindImpl`.
 - **Problem:** a custom `tick()` always runs inside `periodic()`, so a custom *discrete* effect (trap springing, lightning
   bolt) can neither consume nor be cancelled by 无懈可击. Items resolve such effects via `sim.schedule(0, …)` from `tick()`.
 - **Proposed change:** `HazardKindImpl.discrete?: boolean`; when set, call `safeKind(...)` without the `periodic()` wrapper.
 
 ### ITEMS-7 · feedback when an item cannot be used (UX, low priority)
+- **Status:** DONE (`{ t: 'sfx', name: 'itemDenied', privateTo }` for human users when an 'enemy' card has no target or `use()` returns false). DEFERRED → AUDIO: map sfx 'itemDenied' to a short "denied" cue (router.ts).
 - **File / function:** `src/sim/inventory.ts` `useItemSlot` (no aim target for an 'enemy' item) and `completeItem` (`use()`
   returned false: nothing to steal, nobody hurt, squad full …).
 - **Proposed change:** `w.emit({ t: 'sfx', name: 'itemDenied', pos: { ...e.pos }, privateTo: e.id })` so the HUD/audio can
   play a "denied" cue instead of silently doing nothing.
 
 ### ITEMS-8 · `DamageRequest.noNullify` — 决斗's penalty must not be cancellable (worked around)
+- **Status:** DONE (`DamageRequest.noNullify`, checked in combat.ts `isNullifiableHit`). DEFERRED → ITEMS: `items/tricks.ts DUEL_PENALTY` back to `abilityId: 'juedou', noNullify: true`.
 - **Files:** `src/sim/api.ts` `DamageRequest` (+ `noNullify?: boolean` — additive, optional), `src/sim/combat.ts`
   `isNullifiableHit`: `if (isZone || req.noNullify || req.sourceId === undefined || req.weaponId !== undefined) return false;`
 - **Problem:** the duel loser's 80 damage is an item hit with a source, so the loser's 无懈可击 cancelled it (bots carry
@@ -234,6 +253,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   `wei/shared.ts`) and skip 酒 (irrelevant: weapon-only). With the flag, switch back to `abilityId: 'juedou', noNullify: true`.
 
 ### ITEMS-9 · loot pickup lock on SimApi — 过河拆桥 flings gear out of its owner's reach (worked around)
+- **Status:** DONE (`SimApi.spawnLoot(pos, what, ammo?, lock?)` declared; `SimExt.dismount(heroId, opts?)` / `stripArmor(heroId, drop?, opts?)` take `{ sourceId?, at?, lock? }` and return whether gear was stripped). DEFERRED → ITEMS (optional): `spawnLockedLoot()` → `sim.spawnLoot(..., undefined, lock)`, or the EMP → `stripArmor(id, true, { sourceId, at, lock: 5 })` + `dismount(id, { sourceId, at, lock: 5 })`.
 - **Files:** `src/sim/api.ts` `spawnLoot(pos, what, ammo?, lock?)` (declaration only — `World.spawnLoot` already takes
   `lock: { heroId, seconds }` 4th); optionally `SimExt.dismount(heroId, opts?: { at?: Vec3; lock?: number })` /
   `stripArmor(heroId, drop?, opts?)` with the same options.
@@ -244,6 +264,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   `dismount` / `stripArmor`): the EMP checks 无懈可击 itself and no longer calls `dismount`, so WU-4 cannot double-consume it.
 
 ### ITEMS-10 · RENDER + AUDIO: the EMP looks and sounds like a frag grenade; item-use VFX registry
+- **Status:** DEFERRED → RENDER (`render/vfx/effects.ts explosion()` `case 'emp'` as described; item VFX registry in `eventVfx.ts case 'itemUse'`), AUDIO (`router.ts` explosion variant `/emp|shock/` → the 'thunder' variant at low size), UI (duel indicator from `abilityState['item:juedou:vs' / ':until']`). Nothing in sim.
 - **RENDER, `src/render/vfx/effects.ts` `explosion()`:** add `case 'emp':` — expanding blue-white shock ring on the ground
   (`fx.ring`, radius0 0.3 → radius × 1.2, color ~C(0.6, 1.2, 2.4)), a thin translucent sphere pulse (`fx.sphere`, 0.3 s),
   a handful of short electric sparks (`PT.spark`, blue, low gravity), a small cold light flash — no fireball, no smoke,
@@ -264,6 +285,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   and `['item:juedou:until']` (sim time) in the local player's private view (no reader in `src/ui` yet).
 
 ### ITEMS-11 · AI planner (`src/sim/ai/itemUse.ts ItemUser.plan`) second-guesses three item hints
+- **Status:** DONE by the AI owner (see the AI status section).
 - **决斗:** `if (id === 'juedou' && hpFrac < (t.hp / Math.max(1, t.maxHp)) + 0.1) return null;` rejects every even duel.
   `botShouldUse` now accepts fair fights (≥ 50 % HP, ≥ 90 % of the foe's HP + shield) and finishing blows — drop the line
   (or `if (id === 'juedou' && gate !== true && …)`).
@@ -276,6 +298,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   used). The planner's 'point' + 'defense' branch (≤ 10 m midpoint) no longer applies to them.
 
 ### ITEMS-12 · docs: regenerate HEROES.md, align GAME_SPEC §7 决斗
+- **Status:** DONE for HEROES.md (regenerated with `UPDATE_DOCS=1 npx vitest run tests/unit/data`). DEFERRED → orchestrator (GAME_SPEC owner): §7 should read "**决斗** tether duel 8 s (each side's soldiers focus the other; whoever lost more HP + shield takes 80; ends early at 35 m or when someone falls)".
 - `docs/HEROES.md` is stale (tests/unit/data/heroes-doc.test.ts fails): item text in data/items.ts changed (借刀杀人,
   南蛮入侵, 乐不思蜀, 兵粮寸断, 闪电, and now 过河拆桥's knock-away + 5 s lock) plus Wu's 百骑劫营. Run
   `UPDATE_DOCS=1 npx vitest run tests/unit/data` (docs/ is outside the ITEMS paths).
@@ -289,6 +312,7 @@ Wu lives in `src/sim/abilities/wu/*.ts` (entry `wu.ts`); every workaround below 
 redundant (not wrong) once the request lands.
 
 ### WU-1 · +1 for SHU-3 (ability event override) — same `ctx.cast` property
+- **Status:** DONE (same change as SHU-3).
 - **File / function:** `src/sim/world.ts` `activateAbility` — exactly the SHU-3 change.
 - **Why (Wu):** 火烧赤壁's 1.5 s warning needs the *line*: Wu writes `pos` = far end of the 25 m line on the ground and
   `dir` = its flat direction (the default `aimPoint(e, 60)` / 3D aim ray point elsewhere). 反间 writes `pos` = the hero
@@ -298,6 +322,7 @@ redundant (not wrong) once the request lands.
   安娴, 燎原) write the caster's chest. Helper: `wu/util.ts setCast()` (same shape as Shu/Qun).
 
 ### WU-2 · activation events leak the position of a stealthed caster — hidden information
+- **Status:** DONE (world.ts `activateAbility`: stealthed and not publicly revealed before the cast ⇒ the event carries `privateTo: caster`).
 - **File / function:** `src/sim/world.ts` `activateAbility` (the `this.emit({ t: 'ability', … })` after a successful activate).
 - **Problem:** the event is public and carries `src`, so every client plays the cast VFX/SFX at the caster: a hero in
   stealth (吕蒙 克己 / 白衣渡江, 甘宁 百骑劫营, 孙尚香 … any hero with a stealth item) who casts 攻心 / 奇袭 / 国色 …
@@ -307,6 +332,7 @@ redundant (not wrong) once the request lands.
   public: the smoke puff where he vanished is fair). Wu's own passive-trigger events already do this (`wu/util.ts emitTrigger`).
 
 ### WU-3 · remove one status instance, not every instance of the id — needed by 吕蒙 克己
+- **Status:** DONE (`SimExt.removeStatusWhere(targetId, id, pred)`; `lumeng.ts breakKeji()` switched).
 - **File / function:** `src/sim/ext.ts` (SimExt) + `src/sim/world.ts`: add
   `removeStatusWhere(targetId: EntityId, id: StatusId, pred: (s: StatusInstance) => boolean): void` → `status.ts removeStatusIf(this, e, id, pred)`
   (or an optional `sourceId` on `removeStatus`, mapping to `removeStatusFrom(w, e, id, sourceId)`).
@@ -315,6 +341,7 @@ redundant (not wrong) once the request lands.
   `tickStatuses` removes it (with its 'off' event) later in the same tick.
 
 ### WU-4 · `dismount` / `stripArmor` ignore 无懈可击 — needed by 甘宁 奇袭 (and 过河拆桥)
+- **Status:** DONE (`dismount` / `stripArmor` take `opts.sourceId` and are gated by 无懈可击 only then — 麒麟弓 stays ungated). 奇袭 keeps its whole-bolt pre-check (still correct).
 - **File / function:** `src/sim/world.ts` `dismount(heroId)` / `stripArmor(heroId, drop)` (→ `inventory.ts`).
 - **Problem:** unlike `takeRandomItem` / `stealItem` / `knockback` / `teleport`, these never consult the nullify gate, so an
   enemy trick that strips gear goes through a 无懈可击. Gating on `actorId` would be wrong for 麒麟弓's weapon special
@@ -326,6 +353,7 @@ redundant (not wrong) once the request lands.
   touched. Once the opt-in `sourceId` lands, pass it to `dismount` / `stripArmor` and drop the pre-check.
 
 ### WU-5 · let abilities ask "can this status land?" before committing — 谦逊 / 无懈可击 outcomes
+- **Status:** DONE (declared as `canBeAffected(target: Entity, …)` — the ITEMS-1 shape World already had, not `targetId`; `wu/util.ts immuneTo()` / `nullifiedBy()` / `applyDebuff()` now use SimExt directly).
 - **File / function:** `src/sim/ext.ts` (SimExt) + `src/sim/world.ts`: `canBeAffected(targetId: EntityId, what: StatusId | 'steal', sourceId?: EntityId): boolean`
   → `this.hooks.canBeAffected(e, what, sourceId)` (the method exists on World, just not on the interface).
 - **Why:** in 三国杀 a card cannot be aimed at an immune hero (乐不思蜀 / 反间 on 陆逊), while 无懈可击 cancels a card that
@@ -335,12 +363,14 @@ redundant (not wrong) once the request lands.
   the echo as immunity: 奇袭 stripped gear through it). Putting the method on SimExt makes the cast unnecessary.
 
 ### WU-6 · squad cap query — needed by 孙权 坐断东南 (and 征兵令)
+- **Status:** DONE (`SimExt.squadCap`; `sunquan.ts squadCap()` switched).
 - **File / function:** `src/sim/ext.ts` + `src/sim/world.ts`: `squadCap(heroId: EntityId): number` =
   `settings.troopsPerHero + def.troopBonus + (role lord/double ? 2 : 0) + modifiers(id).squadBonus` (the spawn rule in the
   World constructor, factored out so both use one formula).
 - **Workaround:** `sunquan.ts squadCap()` re-derives it and reads `World.settings` through a structural cast.
 
 ### WU-7 · projectile detonation callback — needed by 黄盖 诈降火船
+- **Status:** DONE (combat.ts `registerProjectileKind({ kind, onDetonate(sim, proj, at, hitId?) })`, called once on explosion, unit hit, wall / ground, expiry or leaving the map; 黄盖's fire ship switched — `wu/util.ts whenProjectileGone()` removed. Test: requests.test.ts WU-7.)
 - **File / function:** `src/sim/combat.ts` `updateProjectiles` / `detonate` (+ a registry next to `registerHazardKind`):
   `registerProjectileKind({ kind, onDetonate?(sim, proj: Entity, at: Vec3, hitId?: EntityId): void })`, called once when the
   projectile explodes, hits a unit (before `removeEntity`), hits a wall or expires.
@@ -349,6 +379,7 @@ redundant (not wrong) once the request lands.
   (≤ 0.4 m early at 12 m/s).
 
 ### WU-8 · non-stacking fields of one cast, and the hazard dtype for custom kinds
+- **Status:** DONE (hazards.ts: `params.group` — a unit is damaged by one field of (ownerId, group) per tick; a field only reaches units on its own floor (the surface under the unit at field height + 2 m must be under its feet — roofs / decks excluded, hillsides kept); custom `tick(sim, hazard, affected, rt)` gets `{ dtype, status, affectsOwner, triggerOnce }`). Wu's `registerFieldKind()` is left as is (still correct).
 - **File / function:** `src/sim/hazards.ts` `fieldEffects` / `HazardKindImpl.tick`.
 - **Problem:** a line of overlapping fields from one cast (火烧连营 4 m apart with r 2.5 → ×1.5 under 燎原; 火烧赤壁's
   5 napalm fields) burns a unit standing in the overlap 2–3× per tick. Custom kind ticks also cannot read the spec's
@@ -362,12 +393,14 @@ redundant (not wrong) once the request lands.
   tick that dedupes per (kind, owner, unit, tick), applies that floor test and deals 'fire'.
 
 ### WU-9 · bots: 结姻 only works on male heroes — AI (`src/sim/ai/abilityUse.ts` `allyInNeed`)
+- **Status:** DEFERRED → AI (`abilityUse.ts allyInNeed`: skip candidates with `def.params.maleOnly && sim.heroDef(a)?.gender !== 'male'`; on the AI owner's current list).
 - **Problem:** 孙尚香 结姻 (`targeting: 'ally'`, aiHint heal) refuses a female ally, so the bot aims at 大乔/貂蝉/甄姬, fails and
   backs off.
 - **Proposed change:** data now carries `params.maleOnly = 1` on `sunshangxiang_jieyin`; in `allyInNeed` (heal/ally plans) skip
   candidates with `def.params.maleOnly && sim.heroDef(a)?.gender !== 'male'`.
 
 ### WU-10 · `redirectDamage(req, newTargetId)` — 大乔 流离 (conflicts with WEI-1 as written)
+- **Status:** DONE (`SimExt.redirectDamage(req, newTargetId)` with the per-hit frame stack in combat.ts; weapon specials go to the new victim (skipped when fully soaked by a shield, like every weapon hit); the original hit reports `blocked: 'redirect'` in `DamageResult` and the hit event (core/types additive). 大乔 `redirectBullet()` is now that one call; the 酒 carry-over and `wu/util.ts weaponOnHit()` are gone). RENDER / UI: show "deflected" for `blocked === 'redirect'` (a HUD label already landed in 5c925a1).
 - **File / function:** `src/sim/combat.ts` `dealDamage` + `src/sim/ext.ts` (SimExt) / `src/sim/world.ts`; `src/sim/api.ts`
   `DamageResult.blocked` gains `'redirect'` (additive).
 - **Problem:** a victim-side hook that hands a hit to someone else only sees `req.amount` (raw) and the amount after the
@@ -396,6 +429,7 @@ redundant (not wrong) once the request lands.
   Known gaps: 酒 drunk in the same tick as the shot is not seen (lost, as before); the shooter still sees 'invuln'.
 
 ### Data note (integrator)
+- **Status:** DONE (docs/HEROES.md regenerated).
 - `src/data/heroes-wu.ts`: 百骑劫营 text/params now describe the implemented "first attack" = one trigger pull, ≤ `burst` 1 s
   (+`burst: 1`), 结姻 gained the `maleOnly: 1` hint, and the 流离 / 反间 texts now say "a unit in sight … enemies first,
   your soldiers last" / "the nearest other hero it can see" → `docs/HEROES.md` must be regenerated
@@ -404,6 +438,7 @@ redundant (not wrong) once the request lands.
 ## ABILITIES-WEI (魏) — 11 requests + a data note
 
 ### WEI-1 · redirected damage must not run the attacker's outgoing pipeline again — correctness (曹操 护驾, 大乔 流离)
+- **Status:** DONE (combat.ts: `redirected` skips `beforeDamageDealt` and step 3 and is never nullified; `caocao.ts` 护驾 now passes `sourceId: req.sourceId`).
 - **File / function:** `src/sim/combat.ts` `dealDamage` (+ `isNullifiableHit`).
 - **Problem:** a redirect re-deals damage whose `amount` already includes the attacker's multipliers. If it keeps the
   attacker as `sourceId` (kill credit, `recordAttack`, troop retaliation) the pipeline applies `beforeDamageDealt`,
@@ -420,6 +455,7 @@ redundant (not wrong) once the request lands.
   follow-up that lets 流离 use the flag too.
 
 ### WEI-2 · `fireHitscan` with a `weaponId` should apply the weapon's on-hit special — correctness (夏侯渊 神速)
+- **Status:** DONE (combat.ts `fireHitscanShot` applies `applyWeaponSpecialOnHit` for a weaponId round, opt-out `HitscanOptions.weaponSpecials: false`). Deviation: a hit fully soaked by a shield skips the special, like every other weapon hit (documented 'shield' semantics), instead of `|| blocked === 'shield'`.
 - **File / function:** `src/sim/combat.ts` `fireHitscanShot` (+ optional additive `HitscanOptions.weaponSpecials?: boolean`
   in `src/sim/ext.ts` if you prefer opt-in).
 - **Problem:** `params.weaponHit = 1` means "fired with the held weapon: falloff and weapon specials apply" (data/heroes.ts
@@ -431,6 +467,7 @@ redundant (not wrong) once the request lands.
 - **Who needs it:** 夏侯渊 神速 (`sim/abilities/wei/xiahouyuan.ts` `fireVolleyRound`), any future weaponHit ability.
 
 ### WEI-3 · +1 for SHU-3 (ability event override) — same `ctx.cast` property
+- **Status:** DONE (same change as SHU-3; `pos` is copied verbatim, no clamp).
 - **File / function:** `src/sim/world.ts` `activateAbility` — exactly the SHU-3 change.
 - **Why (Wei):** 突袭 / 凌波微步 / 神速 land somewhere else than the crosshair, 独目怒冲 / 虎卫猛击 end `dash`/`leap` m ahead,
   遗计 is clamped to 40 m, 鬼谋 / 宁教我负天下人 resolve their own target, self casts (鬼才, 狼顾, 裸衣…) happen at the
@@ -442,21 +479,25 @@ redundant (not wrong) once the request lands.
   crosshair" sanity clamp.
 
 ### WEI-4 · +1 for SHU-1 (post-dash slide) — Wei works around it
+- **Status:** DONE (same change as SHU-1).
 - 独目怒冲 (24 m/s) slid to 16.4 m instead of 12, 虎卫猛击 to 7.0 m instead of 6. `sim/abilities/wei/shared.ts`
   `brakeAtDashEnd()` caps the speed on the dash's last tick (now 12.1 m / 6.1 m); it becomes a no-op once SHU-1 lands.
 
 ### WEI-5 · expose the dodge-charge maximum — small (夏侯渊 虎步关右 "refill all dodge charges")
+- **Status:** DONE (`BASE_DODGE_CHARGES` exported from sim/ext.ts (re-exported by world.ts) + `SimExt.maxDodgeCharges(heroId)`; Wei `虎步关右`, Wu `refillDodges`, Shu 龙胆 use them).
 - **File / function:** `src/sim/world.ts` (`BASE_DODGE_CHARGES` is module-private) — export it (or add
   `SimExt.maxDodgeCharges(heroId): number` = `BASE_DODGE_CHARGES + modifiers(id).extraDodgeCharges`).
 - **Why:** `sim/abilities/wei/shared.ts` mirrors the constant (`BASE_DODGE_CHARGES = 2`); it silently drifts if the base changes.
 
 ### WEI-6 · a way to end your own dash — small API gap (夏侯惇 独目怒冲 "stops at the first hero")
+- **Status:** DONE (`SimExt.endDash(id)`; `Entity.forced.dash` marks the unit's own dashes (core/types additive) so knockbacks are never ended; `xiahoudun.ts endCharge()` switched — it now stops at ≤ walking speed instead of 0).
 - **File / function:** `src/sim/ext.ts` / `src/sim/world.ts`: `endDash(id: EntityId): void` — clears `e.forced` (only when
   it is a dash, not a knockback) and caps horizontal velocity at walking speed.
 - **Why:** 独目怒冲 stops on impact by writing `self.forced = undefined; self.vel.x = self.vel.z = 0` directly
   (`sim/abilities/wei/xiahoudun.ts` `endCharge`). Works, but ability code mutating movement state is fragile.
 
 ### WEI-7 · (render / input, not sim) face the target after 张辽 突袭 — UX
+- **Status:** DEFERRED → RENDER (input controller: on a local `{ t: 'ability', ability: 'zhangliao_tuxi', src: me }` ease the camera yaw toward `ev.target` over ~0.15 s; WEI-3 has landed).
 - **File / function:** the client input controller (`src/game/input.ts` / render InputController) on `{ t: 'ability',
   ability: 'zhangliao_tuxi', src: <local hero> }`.
 - **Problem:** 突袭 teleports *behind* the target; when the target was facing Zhang Liao, "behind" is on the far side, so
@@ -467,6 +508,7 @@ redundant (not wrong) once the request lands.
   human who blinked from in front of the target currently lands looking away from it.
 
 ### WEI-8 · reflected damage must skip the reflector's outgoing multipliers — correctness (刚烈, 鬼才, every reflect/thorns)
+- **Status:** DONE (combat.ts: 'status:reflect' / 'status:thorns' hits skip `beforeDamageDealt` and step 3).
 - **File / function:** `src/sim/combat.ts` `dealDamage`, step 3 "outgoing modifiers".
 - **Problem:** reflect and thorns are re-dealt with the *reflecting* hero as `sourceId` (kill credit), so step 3 applies
   its `dmgBoost`, `weaponOutgoingMul`, `troopDmgMul` and every `modifyOutgoing` to them. Probed: 刚烈 returns 39 instead
@@ -479,6 +521,7 @@ redundant (not wrong) once the request lands.
   (`sim/abilities/wei/shared.ts` `isReflected`), so only the engine's `dmgBoost` / weapon / troop multipliers remain.
 
 ### WEI-9 · (net) statuses "until consumed" arrive as expired on remote clients — correctness, HUD
+- **Status:** DONE (codec.ts sends `remaining < 0` as 0xffff → decodes to Infinity; `clientView.estimateMoveMods` `has()` accepts `remaining !== 0`). Wei may revert 刚烈's 60 s refresh to Infinity (optional).
 - **File / function:** `src/net/codec.ts`, the `you.statuses` loop (`w.u16(csQ(s.remaining))`).
 - **Problem:** `sim/status.ts` `statusRows` reports an `Infinity` status as `remaining: -1`; `csQ(-1)` clamps to 0, so
   remote clients get `remaining 0` — the HUD shows a blinking "0 / expiring" icon and `estimateMoveMods`' `has()` treats
@@ -490,6 +533,7 @@ redundant (not wrong) once the request lands.
   if a timer-less HUD icon is preferred.
 
 ### WEI-10 · mark passive procs on the ability event — UX (render gesture + audio), all kingdoms
+- **Status:** DONE sim side (`proc?: boolean` on the ability event — events are JSON, no codec bit needed; set by Wei `emitProc`, Wu `emitTrigger`, Shu `emitAbility`, Qun 再起 / 急救). DEFERRED → RENDER (`eventVfx.ts case 'ability'`: skip `src?.onCast()` when `ev.proc`) and AUDIO (`router.ts case 'ability'`: lighter cue, e.g. abilityCast gain ×0.5 / size 0.6, when `ev.proc`).
 - **Files:** `src/core/types.ts` (the `{ t: 'ability' }` event), `src/net/codec.ts` (one flag bit),
   `src/render/vfx/eventVfx.ts` (`case 'ability'`), `src/audio/router.ts` (`case 'ability'`).
 - **Problem:** passive triggers are announced as `{ t: 'ability' }` events (Wei `emitProc`: 奸雄 / 反馈 / 天妒; Wu
@@ -501,6 +545,7 @@ redundant (not wrong) once the request lands.
 - **Wei side (interim):** 奸雄's proc event is throttled to one per 8 s (was 3 s).
 
 ### WEI-11 · (AI) two bot heuristics keep Wei actives idle — AI (`src/sim/ai/abilityUse.ts`, bot movement)
+- **Status:** DEFERRED → AI (both heuristics live in `sim/ai/abilityUse.ts` / bot movement; on the AI owner's current list).
 - **Evidence:** the 8-bot all-Wei match casts 11–16 of the 17 actives per seed (seeds 3/5/7/11/21; the union of 3/7/21
   is all 17). In the scripted close-fight test (`tests/unit/abilities/wei.test.ts` "魏 bots": an enemy kept at 8 m that
   shoots back) every Wei bot casts every active, so the gaps are engagement heuristics, not failed activations (no Wei
@@ -516,6 +561,7 @@ redundant (not wrong) once the request lands.
   distance at `abilityReach(def) − 1.5`, so the bot steps into reach before pressing.
 
 ### Data note (Wei)
+- **Status:** DEFERRED → DATA (tests/unit/data `castDamage` / `DAMAGE_KEYS` must learn reflect abilities before `dtype` can be added to 鬼才).
 - `simayi_guicai` deals reflected damage but carries no `dtype`: `tests/unit/data/data.test.ts` requires every damaging
   active to have a fixed size (`castDamage > 0`), which a reflect has not. If the data owner wants the header rule
   ("dtype on reflected damage too") enforced, teach `castDamage` / `DAMAGE_KEYS` about reflect abilities (e.g. rate
@@ -525,6 +571,7 @@ redundant (not wrong) once the request lands.
 ## RENDER — 1 request
 
 ### RENDER-1 · mounted heroes are hit where they are drawn (rider on horseback) — correctness, 马超 / 吕布 always, anyone with a 马
+- **Status:** DONE (combat.ts `MOUNTED_HIT`, `ridesForHits()`, `hitRadius()`; `hitbox()` uses the mounted height, `raycastEntities()` the mounted radius; physics capsule unchanged. Test: requests.test.ts RENDER-1.)
 - **File / function:** `src/sim/combat.ts` `hitbox()` and `raycastEntities()` (hit tests only — the physics capsule,
   `e.radius` / `e.height`, stays CHAR_RADIUS × CHAR_HEIGHT so riders still fit through 2.5 m doors).
 - **Problem:** riders are drawn seated on a horse (head ≈ 2.07 m) but the hero hit box is the 1.8 m foot capsule
@@ -549,6 +596,7 @@ redundant (not wrong) once the request lands.
 ## AI (bots / troop & NPC brains) — 3 requests
 
 ### AI-1 · public event tap for brains (exact 跳身份 evidence, human quick-chat) — fairness & quality
+- **Status:** DONE (`SimExt.publicEventsSince(seq)`: ring of the last 2048 events without privateTo, `drainEvents()` unchanged).
 - **Files / functions:** `src/sim/ext.ts` (additive: `SimExt.publicEventsSince?(seq: number): { seq: number; events: readonly GameEvent[] }`),
   `src/sim/world.ts` `emit()` (+ a small ring buffer, e.g. 2048 entries, of every event **without** `privateTo`, each stamped
   with a monotonically increasing seq; `drainEvents()` keeps working unchanged).
@@ -564,6 +612,7 @@ redundant (not wrong) once the request lands.
 - **Who needs it:** `sim/ai/observer.ts`, `sim/ai/beliefs.ts`.
 
 ### AI-2 · public match info for brains — fairness (no casts)
+- **Status:** DONE (`SimExt.matchInfo()` → `{ playerCount, mode }`).
 - **File / function:** `src/sim/ext.ts` (additive: `SimExt.matchInfo?(): { playerCount: number; mode: GameMode }`), implemented
   in `World` from `this.settings`.
 - **Why:** the role table (how many 反贼/忠臣/内奸 are still unaccounted for) is public in 身份局 and depends on mode + player
@@ -571,6 +620,7 @@ redundant (not wrong) once the request lands.
   through a cast; a typed accessor removes the cast and documents that only the public part is used.
 
 ### AI-3 · hazard harmfulness in HazardState — robustness
+- **Status:** DONE (`HazardState.harmful` set by `spawnHazard` for damage / strike / slow / dps params, a debuff status, or a custom kind registered with `HazardKindImpl.harmful`).
 - **Files / functions:** `src/core/types.ts` `HazardState` (additive optional `harmful?: boolean` or `dtype?: DamageType`),
   filled in `World.spawnHazard` from the spec (`params.damage/strike/slow > 0 || spec.status !== undefined`).
 - **Why:** bots, soldiers and NPCs step out of harmful fields (`sim/ai/perception.ts` `harmfulHazard`), which today guesses
@@ -583,3 +633,26 @@ redundant (not wrong) once the request lands.
   `SimExt.dropAggro` can simply write that field.
 - **QUN-4:** `HeroBot.canReviveFree()` asks the passive's own `canReviveFree(ctx)` hook (cooldown-aware).
 - **ITEMS-11:** `itemUse.ts` no longer second-guesses 决斗 when the card's `botShouldUse` said yes, and 征兵令 follows the hook.
+
+## SIM-INTEGRATOR — orchestrator playtest fixes + follow-ups for other owners
+
+### INT-1 · NET: `sprintAds` over the wire (夏侯渊 神速 prediction)
+- **Status:** DONE (codec.ts: 4th moveMods bit (8) next to canSprint / canJump / rooted; absent ⇒ false. clientView already
+  spreads `you.moveMods` into predictMove. Test: tests/unit/net/codec.test.ts "carries sprintAds …".)
+
+### INT-2 · own troops crowd the third-person camera (spawn + follow formation)
+- **Status:** DONE engine side, one-line follow-up DEFERRED → AI.
+- **Engine (done):** `sim/troops.ts followSlot(cmd, slot)` / `followOffset(slot)` — flanks and a wedge behind-LEFT first, deeper
+  ranks behind the camera; every slot ≥ 3 m (`FORMATION_MIN_DIST`) from the commander and ≥ 1.3 m from the camera boom
+  (feet → 2.8 m behind the right shoulder, `boomDistance()`). `spawnSquad` (match start, 征兵令, 坐断东南 … when spawned at
+  the commander) places soldiers in those slots. `driveUnit` keeps own soldiers out of the boom (soft steering) and never
+  lets one end a tick closer than `COMMANDER_CLEARANCE` = 1.2 m to its commander (positional push with collision).
+  Tests: tests/unit/sim/requests.test.ts "squads and the third-person camera".
+- **DEFERRED → AI (`src/sim/ai/troopBrain.ts`):** make the follow goal the engine's formation:
+  `export function wedgeSlot(cmd: Entity, slot: number): Vec3 { return followSlot(cmd, slot); }` with
+  `import { followSlot } from '../troops';` (FORMATION_SPACING / FORMATION_BACK become unused). Until then soldiers steer to the
+  old wedge (row 1 at 2.4 m back × 1.44 m right sits in the camera boom) and the engine only nudges them out of it.
+
+### INT-3 · `you.forced` was replayed one tick too long by clients (found while applying SHU-1)
+- **Status:** DONE (sim/snapshot.ts `forcedForClient()`: `remaining` covers exactly the forced ticks after the snapshot's tick,
+  (n − ½)·SIM_DT; 0 = only the end brake pending. Contract note in docs/CONTRACT_CHANGES.md.)
