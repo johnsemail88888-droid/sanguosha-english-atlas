@@ -184,8 +184,9 @@ export class DebugHooks {
     }
   }
 
+  /** Record a milestone (ms since navigation start); the latest occurrence wins (one match after another). */
   mark(name: string): void {
-    if (this.timings[name] === undefined) this.timings[name] = Math.round(performance.now());
+    this.timings[name] = Math.round(performance.now());
   }
 
   private async vfxSmoke(perFrame: number): Promise<number> {

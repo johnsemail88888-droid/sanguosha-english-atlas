@@ -9,7 +9,8 @@
 //                    with likely rebels; claims 忠 when it helps.
 //  影武者 Double  — escorts the real lord as a decoy crown.
 //  反贼 Rebel     — loots, keeps away from the crowns, picks off isolated
-//                    suspected loyalists and fights over airdrops; some probe the
+//                    suspected loyalists, challenges 忠-claimers it runs into
+//                    (by temper) and fights over airdrops; some probe the
 //                    lord early (hit and run). Each rebel has its own seeded push
 //                    time; the first to reach it calls 跟我来 and every rebel who
 //                    hears it stages around the lord and strikes together at the
@@ -28,6 +29,7 @@
 import type { Vec3 } from '../../core/math';
 import type { Rng } from '../../core/rng';
 import type { Entity, EntityId, InputFrame, RoleId } from '../../core/types';
+import { WEAPON_BY_ID } from '../../data';
 import type { SimApi } from '../api';
 import { ext } from '../ext';
 import type { BotMode, BotView } from './botTypes';
@@ -61,9 +63,9 @@ const PROVOKE_DMG = 22;
 /** recent damage to a crown that makes the lord side retaliate */
 const DEFEND_DMG = 15;
 /** a probe lasts at most this long (s) */
-const PROBE_TIME = 13;
-/** a prober breaks off after losing this fraction of its HP */
-const PROBE_HURT = 0.15;
+const PROBE_TIME = 10;
+/** a prober breaks off as soon as the lord's side answers (this fraction of its HP lost) */
+const PROBE_HURT = 0.04;
 /** how long a broken-off probe keeps away from the lord (s) */
 const PROBE_COOLDOWN = 14;
 /** a push that goes nowhere for this long (s) with too few rebels around the lord is a failure */
@@ -142,9 +144,11 @@ export class RoleStrategy {
   private lastRevivedAt = -99;
   private spawn: Vec3 | null = null;
   private readonly fakeLoyal: boolean;
+  /** seeded temperament: how readily this bot picks a fight with a stranger met in the field */
+  private readonly temper: number;
   private readonly claimRebelAtPush: boolean;
   // ── rebel push / probe state ──
-  private probeState: 'waiting' | 'active' | 'done' = 'waiting';
+  private probeState: 'waiting' | 'approach' | 'active' | 'done' = 'waiting';
   private probeStartHp = 0;
   private probeEndAt = -99;
   private pushSince = -1;
@@ -159,6 +163,7 @@ export class RoleStrategy {
   /** metrics / tests: pushes started and broken off */
   pushes = 0;
   failedPushes = 0;
+  probes = 0;
 
   constructor(
     seat: number,
@@ -166,14 +171,15 @@ export class RoleStrategy {
     private readonly rng: Rng,
   ) {
     // each rebel's own push time, seeded per match (the first to reach it calls the others)
-    this.pushAt = prof.lootPhase + 95 + rng.next() * 80;
+    this.pushAt = prof.lootPhase + 70 + rng.next() * 110;
     this.gearUntil = Math.min(prof.lootPhase - 35, 80) + rng.next() * 12;
     this.campUntil = prof.lootPhase + 55;
     this.escortAngle = ((seat * 2.39996) % (Math.PI * 2)) + rng.next() * 0.4;
     this.nextClaimAt = 35 + rng.next() * 60;
     this.fakeLoyal = rng.next() < 0.5;
+    this.temper = rng.next();
     this.claimRebelAtPush = rng.next() < 0.5;
-    this.probeAt = rng.next() < 0.85 ? prof.lootPhase * 0.6 + rng.next() * 45 : -1;
+    this.probeAt = rng.next() < 0.75 ? prof.lootPhase * 0.6 + rng.next() * 45 : -1;
   }
 
   // ── who is who ──────────────────────────────────────────────────────────
@@ -260,23 +266,38 @@ export class RoleStrategy {
     if (this.probeState === 'waiting' && this.probeAt >= 0 && now >= this.probeAt) {
       const lp = lord ? v.posOf(lord, 10) : undefined;
       const healthy = self.hp >= self.maxHp * 0.5;
-      // hit and run needs reach: close-range weapons don't probe
-      const w = v.weapon;
-      const ranged = !!w && !w.melee && w.class !== 'shotgun' && w.class !== 'flamer';
-      if (now >= this.pushAt - STAGE_TIME - 5 || !lp || hyp(lp, self.pos) > 150 || !ranged) this.probeState = 'done';
-      else if (healthy) {
-        this.probeState = 'active';
+      // hit and run needs reach (the edge of the lord's soldiers, ~45 m): close-range weapons don't probe
+      const ranged = self.hero!.weapons.some((wi) => {
+        const w = wi ? WEAPON_BY_ID[wi.id] : undefined;
+        return !!w && !w.melee && w.maxRange >= 60 && w.class !== 'shotgun' && w.class !== 'flamer' && w.class !== 'smg' && w.class !== 'pistol';
+      });
+      // (no long gun yet: keep looting and try again until the push window)
+      if (now >= this.pushAt - STAGE_TIME - 5 || !lp) this.probeState = 'done';
+      else if (healthy && ranged) {
+        // walk up first; the hit-and-run clock starts in reach
+        this.probeState = 'approach';
         this.probeStartHp = self.hp;
-        this.probeEndAt = now + PROBE_TIME;
+        this.probeEndAt = now + 45;
       }
     }
-    if (this.probeState === 'active' && (now >= this.probeEndAt || self.hp < this.probeStartHp - self.maxHp * PROBE_HURT || now >= this.pushAt - STAGE_TIME)) {
+    if (this.probeState === 'approach' && lord) {
+      const lp = v.posOf(lord, 10);
+      if (lp && (hyp(lp, self.pos) <= this.probeRange(v) + 15 || (v.seesNow(lord) && hyp(lp, self.pos) <= 70))) {
+        this.probeState = 'active';
+        this.probeEndAt = now + PROBE_TIME;
+        this.probes++;
+      }
+    }
+    if (
+      (this.probeState === 'active' || this.probeState === 'approach') &&
+      (now >= this.probeEndAt || self.hp < this.probeStartHp - self.maxHp * PROBE_HURT || now >= this.pushAt - STAGE_TIME)
+    ) {
       this.probeState = 'done';
       this.probeEndAt = now;
     }
     // the push
     const pushing = this.pushing(v);
-    if (pushing && this.pushSince < 0) {
+    if (pushing && this.pushSince < 0 && now >= this.pushAt) {
       this.pushSince = now;
       this.pushes++;
     } else if (!pushing && this.pushSince >= 0 && now >= this.regroupUntil) {
@@ -367,7 +388,7 @@ export class RoleStrategy {
 
   /** Is this rebel on its hit-and-run probe right now? */
   probing(v: BotView): boolean {
-    return v.role === 'rebel' && this.probeState === 'active' && !this.pushing(v);
+    return v.role === 'rebel' && (this.probeState === 'active' || this.probeState === 'approach') && !this.pushing(v);
   }
 
   /** The crown (or its squad, credited to him) is seen shooting at a non-crown hero right now. */
@@ -412,6 +433,38 @@ export class RoleStrategy {
     if (loot.kind !== 'airdrop' && !(loot.kind === 'crate' && (loot.crate?.tier ?? 1) >= 2)) return false;
     if (wearsCrown(v.sim, x) || !v.seesNow(x) || v.self.hp < v.self.maxHp * 0.55) return false;
     return hyp(x.pos, loot.pos) < 20 && hyp(v.self.pos, loot.pos) < 35;
+  }
+
+  /**
+   * A field skirmish: a bot with the temper for it challenges a hero it runs
+   * into (seen, close, not a crown, not a believed ally) that it has reason to
+   * count on the other side — a rebel goes for heroes that claimed 忠 or look
+   * loyal, the 内奸 for whichever side is ahead. Never the lord side (friendly
+   * fire among hidden allies is fatal there) or neutrals, never in the opening
+   * minute, only while healthy.
+   */
+  private challenge(v: BotView, x: Entity, ls: number, rb: number, tr: number): boolean {
+    const { self, now } = v;
+    if (now < Math.max(60, this.prof.lootPhase * 0.55) || self.hp < self.maxHp * 0.65) return false;
+    if (wearsCrown(v.sim, x) || !v.seesNow(x) || this.allyScore(v, x) >= 0.45) return false;
+    const reach = this.prof.name === 'hard' ? 40 : 34;
+    if (hyp(x.pos, self.pos) > reach) return false;
+    // never under the eyes (and guns) of a crown and its escort
+    for (const c of aliveCrowns(v.sim, self)) {
+      const cp = v.posOf(c, 5);
+      if (cp && (hyp(cp, x.pos) < 40 || hyp(cp, self.pos) < 40)) return false;
+    }
+    switch (v.role) {
+      case 'rebel':
+        // someone who claimed 忠 or looks loyal — never a likely fellow rebel
+        return this.temper < 0.45 && !this.staging(v) && rb < 0.4 && ls >= 0.55;
+      case 'traitor':
+        return this.temper < 0.4 && (this.balance(v) < 0.85 ? ls >= 0.4 : rb >= 0.5);
+      default:
+        // the lord side never picks fights with strangers: a loyalist shot by mistake is a
+        // loyalist lost (and a crown that shoots one may execute him)
+        return false;
+    }
   }
 
   /** `x` (seen) is on its own: no other known hero within 25 m, far from the crowns. */
@@ -482,8 +535,8 @@ export class RoleStrategy {
         }
         if (crownDmg >= (busy || !crownFaced ? DEFEND_DMG * 4 : DEFEND_DMG)) hst = Math.max(hst, ls > 0.75 ? 0.35 : DEFEND);
         if (provoked) hst = Math.max(hst, ls > 0.75 ? 0.3 : RETALIATE);
-        // an airdrop is no place for a likely rebel
-        if (ls < 0.6 && rb + tr >= 0.45 && this.contesting(v, x)) hst = Math.max(hst, CONTEST);
+        // an airdrop is no place for a likely rebel (a hero who claimed 忠 gets the benefit of the doubt)
+        if (ls < 0.6 && rb + tr >= 0.45 && h.claim !== 'loyalist' && this.contesting(v, x)) hst = Math.max(hst, CONTEST);
         break;
       }
       case 'rebel': {
@@ -505,7 +558,8 @@ export class RoleStrategy {
           if (rb < 0.6) {
             // pick off a suspected loyalist caught alone, and fight strangers over airdrops
             if (ls >= 0.5 && healthy && v.seesNow(x) && xd < 45 && v.hpFrac(x) <= self.hp / self.maxHp && this.isolated(v, x)) hst = Math.max(hst, 0.92);
-            if (ls + tr * 0.5 >= 0.3 && this.contesting(v, x)) hst = Math.max(hst, CONTEST);
+            if (ls >= 0.45 && this.contesting(v, x)) hst = Math.max(hst, CONTEST);
+            if (this.challenge(v, x, ls, rb, tr)) hst = Math.max(hst, this.challengeLevel());
           }
         }
         break;
@@ -542,6 +596,7 @@ export class RoleStrategy {
           const hitLoyal = bal < 0.85 ? (busyWithRebels || v.hpFrac(x) < 0.5 ? 1 : 0.6) : bal < 1.1 ? 0.3 : 0;
           const hitRebels = bal > 1.2 ? 1 : bal > 0.85 ? 0.5 : 0.3;
           hst = Math.min(cap, Math.max(ls * hitLoyal, rb * hitRebels));
+          if (this.challenge(v, x, ls, rb, tr)) hst = Math.max(hst, Math.min(cap, this.challengeLevel()));
           // the lord is going down: save him from whoever is hitting him (rebels would win)
           for (const c of aliveCrowns(sim, self)) {
             if (v.hpFrac(c) < 0.35 && obs.recentDamage(sim, x.id, c.id) >= 10) hst = Math.max(hst, DEFEND);
@@ -585,6 +640,11 @@ export class RoleStrategy {
       if (p && hyp(p, x.pos) < 25) return false;
     }
     return true;
+  }
+
+  /** Hostility of a field challenge: just enough to open fire at this difficulty. */
+  private challengeLevel(): number {
+    return Math.max(CONTEST, this.prof.engageThreshold + 0.01);
   }
 
   /** Traitor: healthy enough to take on the lord side (or out of 桃 to heal with). */
@@ -820,8 +880,8 @@ export class RoleStrategy {
   /** How far from the lord a prober stays (its weapon's comfortable range). */
   private probeRange(v: BotView): number {
     const w = v.weapon;
-    if (!w || w.melee) return 38;
-    return clamp(w.maxRange * 0.6, 38, 60);
+    if (!w || w.melee) return 60;
+    return clamp(w.maxRange * 0.55, 56, 64);
   }
 
   /**

@@ -1,4 +1,4 @@
-// Squad AI (带兵): wedge-formation follow, hold / attack / charge orders,
+// Squad AI (带兵): formation follow (the engine's camera-safe slots), hold / attack / charge orders,
 // commander marks, identity-aware engagement via sim.isHostileTo, plus:
 //  - sensible targets: whoever hurts the commander or this soldier first, then
 //    the commander's focus / mark, then the nearest real threat (low HP and
@@ -13,6 +13,7 @@ import type { Entity, EntityId } from '../../core/types';
 import type { SimApi } from '../api';
 import { troopDef } from '../defs';
 import { ext } from '../ext';
+import { followSlot } from '../troops';
 import { findCover } from './cover';
 import { dist2d, hasLineOfSight, hazardEscape, isTargetable, pickTarget, scanJitter } from './perception';
 import { mindOf } from './registry';
@@ -21,23 +22,17 @@ import type { TroopBrain, UnitIntent } from './types';
 
 const SCAN_EVERY = 0.35;
 const CHARGE_RANGE = 40;
-const FORMATION_SPACING = 1.8;
-const FORMATION_BACK = 2.4;
 /** cover searches allowed per world tick across all soldiers */
 const COVER_BUDGET_PER_TICK = 2;
 const HAZARD_CHECK = 0.5;
 
-/** Wedge slot position behind the commander (slot 0 = first row left). */
+/**
+ * Follow-formation slot of a soldier (INT-2): the engine's formation
+ * (sim/troops.ts followSlot) — flanks and a wedge behind-left, every slot clear
+ * of the commander and of the third-person camera boom.
+ */
 export function wedgeSlot(cmd: Entity, slot: number): Vec3 {
-  const row = Math.floor(slot / 2) + 1;
-  const side = slot % 2 === 0 ? -1 : 1;
-  const back = FORMATION_BACK + (row - 1) * FORMATION_SPACING;
-  const lat = side * FORMATION_SPACING * row * 0.8;
-  const fx = -Math.sin(cmd.yaw);
-  const fz = -Math.cos(cmd.yaw);
-  const rx = Math.cos(cmd.yaw);
-  const rz = -Math.sin(cmd.yaw);
-  return { x: cmd.pos.x - fx * back + rx * lat, y: cmd.pos.y, z: cmd.pos.z - fz * back + rz * lat };
+  return followSlot(cmd, slot);
 }
 
 /** Ring slot around a hold point. */

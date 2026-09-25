@@ -6,7 +6,7 @@ file · function · exact proposed change · why · which ability needs it. The 
 ## ABILITIES-SHU (蜀) — 4 requests
 
 ### SHU-1 · dash / knockback overshoot (post-forced-movement slide) — correctness, affects every hero
-- **Status:** DONE (world.ts `updateHero` / troops.ts `driveUnit` cap the horizontal speed at WALK_SPEED / the unit's baseSpeed on the first tick after `forced` ends — shared `physics.ts brakeForcedEnd()`, replayed by `net/clientView.stepPrediction` on the same tick. `you.forced.remaining` now counts exactly the forced ticks after the snapshot's tick as (n − ½)·SIM_DT and is 0 while only the brake is pending (this also fixes a pre-existing one-tick over-replay). Related: `World.dash` moves on n = ⌈duration / SIM_DT⌉ ticks at distance / (n·SIM_DT), `until` = start + (n − ½)·SIM_DT (start = next tick if the unit already moved this tick), and a knockback of force F travels exactly F m. Shu `charge()` now passes the plain distance; Shu `brake()` / `brakeAfterForced()` and Wei `brakeAtDashEnd()` are harmless repeats. Tests: tests/unit/sim/prediction.test.ts "forced movement …" (host ⇄ client bit-for-bit).)
+- **Status:** DONE (world.ts `updateHero` / troops.ts `driveUnit` cap the horizontal speed at WALK_SPEED / the unit's baseSpeed on the first tick after `forced` ends — shared `physics.ts brakeForcedEnd()`, replayed by `net/clientView.stepPrediction` on the same tick. `you.forced.remaining` now counts exactly the forced ticks after the snapshot's tick as (n − ½)·SIM_DT and is 0 while only the brake is pending (this also fixes a pre-existing one-tick over-replay). Related: `World.dash` moves on n = ⌈duration / SIM_DT⌉ ticks at distance / (n·SIM_DT), `until` = start + (n − ½)·SIM_DT (start = next tick if the unit already moved this tick — heroes: their updateHero; troops / NPCs: a per-unit stamp set by `driveUnit`, so a shove during the troop / NPC phase on a unit that already moved also starts next tick), and a knockback of force F travels exactly F m. Shu `charge()` now passes the plain distance; Shu `brake()` / `brakeAfterForced()` and Wei `brakeAtDashEnd()` are harmless repeats. Tests: tests/unit/sim/prediction.test.ts "forced movement …" (host ⇄ client bit-for-bit).)
 - **Files / functions:** `src/sim/world.ts` `updateHero` (the `else { if (e.forced) e.forced = undefined; … predictMove }` branch);
   `src/sim/troops.ts` `driveUnit` (`if (u.forced) u.forced = undefined;`); `src/net/clientView.ts` `stepPrediction`
   (when `forced.left` runs out) so client prediction stays bit-identical.
@@ -148,7 +148,7 @@ file · function · exact proposed change · why · which ability needs it. The 
 - **Who needs it:** 华佗 急救. The HUD's "need a 桃" hint (`ui/hud/logic.ts`) already treats a ready free revive as enough.
 
 ### QUN-7 · 铁索连环: an area fire / thunder hit multiplies on every chained unit inside it — correctness / balance
-- **Status:** DONE (combat.ts: fire / thunder hits without weaponId on a 'chained' target are deduped per tick by (credit, abilityId): the spread marks every unit it reaches, a later direct hit of the same strike on such a unit is skipped, spread targets already hit are skipped. Qun's `bolt()` workaround stays correct. Test: requests.test.ts QUN-7.)
+- **Status:** DONE (combat.ts `ChainStrike`: fire / thunder hits without weaponId on a 'chained' target are tracked per tick and (credit, abilityId) in two sets — units the strike hit directly, units it reached through the chain. A direct hit is skipped only on a unit already reached through the chain (an area blast over N chained units: each takes it once); repeated direct hits (two projectiles of one cast, overlapping blasts) all land, like on an unchained unit; the spread skips units in either set. Periodic burn ticks from one source share a key: a chained unit reached by another unit's burn spread takes that instead of its own tick (one burn tick per unit per tick). Qun's `bolt()` workaround stays correct. Tests: requests.test.ts QUN-7.)
 - **File / function:** `src/sim/combat.ts` `dealDamage`, step 9 (chained spread).
 - **Problem:** an area ability hits each unit in its area directly, and each direct hit on a 'chained' unit spreads to
   every other chained unit. With N chained units inside one blast, each takes the hit N times (3 chained heroes in one
@@ -379,7 +379,7 @@ redundant (not wrong) once the request lands.
   (≤ 0.4 m early at 12 m/s).
 
 ### WU-8 · non-stacking fields of one cast, and the hazard dtype for custom kinds
-- **Status:** DONE (hazards.ts: `params.group` — a unit is damaged by one field of (ownerId, group) per tick; a field only reaches units on its own floor (the surface under the unit at field height + 2 m must be under its feet — roofs / decks excluded, hillsides kept); custom `tick(sim, hazard, affected, rt)` gets `{ dtype, status, affectsOwner, triggerOnce }`). Wu's `registerFieldKind()` is left as is (still correct).
+- **Status:** DONE (hazards.ts: `params.group` — a unit is damaged by one field of (ownerId, group) per tick; a field only reaches units on its own floor (the surface under the unit at field height + 2 m must be under its feet — roofs / decks excluded, hillsides kept; a field lying on a roof / deck / bridge, i.e. > 0.6 m above the terrain under it, also applies the proposed vertical test `u.pos.y > h.pos.y + 2 || u.pos.y + u.height < h.pos.y − 0.5` ⇒ out, so the street / water beside the building or ship is spared); custom `tick(sim, hazard, affected, rt)` gets `{ dtype, status, affectsOwner, triggerOnce }`). Wu's `registerFieldKind()` is left as is (still correct).
 - **File / function:** `src/sim/hazards.ts` `fieldEffects` / `HazardKindImpl.tick`.
 - **Problem:** a line of overlapping fields from one cast (火烧连营 4 m apart with r 2.5 → ×1.5 under 燎原; 火烧赤壁's
   5 napalm fields) burns a unit standing in the overlap 2–3× per tick. Custom kind ticks also cannot read the spec's
@@ -593,10 +593,10 @@ redundant (not wrong) once the request lands.
 - **Who needs it:** everyone shooting a rider. The renderer already draws riders inside this box and `pick()` /
   `aimTargetId` already use it; tests: `tests/unit/render/pick.test.ts` ("mirrors the sim hitbox").
 
-## AI (bots / troop & NPC brains) — 3 requests
+## AI (bots / troop & NPC brains) — 4 requests
 
 ### AI-1 · public event tap for brains (exact 跳身份 evidence, human quick-chat) — fairness & quality
-- **Status:** DONE (`SimExt.publicEventsSince(seq)`: ring of the last 2048 events without privateTo, `drainEvents()` unchanged).
+- **Status:** DONE (`SimExt.publicEventsSince(seq)`: ring of the last 2048 events without privateTo, `drainEvents()` unchanged. The bounty reward — which reveals the 赏金猎人 — is emitted with `privateTo: hunter` (rules.ts), and `World.emit` sets it on any `{ t:'reward', kind:'bounty' }` that lacks it, so it never enters the public tap; net/eventFilter's special case is now only a safety net. Test: requests.test.ts "AI-1: a bounty reward never reaches the public event tap".)
 - **Files / functions:** `src/sim/ext.ts` (additive: `SimExt.publicEventsSince?(seq: number): { seq: number; events: readonly GameEvent[] }`),
   `src/sim/world.ts` `emit()` (+ a small ring buffer, e.g. 2048 entries, of every event **without** `privateTo`, each stamped
   with a monotonically increasing seq; `drainEvents()` keeps working unchanged).
@@ -627,12 +627,35 @@ redundant (not wrong) once the request lands.
   from `params.damage / strike / slow / dps`. Status-only fields (麻沸散 gas, traps) and custom `registerHazardKind` kinds that
   deal damage in their own tick are invisible to that guess.
 
+### AI-4 · apply the human crosshair checks to bots too (optional, hardening) — fairness
+- **Files / functions:** `src/sim/world.ts` `aimTarget()` (step 1: `this.isBotHero(e) || angleTo(t) <= 14°`) and `crosshair()`
+  (`if (bot || cos >= cos 4°)` for the reported aimPoint).
+- **Why:** bots are now aimed like humans (sim/ai/heroBot.ts `castAim`: the view turns with the difficulty's flick lag,
+  turn-speed cap and aim error, and a cast is pressed only once the crosshair is on target; `aimTargetId` is sent only while the
+  target is inside the crosshair cone; the reported aimPoint lies on the bot's own crosshair ray). Nothing in the AI relies on
+  the bot exemption any more, so the engine can enforce the same 14° / 4° checks for everyone — a guarantee that no brain (ours
+  or a future one) snaps an ability or a card onto a target it is not looking at.
+- **Proposed change:** drop the `this.isBotHero(e) ||` / `bot ||` exemptions (keep the rewind skip for bots). If the 4° aimPoint
+  check turns out too strict for bots at point-blank range, keep the aimPoint exemption and only apply the 14° aimTargetId cone.
+- **Who needs it:** nobody urgently (hardening); tests: tests/unit/ai/aiming.test.ts checks the AI side.
+
 ### AI · status of requests addressed to `src/sim/ai` (applied on the AI side, nothing for the integrator)
 - **SHU-4:** `troopBrain.ts` / `npcBrain.ts` now also honour `ai.aggroHoldUntil` (no target acquisition while it is in the
   future; an NPC that is being shot breaks the hold) — the 空城 workaround via `ai.nextScan` keeps working too, so
   `SimExt.dropAggro` can simply write that field.
 - **QUN-4:** `HeroBot.canReviveFree()` asks the passive's own `canReviveFree(ctx)` hook (cooldown-aware).
 - **ITEMS-11:** `itemUse.ts` no longer second-guesses 决斗 when the card's `botShouldUse` said yes, and 征兵令 follows the hook.
+- **WU-9 (applied):** `abilityUse.ts allyInNeed()` skips non-male heroes for `params.maleOnly` abilities (孙尚香 结姻), and a
+  maleOnly heal never falls back to "self" (it needs a man under the crosshair): when hurt, any believed-ally man in reach is
+  the target (the heal on her is what counts).
+- **WEI-11 (applied):** `safeForFriends()` passes `params.privateReveal` casts (司马懿 狼顾) and self/none-targeted casts whose
+  params carry nothing that touches others (no damage / control / displacement keys); `AbilityUser.engageCap()` caps the
+  preferred engagement distance at `abilityReach(def) − 1.5` while an enemy-targeted mobility ability is ready and HP > 45 %
+  (张辽 突袭), and `HeroBot.fightMove()` applies it after every other range rule.
+- **INT-2 (applied):** `troopBrain.ts wedgeSlot()` returns the engine's `followSlot()` (camera-safe follow formation).
+- **AI-1 / AI-2 (consumed):** `observer.ts` reads `publicEventsSince` (hit src/target/amount/blocked, heal, revived, downed, death,
+  claim, quickchat, lord-slot ability casts incl. procs) with the old polling kept only as a fallback; every bot filters the log
+  through its own `Witness` (what its seat perceived); `knowledge.ts` uses `matchInfo()` instead of the settings cast.
 
 ## SIM-INTEGRATOR — orchestrator playtest fixes + follow-ups for other owners
 
@@ -641,17 +664,31 @@ redundant (not wrong) once the request lands.
   spreads `you.moveMods` into predictMove. Test: tests/unit/net/codec.test.ts "carries sprintAds …".)
 
 ### INT-2 · own troops crowd the third-person camera (spawn + follow formation)
-- **Status:** DONE engine side, one-line follow-up DEFERRED → AI.
-- **Engine (done):** `sim/troops.ts followSlot(cmd, slot)` / `followOffset(slot)` — flanks and a wedge behind-LEFT first, deeper
-  ranks behind the camera; every slot ≥ 3 m (`FORMATION_MIN_DIST`) from the commander and ≥ 1.3 m from the camera boom
-  (feet → 2.8 m behind the right shoulder, `boomDistance()`). `spawnSquad` (match start, 征兵令, 坐断东南 … when spawned at
-  the commander) places soldiers in those slots. `driveUnit` keeps own soldiers out of the boom (soft steering) and never
-  lets one end a tick closer than `COMMANDER_CLEARANCE` = 1.2 m to its commander (positional push with collision).
-  Tests: tests/unit/sim/requests.test.ts "squads and the third-person camera".
-- **DEFERRED → AI (`src/sim/ai/troopBrain.ts`):** make the follow goal the engine's formation:
-  `export function wedgeSlot(cmd: Entity, slot: number): Vec3 { return followSlot(cmd, slot); }` with
-  `import { followSlot } from '../troops';` (FORMATION_SPACING / FORMATION_BACK become unused). Until then soldiers steer to the
-  old wedge (row 1 at 2.4 m back × 1.44 m right sits in the camera boom) and the engine only nudges them out of it.
+- **Status:** DONE (engine: sim/troops.ts; the AI follow-up below has since landed in `src/sim/ai/troopBrain.ts`).
+- **Engine:** `sim/troops.ts followSlot(cmd, slot)` / `followOffset(slot)` — flanks and a wedge behind-LEFT first, deeper
+  ranks behind the camera; every slot ≥ 4 m from the commander (a brain that stops ~1 m short still stands ≥ `FORMATION_MIN_DIST`
+  = 3 m away) and ≥ `BOOM_CLEAR` + 1 m from the camera boom (feet → 2.8 m behind the right shoulder, `boomDistance()`).
+  `spawnSquad` (match start, 征兵令, 坐断东南 … when spawned at the commander) places soldiers in those slots. `driveUnit` applies
+  the commander's rules to every own soldier on his level (|dy| ≤ 2.5 m), whatever its brain asks (`commanderRules`):
+  - inside the camera boom (< `BOOM_CLEAR` = 1.3 m from it) or inside `COMMANDER_CLEARANCE` = 1.2 m the brain's move is replaced
+    by "straight out" at full speed (hard rule; not while stunned / rooted). When the boom sweeps toward the soldier's side faster
+    than it can walk (a strafing / turning commander), it crosses the boom line instead — whichever exits sooner;
+  - in a band outside either (0.5 m / 0.8 m) the inward component is scaled down to nothing at the edge (soldiers settle on it
+    without jitter), and a soldier pressing on it walks around instead — the boom around its far end (behind the camera, out
+    of view), the commander toward the side it leans to (else behind-left) — for at most 3 s, then waits at the edge (a goal
+    inside the boom is unreachable, not across);
+  - `enforceClearance`: a soldier never ends its step closer than 1.2 m to its commander — a positional push straight away
+    from him, else (wall, pillar, slope too steep) at ±45° / ±90° / ±135° off that line, each just long enough to reach 1.2 m.
+    Only a soldier boxed in on every side the push could take (or on another level, |dy| > 2.5 m) can end a tick closer.
+  Measured on the real map, every own soldier every tick of an 8-bot hard match (seed 21; HEAD engine + old wedge brain →
+  this engine + the landed brain change): within 1.2 m of the commander on his level 46 → 0 (0 over a second match, seed 37);
+  < 1 m from the camera boom 2.4 % → 0.23 % of soldier-ticks, longest stay 94 → 18 ticks (the boom of a bot turning faster
+  than a soldier walks sweeps over it; it walks straight out); between the camera and the commander 684 → 69 soldier-ticks,
+  longest 81 → 13 ticks. Tests: tests/unit/sim/requests.test.ts "squads and the third-person camera": slots, spawn (≥ 3 m,
+  boom ≥ 1.3 m), 90° / 180° / −90° turns with the real brain and with a minimal followSlot brain (boom ≥ 1 m after 0.5 s,
+  ≥ 3 m after re-forming, standing still afterwards), walking backwards into the squad, a strafing sprint, a corner and the
+  foot of a 60° slope (holding and rooted soldiers).
+- **AI follow-up (landed by the AI owner):** `src/sim/ai/troopBrain.ts wedgeSlot(cmd, slot)` now returns `followSlot(cmd, slot)`.
 
 ### INT-3 · `you.forced` was replayed one tick too long by clients (found while applying SHU-1)
 - **Status:** DONE (sim/snapshot.ts `forcedForClient()`: `remaining` covers exactly the forced ticks after the snapshot's tick,

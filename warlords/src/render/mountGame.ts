@@ -163,7 +163,8 @@ export function mountGameView(container: HTMLElement, view: ViewSource, opts: Mo
       setProgress({ progress: 0.62, stage: 'shaders' });
       afterPaint(() => {
         if (disposed || !renderer) return;
-        void renderer.warmup().then(() => {
+        // shaders: 0.62 → 0.88 as the warm-up batches link
+        void renderer.warmup((f) => setProgress({ progress: 0.62 + 0.26 * Math.min(1, f), stage: 'shaders' })).then(() => {
           if (disposed) return;
           setProgress({ progress: 0.88, stage: 'warmup' });
           afterPaint(() => {

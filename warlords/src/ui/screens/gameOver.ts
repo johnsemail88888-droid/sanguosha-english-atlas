@@ -6,7 +6,8 @@ import type { GameSession } from '../../game/session';
 import type { ViewSource } from '../../render/view';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
-import { fmtTime, heroName, roleName, t, tx } from '../i18n';
+import { fmtTime, getLang, heroName, roleName, t, tx } from '../i18n';
+import { displayName } from '../../game/names';
 import { roleInk } from '../theme';
 import { kingdomBadge, roleSeal, seal } from '../widgets';
 
@@ -34,7 +35,7 @@ export function buildOverRows(result: GameResult, players: readonly PublicPlayer
   const rows: OverRow[] = players.map((p) => ({
     entityId: p.entityId,
     seat: p.seat,
-    name: p.name,
+    name: displayName(p.name, getLang()),
     heroId: p.heroId,
     role: result.roles[p.entityId] ?? p.role,
     kills: p.kills,

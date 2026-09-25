@@ -17,11 +17,11 @@ const MAX_HERO_STUN = 1.5;
 // 急救 (passive): revives take 0.5 s and give +80 HP; once every 30 s a revive needs no 桃.
 // The free-revive timer lives in hero.cooldowns[huatuo_jijiu] so the HUD shows it
 // (ui/hud/logic.ts canReviveFree reads exactly that).
-// A ready free revive is used FIRST, even when Hua Tuo carries a 桃: the world
-// (inventory.ts updateChannel) still spends a carried 桃 before asking canReviveFree
-// (docs/SIM_REQUESTS.md QUN-6), so onRevive(free = false) with the free revive ready gives
-// that 桃 back and starts the 30 s timer instead — the same outcome, and redundant (never
-// taken) once QUN-6 lands.
+// A ready free revive is used FIRST, even when Hua Tuo carries a 桃: since QUN-6
+// (docs/SIM_REQUESTS.md) the world (inventory.ts updateChannel) asks canReviveFree before
+// spending a carried 桃. The give-back branch in onRevive (free = false with the free revive
+// ready: return the 桃, start the 30 s timer) predates that and never fires with the current
+// engine; it stays only as a defensive fallback.
 registerAbility({
   id: 'huatuo_jijiu',
   modifiers(ctx) {

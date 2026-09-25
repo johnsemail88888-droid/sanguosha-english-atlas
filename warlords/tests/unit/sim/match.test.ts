@@ -83,9 +83,10 @@ describe('full bot matches', () => {
     expect(gameOver).toBe(1);
     expect(events).toBeGreaterThan(100);
     // bots fight it out: heroes fall to other heroes before the final circle closes
+    // (a rebel win can be decided by the lord's death alone; every other outcome takes ≥ 2)
     const dmg = w.heroList().reduce((s, h) => s + h.hero!.stats.damage, 0);
     expect(dmg).toBeGreaterThan(0);
-    expect(combatDeaths).toBeGreaterThanOrEqual(2);
+    expect(combatDeaths).toBeGreaterThanOrEqual(result.winner === 'rebel' ? 1 : 2);
   }, 180_000);
 
   it('8-bot chaos match (影武者 / 墙头草 / 赏金猎人) ends with a valid GameResult', () => {

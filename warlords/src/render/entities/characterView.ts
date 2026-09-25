@@ -30,6 +30,7 @@ import { AuraSet } from './auras';
 import { Nameplate, type PlateData } from './nameplate';
 import type { EntityCtx } from './context';
 import { cameraFadeTarget } from './camFade';
+import { displayName } from '../../game/names';
 
 const _v = new THREE.Vector3();
 const EMISSIVE = {
@@ -266,7 +267,7 @@ export class CharacterView {
         const def = HERO_BY_ID[e.sub];
         const d = this.plateData;
         d.heroName = def ? (ctx.lang === 'en' ? def.nameEn : def.nameZh) : e.sub;
-        d.playerName = e.name ?? '';
+        d.playerName = e.name ? displayName(e.name, ctx.lang) : '';
         d.hp = e.hp;
         d.maxHp = e.maxHp;
         d.shield = e.shield;

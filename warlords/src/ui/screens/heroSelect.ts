@@ -4,7 +4,8 @@ import type { HeroSelectView, RoleDealView } from '../../core/types';
 import type { GameSession } from '../../game/session';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, s, setText } from '../dom';
-import { heroName, seatLabel, t } from '../i18n';
+import { getLang, heroName, seatLabel, t } from '../i18n';
+import { displayName } from '../../game/names';
 import { button, heroCard, seal } from '../widgets';
 import { heroDetail } from './heroDetail';
 import { crownSeats, mySeat, seatName, shownSeatRole } from './roles';
@@ -144,7 +145,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
         const decoy = crowned && !!deal && shownSeatRole(deal, st.seat, me) === 'double';
         const chip = h('div', { class: `pick${st.seat === me ? ' me' : ''}${crowned ? ' lord' : ''}${decoy ? ' decoy' : ''}${hero ? ' done' : ''}` },
           h('div', { class: 'thumb' }, hero ? heroCard(ctx.portraits, hero, { compact: true, size: 128 }) : h('span', { class: 'q' }, '?')),
-          h('div', { class: 'who' }, crowned ? h('span', { class: `crown${decoy ? ' decoy' : ''}`, title: decoy ? t('score.decoy') : undefined }, '♛') : null, h('span', { class: 'nm' }, st.name)),
+          h('div', { class: 'who' }, crowned ? h('span', { class: `crown${decoy ? ' decoy' : ''}`, title: decoy ? t('score.decoy') : undefined }, '♛') : null, h('span', { class: 'nm' }, displayName(st.name, getLang()))),
           h('div', { class: 'what' }, hero ? heroName(hero) : t('select.picking')),
         );
         return chip;

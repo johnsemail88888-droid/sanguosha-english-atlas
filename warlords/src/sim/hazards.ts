@@ -14,7 +14,8 @@
 //            standing where several overlap is damaged by one of them per tick
 // Owner-side units are unaffected by damage/status unless affectsOwner.
 // A field only reaches units on its own floor: nobody under a roof it burns on,
-// nobody on a roof above it (see onFieldFloor).
+// nobody on a roof above it, nobody on the street beside a roof / deck it lies
+// on (see onFieldFloor).
 // Wave-2 code can register custom per-kind logic with registerHazardKind().
 // 无懈可击: lingering field ticks (damage / slow / status, custom kind ticks)
 // neither consume nor are blocked by nullify; discrete effects — a trap
@@ -23,7 +24,7 @@ import type { DamageType, Entity, StatusId } from '../core/types';
 import type { HazardSpec, SimApi } from './api';
 import { warnOnce } from './defs';
 import { isDebuff } from './ext';
-import { groundAt } from './physics';
+import { groundAt, terrainAt } from './physics';
 import type { World } from './world';
 
 export interface HazardRuntime {
@@ -88,11 +89,16 @@ export function hazardIsHarmful(spec: HazardSpec): boolean {
  * Is `u` on the field's own floor? The surface the field would lie on at the
  * unit's spot (terrain, or a roof / deck no higher than the field + 2 m) must be
  * under the unit's feet: nobody under a burning roof, nobody on a roof above a
- * ground fire, while hillsides and low crates stay inside.
+ * ground fire, while hillsides and low crates stay inside. A field lying on a
+ * roof / deck / bridge (above the terrain under it) also needs the unit at its
+ * own height (feet ≤ 2 m above it, head ≥ 0.5 m below it at most): nobody on
+ * the street or the water beside the building / ship.
  */
 function onFieldFloor(w: World, h: Entity, u: Entity): boolean {
   const surf = groundAt(w.cw, u.pos.x, u.pos.z, h.pos.y + 2);
-  return u.pos.y >= surf - 0.6 && u.pos.y <= surf + 2.5;
+  if (u.pos.y < surf - 0.6 || u.pos.y > surf + 2.5) return false;
+  if (h.pos.y > terrainAt(w.cw, h.pos.x, h.pos.z) + 0.6) return u.pos.y <= h.pos.y + 2 && u.pos.y + u.height >= h.pos.y - 0.5;
+  return true;
 }
 
 /** Per world: units already damaged this tick by a field of (owner, group). */

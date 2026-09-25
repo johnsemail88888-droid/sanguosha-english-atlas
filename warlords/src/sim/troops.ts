@@ -4,10 +4,19 @@
 //
 // Follow formation (followSlot): the third-person camera hangs 2.8 m behind the
 // commander's RIGHT shoulder (sim/aim.ts cameraRig), so soldiers take a wedge
-// behind-LEFT plus the flanks, every slot ≥ 3 m from the commander and clear of
-// the camera boom; deeper ranks stand behind the camera (out of view). Own
-// soldiers never stand closer than COMMANDER_CLEARANCE to their commander and
-// are nudged out of the camera boom (driveUnit), whatever their brain asks.
+// behind-LEFT plus the flanks, every slot ≥ 4 m from the commander (a brain
+// that stops ~1 m short of its slot still stands ≥ FORMATION_MIN_DIST = 3 m
+// away) and clear of the camera boom; deeper ranks stand behind the camera.
+// Whatever their brain asks, own soldiers (driveUnit → commanderRules):
+//  - inside the camera boom (< BOOM_CLEAR from it) walk straight out of it at
+//    full speed; in a band around it they slow to a stop on its edge, and one
+//    pressing on it walks around it instead (behind the camera) for up to
+//    AROUND_MAX s, then waits at the edge;
+//  - inside COMMANDER_CLEARANCE likewise walk straight out, slow down toward
+//    him within a band around it (walking around him), and are pushed out positionally at
+//    the end of their step (enforceClearance: radially, else sideways / along
+//    walls). Only a soldier boxed in by walls on every side the push could take
+//    (or on another level, |dy| > 2.5 m) can end a tick closer.
 import type { Vec3 } from '../core/math';
 import type { Entity, EntityId } from '../core/types';
 import type { TroopTypeDef, WeaponDef } from '../data/types';
@@ -34,7 +43,7 @@ export function unitSize(def: TroopTypeDef): { radius: number; height: number } 
 // ── follow formation ────────────────────────────────────────────────────────
 /** Own soldiers never stand closer than this (m, centre to centre) to their commander. */
 export const COMMANDER_CLEARANCE = 1.2;
-/** Follow-formation slots are at least this far from the commander. */
+/** Soldiers in follow formation stand at least this far from the commander (slots are ≥ 1 m farther). */
 export const FORMATION_MIN_DIST = 3;
 /**
  * Camera boom in commander-local coordinates (right, back): from the feet to a
@@ -43,26 +52,54 @@ export const FORMATION_MIN_DIST = 3;
  */
 const BOOM_END_R = CAM_SHOULDER * 1.12;
 const BOOM_END_B = CAM_DISTANCE + 0.4;
-const BOOM_CLEAR = 1.3;
+const BOOM_LEN2 = BOOM_END_R * BOOM_END_R + BOOM_END_B * BOOM_END_B;
+/** Own soldiers closer than this to the camera boom walk straight out of it. */
+export const BOOM_CLEAR = 1.3;
+/** …and within this band outside it they slow down to a stop on its edge (no jitter). */
+const BOOM_BAND = 0.5;
+/** Band outside COMMANDER_CLEARANCE where soldiers slow down toward their commander and drift away. */
+const CLEAR_BAND = 0.8;
+/**
+ * A soldier whose goal keeps pointing into the boom / its commander walks around
+ * the edge for at most this long (s), then just waits at the edge — its goal is
+ * inside (unreachable), not across. Pressing on the edge again after a 0.5 s
+ * break starts a new walk-around.
+ */
+const AROUND_MAX = 3;
+const aroundMem = new WeakMap<Entity, { since: number; last: number }>();
+
+/** May `u` (pressing on an edge now) still walk around it? */
+function mayWalkAround(u: Entity, now: number): boolean {
+  let m = aroundMem.get(u);
+  if (!m) {
+    m = { since: now, last: now };
+    aroundMem.set(u, m);
+  } else if (now - m.last > 0.5) {
+    m.since = now;
+  }
+  m.last = now;
+  return now - m.since < AROUND_MAX;
+}
 
 /**
  * Follow slots as (right, back) offsets in metres: flanks and a wedge
- * behind-left first, then ranks behind the camera. Slots past the table extend
- * the ranks backwards.
+ * behind-left first, then ranks behind the camera. Every slot is ≥ 4 m from
+ * the commander and ≥ BOOM_CLEAR + 1 m from the camera boom. Slots past the
+ * table extend the ranks backwards.
  */
 const FOLLOW_SLOTS: readonly (readonly [number, number])[] = [
-  [-3.0, 1.0], // left flank
-  [-2.4, 3.2], // behind-left
-  [3.2, 0.6], // right flank (clear of the boom)
-  [-0.8, 4.6], // behind, behind the camera
-  [-4.6, 2.6],
-  [2.2, 4.8],
-  [-3.8, 5.4],
-  [5.0, 2.2],
-  [0.6, 6.4],
-  [-6.0, 4.2],
-  [-2.2, 7.4],
-  [3.8, 6.6],
+  [-4.0, 1.0], // left flank
+  [-3.0, 3.4], // behind-left
+  [4.0, 0.6], // right flank (clear of the boom)
+  [-1.0, 5.2], // behind, behind the camera
+  [-5.4, 3.0],
+  [2.6, 5.6],
+  [-4.4, 6.0],
+  [5.6, 2.6],
+  [0.8, 7.2],
+  [-6.8, 5.0],
+  [-2.4, 8.2],
+  [4.4, 7.4],
 ];
 
 /** Local (right, back) offset of follow slot `slot`. */
@@ -71,7 +108,7 @@ export function followOffset(slot: number): { right: number; back: number } {
   if (i < FOLLOW_SLOTS.length) return { right: FOLLOW_SLOTS[i][0], back: FOLLOW_SLOTS[i][1] };
   const k = i - FOLLOW_SLOTS.length;
   const rank = Math.floor(k / 3);
-  return { right: [-3, 0, 3][k % 3] - (rank % 2) * 1.2, back: 8.6 + rank * 1.8 };
+  return { right: [-3.2, 0, 3.2][k % 3] - (rank % 2) * 1.2, back: 9.6 + rank * 1.8 };
 }
 
 /**
@@ -89,8 +126,7 @@ export function followSlot(cmd: Entity, slot: number): Vec3 {
 
 /** Distance of a commander-local point (right, back) from the camera boom segment. */
 export function boomDistance(right: number, back: number): number {
-  const len2 = BOOM_END_R * BOOM_END_R + BOOM_END_B * BOOM_END_B;
-  const t = Math.max(0, Math.min(1, (right * BOOM_END_R + back * BOOM_END_B) / len2));
+  const t = Math.max(0, Math.min(1, (right * BOOM_END_R + back * BOOM_END_B) / BOOM_LEN2));
   return Math.hypot(right - BOOM_END_R * t, back - BOOM_END_B * t);
 }
 
@@ -155,72 +191,229 @@ export function spawnSquad(
 }
 
 // ── shared unit driver ──────────────────────────────────────────────────────
-const clearTmp = { x: 0, z: 0 };
+/** Result of commanderRules: the move direction to use, and whether it overrides the brain. */
+const rule = { x: 0, z: 0, hard: false };
+
+/** Is `cmd` a living commander on the same level as his soldier `u` (the rules apply)? */
+function commanderNear(u: Entity, cmd: Entity | undefined): cmd is Entity {
+  return !!cmd && cmd.alive && !cmd.hero?.dead && Math.abs(u.pos.y - cmd.pos.y) <= 2.5;
+}
 
 /**
- * Steering that keeps an own soldier out of its commander's personal space
- * (< COMMANDER_CLEARANCE + 0.8 m) and camera boom; (0, 0) for everything else.
+ * The commander's rules on an own soldier's move direction (mx, mz), after
+ * separation (see the file header). Writes `rule`: hard = walk straight out of
+ * the camera boom / personal space at full speed, whatever the brain asked.
  */
-function commanderClearance(u: Entity, cmd: Entity | undefined, out: { x: number; z: number }): { x: number; z: number } {
-  out.x = 0;
-  out.z = 0;
-  if (!cmd || !cmd.alive || cmd.hero?.dead || Math.abs(u.pos.y - cmd.pos.y) > 2.5) return out;
+function commanderRules(u: Entity, cmd: Entity, mx: number, mz: number, now: number, speed: number): void {
+  rule.x = mx;
+  rule.z = mz;
+  rule.hard = false;
   const dx = u.pos.x - cmd.pos.x;
   const dz = u.pos.z - cmd.pos.z;
   const d = Math.hypot(dx, dz);
-  if (d > BOOM_END_B + BOOM_CLEAR + 1) return out;
-  // personal space
-  const soft = COMMANDER_CLEARANCE + 0.8;
-  if (d < soft) {
-    const k = (soft - d) / soft;
-    // exactly on top of him: step out to the left (the formation side)
-    const nx = d > 1e-4 ? dx / d : -Math.cos(cmd.yaw);
-    const nz = d > 1e-4 ? dz / d : Math.sin(cmd.yaw);
-    out.x += nx * k * 2;
-    out.z += nz * k * 2;
-  }
-  // camera boom (behind the right shoulder)
+  if (d > BOOM_END_B + BOOM_CLEAR + BOOM_BAND + 0.5) return;
+  // away from the commander (exactly on top of him: to the left, the formation side)
+  const nx = d > 1e-4 ? dx / d : -Math.cos(cmd.yaw);
+  const nz = d > 1e-4 ? dz / d : Math.sin(cmd.yaw);
+  // away from the camera boom (feet → behind the right shoulder), in world space
   const rx = Math.cos(cmd.yaw);
   const rz = -Math.sin(cmd.yaw);
   const bx = Math.sin(cmd.yaw); // back = −forward
   const bz = Math.cos(cmd.yaw);
   const right = dx * rx + dz * rz;
   const back = dx * bx + dz * bz;
-  const bd = boomDistance(right, back);
-  if (bd < BOOM_CLEAR) {
-    const len2 = BOOM_END_R * BOOM_END_R + BOOM_END_B * BOOM_END_B;
-    const t = Math.max(0, Math.min(1, (right * BOOM_END_R + back * BOOM_END_B) / len2));
-    let pr = right - BOOM_END_R * t;
-    let pb = back - BOOM_END_B * t;
-    const pl = Math.hypot(pr, pb);
-    if (pl > 1e-4) {
-      pr /= pl;
-      pb /= pl;
-    } else {
-      // on the boom line: step out to the left (the formation side)
-      pr = -1;
-      pb = 0;
-    }
-    const k = ((BOOM_CLEAR - bd) / BOOM_CLEAR) * 1.6;
-    out.x += (rx * pr + bx * pb) * k;
-    out.z += (rz * pr + bz * pb) * k;
+  const t = Math.max(0, Math.min(1, (right * BOOM_END_R + back * BOOM_END_B) / BOOM_LEN2));
+  let pr = right - BOOM_END_R * t;
+  let pb = back - BOOM_END_B * t;
+  const bd = Math.hypot(pr, pb);
+  if (bd > 1e-4) {
+    pr /= bd;
+    pb /= bd;
+  } else {
+    // on the boom line: out to the left (the formation side)
+    pr = -1;
+    pb = 0;
   }
-  return out;
+  let ox = rx * pr + bx * pb;
+  let oz = rz * pr + bz * pb;
+  const inBoom = bd < BOOM_CLEAR;
+  const inSpace = d < COMMANDER_CLEARANCE;
+  if (inBoom) {
+    // the boom sweeps with the commander: when it moves toward this side faster
+    // than the soldier can walk away (a strafing / turning commander), crossing
+    // its line gets the soldier out sooner
+    const vo = cmd.vel.x * ox + cmd.vel.z * oz;
+    const tOut = speed - vo > 1e-3 ? (BOOM_CLEAR - bd) / (speed - vo) : Infinity;
+    const tAcross = speed + vo > 1e-3 ? (BOOM_CLEAR + bd) / (speed + vo) : Infinity;
+    if (tAcross < tOut) {
+      ox = -ox;
+      oz = -oz;
+    }
+  }
+  if (inBoom || inSpace) {
+    let hx = (inBoom ? ox : 0) + (inSpace ? nx : 0);
+    let hz = (inBoom ? oz : 0) + (inSpace ? nz : 0);
+    const l = Math.hypot(hx, hz);
+    if (l < 1e-3) {
+      hx = ox;
+      hz = oz;
+    } else {
+      hx /= l;
+      hz /= l;
+    }
+    rule.x = hx;
+    rule.z = hz;
+    rule.hard = true;
+    return;
+  }
+  const m0 = Math.hypot(mx, mz);
+  let x = mx;
+  let z = mz;
+  let around: boolean | undefined;
+  // the bands: a soft wall — the inward component is scaled down to nothing at
+  // the edge (soldiers settle on it without jitter) — and a soldier pressing on
+  // it walks around instead: around the far end of the boom (behind the camera,
+  // out of view; ties to the left) — or, ahead of the commander, around his
+  // front — and around the commander toward the side it leans to (ties:
+  // behind-left, the formation side)
+  if (bd < BOOM_CLEAR + BOOM_BAND) {
+    const dot = x * ox + z * oz;
+    if (dot < 0) {
+      x -= ox * dot;
+      z -= oz * dot;
+      around = mayWalkAround(u, now);
+      if (around) {
+        const fb = t > 0 ? 0.96 : -0.96;
+        aroundEdge(x, z, ox, oz, fb * bx - 0.29 * rx, fb * bz - 0.29 * rz, m0, 1);
+        x = rule.x;
+        z = rule.z;
+      }
+      const f = (bd - BOOM_CLEAR) / BOOM_BAND;
+      x += ox * dot * f;
+      z += oz * dot * f;
+    }
+  }
+  if (d < COMMANDER_CLEARANCE + CLEAR_BAND) {
+    const dot = x * nx + z * nz;
+    if (dot < 0) {
+      x -= nx * dot;
+      z -= nz * dot;
+      if (around ?? mayWalkAround(u, now)) {
+        aroundEdge(x, z, nx, nz, (bx - rx) * Math.SQRT1_2, (bz - rz) * Math.SQRT1_2, m0, 0.3);
+        x = rule.x;
+        z = rule.z;
+      }
+      const f = (d - COMMANDER_CLEARANCE) / CLEAR_BAND;
+      x += nx * dot * f;
+      z += nz * dot * f;
+    }
+    // and drift out of his way
+    const k = ((COMMANDER_CLEARANCE + CLEAR_BAND - d) / CLEAR_BAND) * 0.6;
+    x += nx * k;
+    z += nz * k;
+  }
+  const l = Math.hypot(x, z);
+  if (l > 1) {
+    x /= l;
+    z /= l;
+  }
+  rule.x = x;
+  rule.z = z;
 }
 
-/** Hard constraint: an own soldier ends its step at least COMMANDER_CLEARANCE from its commander. */
-function enforceClearance(w: World, u: Entity, cmd: Entity | undefined, st: MoveState): void {
-  if (!cmd || !cmd.alive || cmd.hero?.dead || Math.abs(u.pos.y - cmd.pos.y) > 2.5) return;
+/**
+ * (x, z): a move of speed `m0` with its component into an edge (outward normal
+ * (ox, oz)) dropped. Writes to rule.x/z a move along the edge at speed m0, on
+ * the side that the remaining move leans to plus `weight` × the preferred
+ * direction (px, pz) (unit) — weight 1 overrides any lean of a move that went
+ * into the edge at all; a small weight only breaks ties.
+ */
+function aroundEdge(x: number, z: number, ox: number, oz: number, px: number, pz: number, m0: number, weight: number): void {
+  let tx = -oz;
+  let tz = ox;
+  if (m0 < 1e-6) {
+    rule.x = 0;
+    rule.z = 0;
+    return;
+  }
+  if ((x * tx + z * tz) / m0 + weight * (tx * px + tz * pz) < 0) {
+    tx = -tx;
+    tz = -tz;
+  }
+  rule.x = tx * m0;
+  rule.z = tz * m0;
+}
+
+/** Push directions tried by enforceClearance, relative to straight away from the commander (rad). */
+const CLEAR_TRIES = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, (3 * Math.PI) / 4, (-3 * Math.PI) / 4];
+const clearSave = { x: 0, y: 0, z: 0, vy: 0, onGround: true, steep: false, inWater: false };
+const clearBest = { x: 0, y: 0, z: 0, vy: 0, onGround: true, steep: false, inWater: false };
+
+function saveMove(st: MoveState, out: typeof clearSave): void {
+  out.x = st.pos.x;
+  out.y = st.pos.y;
+  out.z = st.pos.z;
+  out.vy = st.vel.y;
+  out.onGround = st.onGround;
+  out.steep = st.steep === true;
+  out.inWater = st.inWater === true;
+}
+
+function loadMove(st: MoveState, from: typeof clearSave): void {
+  st.pos.x = from.x;
+  st.pos.y = from.y;
+  st.pos.z = from.z;
+  st.vel.y = from.vy;
+  st.onGround = from.onGround;
+  st.steep = from.steep;
+  st.inWater = from.inWater;
+}
+
+/**
+ * Hard constraint: an own soldier ends its step at least COMMANDER_CLEARANCE
+ * from its commander. A positional push (with collision): straight away from
+ * him, else — against a wall, a pillar or a slope too steep to climb — at
+ * 45°, 90°, 135° off that line (the side the soldier is already moving to
+ * first), each just long enough to reach the clearance; boxed in on every
+ * side, it keeps the farthest spot any of them reached.
+ */
+function enforceClearance(w: World, u: Entity, cmd: Entity, st: MoveState): void {
+  const d = Math.hypot(u.pos.x - cmd.pos.x, u.pos.z - cmd.pos.z);
+  if (d >= COMMANDER_CLEARANCE) return;
   const dx = u.pos.x - cmd.pos.x;
   const dz = u.pos.z - cmd.pos.z;
-  const d = Math.hypot(dx, dz);
-  if (d >= COMMANDER_CLEARANCE) return;
   const nx = d > 1e-4 ? dx / d : -Math.cos(cmd.yaw);
   const nz = d > 1e-4 ? dz / d : Math.sin(cmd.yaw);
-  const push = COMMANDER_CLEARANCE - d + 1e-3;
+  // turn first toward the side the soldier (or else its commander) is moving to
+  const side = (u.vel.x - cmd.vel.x) * -nz + (u.vel.z - cmd.vel.z) * nx >= 0 ? 1 : -1;
   const vx = u.vel.x;
   const vz = u.vel.z;
-  moveCharacter(w.cw, st, nx * push, nz * push, 0, u.radius, u.height);
+  saveMove(st, clearSave);
+  let bestD = d;
+  saveMove(st, clearBest);
+  const R = COMMANDER_CLEARANCE + 1e-3;
+  for (let i = 0; i < CLEAR_TRIES.length; i++) {
+    const a = CLEAR_TRIES[i] * side;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    const ux = nx * c - nz * s;
+    const uz = nx * s + nz * c;
+    // distance along (ux, uz) that ends exactly R from the commander
+    const m = -d * c + Math.sqrt(Math.max(0, R * R - d * d * s * s));
+    if (i > 0) loadMove(st, clearSave);
+    moveCharacter(w.cw, st, ux * m, uz * m, 0, u.radius, u.height);
+    const nd = Math.hypot(u.pos.x - cmd.pos.x, u.pos.z - cmd.pos.z);
+    if (nd >= COMMANDER_CLEARANCE) {
+      bestD = nd;
+      saveMove(st, clearBest);
+      break;
+    }
+    if (nd > bestD + 1e-6) {
+      bestD = nd;
+      saveMove(st, clearBest);
+    }
+  }
+  loadMove(st, clearBest);
   // a positional correction, not a velocity change
   u.vel.x = vx;
   u.vel.z = vz;
@@ -261,6 +454,7 @@ export function driveUnit(
   moveSt.onGround = u.onGround;
   moveSt.steep = false;
   const cmd = u.troop ? w.get(u.troop.commanderId) : undefined;
+  const own = commanderNear(u, cmd) ? cmd : undefined;
   if (u.forced && now < u.forced.until) {
     forcedMove(w.cw, moveSt, u.forced.vel.x, u.forced.vel.z, dt, u.radius, u.height);
   } else {
@@ -269,8 +463,10 @@ export function driveUnit(
       u.forced = undefined;
       brakeForcedEnd(u.vel, baseSpeed);
     }
-    let mx = cs.stunned || cs.rooted ? 0 : it.moveX;
-    let mz = cs.stunned || cs.rooted ? 0 : it.moveZ;
+    const still = cs.stunned || cs.rooted;
+    let mx = still ? 0 : it.moveX;
+    let mz = still ? 0 : it.moveZ;
+    let speedMul = it.speedMul;
     if (!cs.stunned) {
       // soft separation from nearby units
       let sx = 0;
@@ -288,12 +484,6 @@ export function driveUnit(
           sz += (dz / d) * k;
         }
       });
-      // own soldiers: out of the commander's personal space and third-person camera
-      const c = cmd ? commanderClearance(u, cmd, clearTmp) : undefined;
-      if (c) {
-        sx += c.x;
-        sz += c.z;
-      }
       if (sx !== 0 || sz !== 0) {
         mx += sx * 1.2;
         mz += sz * 1.2;
@@ -303,11 +493,19 @@ export function driveUnit(
           mz /= l;
         }
       }
+      // own soldiers: out of the commander's personal space and third-person camera
+      if (own && !still) {
+        commanderRules(u, own, mx, mz, now, baseSpeed * Math.max(1, speedMul) * statusSpeedMul(u, now));
+        mx = rule.x;
+        mz = rule.z;
+        if (rule.hard) speedMul = Math.max(1, speedMul);
+      }
     }
-    const speed = baseSpeed * it.speedMul * statusSpeedMul(u, now);
+    const speed = baseSpeed * speedMul * statusSpeedMul(u, now);
     steerMove(w.cw, moveSt, mx, mz, speed, dt, u.radius, u.height, it.jump && !cs.stunned && !cs.rooted && !cs.frozen);
   }
-  if (cmd) enforceClearance(w, u, cmd, moveSt);
+  if (commanderNear(u, cmd)) enforceClearance(w, u, cmd, moveSt);
+  w.markUnitMoved(u.id);
   u.onGround = moveSt.onGround;
   // facing
   if (!cs.stunned) {

@@ -5,7 +5,8 @@ import type { Vec3 } from '../../core/types';
 import { VF_ADS, VF_AIRBORNE, VF_FIRING, VF_RELOADING } from '../../core/types';
 import { HERO_BY_ID, ITEM_BY_ID, WEAPON_BY_ID } from '../../data';
 import { h, setClass, setText } from '../dom';
-import { gearName, heroName, t, tx, type I18nKey } from '../i18n';
+import { gearName, getLang, heroName, t, tx, type I18nKey } from '../i18n';
+import { displayName } from '../../game/names';
 import { CRATE_NAME } from '../theme';
 import { crosshairStyle, deriveInteract, distanceOutsideZone, relativeBearing, spreadToPx, type InteractPrompt } from './logic';
 import type { HudFrame } from './types';
@@ -246,7 +247,7 @@ export class Scope {
 export function interactText(p: InteractPrompt, lang: 'zh' | 'en'): { key: string; text: string; sub: string } {
   switch (p.kind) {
     case 'revive':
-      return { key: '', text: t('hud.interact.revive', { name: `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${p.name}` : ''}` }), sub: p.needPeach ? t('hud.interact.needPeach') : '' };
+      return { key: '', text: t('hud.interact.revive', { name: `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}` }), sub: p.needPeach ? t('hud.interact.needPeach') : '' };
     case 'airdrop':
       return { key: 'F', text: t('hud.interact.airdrop'), sub: '' };
     case 'crate': {

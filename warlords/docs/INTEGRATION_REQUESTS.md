@@ -67,3 +67,41 @@ Append new sections at the end; mark `Status:` when applied.
   `killHero(entityId)`, `setCooldownsReady(playerId)`. `src/game/debug.ts` currently reaches into
   `session.simHost` and calls `World.applyStatus / giveItem / giveWeapon / teleport / killHero /
   setCooldown` directly (structurally typed) — a formal API would survive World refactors.
+
+## APP-5 · SIM · tell the player when an ability press did nothing (no target under the crosshair)
+- **Status:** open (UI + audio already react to it)
+- **File / function:** `src/sim/world.ts` `activateAbility` — the `if (!ok) return;` after `impl.activate(ctx)`.
+- **Observed in play-testing:** pressing E as 关羽 (义绝), 甘宁 Q (奇袭), 貂蝉 Q (离间)… with no enemy under the
+  crosshair silently does nothing: no cooldown, no sound, no hint — new players think the key is broken.
+  Cards already do this (`inventory.ts itemDenied` → `{ t: 'sfx', name: 'itemDenied', privateTo }`).
+- **Change:** when `ok` is false for a human hero, emit the same kind of private event:
+  ```ts
+  if (!ok) {
+    if (!this.isBotHero(e)) this.emit({ t: 'sfx', name: 'abilityDenied', pos: { ...e.pos }, privateTo: e.id });
+    return;
+  }
+  ```
+  The HUD shows 「准星需对准目标 / Aim at a target first」 for `itemDenied` / `abilityDenied` (throttled) and the
+  audio catalog maps both to the UI error blip (`src/audio/catalog.ts` aliases) — until now `itemDenied` was dropped
+  by the audio resolver, so card denials were silent too.
+
+## APP-6 · NET · connection watchdogs must not fire right after the page itself was frozen
+- **Status:** open
+- **Files / functions:** `src/net/clientSession.ts` `checkHost()` (1 s interval, `hostTimeoutMs` 15 s);
+  `src/net/hostSession.ts` the peer-timeout check (`t - peer.lastSeen > this.timings.peerTimeout * 1000`, run from the ping timer).
+- **Observed:** e2e `tests/e2e/game-online.spec.ts` (host + 2 guests, SwiftShader, busy 4-CPU box) intermittently shows
+  「客人乙 断开连接，由人机接管 / 客人甲 重新连接」 loops during match start. When a page's main thread is blocked for a
+  long time (first-frame shader compilation; also a backgrounded/throttled tab or a laptop waking from sleep), the
+  interval callback can run *before* the WebSocket/DataChannel messages that queued up during the freeze are
+  dispatched, so `now - lastHostMsgAt` (or `lastSeen`) looks like 15+ s of silence although the link is fine →
+  false `connectionLost` → rejoin → the seat bounces to a bot and back.
+- **Change:** make both checks stall-aware — remember when the check last ran and skip one round after a gap:
+  ```ts
+  const t = now();
+  const gap = t - this.lastCheckAt; this.lastCheckAt = t;
+  if (gap > 2 * CHECK_INTERVAL_MS + 1000) { this.lastHostMsgAt = Math.max(this.lastHostMsgAt, t - CHECK_INTERVAL_MS); return; }
+  ```
+  (host: the same around the per-peer `lastSeen` test). Queued messages are then processed before the next check.
+- **APP side (done):** `GameRenderer.warmup()` now compiles + links shaders in batches with yields, so the longest
+  loading freeze dropped from ~4–5 s to ~1.3 s in SwiftShader (measured with a `longtask` observer), which makes the
+  false timeouts much rarer — but real browsers can still freeze longer (tab throttling, sleep).

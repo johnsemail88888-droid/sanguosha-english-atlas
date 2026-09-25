@@ -56,6 +56,8 @@ const RETREAT_MAX = 10;
 const LORD_LEASH = 12;
 /** how far an escort chases an attacker away from the crown it guards */
 const ESCORT_LEASH = 45;
+/** seconds at an objective before drifting around it */
+const IDLE_DRIFT_AFTER = 2.5;
 /** non-hero units checked for line of sight per threat scan */
 const UNIT_LOS_BUDGET = 6;
 /** extra angular tolerance (beyond the target's own size) before pressing a lock-on cast */
@@ -180,6 +182,9 @@ export class HeroBot implements BotBrain, BotView {
   private hazardDir: { x: number; z: number } | null = null;
   private dodgeQueued = false;
   private cast: CastState | null = null;
+  private idleSince = -1;
+  private jitterGoal: Vec3 | null = null;
+  private jitterUntil = 0;
   private castSerial = 0;
   /** the last combat aim (weapon tracking) this tick */
   private lastAim: { errAngle: number; targetAngle: number; point: Vec3 } | null = null;
@@ -202,8 +207,8 @@ export class HeroBot implements BotBrain, BotView {
   }
 
   /** Rebel push metrics (tests). */
-  pushStats(): { pushes: number; failed: number } {
-    return { pushes: this.strategy?.pushes ?? 0, failed: this.strategy?.failedPushes ?? 0 };
+  pushStats(): { pushes: number; failed: number; probes: number } {
+    return { pushes: this.strategy?.pushes ?? 0, failed: this.strategy?.failedPushes ?? 0, probes: this.strategy?.probes ?? 0 };
   }
 
   get beliefs(): Beliefs {
@@ -596,8 +601,9 @@ export class HeroBot implements BotBrain, BotView {
     const pushing = strat.pushing(this);
     let retreatHp = this.prof.retreatHp;
     if (this.role === 'rebel' && !pushing) retreatHp += 0.1;
-    // committed push: rebels only break off when nearly dead, unless the lord is out of reach
-    if (this.role === 'rebel' && pushing && t && wearsCrown(this.sim, t)) retreatHp -= 0.12;
+    // a push commits only for the kill (the lord low): otherwise a hurt rebel backs off and heals
+    // rather than feeding the lord a rebel-kill reward
+    if (this.role === 'rebel' && pushing && t && wearsCrown(this.sim, t) && this.hpFrac(t) < 0.35) retreatHp -= 0.12;
     if (this.role === 'lord' || this.role === 'traitor' || this.role === 'opportunist') retreatHp += 0.08;
     if (this.role === 'lord' && this.threats.filter((x) => x.e.kind === 'hero' && x.hostility >= 0.8 && x.dist < 40).length >= 2) retreatHp += 0.06;
     const closeThreat = this.threats.find((x) => x.hostility >= 0.5 && x.dist < 32 && (x.los || x.e.kind === 'hero'));
@@ -607,8 +613,10 @@ export class HeroBot implements BotBrain, BotView {
     // a close duel may finish at the edge of a weak circle — never for the lord
     const fightingClose = this.role !== 'lord' && !!t && this.targetLos && this.targetDist < 15 && hpFrac > 0.6 && this.x.zoneView().dps <= 4;
     if (zg && out && !fightingClose) return this.setMode('zone', zg, 3, true);
-    // a probe that has done its job / a push that failed: break off to the rally point
+    // a probe that has done its job / a push that failed: break off to the rally point at a run
+    // (no shooting over the shoulder unless someone is right on us)
     const fallback = strat.disengage(this);
+    if (fallback && !(closeThreat && closeThreat.dist < 12)) return this.setMode('regroup', fallback, 4, true);
     if (fallback) return this.setMode('retreat', fallback, 4, true);
     // disengage when hurt — but hiding forever at low HP with nothing to heal is a stalemate:
     // after a while without being hit, get back into it
@@ -647,9 +655,34 @@ export class HeroBot implements BotBrain, BotView {
     }
     // role objective
     const obj = strat.objective(this);
-    if (obj.goal) return this.setMode(obj.mode, obj.goal, obj.arrive, obj.sprint);
+    if (obj.goal) {
+      // arrived and nothing happening: never freeze on the spot (a still hero is an easy target)
+      const g = this.antiIdle(obj.goal, obj.arrive);
+      if (g) return this.setMode(obj.mode, g, 1, false);
+      return this.setMode(obj.mode, obj.goal, obj.arrive, obj.sprint);
+    }
+    this.idleSince = -1;
     this.mode = obj.mode;
     this.goal = null;
+  }
+
+  /** After a few seconds at an objective, drift around it (returns the drift goal) instead of standing still. */
+  private antiIdle(goal: Vec3, arrive: number): Vec3 | null {
+    const { self, now } = this;
+    if (dist2d(self.pos, goal) > arrive + 0.8 && !(this.jitterGoal && dist2d(this.jitterGoal, goal) < 8)) {
+      this.idleSince = -1;
+      this.jitterGoal = null;
+      return null;
+    }
+    if (this.idleSince < 0) this.idleSince = now;
+    if (now - this.idleSince < IDLE_DRIFT_AFTER) return null;
+    if (!this.jitterGoal || now >= this.jitterUntil || dist2d(this.jitterGoal, self.pos) < 1.2 || dist2d(this.jitterGoal, goal) > 8) {
+      const a = this.rng.next() * Math.PI * 2;
+      const r = 3 + this.rng.next() * 3.5;
+      this.jitterGoal = clampIntoZone(this.sim, { x: goal.x + Math.cos(a) * r, y: goal.y, z: goal.z + Math.sin(a) * r }, now);
+      this.jitterUntil = now + 3 + this.rng.next() * 2;
+    }
+    return this.jitterGoal;
   }
 
   private setMode(mode: BotMode, goal: Vec3, arrive: number, sprint: boolean): void {
@@ -947,16 +980,21 @@ export class HeroBot implements BotBrain, BotView {
     const t = this.target!;
     const d = this.targetDist;
     let [lo, hi] = idealRange(this.weapon);
-    // WEI-11: an enemy-targeted dash (张辽 突袭) is ready: step inside its reach
+    // a probe is hit and run: stay at long range from the crown; a push fights him from the edge
+    // of the weapon's reach (his soldiers shred whoever walks into the escort)
+    if (t.kind === 'hero' && wearsCrown(sim, t) && this.role === 'rebel' && this.weapon && !this.weapon.melee) {
+      if (this.strategy!.probing(this)) {
+        lo = Math.max(lo, 54);
+        hi = Math.max(hi, 64);
+      } else if (this.weapon.class !== 'shotgun' && this.weapon.class !== 'flamer' && this.hpFrac(t) > 0.3) {
+        hi = Math.max(hi, Math.min(this.weapon.maxRange * 0.6, 38));
+      }
+    }
+    // WEI-11: an enemy-targeted dash (张辽 突袭) is ready: step inside its reach (wins over the above)
     const cap = t.kind === 'hero' ? this.abilities.engageCap(this) : undefined;
     if (cap !== undefined && cap < hi) {
       hi = Math.max(3, cap);
       lo = Math.min(lo, hi * 0.5);
-    }
-    // a probe is hit and run: stay at long range from the crown
-    if (t.kind === 'hero' && wearsCrown(sim, t) && this.strategy!.probing(this)) {
-      lo = Math.max(lo, 32);
-      hi = Math.max(hi, 45);
     }
     let mx = 0;
     let mz = 0;
@@ -975,11 +1013,22 @@ export class HeroBot implements BotBrain, BotView {
       }
     }
     if (!this.targetLos) {
-      // hunt the last place it was seen (never where it really is)
+      // hunt the last place it was seen / felt from (never where it really is)
       const seen = this.seen.get(t.id);
-      if (!seen || now - seen.t > SEEN_MEMORY) return { x: 0, z: 0, jump: false, sprint: false };
-      const n = this.nav.steer(sim, self, seen.pos, 2);
-      return { x: n.x, z: n.z, jump: n.jump, sprint: d > 25 && n.straight };
+      let goal: Vec3 | undefined = seen && now - seen.t <= SEEN_MEMORY ? seen.pos : undefined;
+      if (!goal && t.kind === 'hero') goal = this.posOf(t, SEEN_MEMORY);
+      if (goal && dist2d(goal, self.pos) > 2.5) {
+        const n = this.nav.steer(sim, self, goal, 2);
+        return { x: n.x, z: n.z, jump: n.jump, sprint: d > 25 && n.straight };
+      }
+      // nothing to go on (hit from an unseen spot, or the trail went cold): don't stand still
+      if (now >= this.strafeUntil) {
+        this.strafeSign = this.rng.next() < 0.5 ? -1 : 1;
+        this.strafeUntil = now + 0.8 + this.rng.next();
+      }
+      const fx = -Math.sin(self.yaw);
+      const fz = -Math.cos(self.yaw);
+      return { x: -fz * this.strafeSign * 0.8, z: fx * this.strafeSign * 0.8, jump: false, sprint: false };
     }
     const dx = (t.pos.x - self.pos.x) / Math.max(1e-3, d);
     const dz = (t.pos.z - self.pos.z) / Math.max(1e-3, d);
@@ -1421,6 +1470,20 @@ export class HeroBot implements BotBrain, BotView {
     }
     // point: a static spot, a spot at the target's feet, or the target itself (skillshots)
     let pt: Vec3 | undefined = plan.point;
+    if (pt && !tgt) {
+      // a spot picked right in front of us that we walked up to: keep it comfortably ahead
+      const dx = pt.x - self.pos.x;
+      const dz = pt.z - self.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 6) {
+        const ux = d > 0.5 ? dx / d : -Math.sin(self.yaw);
+        const uz = d > 0.5 ? dz / d : -Math.cos(self.yaw);
+        const px = self.pos.x + ux * 8;
+        const pz = self.pos.z + uz * 8;
+        pt = { x: px, y: sim.groundHeight(px, pz), z: pz };
+        c.plan.point = pt;
+      }
+    }
     if (!pt && tgt) pt = plan.ground ? groundPointOf(this, tgt) : this.leadPoint(tgt, plan.leadSpeed);
     if (!pt) {
       this.dropCast(false);

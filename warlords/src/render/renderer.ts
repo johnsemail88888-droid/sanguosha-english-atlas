@@ -293,10 +293,13 @@ export class GameRenderer {
    * Loading-screen warm-up: create the visuals for the entities that exist now
    * and compile every shader program the scene can use (hidden VFX pools and the
    * translucent character variant included), so the first rendered frames do
-   * not stall on shader compilation. Uses KHR_parallel_shader_compile when the
-   * GPU offers it (non-blocking); otherwise compiles synchronously.
+   * not stall on shader compilation. With KHR_parallel_shader_compile the GPU
+   * compiles in the background; without it (SwiftShader, some drivers) the scene
+   * is compiled in batches and each batch's programs are linked right away, with
+   * a yield to the event loop in between — no single multi-second freeze (network
+   * keep-alives and the loading bar keep running). `onProgress` gets 0..1.
    */
-  async warmup(): Promise<void> {
+  async warmup(onProgress?: (fraction: number) => void): Promise<void> {
     if (this.disposed || this.contextLost) return;
     const view = this.view;
     const localId = view.localId();
@@ -321,15 +324,46 @@ export class GameRenderer {
     });
     const fadedRig = faded as { setFade(a: number): void } | null;
     fadedRig?.setFade(0.5);
+    const restore = (): void => {
+      for (const o of hidden) o.visible = false;
+      fadedRig?.setFade(1);
+    };
     try {
-      const parallel = this.renderer.extensions.has('KHR_parallel_shader_compile');
-      if (parallel) await this.renderer.compileAsync(this.scene, this.camera);
-      else this.renderer.compile(this.scene, this.camera);
+      if (this.renderer.extensions.has('KHR_parallel_shader_compile')) {
+        await this.renderer.compileAsync(this.scene, this.camera);
+        onProgress?.(1);
+        return;
+      }
+      // batches: the scene's top-level objects, big groups split into their children
+      const batches: THREE.Object3D[] = [];
+      for (const c of this.scene.children) {
+        if ((c as THREE.Light).isLight) continue;
+        if (c.children.length > 6) batches.push(...c.children);
+        else batches.push(c);
+      }
+      const gl = this.renderer.getContext();
+      const linked = new Set<unknown>(this.renderer.info.programs ?? []);
+      let lastYield = performance.now();
+      for (let i = 0; i < batches.length; i++) {
+        this.renderer.compile(batches[i], this.camera, this.scene);
+        // link the new programs now (blocks until each is ready) instead of at the first draw
+        for (const p of this.renderer.info.programs ?? []) {
+          if (linked.has(p)) continue;
+          linked.add(p);
+          const prog = (p as { program?: WebGLProgram }).program;
+          if (prog) gl.getProgramParameter(prog, gl.LINK_STATUS);
+        }
+        onProgress?.((i + 1) / batches.length);
+        if (performance.now() - lastYield > 120) {
+          await new Promise<void>((r) => setTimeout(r, 0));
+          lastYield = performance.now();
+          if (this.disposed || this.contextLost) return;
+        }
+      }
     } catch (err) {
       console.warn('[render] shader warm-up failed', err);
     } finally {
-      for (const o of hidden) o.visible = false;
-      fadedRig?.setFade(1);
+      restore();
     }
   }
 

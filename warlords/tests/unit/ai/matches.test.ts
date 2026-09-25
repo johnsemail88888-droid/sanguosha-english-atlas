@@ -1,12 +1,14 @@
 // Full all-bot matches on the real map (5–8 players, standard + 乱世, every
 // difficulty, different seeds) with the metrics the AI is tuned for. Prints a
-// summary table (winner, duration, deaths by cause, abilities / items used).
+// summary table (winner, duration, deaths by cause, first hit / deaths, abilities
+// / items used, aimed casts, pushes) and the pacing summary. The win-rate floors
+// per mode are checked on the larger opt-in sample (sample.test.ts).
 import { cpus, loadavg } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { ROLE_BY_ID } from '../../../src/data';
 import { FAILSAFE_TIME } from '../../../src/sim/rules';
 import type { MatchMetrics, MatchSpec } from './harness';
-import { formatTable, runMatch } from './harness';
+import { formatSummary, formatTable, runMatch, summarize } from './harness';
 
 const SPECS: MatchSpec[] = [
   { players: 8, mode: 'standard', difficulty: 'normal', seed: 11 },
@@ -48,10 +50,14 @@ describe('AI full matches', () => {
     // different sides win
     const winners = new Set(rows.map((r) => r.winner));
     expect(winners.size).toBeGreaterThanOrEqual(2);
-    // pacing: 4–10 minutes on average
-    const avg = rows.reduce((s, r) => s + r.duration, 0) / rows.length;
+    // pacing: 4–10 minutes on average, skirmishes before the big push, deaths spread over the match
+    const sum = summarize(rows);
+    process.stdout.write(`${formatSummary(sum)}\n`);
+    const avg = sum.avgDuration;
     expect(avg).toBeGreaterThanOrEqual(240);
     expect(avg).toBeLessThanOrEqual(600);
+    expect(sum.earlyDamageShare, 'matches with hero-on-hero damage before 180 s').toBeGreaterThanOrEqual(0.5);
+    expect(sum.meanDeathSpread, 'mean seconds between the first and the last death').toBeGreaterThanOrEqual(45);
     // nobody stuck: every living, standing bot covers ground every minute
     for (const r of rows) expect(r.minMetersPerMinute, `seed ${r.spec.seed}`).toBeGreaterThanOrEqual(10);
     // the lord almost never executes a loyalist

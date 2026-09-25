@@ -192,6 +192,10 @@ const ALIASES: Record<string, { name: SfxName; variant?: string }> = {
   stun: { name: 'status', variant: 'stun' },
   charm: { name: 'status', variant: 'charm' },
   dance: { name: 'status', variant: 'dance' },
+  // a card / ability that could not be used (no target under the crosshair…): private to the user
+  itemdenied: { name: 'ui', variant: 'error' },
+  abilitydenied: { name: 'ui', variant: 'error' },
+  denied: { name: 'ui', variant: 'error' },
 };
 
 /**

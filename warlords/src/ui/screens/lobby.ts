@@ -4,7 +4,8 @@ import type { BotDifficulty, GameMode, LobbySeat, LobbyState, MatchSettings } fr
 import type { GameSession } from '../../game/session';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, appendChildren, copyText, h } from '../dom';
-import { t, tx } from '../i18n';
+import { getLang, t, tx } from '../i18n';
+import { displayName } from '../../game/names';
 import { button, field, segmented, toggle } from '../widgets';
 import { rolePreview } from './single';
 import { shareBase } from '../desktop';
@@ -101,7 +102,7 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
         actions.appendChild(button(t('lobby.removeBot'), () => session.removeBot(seat.seat), { cls: 'small dark' }));
       } else if (isHost && !mine && !seat.isHost) {
         actions.appendChild(button(t('lobby.kick'), () => {
-          void ctx.confirm(t('lobby.kickConfirm', { name: seat.name })).then((yes) => {
+          void ctx.confirm(t('lobby.kickConfirm', { name: displayName(seat.name, getLang()) })).then((yes) => {
             if (yes) session.kick(seat.seat);
           });
         }, { cls: 'small dark' }));
@@ -115,7 +116,7 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
         h('li', { class: `seat${mine ? ' mine' : ''}${seat.isBot ? ' bot' : ''}` },
           h('span', { class: 'no' }, String(seat.seat + 1)),
           h('span', { class: 'avatar' }, seat.isBot ? '机' : seat.name.slice(0, 1).toUpperCase()),
-          h('span', { class: 'nm' }, seat.name, mine ? h('span', { class: 'you' }, tx(`（${t('common.you')}）`, ` (${t('common.you')})`)) : null),
+          h('span', { class: 'nm' }, displayName(seat.name, getLang()), mine ? h('span', { class: 'you' }, tx(`（${t('common.you')}）`, ` (${t('common.you')})`)) : null),
           state,
           actions,
         ),

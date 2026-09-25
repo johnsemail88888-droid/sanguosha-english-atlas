@@ -263,6 +263,15 @@ export interface DamageFrame {
 /** Hits that must not trigger the attacker's outgoing step again (their amount is final). */
 const isReflectHit = (req: DamageRequest): boolean => req.abilityId === 'status:reflect' || req.abilityId === 'status:thorns';
 
+/**
+ * 铁索连环 bookkeeping of one strike (credit, abilityId) in one tick (QUN-7):
+ * the chained units it hit directly, and those it reached through the chain.
+ */
+export interface ChainStrike {
+  direct: Set<EntityId>;
+  spread: Set<EntityId>;
+}
+
 /** Is this a fire / thunder ability hit that 铁索连环 spreads and dedupes (QUN-7)? */
 const chainDedupKey = (req: DamageRequest, creditId: EntityId | undefined): string | undefined =>
   (req.type === 'fire' || req.type === 'thunder') && req.weaponId === undefined && creditId !== undefined ? `${creditId}|${req.abilityId ?? ''}` : undefined;
@@ -315,10 +324,11 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
     if (!w.settings.friendlyFire && w.sameFaction(creditId, target.id)) return res;
   }
   // 铁索连环: a chained unit that already took this strike through the chain this tick
-  // is not hit again by the same strike directly (an area blast over N chained units)
+  // is not hit again by the same strike directly (an area blast over N chained units);
+  // repeated direct hits (two projectiles of one cast, overlapping blasts) all land
   const chained = (type === 'fire' || type === 'thunder') && findStatus(target, 'chained', now) !== undefined;
   const chainKey = chained ? chainDedupKey(req, creditId) : undefined;
-  if (chainKey !== undefined && !w.chainSpreading && w.chainHitThisTick(chainKey)?.has(target.id)) return res;
+  if (chainKey !== undefined && !w.chainSpreading && w.chainStrikeThisTick(chainKey)?.spread.has(target.id)) return res;
   if (creditId !== undefined && creditId !== target.id) w.recordAttack(target.id, creditId, req.sourceId);
 
   // attacker pre-hook (may mutate req: canDodge, ignoreArmor, amount)
@@ -497,17 +507,18 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
     if (frac > 0) w.heal(src.id, res.dealt * frac, src.id);
   }
 
-  // 9. chained spread (铁索连环): every other chained unit takes the hit once
+  // 9. chained spread (铁索连环): every other chained unit takes the hit once — once per strike
+  //    and tick for ability hits: not to units this strike already hit directly or through the chain
   if (chained && !w.chainSpreading && findStatus(target, 'chained', now)) {
-    const seen = chainKey !== undefined ? w.chainHitSet(chainKey) : undefined;
-    seen?.add(target.id);
+    const strike = chainKey !== undefined ? w.chainStrike(chainKey) : undefined;
+    strike?.direct.add(target.id);
     w.chainSpreading = true;
     try {
       for (const other of w.unitsWithStatus('chained')) {
         if (other === target || !other.alive) continue;
-        if (seen) {
-          if (seen.has(other.id)) continue;
-          seen.add(other.id);
+        if (strike) {
+          if (strike.direct.has(other.id) || strike.spread.has(other.id)) continue;
+          strike.spread.add(other.id);
         }
         dealDamage(w, { ...req, targetId: other.id, pos: undefined, knockback: undefined, noReflect: true });
       }

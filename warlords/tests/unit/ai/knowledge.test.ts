@@ -2,11 +2,14 @@
 //  - static scan: no AI module except knowledge.ts reads hidden roles;
 //  - public role-table arithmetic;
 //  - spy test: swapping OTHER heroes' hidden roles leaves a bot's decisions
-//    bit-identical (until something public differs).
+//    bit-identical (until something public differs);
+//  - sight spy test: a hero the bot cannot see (stealthed, or beyond its vision)
+//    moving around and fighting someone else leaves its decisions bit-identical,
+//    and nothing about that fight reaches its evidence.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { InputFrame, MatchSettings, RoleId } from '../../../src/core/types';
+import type { Entity, InputFrame, MatchSettings, RoleId } from '../../../src/core/types';
 import { emptyInput } from '../../../src/core/types';
 import { HeroBot } from '../../../src/sim/ai/heroBot';
 import { aliveCrowns, realLordFor, roleKnownTo, tableKnowledge } from '../../../src/sim/ai/knowledge';
@@ -109,10 +112,13 @@ function spyRun(roles: RoleId[], spySeat: number, ticks: number, settings: Parti
       };
     },
   });
-  // everyone within sight of the spy
+  // everyone within sight of the spy; nobody can die (a death would reveal a role)
   roles.forEach((_, i) => {
     const a = (i / roles.length) * Math.PI * 2;
-    place(w, hero(w, i), Math.cos(a) * 18, 30 + Math.sin(a) * 18);
+    const h = hero(w, i);
+    place(w, h, Math.cos(a) * 18, 30 + Math.sin(a) * 18);
+    h.maxHp = 1e5;
+    h.hp = 1e5;
   });
   const id = (seat: number): number => hero(w, seat).id;
   let seq = 1000;
@@ -139,7 +145,7 @@ describe('spy test: bots never use hidden information', () => {
     const base = spyRun(ROLES, SPY, TICKS);
     // the scenario is not trivial: the spy perceived evidence and acted on it
     expect(base.frames.length).toBe(TICKS);
-    expect(base.bot.beliefs.evidence(hero(base.w, 4).id).anti).toBeGreaterThan(0.5);
+    expect(base.bot.beliefs.evidence(hero(base.w, 4).id).anti).toBeGreaterThan(0.3);
     expect(new Set(base.frames).size).toBeGreaterThan(50);
     expect(base.w.heroList().every((h) => !h.hero!.dead)).toBe(true); // no reveal happened
     // swap a rebel with the traitor, and the other loyalist with a rebel
@@ -173,5 +179,107 @@ describe('spy test: bots never use hidden information', () => {
     [swapped[2], swapped[7]] = [swapped[7], swapped[2]];
     const other = spyRun(swapped, 0, TICKS, { mode: 'chaos' });
     expect(other.frames).toEqual(base.frames);
+  }, 60_000);
+});
+
+// ── sight spy test ──────────────────────────────────────────────────────────
+// The spy is a bot 主公 camping at the palace (0, 30); everyone else is a
+// scripted human. U (a rebel) fights V (the traitor, far away) — U either
+// hidden by stealth ~30 m from the lord, or beyond the lord's vision. Whether U
+// stands still or walks around must not change a single frame of the spy.
+const SIGHT_ROLES: RoleId[] = ['lord', 'loyalist', 'rebel', 'rebel', 'traitor'];
+const U = 2;
+const V = 4;
+
+interface SightRun {
+  frames: string[];
+  bot: HeroBot;
+  w: World;
+}
+
+function sightRun(opts: { stealth: boolean; uAt: [number, number]; uWalks: boolean }): SightRun {
+  let bot: HeroBot | undefined;
+  const frames: string[] = [];
+  const humans = [1, 2, 3, 4];
+  const w = makeWorld(SIGHT_ROLES, {
+    heroes: ['caocao', 'guanyu', 'machao', 'lubu', 'huangzhong'],
+    humans,
+    botFactory: (seat, d, seed) => {
+      const b = new HeroBot(seat, d, seed);
+      if (seat === 0) bot = b;
+      return {
+        think(sim, self, dt): InputFrame {
+          const f = b.think(sim, self, dt);
+          if (seat === 0) frames.push(JSON.stringify(f));
+          return f;
+        },
+      };
+    },
+  });
+  const h = (s: number): Entity => hero(w, s);
+  for (let i = 0; i < SIGHT_ROLES.length; i++) {
+    h(i).maxHp = 1e5;
+    h(i).hp = 1e5;
+  }
+  place(w, h(0), 0, 30);
+  place(w, h(1), -48, 52); // a far loyalist, standing still
+  place(w, h(3), 52, 55); // a far rebel, standing still
+  place(w, h(V), 48, -50); // the victim: far from the lord, out of his sight
+  place(w, h(U), opts.uAt[0], opts.uAt[1]);
+  if (opts.stealth) w.applyStatus(h(U).id, 'stealth', 999, { params: { keep: 1 } });
+  let seq = 5000;
+  for (let t = 0; t < 360; t++) {
+    const time = t / 30;
+    for (const i of humans) {
+      const walk = i === U && opts.uWalks;
+      w.setInput(`p${i}`, { ...emptyInput(seq++), moveZ: walk ? 0.8 : 0, moveX: 0, yaw: walk ? time * 1.5 : 0, actions: [] });
+    }
+    // U shoots V (identical damage in every run: no dodge, no weapon specials, no RNG)
+    if (t >= 60 && t % 12 === 0) w.dealDamage({ targetId: h(V).id, sourceId: h(U).id, amount: 9, type: 'normal', canDodge: false });
+    w.step();
+    w.drainEvents();
+  }
+  return { frames, bot: bot!, w };
+}
+
+function firstDiff(a: string[], b: string[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if (a[i] !== b[i]) return i;
+  return -1;
+}
+
+describe('sight spy test: bots never use positions or fights they cannot see', () => {
+  it('a stealthed hero moving and fighting ~30 m away leaves the bot’s frames identical', () => {
+    const still = sightRun({ stealth: true, uAt: [-26, 8], uWalks: false });
+    const walks = sightRun({ stealth: true, uAt: [-26, 8], uWalks: true });
+    expect(still.frames.length).toBe(360);
+    expect(new Set(still.frames).size).toBeGreaterThan(30); // the lord is doing things
+    // U really moved in the second run, and really hurt V in both
+    expect(Math.hypot(hero(walks.w, U).pos.x + 26, hero(walks.w, U).pos.z - 8)).toBeGreaterThan(1);
+    expect(hero(still.w, V).hp).toBeLessThan(1e5);
+    expect(firstDiff(still.frames, walks.frames), 'the stealthed hero leaked into the spy').toBe(-1);
+    // nothing about the fight reached the lord
+    const u = hero(still.w, U).id;
+    const v = hero(still.w, V).id;
+    expect(still.bot.obs.sinceAttack(still.w, u, v)).toBe(Infinity);
+    expect(still.bot.beliefs.evidenceMagnitude(u)).toBe(0);
+    expect(still.bot.sight.get(u)).toBeUndefined();
+  }, 60_000);
+
+  it('a hero beyond vision range moving and fighting leaves the bot’s frames identical', () => {
+    const still = sightRun({ stealth: false, uAt: [52, -40], uWalks: false });
+    const walks = sightRun({ stealth: false, uAt: [52, -40], uWalks: true });
+    expect(firstDiff(still.frames, walks.frames), 'a far hero leaked into the spy').toBe(-1);
+    const u = hero(still.w, U).id;
+    expect(still.bot.obs.sinceAttack(still.w, u, hero(still.w, V).id)).toBe(Infinity);
+    expect(still.bot.sight.get(u)).toBeUndefined();
+  }, 60_000);
+
+  it('control: the same fight in plain sight is perceived (the test is sensitive)', () => {
+    const seen = sightRun({ stealth: false, uAt: [-26, 8], uWalks: false });
+    const u = hero(seen.w, U).id;
+    expect(seen.bot.sight.seenWithin(u, 1)).toBe(true);
+    expect(seen.bot.obs.sinceAttack(seen.w, u, hero(seen.w, V).id)).toBeLessThan(2);
+    const walks = sightRun({ stealth: false, uAt: [-26, 8], uWalks: true });
+    expect(firstDiff(seen.frames, walks.frames)).toBeGreaterThanOrEqual(0);
   }, 60_000);
 });

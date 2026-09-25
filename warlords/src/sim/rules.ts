@@ -152,7 +152,8 @@ function processBounties(w: World, victim: Entity, killer: Entity | undefined, d
       if (rt) rt.bountyKills++;
       const items = w.rollRewardItems(BOUNTY_REWARD_ITEMS, 'rare');
       for (const id of items) w.giveOrDrop(hunter, id);
-      w.emit({ t: 'reward', who: hunter.id, kind: 'bounty', items });
+      // private: only the 赏金猎人 can complete a bounty, so the event would reveal who it is
+      w.emit({ t: 'reward', who: hunter.id, kind: 'bounty', items, privateTo: hunter.id });
     }
     hh.bountyTargetId = pickBountyTarget(w, hunter, victim.id);
   }

@@ -6,8 +6,9 @@
 //   - any event with `privateTo` set (core/types EventRouting), e.g. the
 //     'status' events of a private 'reveal' (诸葛亮 观星, 司马懿 狼顾);
 //   - { t:'reward', kind:'bounty' } — only the 赏金猎人 can complete a bounty,
-//     so anyone who saw it would learn who the hunter is. Treated as private
-//     to `who` even when the sim does not set privateTo.
+//     so anyone who saw it would learn who the hunter is. The sim sets
+//     privateTo on it (rules.ts / World.emit); treated as private to `who`
+//     here too, as a safety net for emitters that do not (fakeSim).
 // Every event leaving the host (network fan-out and the host's own LocalView)
 // passes through here.
 import type { EntityId, GameEvent } from '../core/types';

@@ -78,7 +78,7 @@ import {
   tickReload,
   updateProjectiles,
 } from './combat';
-import type { DamageFrame } from './combat';
+import type { ChainStrike, DamageFrame } from './combat';
 import {
   heroDef,
   maxReserve,
@@ -287,8 +287,8 @@ export class World implements SimExt, SimHost {
   readonly freezeStacks = new Map<EntityId, { stacks: number; until: number; immuneUntil: number }>();
   readonly scratchHits = new Map<EntityId, { amount: number; head: boolean; pos: Vec3; dist: number }>();
   chainSpreading = false;
-  /** 铁索连环 dedupe (QUN-7): strike key → units that took that strike this tick */
-  private readonly chainHits = new Map<string, Set<EntityId>>();
+  /** 铁索连环 dedupe (QUN-7): strike key → units that took that strike this tick, directly / through the chain */
+  private readonly chainHits = new Map<string, ChainStrike>();
   private chainHitsTick = -1;
   viewDirty = false;
   /**
@@ -335,8 +335,8 @@ export class World implements SimExt, SimHost {
   private pathDebt = 0;
   private readonly pathCache = new Map<string, { path: Vec3[] | null; at: number }>();
   private zoneDamageAt = ZONE_DAMAGE_PERIOD;
-  /** tick in which troops / NPCs already ran their movement step */
-  private unitsMovedTick = -1;
+  /** troops / NPCs: tick in which each already ran its movement step (troops.ts driveUnit) */
+  private readonly unitMovedTick = new Map<EntityId, number>();
   private readonly cs: ControlState = { stunned: false, rooted: false, silenced: false, disarmed: false, dancing: false, frozen: false };
   private readonly moveMods: MoveMods = { speedMul: 1, canSprint: true, canJump: true, rooted: false, ads: false, downed: false };
 
@@ -669,7 +669,6 @@ export class World implements SimExt, SimHost {
     updateTroops(this, this.kindList('troop'), this.troopBrain, dt);
     if (prof) t = this.lap('troops', t);
     updateNpcs(this, this.kindList('npc'), this.npcBrain, dt);
-    this.unitsMovedTick = this.tick;
     if (prof) t = this.lap('npcs', t);
     updateTurrets(this, this.kindList('turret'), dt);
     this.rebuildGrid();
@@ -1902,6 +1901,7 @@ export class World implements SimExt, SimHost {
     this.freezeStacks.delete(id);
     this.lootLocks.delete(id);
     forgetPath(this, id);
+    this.unitMovedTick.delete(id);
     if (e.troop) {
       const cmd = this.get(e.troop.commanderId);
       if (cmd?.hero) cmd.hero.squad = cmd.hero.squad.filter((x) => x !== id);
@@ -1929,10 +1929,15 @@ export class World implements SimExt, SimHost {
     e.forced = { vel: { x: (dir.x / l) * speed, y: 0, z: (dir.z / l) * speed }, until: start + (n - 0.5) * SIM_DT, invuln: opts?.invuln, dash: true };
   }
 
-  /** Has `e` already run its movement step this tick? (heroes: their updateHero; units: the troop/NPC phase) */
+  /** Has `e` already run its movement step this tick? (heroes: their updateHero; troops / NPCs: their driveUnit) */
   private movedThisTick(e: Entity): boolean {
     if (e.hero) return this.heroRts.get(e.id)?.movedTick === this.tick;
-    return this.unitsMovedTick === this.tick;
+    return this.unitMovedTick.get(e.id) === this.tick;
+  }
+
+  /** troops.ts driveUnit: this troop / NPC has run its movement step for this tick. */
+  markUnitMoved(id: EntityId): void {
+    this.unitMovedTick.set(id, this.tick);
   }
 
   /** SimExt.endDash (WEI-6): stop the unit's own dash now, at walking speed at most. */
@@ -2008,6 +2013,8 @@ export class World implements SimExt, SimHost {
 
   emit(ev: GameEvent): void {
     this.viewDirty = true; // state changed: invalidate the cached public views
+    // a bounty reward reveals who the 赏金猎人 is: it is only ever the hunter's (net/eventFilter.ts)
+    if (ev.t === 'reward' && ev.kind === 'bounty' && ev.privateTo === undefined) ev.privateTo = ev.who;
     this.events.push(ev);
     if (this.events.length > 20000) this.events.splice(0, this.events.length - 20000);
     if (ev.privateTo === undefined) {
@@ -2120,24 +2127,24 @@ export class World implements SimExt, SimHost {
     return redirectDamageImpl(this, req, newTargetId);
   }
 
-  /** 铁索连环 dedupe set of a strike this tick (combat.ts, QUN-7); undefined when none. */
-  chainHitThisTick(key: string): Set<EntityId> | undefined {
+  /** 铁索连环 record of a strike this tick (combat.ts, QUN-7); undefined when none. */
+  chainStrikeThisTick(key: string): ChainStrike | undefined {
     if (this.chainHitsTick !== this.tick) return undefined;
     return this.chainHits.get(key);
   }
 
-  /** The dedupe set of a strike this tick, created on demand (cleared every tick). */
-  chainHitSet(key: string): Set<EntityId> {
+  /** The record of a strike this tick, created on demand (cleared every tick). */
+  chainStrike(key: string): ChainStrike {
     if (this.chainHitsTick !== this.tick) {
       this.chainHits.clear();
       this.chainHitsTick = this.tick;
     }
-    let set = this.chainHits.get(key);
-    if (!set) {
-      set = new Set();
-      this.chainHits.set(key, set);
+    let rec = this.chainHits.get(key);
+    if (!rec) {
+      rec = { direct: new Set(), spread: new Set() };
+      this.chainHits.set(key, rec);
     }
-    return set;
+    return rec;
   }
 
   findPath(from: Vec3, to: Vec3, requesterId?: EntityId): Vec3[] | null {

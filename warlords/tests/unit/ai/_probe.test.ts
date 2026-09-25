@@ -26,6 +26,9 @@ it('probe match', () => {
       if (ev.t === 'revived') lines.push(`${w.time.toFixed(0)} revived ${role(ev.target)} by ${role(ev.by)}`);
       if (ev.t === 'quickchat') lines.push(`${w.time.toFixed(0)} chat ${role(ev.who)} ${ev.id}`);
     }
+    if (w.tick % 30 === 0 && w.time > 100 && w.time < 190) {
+      for (const b of bots) { const st = (b as unknown as { strategy: { probeState: string } }).strategy; const e = w.heroList()[b.seat]; if (e.hero!.role === 'rebel' && !e.hero!.dead) lines.push(`${w.time.toFixed(0)} R${e.id} ${st.probeState} mode ${b.mode} tgt ${b.target?.id ?? '-'} hp ${Math.round(e.hp)} dLord ${Math.round(Math.hypot(e.pos.x - w.heroList()[0].pos.x, e.pos.z - w.heroList()[0].pos.z))}`); }
+    }
     if (w.tick % (30 * 20) === 0) {
       const st = w.heroList().map((h) => `${h.hero!.role}${h.id}:${h.hero!.dead ? 'X' : Math.round(h.hp)}@${Math.round(h.pos.x)},${Math.round(h.pos.z)}`).join(' ');
       lines.push(`${w.time.toFixed(0)} STATE ${st}`);
@@ -36,4 +39,4 @@ it('probe match', () => {
   process.stdout.write(Object.entries(mat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${Math.round(v)}`).join(' ') + '\n');
   process.stdout.write(bots.map((b) => { const st = (b as unknown as { strategy: Record<string, unknown> }).strategy; return `${b.seat}:${b.role} probeAt ${Number(st.probeAt).toFixed(0)} state ${st.probeState} end ${Number(st.probeEndAt).toFixed(0)} pushAt ${Number(st.pushAt).toFixed(0)} w ${b.weapon?.id}/${b.weapon?.class}`; }).join('\n') + '\n');
   process.stdout.write(bots.map((b) => `${b.seat}:${JSON.stringify(b.pushStats())} aimed ${b.stats.castsAimed} to ${JSON.stringify(b.stats.timeoutsById)}`).join('\n') + '\n');
-});
+}, 120_000);

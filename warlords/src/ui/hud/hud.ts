@@ -86,6 +86,7 @@ export class Hud {
   private regionKey = '';
   private readonly keyDedupe = new UiKeyDeduper();
   private readonly airdrops = new Map<EntityId, { x: number; z: number; until: number }>();
+  private lastDenied = -1e9;
   private inputEnabled: boolean | null = null;
   private minimapCss = 0;
   private readFailed = false;
@@ -463,6 +464,13 @@ export class Hud {
             break;
           case 'pickup':
             if (ev.who === myId) this.announcer.push(t('hud.pickup', { name: pickupName(ev.item) }), 'info', undefined, now);
+            break;
+          case 'sfx':
+            // the sim refused a card / ability of ours (no valid target under the crosshair)
+            if ((ev.name === 'itemDenied' || ev.name === 'abilityDenied') && (ev.privateTo === undefined || ev.privateTo === myId) && now - this.lastDenied > 1.2) {
+              this.lastDenied = now;
+              this.announcer.push(tx('准星需对准目标', 'Aim at a target first'), 'warn', undefined, now);
+            }
             break;
           case 'command':
             break;

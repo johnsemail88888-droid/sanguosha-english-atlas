@@ -5,13 +5,14 @@ import { ROLE_BY_ID } from '../../data';
 import type { GameSession } from '../../game/session';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
-import { roleName, seatLabel, t, tx } from '../i18n';
+import { getLang, roleName, seatLabel, t, tx } from '../i18n';
+import { displayName } from '../../game/names';
 import { ROLE_GLYPH, roleColor } from '../theme';
 import { roleSeal, seal } from '../widgets';
 
 export function seatName(session: GameSession, seat: number): string {
   const s = session.lobby?.seats.find((x) => x.seat === seat);
-  return s ? s.name : seatLabel(seat);
+  return s ? displayName(s.name, getLang()) : seatLabel(seat);
 }
 
 export function mySeat(session: GameSession): number {
@@ -123,7 +124,7 @@ export function createRolesScreen(ctx: UiCtx, session: GameSession): Screen {
         const crowned = crowns.includes(st.seat);
         return h('div', { class: `seat-chip${isMe ? ' me' : ''}${crowned ? ' lord' : ''}${crowned && shown === 'double' ? ' decoy' : ''}` },
           shown ? roleSeal(shown, '1.8em') : h('span', { class: 'unknown' }, '?'),
-          h('span', { class: 'nm' }, st.name),
+          h('span', { class: 'nm' }, displayName(st.name, getLang())),
           h('span', { class: 'no' }, seatLabel(st.seat)),
         );
       }),

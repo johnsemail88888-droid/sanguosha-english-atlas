@@ -11,6 +11,7 @@ import type {
 import { VF_AIRBORNE, VF_DEAD, VF_DOWNED, VF_OPENED } from '../../core/types';
 import type { AbilityDef, HeroDef, WeaponClass } from '../../data/types';
 import { ARMOR_BY_ID, HERO_BY_ID, ITEM_BY_ID, MOUNT_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, isPassiveAbility } from '../../data';
+import { displayName } from '../../game/names';
 
 // ── HP ───────────────────────────────────────────────────────────────────────
 
@@ -241,12 +242,12 @@ export function entityLabel(view: NameLookup, id: EntityId | undefined, lang: 'z
   if (id === undefined || id === null) return null;
   const p = view.players().find((x) => x.entityId === id);
   const e = view.get(id);
-  if (p) return { name: p.name, heroId: p.heroId, kingdom: p.kingdom, role: p.role ?? e?.role, kind: 'hero' };
+  if (p) return { name: displayName(p.name, lang), heroId: p.heroId, kingdom: p.kingdom, role: p.role ?? e?.role, kind: 'hero' };
   if (!e) return null;
   const pick = (zh: string, en: string): string => (lang === 'en' ? en : zh);
   switch (e.kind) {
     case 'hero':
-      return { name: e.name ?? e.sub, heroId: e.sub, kingdom: e.kingdom, role: e.role, kind: 'hero' };
+      return { name: e.name ? displayName(e.name, lang) : e.sub, heroId: e.sub, kingdom: e.kingdom, role: e.role, kind: 'hero' };
     case 'troop':
     case 'npc': {
       const def = TROOP_BY_ID[e.sub];

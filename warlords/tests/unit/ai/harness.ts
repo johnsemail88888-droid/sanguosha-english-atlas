@@ -66,6 +66,10 @@ export interface MatchMetrics {
   minMetersPerMinute: number;
   /** longest time (s) any living, standing bot stayed within 1.5 m of one spot */
   longestIdle: number;
+  /** role of that bot */
+  longestIdleRole: string;
+  /** longest time (s) the lord stayed within 1.5 m of one spot (before the final circle) */
+  lordLongestIdle: number;
   tickAvgMs: number;
   tickP95Ms: number;
   tickMaxMs: number;
@@ -199,9 +203,16 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
   const result = w.result()!;
   let minMinute = Infinity;
   let longestIdle = 0;
-  for (const t of tracks.values()) {
+  let longestIdleRole = '-';
+  let lordLongestIdle = 0;
+  for (const [id, t] of tracks) {
     minMinute = Math.min(minMinute, t.minMinute);
-    longestIdle = Math.max(longestIdle, t.longestIdle);
+    const role = w.get(id)?.hero?.role ?? '?';
+    if (t.longestIdle > longestIdle) {
+      longestIdle = t.longestIdle;
+      longestIdleRole = role;
+    }
+    if (role === 'lord') lordLongestIdle = t.longestIdle;
   }
   times.sort((a, b) => a - b);
   const avg = times.length ? times.reduce((s, x) => s + x, 0) / times.length : 0;
@@ -220,6 +231,8 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
     heroDamage: Math.round(heroes.reduce((s, h) => s + h.hero!.stats.damage, 0)),
     minMetersPerMinute: minMinute === Infinity ? -1 : Math.round(minMinute),
     longestIdle: Math.round(longestIdle),
+    longestIdleRole,
+    lordLongestIdle: Math.round(lordLongestIdle),
     tickAvgMs: avg,
     tickP95Ms: times.length ? times[Math.floor(times.length * 0.95)] : 0,
     tickMaxMs: times.length ? times[times.length - 1] : 0,
@@ -297,7 +310,7 @@ export function formatTable(rows: MatchMetrics[]): string {
         r.revives,
         `${r.pushes}/${r.failedPushes}`,
         r.minMetersPerMinute,
-        r.longestIdle,
+        `${r.longestIdle} ${r.longestIdleRole} (lord ${r.lordLongestIdle})`,
         `${r.tickAvgMs.toFixed(2)}/${r.tickP95Ms.toFixed(2)}`,
       ].join(' | '),
     );

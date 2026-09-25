@@ -92,7 +92,10 @@ describe('squads (带兵)', () => {
     stepN(w, 150);
     expect(victim.hp).toBeLessThan(victim.maxHp);
     w.setSquadOrder(cmd.id, { kind: 'hold', point: { x: 20, y: 0, z: 40 } });
+    // the victim leaves with its squad (nobody left to fight near the hold point)
     place(w, victim, -55, -55);
+    victim.hero!.squad.forEach((id, k) => place(w, w.get(id)!, -52 + k, -52));
+    w.markGridDirty();
     stepN(w, 330);
     for (const id of cmd.hero!.squad) {
       const t = w.get(id)!;
