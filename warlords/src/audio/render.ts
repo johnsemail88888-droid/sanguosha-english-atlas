@@ -16,6 +16,7 @@ import { EventRouter } from './router';
 import type { SoundSink } from './router';
 import { SfxEngine } from './sfx';
 import type { LoopOpts, PlayOpts } from './sfx';
+import { renderWithStallRetry } from './stall';
 
 export interface RenderStats {
   peak: number;
@@ -78,6 +79,8 @@ export interface RenderOptions {
   listener?: { pos: Vec3; yaw: number; pitch: number };
   /** play baked samples from this bank where available */
   bank?: SampleBank | null;
+  /** a render whose clock has not moved for this long is redone on a fresh context (ms, default RENDER_STALL_MS) */
+  stallMs?: number;
 }
 
 let sharedBank: SampleBank | null = null;
@@ -93,6 +96,13 @@ export function bakedBank(sampleRate = 48000, variants = 1): Promise<SampleBank>
   return sharedBankReady;
 }
 
+/**
+ * Render `seconds` of audio: `build` wires the session (sounds, music, a
+ * timeline of `at` callbacks — the render suspends at each and resumes after).
+ * Chromium sometimes freezes a render right after such a resume (stall.ts):
+ * a render whose clock stops moving is abandoned and redone once on a fresh
+ * context, so `build` may run twice — it must only touch the session it gets.
+ */
 export async function renderOffline(
   seconds: number,
   build: (s: OfflineSession) => void,
@@ -101,7 +111,23 @@ export async function renderOffline(
   const Ctor = offlineContextCtor();
   if (!Ctor) throw new Error('OfflineAudioContext unavailable');
   const sr = o.sampleRate ?? 48000;
-  const ctx = new Ctor(2, Math.max(1, Math.ceil(seconds * sr)), sr);
+  const buffer = await renderWithStallRetry(
+    () => {
+      const ctx = new Ctor(2, Math.max(1, Math.ceil(seconds * sr)), sr);
+      return { clock: ctx, done: renderOn(ctx, seconds, build, o) };
+    },
+    {
+      stallMs: o.stallMs,
+      onStall: (attempt, at) =>
+        console.warn(`[audio] offline render stalled at ${at.toFixed(4)} s (attempt ${attempt + 1})${attempt === 0 ? ', retrying on a fresh context' : ''}`),
+    },
+  );
+  return { buffer, stats: analyze(buffer) };
+}
+
+/** One offline render of `build`'s session on `ctx`. */
+function renderOn(ctx: OfflineAudioContext, seconds: number, build: (s: OfflineSession) => void, o: RenderOptions): Promise<AudioBuffer> {
+  const sr = ctx.sampleRate;
   const graph = new MixGraph(ctx, o.quality ?? 'high', false);
   graph.bank = o.bank ?? null;
   const [mv, muv, sv] = o.volumes ?? [1, 1, 1];
@@ -142,8 +168,7 @@ export async function renderOffline(
       })
       .catch((err: unknown) => console.warn('[audio] offline suspend failed', err));
   }
-  const buffer = await ctx.startRendering();
-  return { buffer, stats: analyze(buffer) };
+  return ctx.startRendering();
 }
 
 export interface SfxRenderRequest extends PlayOpts {
