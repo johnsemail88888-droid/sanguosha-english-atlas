@@ -85,7 +85,8 @@ Append new sections at the end; mark `Status:` when applied.
   setCooldown` directly (structurally typed) — a formal API would survive World refactors.
 
 ## APP-5 · SIM · tell the player when an ability press did nothing (no target under the crosshair)
-- **Status:** open (UI + audio already react to it)
+- **Status:** applied (G4) — `World.abilityDenied()` emits the private `{ t:'sfx', name:'abilityDenied', ability, reason? }`
+  for a human caster whose ability refused (also while silenced); bots get none. Unit tests: tests/unit/sim/denied.test.ts.
 - **File / function:** `src/sim/world.ts` `activateAbility` — the `if (!ok) return;` after `impl.activate(ctx)`.
 - **Observed in play-testing:** pressing E as 关羽 (义绝), 甘宁 Q (奇袭), 貂蝉 Q (离间)… with no enemy under the
   crosshair silently does nothing: no cooldown, no sound, no hint — new players think the key is broken.
@@ -130,7 +131,9 @@ Append new sections at the end; mark `Status:` when applied.
   false timeouts much rarer — but real browsers can still freeze longer (tab throttling, sleep).
 
 ## APP-7 · SIM · say *why* a card / ability was refused (`reason`, `item` on the denied sfx event)
-- **Status:** open (the HUD already reads the optional fields; without them it shows a neutral text)
+- **Status:** applied (G4) — `itemDenied(w, e, itemId, reason?)` / `abilityDenied` carry `item` / `ability` and a
+  `DeniedReason` (`core/types.ts`: noTarget, fullHp, cap, blocked, needOther, invalidTarget, silenced) set by the card or
+  ability through `ctx.deniedReason`; 桃 at full HP is refused before the use bar starts. Unit tests: tests/unit/sim/denied.test.ts.
 - **File / function:** `src/sim/inventory.ts` `itemDenied(w, e)` and its two call sites; `src/sim/world.ts` the
   `abilityDenied` emit of APP-5 (when applied).
 - **Observed:** every `itemDenied` showed 「准星需对准目标 / Aim at a target first」, but the sim also emits it whenever a
@@ -150,7 +153,9 @@ Append new sections at the end; mark `Status:` when applied.
   `core/types.ts`, add `item?: string; reason?: string` there (additive).
 
 ## APP-8 · SIM · minimum distance between hero spawns
-- **Status:** open
+- **Status:** applied (G4) — `World.spawnOrder()` farthest-point assignment seeded with the lord's spawn;
+  `chooseSpawns` rejects pairs closer than `SPAWN_SEPARATION` (55 m, 36 m fallback). Seeds 1..20 × 8 seats: min pair
+  distance 56.0 m (tests/unit/map/spawns.test.ts).
 - **Files / functions:** `src/sim/world.ts` `spawnHeroes()`; `src/sim/map/spots.ts` `chooseSpawns()`.
 - **Observed:** `generateMap` spawns for seeds 1 and 2 are as close as 36.8 m (the ring keeps only a 36 m minimum pair
   distance, and the angular offsets let neighbouring sectors slide together). `spawnHeroes` takes the *shuffled* list in
