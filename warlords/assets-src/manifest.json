@@ -2350,6 +2350,18 @@
    "out": "assets-src/previews/props/nanmanTent.webp",
    "maxSize": 640,
    "quality": 80
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151948_8ff07afc-ac1f-45f3-a321-19fa265ab299.glb",
+   "out": "public/assets/models/mounts/horse.glb",
+   "texSize": 1024
+  },
+  {
+   "kind": "glb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151950_a185caba-bdfa-4b94-9f6a-18170ff0973f.glb",
+   "out": "public/assets/models/mounts/elephant.glb",
+   "texSize": 1024
   }
  ]
 }
