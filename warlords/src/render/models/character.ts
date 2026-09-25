@@ -1,9 +1,13 @@
 // CharacterRig: one character = ONE skinned mesh + optional mount.
 //   - GLB body (models/glbBody.ts, when the AI art is shipped and loaded): the
-//     textured mocap-animated model with the procedural weapon in its hand;
+//     textured mocap-animated model with its weapon in its hand (the AI-art
+//     weapon, models/weaponGlb.ts, once loaded; else the procedural one);
 //   - procedural body (the fallback: single-file build, no assets, load
 //     failure, still loading): body + held weapon(s) merged, the weapon skinned
-//     to the weapon bone, driven by the CharacterAnimator.
+//     to the weapon bone, driven by the CharacterAnimator. Always the
+//     procedural weapon (flat vertex colours like the body, one draw call);
+//   - rigid body (models/glbRigid.ts): a GLB without the auto-rig riding the
+//     procedural rig, which stays hidden but animated.
 // One draw call (+ its shadow) per character either way (+ the weapon mesh for
 // GLB bodies). Used by the in-game entity views, the portrait renderer and the
 // turntable. A GLB body requested with useGlb() swaps in as soon as its model
@@ -16,10 +20,12 @@ import { clipsReady, loadAllClips } from '../anim/glbClips';
 import { WEAPON_BY_ID } from '../../data';
 import { buildCharacter, specKey, type CharacterSpec } from './humanoid';
 import { B, localRest, type BodyDims } from './rig';
-import { buildWeapon, isAkimbo, weaponSpecOf, type HoldStyle, type WeaponModelInfo } from './weapons';
+import { buildProceduralWeapon, isAkimbo, weaponArtEpoch, weaponSpecOf, type HoldStyle, type WeaponModelInfo } from './weapons';
 import { MountRig, SADDLE_HIP, type MountKind } from './mounts';
-import { GLB_HERO_HEIGHT, charTemplateSync, heroModelPath, loadCharTemplate } from './glb';
+import { GLB_HERO_HEIGHT, charTemplateSync, heroModelPath, loadCharTemplate, rigidTemplateSync } from './glb';
 import { GlbBody } from './glbBody';
+import { RigidBody } from './glbRigid';
+import { requestWeaponArt } from './weaponGlb';
 
 export interface RigUpdate {
   speed: number;
@@ -140,6 +146,10 @@ export class CharacterRig {
   mount: MountRig | null = null;
   private readonly mountKey: { kind: MountKind | null; coat: string; cloth: string; trim: string } = { kind: null, coat: '', cloth: '', trim: '' };
   private glb: GlbBody | null = null;
+  /** an unrigged GLB shown on the procedural rig (models/glbRigid.ts) */
+  private rigid: RigidBody | null = null;
+  /** weaponArtEpoch() when the rigid body's weapon was built (late art swap) */
+  private rigidArtEpoch = 0;
   /** requested GLB model path (null = procedural) and the height to normalise it to */
   private glbWant: string | null = null;
   private glbHeight = GLB_HERO_HEIGHT;
@@ -218,6 +228,12 @@ export class CharacterRig {
    * or seated on the current mount), including the rig's root scale.
    */
   headHeight(): number {
+    const r = this.rigid;
+    if (r) {
+      let top = r.height;
+      if (this.mount) top += SADDLE_HIP[this.mount.kind] - this.dims.hipY;
+      return top * this.root.scale.y;
+    }
     const g = this.glb;
     if (g) {
       let top = g.headTop();
@@ -236,9 +252,14 @@ export class CharacterRig {
     return d.headCY + 0.19 * d.h;
   }
 
-  /** true once a GLB body replaced the procedural one (see models/glbBody.ts) */
+  /** true once a GLB body (skinned, or a rigid unrigged one) replaced the procedural one (see models/glbBody.ts) */
   get usesGlb(): boolean {
-    return this.glb !== null;
+    return this.glb !== null || this.rigid !== null;
+  }
+
+  /** The normalised GLB model (its scale maps the file to the requested height; children[0] = the file's scene, feet at 0), or null. */
+  get glbObject(): THREE.Object3D | null {
+    return this.glb?.group ?? this.rigid?.object ?? null;
   }
 
   /** The GLB body, when one is in use. */
@@ -263,6 +284,7 @@ export class CharacterRig {
   muzzleWorld(out: THREE.Vector3): boolean {
     if (!this.info || !this.weaponShown) return false;
     if (this.glb) return this.glb.muzzleWorld(out);
+    if (this.rigid) return this.rigid.muzzleWorld(out);
     const bone = this.rigBones.bones[B.weapon];
     bone.updateWorldMatrix(true, false);
     out.copy(this.info.muzzle).applyMatrix4(bone.matrixWorld);
@@ -280,9 +302,11 @@ export class CharacterRig {
     if (!wid) {
       this.mesh.geometry = this.bodyGeo;
       this.glb?.setWeapon(null, 'none', false);
+      this.rigid?.setWeapon(null, false);
       return;
     }
-    const w = buildWeapon(wid);
+    // the procedural body always merges the procedural weapon; its hold / IK points are the art's too
+    const w = buildProceduralWeapon(wid);
     this.info = w.info;
     this.akimbo = isAkimbo(wid);
     this.hold = this.akimbo ? 'akimbo' : w.info.hold;
@@ -291,6 +315,7 @@ export class CharacterRig {
     this.meleeStyle = style === 'spear' || (this.hold !== 'pole' && this.hold !== 'sword') ? 'thrust' : 'heavy';
     this.reloadTime = WEAPON_BY_ID[wid]?.reloadTime ?? 2;
     this.glb?.setWeapon(wid, this.hold, this.akimbo);
+    this.setRigidWeapon();
     const key = `${this.key}|${wid}`;
     let merged = mergedCache.get(key);
     if (!merged) {
@@ -342,15 +367,19 @@ export class CharacterRig {
     this.glbHeight = height;
     this.dropGlb();
     if (!path || this.buildGlb()) return;
-    void Promise.all([loadCharTemplate(path), loadAllClips()]).then(() => {
-      if (!this.disposed && this.glbWant === path && !this.glb) this.buildGlb();
-    });
+    const retry = (): void => {
+      if (!this.disposed && this.glbWant === path && !this.glb && !this.rigid) this.buildGlb();
+    };
+    // a rigid (unrigged) model needs no clips: each arrival gets a try
+    void loadCharTemplate(path).then(retry);
+    void loadAllClips().then(retry);
   }
 
   private buildGlb(): boolean {
     const path = this.glbWant;
     if (!path || this.disposed) return false;
     const tpl = charTemplateSync(path);
+    if (tpl === null) return this.buildRigid(path);
     if (!tpl || !clipsReady()) return false;
     try {
       this.glb = new GlbBody(tpl, this.glbHeight);
@@ -368,7 +397,36 @@ export class CharacterRig {
     return true;
   }
 
+  /** An unrigged model (see models/glbRigid.ts); false when the file is absent or broken. */
+  private buildRigid(path: string): boolean {
+    const tpl = rigidTemplateSync(path);
+    if (!tpl) return false;
+    this.rigid = new RigidBody(tpl, this.glbHeight);
+    this.rigid.attach(this.root);
+    this.mesh.visible = false;
+    this.setRigidWeapon();
+    this.setShadows(this.castShadows, this.weaponShadows);
+    this.applyOpacity();
+    return true;
+  }
+
+  /** The rigid body's weapon: the AI-art one once loaded (requested here), else the procedural one. */
+  private setRigidWeapon(): void {
+    const r = this.rigid;
+    if (!r) return;
+    const id = this.weaponId;
+    if (id) requestWeaponArt(id);
+    this.rigidArtEpoch = weaponArtEpoch();
+    r.setWeapon(id, this.akimbo);
+    r.setShadows(this.castShadows && !this.stealthed, this.weaponShadows && this.castShadows && !this.stealthed);
+  }
+
   private dropGlb(): void {
+    if (this.rigid) {
+      this.rigid.dispose();
+      this.rigid = null;
+      this.mesh.visible = true;
+    }
     if (!this.glb) return;
     this.glb.dispose();
     this.glb = null;
@@ -453,6 +511,7 @@ export class CharacterRig {
     const opacity = Math.min(this.stealthed ? 0.32 : 1, this.fade);
     const transparent = opacity < 0.999;
     this.glb?.setOpacity(opacity);
+    this.rigid?.setOpacity(opacity);
     const mats = [this.procMaterial, this.mount?.material].filter((m): m is THREE.MeshStandardMaterial => !!m);
     for (const m of mats) {
       if (m.transparent !== transparent) {
@@ -475,6 +534,7 @@ export class CharacterRig {
     const c = cast && !this.stealthed;
     this.mesh.castShadow = c;
     this.glb?.setShadows(c, c && weapon);
+    this.rigid?.setShadows(c, c && weapon);
     if (this.mount) this.mount.mesh.castShadow = c;
   }
 
@@ -523,6 +583,11 @@ export class CharacterRig {
     const s = this.weaponShown ? 1 : 1e-4;
     this.rigBones.bones[B.weapon].scale.setScalar(s);
     this.rigBones.bones[B.weaponL].scale.setScalar(this.akimbo ? s : 1e-4);
+    const r = this.rigid;
+    if (r) {
+      if (this.weaponId && this.rigidArtEpoch !== weaponArtEpoch()) this.setRigidWeapon();
+      r.sync(this.mesh.skeleton);
+    }
   }
 
   dispose(): void {

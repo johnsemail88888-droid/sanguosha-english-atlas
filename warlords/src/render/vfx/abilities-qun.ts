@@ -139,7 +139,9 @@ const fangtian: AbilityVfxFn = (ctx, ev) => {
 const sheji: AbilityVfxFn = (ctx) => {
   const from = ctx.srcPos;
   if (!from) return;
-  const muzzle = from.clone().addScaledVector(ctx.dir, 0.9);
+  // out of the held weapon's barrel (the AI-art or procedural muzzle), else ahead of the chest
+  const held = ctx.muzzle?.();
+  const muzzle = held && held.distanceTo(from) < 3 ? held : from.clone().addScaledVector(ctx.dir, 0.9);
   ctx.fx.burst(muzzle, { count: 1, tex: PT.star, color: GOLD, speed: [0, 0], life: [0.14, 0.2], size: [1.6, 0.5] });
   ctx.fx.burst(muzzle, { count: 14, tex: PT.spark, color: GOLD, dir: ctx.dir, spread: 0.15, speed: [8, 18], life: [0.1, 0.28], size: [0.07, 0.02], stretch: 0.05 });
   ctx.fx.burst(muzzle, { count: 6, tex: PT.smoke, color: C(0.9, 0.8, 0.6), dir: ctx.dir, spread: 0.3, speed: [1, 3], life: [0.4, 0.8], size: [0.3, 1], additive: false, alpha: 0.35, drag: 2 });

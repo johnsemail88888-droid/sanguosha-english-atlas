@@ -8,7 +8,8 @@ import { GeoBuilder, PRIM, col, mixCol, shade, trs } from '../core/geo';
 import { glowMaterial, worldMaterial, worldMaterialDouble } from '../core/materials';
 import { PT, cardTexture } from '../core/textures';
 import { RARITY_COLORS, kingdomColor } from '../palette';
-import { buildWeapon } from '../models/weapons';
+import { buildWeapon, hasWeaponArt, weaponArtEpoch } from '../models/weapons';
+import { requestWeaponArt } from '../models/weaponGlb';
 import type { EntityCtx } from './context';
 
 const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
@@ -220,22 +221,41 @@ const cardMats = new Map<string, THREE.MeshStandardMaterial>();
 /** Loot / crates cast shadows only this close to the camera (draw-call budget). */
 const PROP_SHADOW_DIST = 18;
 
+/** Tilt of a weapon pickup (rolled onto its side, a little nose-down). */
+const LOOT_WEAPON_ROLL = Math.PI / 2 - 0.3;
+const _c = new THREE.Vector3();
+
+/** A weapon pickup's mesh in its spinning holder, centred on the holder so long weapons spin in place. */
+function lootWeapon(id: string, holder: THREE.Object3D): THREE.Mesh {
+  const w = buildWeapon(id);
+  const m = w.mesh;
+  m.rotation.set(0, 0, LOOT_WEAPON_ROLL);
+  const g = m.geometry;
+  if (!g.boundingBox) g.computeBoundingBox();
+  g.boundingBox!.getCenter(_c).applyEuler(m.rotation);
+  m.position.copy(_c).negate();
+  holder.add(m);
+  return m;
+}
+
 export class LootView implements EntityView {
   readonly root = new THREE.Group();
   private readonly item: THREE.Object3D;
-  private readonly shadowCaster: THREE.Object3D;
+  private shadowCaster: THREE.Object3D;
   private readonly phase: number;
+  /** weapon pickup whose AI-art model is still loading: weaponArtEpoch() when checked last (-1 = none) */
+  private artWait = -1;
+  private readonly sub: string;
 
   constructor(e: ViewEntity) {
     const info = lootInfo(e.sub);
+    this.sub = e.sub;
     this.phase = (e.id * 1.7) % 6.28;
     if (info.weapon) {
-      const w = buildWeapon(e.sub);
-      w.mesh.rotation.set(0, 0, Math.PI / 2 - 0.3);
       const holder = new THREE.Group();
-      holder.add(w.mesh);
+      this.shadowCaster = lootWeapon(e.sub, holder);
       this.item = holder;
-      this.shadowCaster = w.mesh;
+      if (requestWeaponArt(e.sub)) this.artWait = weaponArtEpoch();
     } else {
       if (!cardGeo) cardGeo = new THREE.PlaneGeometry(0.42, 0.56);
       const key = `${info.glyph}|${info.color}|${info.rarity}`;
@@ -259,6 +279,15 @@ export class LootView implements EntityView {
   }
 
   update(e: ViewEntity, ctx: EntityCtx): void {
+    if (this.artWait >= 0 && this.artWait !== weaponArtEpoch()) {
+      this.artWait = weaponArtEpoch();
+      if (hasWeaponArt(this.sub)) {
+        // the AI-art model arrived: swap it in
+        this.shadowCaster.removeFromParent();
+        this.shadowCaster = lootWeapon(this.sub, this.item);
+        this.artWait = -1;
+      }
+    }
     this.root.position.set(e.x, e.y, e.z);
     this.item.position.y = 0.55 + Math.sin(ctx.time * 2 + this.phase) * 0.06;
     this.item.rotation.y = ctx.time * 1.2 + this.phase;

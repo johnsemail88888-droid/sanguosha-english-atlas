@@ -1,4 +1,5 @@
-// Dev-only: character lineup preview (render-dev.html?mode=models).
+// Dev-only: character lineup preview (render-dev.html?mode=models); &set=weapons
+// opens the AI-art weapon calibration bench (dev/weaponsPreview.ts).
 import * as THREE from 'three';
 import { HEROES, TROOPS } from '../../data';
 import { CharacterRig } from '../models/character';
@@ -6,6 +7,10 @@ import { heroSpec, troopLook } from '../models';
 import { VF_ADS, VF_DANCING, VF_DEAD, VF_DOWNED, VF_RELOADING, VF_SPRINTING, VF_STUNNED } from '../../core/types';
 
 export function startModelsPreview(canvas: HTMLCanvasElement, params: URLSearchParams): void {
+  if (params.get('set') === 'weapons') {
+    void import('./weaponsPreview').then((m) => m.startWeaponsPreview(canvas, params));
+    return;
+  }
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(1);
   renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);

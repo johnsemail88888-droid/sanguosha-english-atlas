@@ -2,7 +2,7 @@
 // math), the state → weights blend, the two-bone reach, model-path mapping and
 // scale normalisation — plus a synthetic-rig integration test of GlbBody +
 // GlbAnimator (no asset files needed).
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import {
@@ -66,6 +66,9 @@ import {
 } from '../../../src/render/models/glb';
 import { GlbBody } from '../../../src/render/models/glbBody';
 import { cloneKeepingDefines, heldWeaponMaterial, weaponMaterial } from '../../../src/render/models/weapons';
+import { WEAPON_GLB_CAL, loadWeaponArt, prepareWeaponArt, resetWeaponArtForTests, setWeaponArtForTests, weaponModelPath, type WeaponArt } from '../../../src/render/models/weaponGlb';
+import { registerModelGlb, resetGlbCacheForTests } from '../../../src/render/models/glb';
+import { boxGlbUrl } from './glbFixtures';
 import { skyArtFogMaterialCount, useSkyArtFog } from '../../../src/render/core/skyArtFog';
 import { CHARACTER_FOG_MAX } from '../../../src/render/core/materials';
 import { matchModelPaths } from '../../../src/render/models/preload';
@@ -733,6 +736,101 @@ describe('GlbBody + GlbAnimator on a synthetic rig', () => {
     expect(rig.mesh.visible).toBe(true);
     rig.dispose();
     setAssetListForTests(null);
+  });
+});
+
+// ── AI-art weapons in a GLB body's hands ────────────────────────────────────
+
+/** Calibrated art for a weapon from a textured box "gun" (1.0 long along +Z, like the shipped files). */
+function boxArt(id: string): WeaponArt {
+  const scene = new THREE.Group();
+  scene.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 1.0), new THREE.MeshStandardMaterial({ map: new THREE.DataTexture(new Uint8Array(4), 1, 1) })));
+  const art = prepareWeaponArt(id, WEAPON_GLB_CAL[id], scene)!;
+  art.lod = art.geo.clone();
+  return art;
+}
+
+describe('GlbBody holding AI-art weapons', () => {
+  // (earlier bodies here requested the listed carbine; its failed node fetch must not be cached for these)
+  beforeEach(() => resetWeaponArtForTests());
+  afterEach(() => {
+    setClipsForTests(null);
+    resetWeaponArtForTests();
+    resetGlbCacheForTests();
+    setAssetListForTests(null);
+  });
+  const fi = { dt: 1 / 30, speed: 0, moveX: 0, moveZ: 0, pitch: 0, flags: 0, hold: 'rifle' as const, mounted: false, meleeStyle: 'thrust' as const, mountHip: 0, mountBob: 0, reloadTime: 2 };
+  const weaponMeshes = (body: GlbBody, id: string): THREE.Mesh[] => {
+    const out: THREE.Mesh[] = [];
+    body.group.traverse((o) => {
+      if (o.name === 'weapon_' + id) out.push(o as THREE.Mesh);
+    });
+    return out;
+  };
+
+  it('swaps a procedural stand-in for the art when it arrives (same hold, new IK / muzzle points, fog-clamped textured material)', async () => {
+    setClipsForTests(syntheticClips());
+    // shipped but not loaded yet: equipping requests it, the procedural carbine shows meanwhile
+    setAssetListForTests([]);
+    registerModelGlb(weaponModelPath('carbine'), boxGlbUrl(0.1, 0.35, 1.0));
+    const body = new GlbBody(syntheticTemplate(), 1.8);
+    const root = new THREE.Group();
+    root.add(body.group);
+    body.setWeapon('carbine', 'rifle', false);
+    const [before] = weaponMeshes(body, 'carbine');
+    expect(before.userData.weaponArt).toBeUndefined();
+    const art = (await loadWeaponArt('carbine'))!;
+    expect(art).not.toBeNull();
+    art.lod = art.geo.clone(); // (a box is too small for the simplifier)
+    body.update(fi);
+    const [after] = weaponMeshes(body, 'carbine');
+    expect(after).not.toBe(before);
+    expect(before.parent).toBeNull();
+    expect(after.userData.weaponArt).toBe(true);
+    expect(after.material).toBe(art.held);
+    expect((after.material as THREE.MeshStandardMaterial).defines?.FOG_MAX).toBe(CHARACTER_FOG_MAX.toFixed(2));
+    expect(body.weaponInfo?.hold).toBe('rifle');
+    expect(body.weaponInfo).toBe(art.info);
+    // the art's muzzle, in front of the hand, along the aim
+    for (let i = 0; i < 20; i++) body.update(fi);
+    root.updateMatrixWorld(true);
+    const muzzle = new THREE.Vector3();
+    const hand = new THREE.Vector3();
+    expect(body.muzzleWorld(muzzle)).toBe(true);
+    body.boneWorld('RightHand', hand);
+    expect(muzzle.distanceTo(hand)).toBeCloseTo(art.info.muzzle.length(), 2);
+    expect(muzzle.clone().sub(hand).normalize().z).toBeLessThan(-0.7);
+    // fades clone the art's held material (not the procedural one), and come back to it
+    body.setOpacity(0.3);
+    const faded = after.material as THREE.MeshStandardMaterial;
+    expect(faded).not.toBe(art.held);
+    expect(faded.name).toBe(art.held.name);
+    expect(faded.transparent).toBe(true);
+    expect(faded.defines?.FOG_MAX).toBe(CHARACTER_FOG_MAX.toFixed(2));
+    body.setOpacity(1);
+    expect(after.material).toBe(art.held);
+    // far LOD follows the body
+    body.setLod(true);
+    expect(after.geometry).toBe(art.lod);
+    body.setLod(false);
+    expect(after.geometry).toBe(art.geo);
+    body.dispose();
+  });
+
+  it('akimbo: a mirrored copy in the left hand', () => {
+    setClipsForTests(syntheticClips());
+    setWeaponArtForTests(boxArt('jinfan'));
+    const body = new GlbBody(syntheticTemplate(), 1.8);
+    body.setWeapon('jinfan', 'akimbo', true);
+    const ws = weaponMeshes(body, 'jinfan');
+    expect(ws.length).toBe(2);
+    expect(ws.map((w) => w.parent?.name).sort()).toEqual(['weapon_LeftHand', 'weapon_RightHand']);
+    const left = ws.find((w) => w.parent?.name === 'weapon_LeftHand')!;
+    const right = ws.find((w) => w.parent?.name === 'weapon_RightHand')!;
+    expect(left.scale.x).toBe(-1);
+    expect(right.scale.x).toBe(1);
+    expect(left.geometry).toBe(right.geometry);
+    body.dispose();
   });
 });
 

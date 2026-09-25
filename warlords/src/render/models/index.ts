@@ -9,6 +9,7 @@ import { hashString } from '../core/noise';
 import { CharacterRig, releaseMergedGeometryCache } from './character';
 import { releaseCharacterGeometryCache, specFromHeroVisual, type CharacterSpec } from './humanoid';
 import { buildWeapon, releaseWeaponGeometryCache } from './weapons';
+import { releaseWeaponArt } from './weaponGlb';
 import type { MountKind } from './mounts';
 
 export { CharacterRig } from './character';
@@ -17,18 +18,21 @@ export type { CharacterSpec } from './humanoid';
 export { buildWeapon, weaponSpecOf, isAkimbo, weaponMaterial } from './weapons';
 export type { HoldStyle, WeaponModel, WeaponModelInfo } from './weapons';
 export { MountRig, MOUNT_SCALE, SADDLE_HIP } from './mounts';
-export { registerHeroGlb, resolveHeroGlbUrl, GLB_HERO_HEIGHT } from './glb';
+export { registerHeroGlb, registerModelGlb, resolveHeroGlbUrl, GLB_HERO_HEIGHT } from './glb';
+export { loadWeaponArt, weaponModelPath, WEAPON_GLB_CAL } from './weaponGlb';
 export type { MountKind } from './mounts';
 
 /**
  * Free the character / weapon geometry caches (called when a match's renderer
  * is disposed): they grow with every hero, troop and weapon a match shows
- * (~0.5 MB per body+weapon) and would otherwise stay at the title screen.
+ * (~0.5 MB per body+weapon) and would otherwise stay at the title screen —
+ * and the AI-art weapons (geometry + a 512² texture each).
  */
 export function releaseModelCaches(): void {
   releaseMergedGeometryCache();
   releaseCharacterGeometryCache();
   releaseWeaponGeometryCache();
+  releaseWeaponArt();
 }
 
 const FALLBACK_VISUAL: HeroVisual = {
@@ -201,7 +205,7 @@ export function troopMountCoat(kind: MountKind): string {
   return kind === 'elephant' ? '#8a8580' : '#5a3f2a';
 }
 
-/** Procedural weapon mesh (origin at the grip, barrel along −Z). */
+/** Weapon mesh (origin at the grip, barrel along −Z): the AI-art model when loaded (loadWeaponArt), else procedural. */
 export function createWeaponModel(weaponId: string): THREE.Object3D {
   const w = buildWeapon(weaponId);
   w.mesh.userData.weaponInfo = w.info;

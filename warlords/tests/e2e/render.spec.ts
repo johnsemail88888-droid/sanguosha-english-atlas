@@ -146,6 +146,9 @@ function boxGlb(h: number, lift: number): string {
   return Buffer.concat([header, chunk(jsonBuf, 0x4e4f534a), chunk(binBuf, 0x004e4942)]).toString('base64');
 }
 
+// A registered file without the auto-rig (this static box, a mod's statue) is a
+// rigid override (models/glbRigid.ts): it replaces the procedural body, rides its
+// hidden rig and keeps the hero's weapon in hand; rigged files take the mocap path.
 test('GLB hero override: a registered GLB replaces the procedural body, normalised to 1.8 m', async ({ page }) => {
   test.setTimeout(240_000);
   const errors = collectErrors(page);
@@ -156,17 +159,35 @@ test('GLB hero override: a registered GLB replaces the procedural body, normalis
     const models = await import(/* @vite-ignore */ `${location.origin}/src/render/models/index.ts`);
     models.registerHeroGlb('guanyu', url);
     const withGlb = models.createHeroModel('guanyu');
-    const without = models.createHeroModel('zhaoyun');
-    type Rig = { usesGlb: boolean; mesh: { visible: boolean }; glbObject: { scale: { x: number }; children: { position: { y: number } }[] } };
+    // (every roster hero ships a file now: an unknown id has none)
+    const without = models.createHeroModel('no_such_hero');
+    type Vec = { x: number; y: number; z: number; clone(): Vec };
+    type Obj = { name: string; visible: boolean; position: Vec; traverse(f: (o: Obj) => void): void };
+    type Rig = {
+      usesGlb: boolean;
+      mesh: { visible: boolean };
+      root: Obj;
+      glbObject: { scale: { x: number }; children: { position: { y: number } }[] };
+      update(dt: number, t: number, u: object): void;
+      muzzleWorld(out: Vec): boolean;
+    };
     const rig = withGlb.userData.rig as Rig;
     for (let i = 0; i < 100 && !rig.usesGlb; i++) await new Promise((res) => setTimeout(res, 100));
     await new Promise((res) => setTimeout(res, 300));
+    rig.update(1 / 30, 0, { speed: 0, moveX: 0, moveZ: 0, pitch: 0, flags: 0 });
+    let weapons = 0;
+    rig.root.traverse((o) => {
+      if (o.name === 'weapon_qinglong' && o.visible) weapons++;
+    });
+    const muzzle = rig.root.position.clone(); // a THREE.Vector3 (three is not importable here)
     const plain = without.userData.rig as Rig;
     return {
       usesGlb: rig.usesGlb,
       bodyHidden: !rig.mesh.visible,
       scale: rig.glbObject?.scale.x ?? 0,
       feetOffset: rig.glbObject?.children[0]?.position.y ?? 0,
+      weapons,
+      muzzle: rig.muzzleWorld(muzzle) ? { x: muzzle.x, y: muzzle.y, z: muzzle.z } : null,
       plainUsesGlb: plain.usesGlb,
     };
   }, boxGlb(3.6, 1));
@@ -174,6 +195,8 @@ test('GLB hero override: a registered GLB replaces the procedural body, normalis
   expect(r.bodyHidden).toBe(true);
   expect(r.scale).toBeCloseTo(0.5, 3); // 3.6 m box → 1.8 m hero
   expect(r.feetOffset).toBeCloseTo(-1, 3); // feet moved onto the ground
+  expect(r.weapons).toBe(1); // 关羽 still holds his 青龙偃月 (art or procedural)
+  expect(r.muzzle?.y ?? 0).toBeGreaterThan(1); // …and shots leave its muzzle, at chest height
   expect(r.plainUsesGlb).toBe(false); // no GLB → procedural, and no 404 probes in dev
   expect(errors, errors.join('\n')).toEqual([]);
 });

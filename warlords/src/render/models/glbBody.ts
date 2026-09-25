@@ -1,6 +1,8 @@
 // One GLB character on screen: a SkeletonUtils clone of a CharTemplate
 // (geometry / texture shared, per-instance material for tints and fades), its
-// GlbAnimator, and the procedural weapon parented to the hand bone.
+// GlbAnimator, and the weapon parented to the hand bone — the AI-art weapon
+// (models/weaponGlb.ts) when it is loaded, else the procedural one, swapped
+// for the art as soon as it arrives (same frame, same hold / IK points).
 //
 // Frames: the clone's Armature space faces +Z in model units (usually cm);
 // `group` turns it to the game's −Z forward and scales it to the requested
@@ -13,7 +15,8 @@ import { GlbAnimator, type GlbFrameInput, type GlbWeaponAttach } from '../anim/g
 import { clipSync } from '../anim/glbClips';
 import { interpolantOf, trackBone, type PreparedClip } from '../anim/glbRetarget';
 import { normalizeScale, releaseTemplate, retainTemplate, type CharTemplate } from './glb';
-import { buildWeapon, cloneKeepingDefines, heldWeaponMaterial, type HoldStyle, type WeaponModel, type WeaponModelInfo } from './weapons';
+import { buildWeapon, cloneKeepingDefines, hasWeaponArt, heldMaterialOf, weaponArtEpoch, type HoldStyle, type WeaponModel, type WeaponModelInfo } from './weapons';
+import { requestWeaponArt } from './weaponGlb';
 
 let xrayMat: THREE.MeshBasicMaterial | null = null;
 function xrayMaterial(): THREE.MeshBasicMaterial {
@@ -133,8 +136,14 @@ export class GlbBody {
   private readonly height: number;
   /** per-instance weapon material, only while the body is translucent (stealth / camera fade) */
   private weaponFade: THREE.MeshStandardMaterial | null = null;
+  /** the shared held material weaponFade was cloned from */
+  private weaponFadeSrc: THREE.MeshStandardMaterial | null = null;
   private opacity = 1;
   private weaponShadow = true;
+  /** the equipped weapon (for the late art swap) */
+  private weaponWant: { id: string; hold: HoldStyle; akimbo: boolean } | null = null;
+  /** weaponArtEpoch() when a procedural stand-in was built for weapon art still loading; -1 = nothing to wait for */
+  private artWait = -1;
 
   constructor(tpl: CharTemplate, height: number) {
     this.template = tpl;
@@ -183,6 +192,14 @@ export class GlbBody {
     const geo = far && lod ? lod : this.template.mesh.geometry;
     this.mesh.geometry = geo;
     if (this.xray) this.xray.geometry = geo;
+    this.applyWeaponLod();
+  }
+
+  /** The AI-art weapons' far LOD follows the body's. */
+  private applyWeaponLod(): void {
+    for (const w of this.weapons) {
+      if (w?.lod) w.mesh.geometry = this.far && w.lod.far ? w.lod.far : w.lod.near;
+    }
   }
 
   /** Top of the head above the feet (m, rig-root frame, standing). */
@@ -197,9 +214,14 @@ export class GlbBody {
     this.weapons = [null, null];
     this.info = null;
     this.attach = null;
+    this.weaponWant = null;
+    this.artWait = -1;
     if (!id || hold === 'none') return;
+    this.weaponWant = { id, hold, akimbo };
+    // the AI-art weapon: shown now when loaded, else swapped in once it arrives (update)
+    if (requestWeaponArt(id)) this.artWait = weaponArtEpoch();
     const main = buildWeapon(id);
-    main.mesh.material = heldWeaponMaterial();
+    main.mesh.material = heldMaterialOf(main);
     main.mesh.castShadow = this.weaponShadow;
     this.info = main.info;
     const g = gripFor(this.template, hold, false);
@@ -213,9 +235,11 @@ export class GlbBody {
     if (main.info.fore && hold !== 'bow') foreInHand = main.info.fore.clone().divideScalar(this.unitM).applyQuaternion(g.q).add(g.p);
     this.attach = { hand: g.hand, dirInHand, foreInHand };
     if (akimbo) {
+      // the left gun is the right one mirrored (its ejection side / ornaments face out)
       const gl = gripFor(this.template, hold, true);
       const second = buildWeapon(id);
-      second.mesh.material = heldWeaponMaterial();
+      second.mesh.material = heldMaterialOf(second);
+      second.mesh.scale.x = -1;
       second.mesh.castShadow = this.weaponShadow;
       this.holders[1].position.copy(gl.p);
       this.holders[1].quaternion.copy(gl.q);
@@ -223,6 +247,7 @@ export class GlbBody {
       this.weapons[1] = second;
     }
     this.applyWeaponOpacity();
+    this.applyWeaponLod();
   }
 
   get weaponInfo(): WeaponModelInfo | null {
@@ -230,6 +255,12 @@ export class GlbBody {
   }
 
   update(fi: GlbFrameInput): void {
+    // late weapon art: swap the procedural stand-in (same frame, hold and IK points)
+    if (this.artWait >= 0 && weaponArtEpoch() !== this.artWait) {
+      const w = this.weaponWant;
+      if (w && hasWeaponArt(w.id)) this.setWeapon(w.id, w.hold, w.akimbo);
+      else this.artWait = weaponArtEpoch();
+    }
     this.animator.update(fi, this.attach);
     const show = this.animator.weaponVisible;
     for (const w of this.weapons) if (w) w.mesh.visible = show;
@@ -268,14 +299,19 @@ export class GlbBody {
 
   /** The held weapon fades with the body (a stealthed hero must not leave a floating gun). */
   private applyWeaponOpacity(): void {
+    const main = this.weapons[0];
+    if (!main) return;
+    const base = heldMaterialOf(main);
     const faded = this.opacity < 0.999;
-    if (faded && !this.weaponFade) {
-      this.weaponFade = cloneKeepingDefines(heldWeaponMaterial());
+    if (faded && this.weaponFadeSrc !== base) {
+      this.weaponFade?.dispose();
+      this.weaponFade = cloneKeepingDefines(base);
       this.weaponFade.transparent = true;
       this.weaponFade.depthWrite = false;
+      this.weaponFadeSrc = base;
     }
     if (this.weaponFade) this.weaponFade.opacity = this.opacity;
-    const mat = faded && this.weaponFade ? this.weaponFade : heldWeaponMaterial();
+    const mat = faded && this.weaponFade ? this.weaponFade : base;
     for (const w of this.weapons) if (w && w.mesh.material !== mat) w.mesh.material = mat;
   }
 

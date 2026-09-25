@@ -14,6 +14,8 @@ export interface AbilityVfxContext {
   src: ViewEntity | undefined;
   /** caster chest position */
   srcPos: THREE.Vector3 | null;
+  /** muzzle of the caster's held weapon (world; null when none is shown), on demand: where a shot-like ability leaves the barrel */
+  muzzle?: () => THREE.Vector3 | null;
   /** target entity chest position, if ev.target is visible */
   targetPos: THREE.Vector3 | null;
   /** ev.pos (or target / caster position fallback) */
