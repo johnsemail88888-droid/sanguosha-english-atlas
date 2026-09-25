@@ -1,7 +1,7 @@
 // 赵云 Zhao Yun — 龙胆 (passive), 七进七出 (Q, 3 charges), 长坂救主 (E).
 import { BASE_DODGE_CHARGES } from '../../ext';
 import { registerAbility } from '../registry';
-import { flatAimDir, getState, param, setState } from '../common';
+import { deny, flatAimDir, getState, param, setState } from '../common';
 import { ahead, charge, crosshairFriend, emitAbility, flatDist, isRooted, setCast } from './util';
 
 /** base dodge-roll charges every hero has (WEI-5: the engine's own constant) */
@@ -36,7 +36,7 @@ registerAbility({
   id: 'zhaoyun_qijin',
   activate(ctx) {
     const { sim, self } = ctx;
-    if (isRooted(sim, self)) return false;
+    if (isRooted(sim, self)) return deny(ctx, 'blocked');
     const dir = flatAimDir(ctx);
     const distance = param(ctx, 'dash', 7);
     const time = charge(ctx, {

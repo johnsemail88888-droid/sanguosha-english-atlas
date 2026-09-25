@@ -4,7 +4,7 @@ import type { Vec3 } from '../../../core/math';
 import type { Entity } from '../../../core/types';
 import type { AbilityCtx } from '../../api';
 import { registerProjectileKind } from '../../combat';
-import { param } from '../common';
+import { deny, param } from '../common';
 import { registerAbility } from '../registry';
 import { centerOf, grantItems, isUp, registerFieldKind, setCast } from './util';
 
@@ -28,7 +28,7 @@ registerAbility({
     const { sim, self } = ctx;
     if (!isUp(self)) return false;
     const cost = Math.max(0, param(ctx, 'hpCost', 40));
-    if (self.hp <= cost) return false;
+    if (self.hp <= cost) return deny(ctx, 'blocked');
     self.hp -= cost;
     grantItems(sim, self, param(ctx, 'items', 2));
     sim.applyStatus(self.id, 'fireRateUp', param(ctx, 'duration', 5), {

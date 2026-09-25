@@ -10,6 +10,7 @@ import { VF_DEAD, VF_DOWNED, VF_MOUNTED } from '../../core/types';
 import { HERO_BY_ID, TROOP_BY_ID } from '../../data';
 import type { TroopTypeDef } from '../../data/types';
 import { CHAR_HEIGHT, CHAR_RADIUS } from '../../sim/physics';
+import type { CameraOccluders } from './camOccluders';
 
 export interface PickHit {
   point: Vec3;
@@ -145,6 +146,8 @@ export class PickWorld {
   private readonly stamp: Uint32Array;
   private stampId = 1;
   private readonly maxTerrain: number;
+  /** camera-only volumes (roof shells, under dock decks): see ./camOccluders.ts */
+  private camOccluders: CameraOccluders | null = null;
 
   constructor(map: MapData) {
     this.map = map;
@@ -244,6 +247,25 @@ export class PickWorld {
     const t = this.raycastTerrain(origin, dir, 0, best);
     if (t !== null && t < best) best = t;
     return best < maxDist ? best : Infinity;
+  }
+
+  /** Camera-only occluders (built with the world meshes) used by cameraDistance(). */
+  setCameraOccluders(o: CameraOccluders | null): void {
+    this.camOccluders = o;
+  }
+
+  /**
+   * Camera boom distance along a ray: static colliders + terrain (like
+   * staticDistance) plus the camera-only occluders (roof shells, the space
+   * under dock decks) the ray enters. Infinity if clear within maxDist.
+   */
+  cameraDistance(origin: Vec3, dir: Vec3, maxDist: number): number {
+    let best = this.staticDistance(origin, dir, maxDist);
+    if (this.camOccluders) {
+      const t = this.camOccluders.rayEntry(origin, dir, Math.min(maxDist, best));
+      if (t < best) best = t;
+    }
+    return best;
   }
 
   /** True if the point lies inside any static collider (used to keep grass out of buildings). */

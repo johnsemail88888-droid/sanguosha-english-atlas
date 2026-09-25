@@ -2,7 +2,7 @@
 // (revive / crate opening / item use). Free functions over the World, which
 // keeps thin SimApi wrappers for the public ones.
 import type { Vec3 } from '../core/math';
-import type { Entity, EntityId, EntityKind } from '../core/types';
+import type { DeniedReason, Entity, EntityId, EntityKind } from '../core/types';
 import { BTN_INTERACT, ITEM_SLOTS } from '../core/types';
 import type { ItemCtx } from './api';
 import { armorDef, itemDef, lootKindOf, maxReserve, maxStackOf, usesAmmo, warnOnce, weaponDef } from './defs';
@@ -48,7 +48,11 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
     return;
   }
   if (h.downed && !impl.usableWhileDowned) return;
-  if (cs.silenced || cs.stunned) return;
+  if (cs.stunned) return;
+  if (cs.silenced) {
+    itemDenied(w, e, stack.id, 'silenced');
+    return;
+  }
   // resolve target
   let target: Entity | undefined;
   let point: Vec3 | undefined;
@@ -65,7 +69,7 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
       case 'enemy': {
         target = w.aimTarget(e, Math.max(1, def.range), { kinds: UNIT_KINDS, notFriendlyTo: e.id });
         if (!target) {
-          itemDenied(w, e);
+          itemDenied(w, e, stack.id, 'noTarget');
           return;
         }
         break;
@@ -80,6 +84,20 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
     }
   }
   const reviving = target !== undefined && target !== e && target.hero?.downed === true;
+  // can it be used at all right now (桃 at full HP, 闪 at the cap…)? Refuse before the 使用中
+  // channel starts instead of after it (APP-7)
+  if (impl.canUse) {
+    let why: DeniedReason | null | undefined;
+    try {
+      why = impl.canUse({ sim: w, self: e, def, input: rt.input, target, point });
+    } catch (err) {
+      warnOnce(`item-canuse:${stack.id}`, `item '${stack.id}' canUse threw: ${String(err)}`);
+    }
+    if (why) {
+      itemDenied(w, e, stack.id, why);
+      return;
+    }
+  }
   const useTime = reviving ? (def.params.reviveTime ?? def.useTime ?? REVIVE_TIME) * rt.mods.reviveTimeMul : def.useTime;
   if (useTime > 0) {
     h.channel = { kind: 'item', start: w.time, until: w.time + useTime, targetId: target?.id, itemSlot: slot };
@@ -90,9 +108,13 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
   completeItem(w, e, rt, slot, stack.id, target, point);
 }
 
-/** "Can't use that now" cue for the user's own client (ITEMS-7); bots need no cue. */
-function itemDenied(w: World, e: Entity): void {
-  if (!w.isBotHero(e)) w.emit({ t: 'sfx', name: 'itemDenied', pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z }, privateTo: e.id });
+/**
+ * "Can't use that now" cue for the user's own client (ITEMS-7 / APP-7): which card and why
+ * (a DeniedReason; absent = generic refusal). Bots need no cue.
+ */
+export function itemDenied(w: World, e: Entity, itemId: string, reason?: DeniedReason): void {
+  if (w.isBotHero(e)) return;
+  w.emit({ t: 'sfx', name: 'itemDenied', pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z }, privateTo: e.id, item: itemId, ...(reason ? { reason } : {}) });
 }
 
 export function completeItem(w: World, e: Entity, rt: HeroRuntime, slot: number, itemId: string, target: Entity | undefined, point: Vec3 | undefined): void {
@@ -123,7 +145,7 @@ export function completeItem(w: World, e: Entity, rt: HeroRuntime, slot: number,
     w.actorId = prevActor;
   }
   if (!ok) {
-    itemDenied(w, e);
+    itemDenied(w, e, itemId, ctx.deniedReason);
     return;
   }
   const cur = h.items[slot];

@@ -1,5 +1,5 @@
 // 甄姬 Zhen Ji — 倾国 / 洛神 / 凌波微步.
-import { flatAimDir, param, setState } from '../common';
+import { deny, flatAimDir, param, setState } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, flatDist, grantRandomItems, immobile, safeBlink, setCast } from './shared';
 
@@ -57,7 +57,7 @@ registerAbility({
   id: 'zhenji_lingbo',
   activate(ctx) {
     const { sim, self } = ctx;
-    if (!canAct(ctx) || immobile(sim, self)) return false;
+    if (!canAct(ctx) || immobile(sim, self)) return deny(ctx, 'blocked');
     const dist = param(ctx, 'blink', 10);
     const dir = flatAimDir(ctx);
     const start = { ...self.pos };
@@ -65,7 +65,7 @@ registerAbility({
     if (!dest || flatDist(dest, start) < 1) {
       // a wall right in front: put her back where she stood and keep the ability
       sim.teleport(self.id, start);
-      return false;
+      return deny(ctx, 'blocked');
     }
     sim.spawnHazard({
       kind: 'lingboFrost',

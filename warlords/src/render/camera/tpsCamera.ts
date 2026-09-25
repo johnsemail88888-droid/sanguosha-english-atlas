@@ -73,12 +73,13 @@ export function resolveCameraCollision(
   const r = rightFromYaw(yaw);
   const d = dirFromYawPitch(yaw, pitch);
   let right = CAM_RIGHT;
-  const sideDist = world.staticDistance(pivot, r, CAM_RIGHT + pad);
+  // camera-only occluders (roof shells, under dock decks) count as well as colliders + terrain
+  const sideDist = world.cameraDistance(pivot, r, CAM_RIGHT + pad);
   if (Number.isFinite(sideDist)) right = Math.max(0, sideDist - pad);
   const shoulder = { x: pivot.x + r.x * right, y: pivot.y, z: pivot.z + r.z * right };
   const back = { x: -d.x, y: -d.y, z: -d.z };
   let dist = CAM_BACK;
-  const hit = world.staticDistance(shoulder, back, CAM_BACK + pad);
+  const hit = world.cameraDistance(shoulder, back, CAM_BACK + pad);
   if (Number.isFinite(hit)) dist = Math.max(0.35, hit - pad);
   return {
     pos: { x: shoulder.x + back.x * dist, y: shoulder.y + back.y * dist, z: shoulder.z + back.z * dist },

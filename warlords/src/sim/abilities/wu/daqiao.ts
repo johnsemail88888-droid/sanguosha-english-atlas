@@ -2,7 +2,7 @@
 import type { Entity } from '../../../core/types';
 import type { DamageHookCtx, DamageRequest, SimApi } from '../../api';
 import { ext } from '../../ext';
-import { UNIT_KINDS, param } from '../common';
+import { UNIT_KINDS, deny, param } from '../common';
 import { registerAbility } from '../registry';
 import { applyDebuff, centerOf, crosshairFoe, emitTrigger, isUp, knownAlly, publiclyVisible, setCast } from './util';
 
@@ -105,9 +105,9 @@ registerAbility({
   activate(ctx) {
     if (!isUp(ctx.self)) return false;
     const t = crosshairFoe(ctx, param(ctx, 'range', 20));
-    if (!t) return false;
+    if (!t) return false; // crosshairFoe gave the reason
     setCast(ctx, { target: t.id, pos: centerOf(t) });
-    return applyDebuff(ctx, t, 'dance', param(ctx, 'duration', 2.5)) !== 'resisted';
+    return applyDebuff(ctx, t, 'dance', param(ctx, 'duration', 2.5)) !== 'resisted' || deny(ctx, 'invalidTarget');
   },
 });
 

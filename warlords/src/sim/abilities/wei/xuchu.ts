@@ -1,6 +1,6 @@
 // 许褚 Xu Chu — 虎痴 / 裸衣 / 虎卫猛击.
 import { GRAVITY } from '../../physics';
-import { UNIT_KINDS, alive, flatAimDir, getState, param, setState } from '../common';
+import { UNIT_KINDS, alive, deny, flatAimDir, getState, param, setState } from '../common';
 import { registerAbility } from '../registry';
 import { brakeAtDashEnd, canAct, chestOf, immobile, setCast } from './shared';
 
@@ -34,12 +34,12 @@ registerAbility({
   id: 'xuchu_slam',
   activate(ctx) {
     const { sim, self } = ctx;
-    if (!canAct(ctx) || immobile(sim, self)) return false;
+    if (!canAct(ctx) || immobile(sim, self)) return deny(ctx, 'blocked');
     const dir = flatAimDir(ctx);
     const leap = param(ctx, 'leap', 6);
     const leapTime = Math.max(0.15, param(ctx, 'leapTime', 0.5));
     sim.dash(self.id, dir, leap, leapTime);
-    if (!self.forced) return false;
+    if (!self.forced) return deny(ctx, 'blocked');
     setState(ctx, 'until', self.forced.until);
     setCast(ctx, { pos: { x: self.pos.x + dir.x * leap, y: self.pos.y, z: self.pos.z + dir.z * leap }, dir });
     // a hop that lands when the dash ends

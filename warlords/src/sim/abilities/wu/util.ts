@@ -125,6 +125,7 @@ export function crosshairFoe(ctx: AbilityCtx, range: number, kinds: EntityKind[]
   const { sim, self } = ctx;
   const heroFirst = kinds.includes('hero') && kinds.length > 1;
   const passes: EntityKind[][] = heroFirst ? [['hero'], kinds] : [kinds];
+  let skipped = false;
   for (const k of passes) {
     const exclude: EntityId[] = [];
     for (let i = 0; i < 3; i++) {
@@ -132,8 +133,12 @@ export function crosshairFoe(ctx: AbilityCtx, range: number, kinds: EntityKind[]
       if (!t) break;
       if (isUp(t)) return t;
       exclude.push(t.id);
+      skipped = true;
     }
   }
+  // why a cast that needs a foe did nothing (the world's abilityDenied cue): only downed bodies
+  // under the crosshair → 'invalidTarget', nothing at all → 'noTarget'
+  ctx.deniedReason ??= skipped ? 'invalidTarget' : 'noTarget';
   return undefined;
 }
 

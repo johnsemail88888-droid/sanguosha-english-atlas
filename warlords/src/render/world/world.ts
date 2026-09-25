@@ -25,6 +25,7 @@ import { buildNature, natureStyle } from './nature';
 import { buildBanners } from './banners';
 import type { FireSource } from './fires';
 import { makePropCtx, type PropCtx } from './propkit';
+import { CamOccluderSink, type BoxCollider } from '../camera/camOccluders';
 
 const CHUNK = 64;
 
@@ -68,11 +69,17 @@ export interface WorldBuild {
   group: THREE.Group;
   fires: FireSource[];
   stats: WorldStats;
+  /** camera-only occluder boxes (roof shells, under dock decks) — see camera/camOccluders.ts */
+  cameraOccluders: BoxCollider[];
   dispose(): void;
 }
 
 /** Build a single prop into fresh builders (used by the dev harness / tests). */
-export function buildPropGeometry(p: MapProp, map: MapData): { opaque: THREE.BufferGeometry; cloth: THREE.BufferGeometry; glow: THREE.BufferGeometry } | null {
+export function buildPropGeometry(
+  p: MapProp,
+  map: MapData,
+  occ: CamOccluderSink | null = null,
+): { opaque: THREE.BufferGeometry; cloth: THREE.BufferGeometry; glow: THREE.BufferGeometry } | null {
   const fn = BUILDERS[p.type];
   if (!fn) return null;
   const opaque = new GeoBuilder();
@@ -82,7 +89,7 @@ export function buildPropGeometry(p: MapProp, map: MapData): { opaque: THREE.Buf
   opaque.push(m);
   cloth.push(m);
   glow.push(m);
-  fn(makePropCtx(opaque, cloth, glow, p, map));
+  fn(makePropCtx(opaque, cloth, glow, p, map, occ));
   return { opaque: opaque.build(), cloth: cloth.build(), glow: glow.build() };
 }
 
@@ -92,6 +99,7 @@ export function buildWorld(map: MapData): WorldBuild {
   const chunks = new Map<string, Chunk>();
   const half = map.size / 2;
   const fires: FireSource[] = [];
+  const occ = new CamOccluderSink();
   let failed = 0;
   let built = 0;
   const chunkOf = (x: number, z: number): Chunk => {
@@ -116,7 +124,7 @@ export function buildWorld(map: MapData): WorldBuild {
     ch.cloth.push(m);
     ch.glow.push(m);
     try {
-      fn(makePropCtx(ch.opaque, ch.cloth, ch.glow, p, map));
+      fn(makePropCtx(ch.opaque, ch.cloth, ch.glow, p, map, occ));
       built++;
     } catch (err) {
       failed++;
@@ -146,6 +154,10 @@ export function buildWorld(map: MapData): WorldBuild {
     add(ch.cloth, worldMaterialDouble(), 'cloth', true);
     add(ch.glow, glowMaterial(), 'glow', false);
   }
+  // the builders' scratch buffers are copied into the geometries: drop them now
+  // (dispose() below shares this scope — anything left here lives as long as it)
+  const chunkCount = chunks.size;
+  chunks.clear();
   const nature = buildNature(map.props);
   group.add(nature.group);
   const banners = buildBanners(map.props);
@@ -153,11 +165,16 @@ export function buildWorld(map: MapData): WorldBuild {
   return {
     group,
     fires,
-    stats: { props: built, chunks: chunks.size, instanced: nature.count, triangles: Math.round(triangles), failed },
+    stats: { props: built, chunks: chunkCount, instanced: nature.count, triangles: Math.round(triangles), failed },
+    cameraOccluders: occ.boxes,
     dispose(): void {
       for (const g of geos) g.dispose();
+      // nothing of the match may stay reachable through this closure (a leaked
+      // reference to the WorldBuild must not pin megabytes of vertex arrays)
+      geos.length = 0;
       nature.dispose();
       banners.dispose();
+      group.clear();
     },
   };
 }

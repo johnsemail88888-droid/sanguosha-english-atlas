@@ -3,6 +3,7 @@
 // ornaments. Built into a GeoBuilder in the current local frame.
 import * as THREE from 'three';
 import { GeoBuilder, PRIM, col, shade, trs, type ColorLike } from '../core/geo';
+import type { CamOccluderSink } from '../camera/camOccluders';
 
 const _n = new THREE.Vector3();
 const _ab = new THREE.Vector3();
@@ -56,7 +57,18 @@ export interface RoofOptions {
   plain?: boolean;
   nu?: number;
   nv?: number;
+  /**
+   * builder for the roof shell (tiles, fascia, underside) in the same frame as
+   * `b` — the double-sided one, so a camera inside the shell never looks at
+   * culled / black faces (default: `b`)
+   */
+  shell?: GeoBuilder;
+  /** register the roof volume (eave underside → ridge, overhang included) as a camera occluder */
+  occ?: CamOccluderSink | null;
 }
+
+/** Camera occluder tiers of a roof, as fractions of its height (eave → ridge). */
+const OCC_CUTS = [0, 0.12, 0.26, 0.42, 0.6, 0.8, 1] as const;
 
 /**
  * Hip roof over a w×d footprint centred at (cx, cz), eave at y0, ridge at y0+h.
@@ -77,6 +89,23 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
   const dark = shade(o.color, 0.82);
   const under = o.underside ? col(o.underside) : shade('#4a3222', 1);
   const stripes = o.stripes !== false;
+  const sb = o.shell ?? b;
+  if (o.occ) {
+    // stepped boxes hugging the concave roof, eave overhang included (the sim's
+    // colliders stop at the wall footprint): tier i spans [cut i, cut i+1] of the
+    // height, its extent taken at the tier bottom for the eave tier (the part the
+    // camera boom meets first) and 35 % up the tier above it
+    for (let i = 0; i + 1 < OCC_CUTS.length; i++) {
+      const f0 = OCC_CUTS[i];
+      const f1 = OCC_CUTS[i + 1];
+      const v = i === 0 ? 0 : Math.pow(f0 + 0.35 * (f1 - f0), 1 / curve);
+      const hzT = (D / 2) * (1 - v);
+      const hxT = (W / 2) * (1 - v) + (R / 2) * v;
+      const yb = y0 + h * f0 - (i === 0 ? th + 0.05 : 0);
+      const yt = y0 + h * f1;
+      o.occ.addLocalBox(b.frame, cx, (yb + yt) / 2, cz, hxT, (yt - yb) / 2, hzT);
+    }
+  }
   // surface point: side s ∈ {front(-Z), back(+Z), left(-X), right(+X)}; u across [0..1], v eave→ridge [0..1]
   const pt = (side: number, u: number, v: number, lift: number): THREE.Vector3 => {
     const hv = h * Math.pow(v, curve);
@@ -107,10 +136,10 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
         const v0 = j / nv;
         const v1 = (j + 1) / nv;
         const c = stripes && i % 2 === 1 ? dark : base;
-        face(b, pt(side, u0, v0, 0), pt(side, u1, v0, 0), pt(side, u1, v1, 0), pt(side, u0, v1, 0), c, out);
+        face(sb, pt(side, u0, v0, 0), pt(side, u1, v0, 0), pt(side, u1, v1, 0), pt(side, u0, v1, 0), c, out);
       }
       // eave fascia edge
-      face(b, pt(side, u0, 0, 0), pt(side, u1, 0, 0), pt(side, u1, 0, -th), pt(side, u0, 0, -th), shade(o.color, 0.6), out.clone().setY(0));
+      face(sb, pt(side, u0, 0, 0), pt(side, u1, 0, 0), pt(side, u1, 0, -th), pt(side, u0, 0, -th), shade(o.color, 0.6), out.clone().setY(0));
     }
     // underside follows the same curved grid (coarser across) so it never pokes through the top
     for (let i = 0; i < underNu; i++) {
@@ -119,7 +148,7 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
       for (let j = 0; j < nv; j++) {
         const v0 = j / nv;
         const v1 = (j + 1) / nv;
-        face(b, pt(side, u0, v0, -th), pt(side, u1, v0, -th), pt(side, u1, v1, -th), pt(side, u0, v1, -th), under, down);
+        face(sb, pt(side, u0, v0, -th), pt(side, u1, v0, -th), pt(side, u1, v1, -th), pt(side, u0, v1, -th), under, down);
       }
     }
   }

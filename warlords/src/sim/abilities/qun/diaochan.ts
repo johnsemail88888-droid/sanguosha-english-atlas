@@ -2,7 +2,7 @@
 import type { Entity } from '../../../core/types';
 import type { SimApi } from '../../api';
 import { ext } from '../../ext';
-import { crosshairEnemy, enemiesInRadius, getState, param, setState } from '../common';
+import { crosshairEnemy, deny, denyTarget, enemiesInRadius, getState, param, setState } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, chestOf, flatDist, nearestTo, setCastEvent, standing } from './util';
 
@@ -50,7 +50,7 @@ registerAbility({
     const { sim, self } = ctx;
     if (!canAct(self)) return false;
     const a = crosshairEnemy(ctx, param(ctx, 'range', 30), ['hero']);
-    if (!standing(a)) return false; // charm needs a hero that can still fight
+    if (!standing(a)) return denyTarget(ctx, a); // charm needs a hero that can still fight
     const radius = param(ctx, 'radius', 15);
     const duration = param(ctx, 'duration', 2.5);
     const heroes = sim
@@ -67,7 +67,7 @@ registerAbility({
         .queryRadius(a.pos, radius, { kinds: ['troop', 'npc', 'turret'], notFriendlyTo: a.id })
         .filter((u) => u.alive && flatDist(u.pos, a.pos) <= radius + u.radius && pickable(sim, self, u));
       b = nearestTo(units.filter((u) => !sim.isOwnSide(self, u)), a.pos) ?? nearestTo(units, a.pos);
-      if (!b) return false; // nobody to turn it on: keep the cooldown
+      if (!b) return deny(ctx, 'needOther'); // nobody to turn it on: keep the cooldown
       sim.applyStatus(a.id, 'charm', duration, { sourceId: self.id, params: { targetId: b.id } });
     }
     // the event carries the pair: target = the crosshair hero, pos = the one it is turned on
@@ -85,7 +85,7 @@ registerAbility({
     if (!canAct(self)) return false;
     const first = crosshairEnemy(ctx, param(ctx, 'range', 30));
     // a downed hero can't be slowed into anything: no cast (the cooldown is kept)
-    if (!standing(first)) return false;
+    if (!standing(first)) return denyTarget(ctx, first);
     const radius = param(ctx, 'radius', 8);
     const extra = Math.max(0, Math.floor(param(ctx, 'extraTargets', 2)));
     // standing heroes first (the valuable links), then the nearest units; downed heroes are

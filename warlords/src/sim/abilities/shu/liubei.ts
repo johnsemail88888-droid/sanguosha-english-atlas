@@ -3,7 +3,7 @@ import type { Entity } from '../../../core/types';
 import type { SimApi } from '../../api';
 import { registerHazardKind } from '../../hazards';
 import { registerAbility } from '../registry';
-import { getState, param, setState, summonTroops } from '../common';
+import { deny, denyTarget, getState, param, setState, summonTroops } from '../common';
 import { crosshairFriend, giveOrDrop, isUp, pickWeighted, setCast } from './util';
 
 const BANNER_KIND = 'shuBanner';
@@ -28,7 +28,7 @@ registerAbility({
   activate(ctx) {
     const { sim, self } = ctx;
     const target = crosshairFriend(ctx, param(ctx, 'range', 25), false);
-    if (!target) return false;
+    if (!target) return denyTarget(ctx, sim.aimTarget(self, param(ctx, 'range', 25), { kinds: ['hero'], exclude: [self.id] }));
     sim.heal(target.id, param(ctx, 'heal', 80), self.id);
     const cards = Math.max(0, Math.round(param(ctx, 'cards', 1)));
     for (let i = 0; i < cards; i++) {
@@ -104,7 +104,7 @@ registerAbility({
   id: 'liubei_jijiang',
   activate(ctx) {
     const { sim, self } = ctx;
-    if (sim.roleOf(self) !== 'lord') return false;
+    if (sim.roleOf(self) !== 'lord') return deny(ctx, 'blocked');
     summonTroops(ctx, 'shu_militia', Math.max(0, Math.round(param(ctx, 'count', 4))), param(ctx, 'lifetime', 30));
     const mul = param(ctx, 'fireRateMul', 1.3);
     const time = param(ctx, 'buffTime', 8);

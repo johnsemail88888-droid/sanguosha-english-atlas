@@ -1,7 +1,7 @@
 // 马超 Ma Chao — 马术 (passive, permanently mounted), 铁骑 (Q), 西凉冲锋 (E).
 import { MOUNT_BY_ID } from '../../../data';
 import { registerAbility } from '../registry';
-import { flatAimDir, getState, param, setState } from '../common';
+import { deny, flatAimDir, getState, param, setState } from '../common';
 import { ahead, charge, isDirectHit, isRooted, setCast } from './util';
 
 // 马术 (passive): always on his Xiliang warhorse (HeroVisual.mount draws it):
@@ -49,7 +49,7 @@ registerAbility({
   id: 'machao_charge',
   activate(ctx) {
     const { sim, self } = ctx;
-    if (isRooted(sim, self)) return false;
+    if (isRooted(sim, self)) return deny(ctx, 'blocked');
     const dir = flatAimDir(ctx);
     const distance = param(ctx, 'dash', 15);
     charge(ctx, {

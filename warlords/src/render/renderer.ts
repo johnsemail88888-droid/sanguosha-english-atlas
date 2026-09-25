@@ -27,6 +27,7 @@ import { buildWorld, type WorldBuild } from './world/world';
 import { FireSystem } from './world/fires';
 import { GrassField } from './scene/grass';
 import { PickWorld } from './camera/pick';
+import { CameraOccluders } from './camera/camOccluders';
 import { TpsCameraRig, tpsCameraPose, PITCH_LIMIT, adsPull } from './camera/tpsCamera';
 import { EntityManager } from './entities/manager';
 import type { EntityCtx } from './entities/context';
@@ -160,6 +161,8 @@ export class GameRenderer {
     this.scene.add(this.world.group);
     this.fires = new FireSystem(this.scene, this.world.fires);
     this.pickWorld = new PickWorld(map);
+    // roof shells / under dock decks: the camera boom stops short of them (no black inside faces)
+    this.pickWorld.setCameraOccluders(new CameraOccluders(this.world.cameraOccluders, map.size));
     this.grass = new GrassField(map, this.pickWorld);
     this.scene.add(this.grass.mesh);
     this.fx = new Effects(this.scene, this.preset.vfxLights);

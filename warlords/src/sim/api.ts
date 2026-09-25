@@ -9,6 +9,7 @@ import type { MapData } from '../core/map';
 import type { Vec3 } from '../core/math';
 import type {
   DamageType,
+  DeniedReason,
   Entity,
   EntityId,
   GameEvent,
@@ -127,6 +128,12 @@ export interface AbilityCtx {
   def: AbilityDef;
   hero: HeroDef;
   input: InputFrame; // latest input (aimPoint / aimTargetId / yaw / pitch)
+  /**
+   * set by activate() when it returns false: why the press did nothing (no aim target, a
+   * downed target, nobody for 离间's second half…). The world sends the (human) caster a
+   * private { t:'sfx', name:'abilityDenied', reason } cue; unset = generic refusal.
+   */
+  deniedReason?: DeniedReason;
 }
 
 export interface DamageHookCtx extends AbilityCtx {
@@ -179,6 +186,11 @@ export interface ItemCtx {
    * wall) — the world's { t: 'itemUse' } event carries it instead of `point`
    */
   eventPos?: Vec3;
+  /**
+   * set by use() (or ItemImplEx.canUse) when the card cannot be used: why (桃 / 酒 at full HP →
+   * 'fullHp', 闪 at the dodge cap → 'cap' …). Carried by the user's private itemDenied cue.
+   */
+  deniedReason?: DeniedReason;
 }
 
 export interface ItemImpl {

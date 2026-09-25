@@ -4,7 +4,7 @@ import type { DamageType, EntityId } from '../../../core/types';
 import { SIM_DT } from '../../../core/types';
 import { BARBARIAN_TROOP_IDS } from '../../../data';
 import type { SimApi } from '../../api';
-import { crosshairPoint, flatAimDir, getState, param, setState, summonNpcs, unitsAlongLine } from '../common';
+import { crosshairPoint, deny, flatAimDir, getState, param, setState, summonNpcs, unitsAlongLine } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, chestOf, flatDirTo, setCastEvent } from './util';
 
@@ -54,7 +54,7 @@ registerAbility({
     const count = Math.max(0, Math.floor(param(ctx, 'count', 5)));
     const npcs = summonNpcs(ctx, 'barbarian', count, param(ctx, 'lifetime', 20), at, point);
     setCastEvent(ctx, { pos: point, dir });
-    return npcs.length > 0;
+    return npcs.length > 0 || deny(ctx, 'blocked');
   },
 });
 

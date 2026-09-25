@@ -2,7 +2,7 @@
 // these instead of re-implementing targeting, sweeps, dashes and summons).
 // Everything goes through SimApi / SimExt, never through World directly.
 import type { Vec3 } from '../../core/math';
-import type { DamageType, Entity, EntityId, EntityKind, StatusId } from '../../core/types';
+import type { DamageType, DeniedReason, Entity, EntityId, EntityKind, StatusId } from '../../core/types';
 import type { AbilityCtx, QueryFilter, SimApi } from '../api';
 import { ext } from '../ext';
 
@@ -47,6 +47,22 @@ export const param = (ctx: AbilityCtx, key: string, fallback: number): number =>
 
 export const alive = (e: Entity | undefined): e is Entity => !!e && e.alive && !e.hero?.dead;
 
+// ── refusals ────────────────────────────────────────────────────────────────
+/**
+ * activate() refusing a press: records why on the context (the world sends a human caster a
+ * private { t:'sfx', name:'abilityDenied', reason } cue and keeps the cooldown). Returns false
+ * so an ability can write `return deny(ctx, 'needOther');`.
+ */
+export function deny(ctx: AbilityCtx, reason: DeniedReason | undefined): false {
+  ctx.deniedReason = reason;
+  return false;
+}
+
+/** Refuse for a missing / unusable crosshair target: 'noTarget' when nothing is aimed at, else 'invalidTarget'. */
+export function denyTarget(ctx: AbilityCtx, t: Entity | undefined): false {
+  return deny(ctx, t ? 'invalidTarget' : 'noTarget');
+}
+
 // ── aiming ──────────────────────────────────────────────────────────────────
 /** World point under the crosshair (clamped to range). */
 export function crosshairPoint(ctx: AbilityCtx, range: number): Vec3 {
@@ -75,7 +91,10 @@ export function flatAimDir(ctx: AbilityCtx): Vec3 {
 
 /** Enemy (anything not on your own side) under the crosshair. */
 export function crosshairEnemy(ctx: AbilityCtx, range: number, kinds: EntityKind[] = UNIT_KINDS): Entity | undefined {
-  return ctx.sim.aimTarget(ctx.self, range, { kinds, notFriendlyTo: ctx.self.id });
+  const t = ctx.sim.aimTarget(ctx.self, range, { kinds, notFriendlyTo: ctx.self.id });
+  // provisional refusal reason: an activate() that gives up for want of a target need not say why
+  if (!t && ctx.deniedReason === undefined) ctx.deniedReason = 'noTarget';
+  return t;
 }
 
 export function crosshairEnemyHero(ctx: AbilityCtx, range: number): Entity | undefined {

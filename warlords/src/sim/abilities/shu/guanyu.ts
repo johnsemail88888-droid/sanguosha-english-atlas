@@ -4,7 +4,7 @@
 // beside or behind him never shorten the charge — and sweeps in place when
 // rooted; 武圣's bonus slash ignores damage-over-time ticks.
 import { registerAbility } from '../registry';
-import { crosshairEnemy, crosshairEnemyHero, flatAimDir, getState, param, setState, unitsAlongLine } from '../common';
+import { crosshairEnemy, crosshairEnemyHero, deny, flatAimDir, getState, param, setState, unitsAlongLine } from '../common';
 import { ahead, charge, coneStrike, isDirectHit, isRooted, isUp, setCast } from './util';
 
 /** gap kept between 关羽 and the unit his charge stops at */
@@ -86,7 +86,7 @@ registerAbility({
     // heroes first (a soldier in front of the crosshair should not eat the silence), then any enemy unit
     const range = param(ctx, 'range', 30);
     const target = crosshairEnemyHero(ctx, range) ?? crosshairEnemy(ctx, range);
-    if (!target) return false;
+    if (!target) return deny(ctx, 'noTarget');
     const duration = param(ctx, 'duration', 6);
     const landed = ctx.sim.applyStatus(target.id, 'silence', duration, { sourceId: ctx.self.id });
     if (landed) {

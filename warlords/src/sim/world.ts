@@ -13,6 +13,7 @@ import { Rng } from '../core/rng';
 import type {
   AbilitySlot,
   DamageType,
+  DeniedReason,
   Entity,
   EntityId,
   EntityKind,
@@ -1075,10 +1076,14 @@ export class World implements SimExt, SimHost {
 
   private activateAbility(e: Entity, rt: HeroRuntime, slot: AbilitySlot, cs: ControlState): void {
     const h = e.hero!;
-    if (cs.silenced || cs.dancing) return;
     const entry = rt.abilities.find((a) => a.def.slot === slot);
     if (!entry) return;
     const id = entry.def.id;
+    if (cs.silenced || cs.dancing) {
+      // an active pressed while silenced / dancing: tell the (human) caster why nothing happened
+      if (entry.impl?.activate) this.abilityDenied(e, id, 'silenced');
+      return;
+    }
     if (!entry.impl?.activate) {
       if (!isPassiveAbility(entry.def)) warnOnce(`ability-activate:${id}`, `ability '${id}' has no activate() implementation`);
       return;
@@ -1104,7 +1109,12 @@ export class World implements SimExt, SimHost {
     } finally {
       this.actorId = prevActor;
     }
-    if (!ok) return;
+    if (!ok) {
+      // the press did nothing (no target, nobody for the second half, blocked…): the cooldown
+      // is kept, and a human caster gets a private cue saying why (APP-5)
+      this.abilityDenied(e, id, ctx.deniedReason);
+      return;
+    }
     const cd = this.cooldownFor(rt, entry.def);
     if (entry.def.charges) {
       h.charges[id] = Math.max(0, (h.charges[id] ?? 1) - 1);
@@ -1124,6 +1134,14 @@ export class World implements SimExt, SimHost {
     };
     // a stealthed caster's cast must not give its position away (WU-2)
     this.emit(hidden ? { ...ev, privateTo: e.id } : ev);
+  }
+
+  /** Private "that did nothing" cue for a human caster ({ t:'sfx', name:'abilityDenied' }); bots get none. */
+  private abilityDenied(e: Entity, ability: string, reason: DeniedReason | undefined): void {
+    if (this.isBotHero(e)) return;
+    const ev: GameEvent = { t: 'sfx', name: 'abilityDenied', pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z }, privateTo: e.id, ability };
+    if (reason) ev.reason = reason;
+    this.emit(ev);
   }
 
   private switchWeapon(e: Entity, slot: number): void {

@@ -1,5 +1,5 @@
 // 袁绍 Yuan Shao ★ — 名门 (passive), 乱击 (Q), 四世三公 (E), 血裔 (passive lord skill).
-import { crosshairPoint, param, summonTroops } from '../common';
+import { crosshairPoint, deny, param, summonTroops } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, setCastEvent } from './util';
 
@@ -44,7 +44,7 @@ registerAbility({
     const count = Math.max(0, Math.floor(param(ctx, 'count', 4)));
     const spawned = summonTroops(ctx, 'qun_crossbowman', count, param(ctx, 'lifetime', 25));
     setCastEvent(ctx, { pos: { ...self.pos } });
-    return spawned.length > 0;
+    return spawned.length > 0 || deny(ctx, 'blocked');
   },
 });
 

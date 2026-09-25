@@ -3,7 +3,7 @@ import type { Vec3 } from '../../../core/math';
 import type { DamageType, Entity, EntityId } from '../../../core/types';
 import { SIM_DT } from '../../../core/types';
 import type { DamageResult, SimApi } from '../../api';
-import { UNIT_KINDS, crosshairEnemy, crosshairPoint, param, summonTroops } from '../common';
+import { UNIT_KINDS, crosshairEnemy, crosshairPoint, deny, denyTarget, param, summonTroops } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, chestOf, setCastEvent } from './util';
 
@@ -125,7 +125,7 @@ registerAbility({
     const { sim, self } = ctx;
     if (!canAct(self)) return false;
     const target = crosshairEnemy(ctx, param(ctx, 'range', 50));
-    if (!target || target.hero?.dead) return false;
+    if (!target || target.hero?.dead) return denyTarget(ctx, target);
     const duration = Math.max(0.1, param(ctx, 'duration', 8));
     const interval = Math.max(0.1, param(ctx, 'interval', 1.5));
     const spec: BoltSpec = {
@@ -193,6 +193,6 @@ registerAbility({
     const count = Math.max(0, Math.floor(param(ctx, 'count', 5)));
     const spawned = summonTroops(ctx, 'yellowTurbanWarrior', count, param(ctx, 'lifetime', 30));
     setCastEvent(ctx, { pos: { ...self.pos } });
-    return spawned.length > 0;
+    return spawned.length > 0 || deny(ctx, 'blocked');
   },
 });

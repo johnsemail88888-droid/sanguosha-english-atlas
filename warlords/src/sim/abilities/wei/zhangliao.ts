@@ -2,7 +2,7 @@
 import type { Vec3 } from '../../../core/math';
 import type { Entity } from '../../../core/types';
 import type { AbilityCtx } from '../../api';
-import { UNIT_KINDS, crosshairEnemy, enemiesInRadius, param } from '../common';
+import { UNIT_KINDS, crosshairEnemy, deny, enemiesInRadius, param } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, chestOf, facingOf, flatDist, immobile, isReflected, losBetween, setCast, stealOne } from './shared';
 
@@ -96,11 +96,11 @@ registerAbility({
   id: 'zhangliao_tuxi',
   activate(ctx) {
     const { sim, self } = ctx;
-    if (!canAct(ctx) || immobile(sim, self)) return false;
+    if (!canAct(ctx) || immobile(sim, self)) return deny(ctx, 'blocked');
     const target = crosshairEnemy(ctx, param(ctx, 'range', 12));
-    if (!target) return false;
+    if (!target) return deny(ctx, 'noTarget');
     const start = { ...self.pos };
-    if (!blinkBehind(ctx, target)) return false;
+    if (!blinkBehind(ctx, target)) return deny(ctx, 'blocked');
     // pos = where the blink started (the caster itself is at the landing): the VFX streak
     setCast(ctx, { pos: start, target: target.id });
     // victims: up to maxTargets enemies around the landing spot that he can see, heroes first

@@ -59,12 +59,17 @@ function maleUnderCrosshair(ctx: AbilityCtx, range: number): Entity | undefined 
   const exclude: EntityId[] = [self.id];
   for (let i = 0; i < 3; i++) {
     const t = sim.aimTarget(self, range, { kinds: ['hero'], exclude });
-    if (!t) return undefined;
+    if (!t) {
+      // nothing aimed at → 'noTarget'; only women / foes / downed heroes → 'invalidTarget'
+      ctx.deniedReason ??= i === 0 ? 'noTarget' : 'invalidTarget';
+      return undefined;
+    }
     const male = param(ctx, 'maleOnly', 1) <= 0 || sim.heroDef(t)?.gender === 'male';
     const ok = isUp(t) && male && (sim.isOwnSide(self, t) || !sim.isHostileTo(self, t));
     if (ok) return t;
     exclude.push(t.id);
   }
+  ctx.deniedReason ??= 'invalidTarget';
   return undefined;
 }
 

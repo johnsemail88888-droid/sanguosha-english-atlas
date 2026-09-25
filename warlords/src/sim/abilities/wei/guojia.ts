@@ -2,7 +2,7 @@
 import type { Vec3 } from '../../../core/math';
 import { ext } from '../../ext';
 import { rollRewardItems } from '../../loot';
-import { crosshairEnemy, crosshairPoint, getState, param, setState } from '../common';
+import { crosshairEnemy, crosshairPoint, deny, getState, param, setState } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, emitProc, grantRandomItems, isDirectHit, setCast } from './shared';
 
@@ -39,7 +39,7 @@ registerAbility({
     const d = Math.hypot(dx, dz);
     const back = Math.min(0.8, d);
     const at: Vec3 = d > 1e-3 ? { x: p.x + (dx / d) * back, y: p.y, z: p.z + (dz / d) * back } : { ...p };
-    if (!Number.isFinite(at.x + at.y + at.z)) return false;
+    if (!Number.isFinite(at.x + at.y + at.z)) return deny(ctx, 'blocked');
     const delay = Math.max(0, param(ctx, 'delay', 3));
     const n = Math.max(0, Math.round(param(ctx, 'items', 2)));
     sim.spawnHazard({ kind: 'yijiSmoke', ownerId: self.id, pos: at, radius: 1.5, duration: delay, tickEvery: 5, params: {} });
@@ -67,7 +67,7 @@ registerAbility({
     const { sim, self } = ctx;
     if (!canAct(ctx)) return false;
     const target = crosshairEnemy(ctx, param(ctx, 'range', 60));
-    if (!target) return false;
+    if (!target) return deny(ctx, 'noTarget');
     const duration = param(ctx, 'duration', 6);
     sim.applyStatus(target.id, 'reveal', duration, { sourceId: self.id });
     sim.applyStatus(target.id, 'marked', duration, { sourceId: self.id });

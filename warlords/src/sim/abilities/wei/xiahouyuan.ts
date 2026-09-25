@@ -4,7 +4,7 @@ import type { Entity } from '../../../core/types';
 import type { WeaponDef } from '../../../data/types';
 import type { AbilityCtx } from '../../api';
 import { ext } from '../../ext';
-import { UNIT_KINDS, alive, crosshairEnemy, crosshairPoint, enemiesInRadius, param } from '../common';
+import { UNIT_KINDS, alive, crosshairEnemy, crosshairPoint, deny, enemiesInRadius, param } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, chestOf, flatDist, immobile, losBetween, safeBlink, setCast } from './shared';
 
@@ -73,7 +73,7 @@ registerAbility({
   id: 'xiahouyuan_shensu',
   activate(ctx) {
     const { sim, self } = ctx;
-    if (!canAct(ctx) || immobile(sim, self)) return false;
+    if (!canAct(ctx) || immobile(sim, self)) return deny(ctx, 'blocked');
     const range = param(ctx, 'range', 14);
     const volleyRange = param(ctx, 'volleyRange', 30);
     const aimed = crosshairEnemy(ctx, Math.max(range, volleyRange));
@@ -90,7 +90,7 @@ registerAbility({
     safeBlink(ctx, dest, range);
     const moved = flatDist(self.pos, start);
     let target = volleyTarget(ctx, aimed, volleyRange);
-    if (moved < 0.5 && !target) return false; // nowhere to go and nobody to shoot: keep the cooldown
+    if (moved < 0.5 && !target) return deny(ctx, 'blocked'); // nowhere to go and nobody to shoot: keep the cooldown
     // pos = where the blink started (he is at the landing): the VFX streak runs pos → caster
     setCast(ctx, { pos: start, target: target?.id });
     if (!target) return true;

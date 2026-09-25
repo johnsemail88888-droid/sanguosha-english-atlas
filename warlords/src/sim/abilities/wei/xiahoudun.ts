@@ -2,7 +2,7 @@
 import type { Entity, EntityId } from '../../../core/types';
 import type { AbilityCtx } from '../../api';
 import { ext } from '../../ext';
-import { flatAimDir, getState, param, setState, unitsAlongLine } from '../common';
+import { deny, flatAimDir, getState, param, setState, unitsAlongLine } from '../common';
 import { registerAbility } from '../registry';
 import { brakeAtDashEnd, canAct, chestOf, flatDist, immobile, losBetween, setCast } from './shared';
 
@@ -104,12 +104,12 @@ registerAbility({
   id: 'xiahoudun_charge',
   activate(ctx) {
     const { sim, self } = ctx;
-    if (!canAct(ctx) || immobile(sim, self)) return false;
+    if (!canAct(ctx) || immobile(sim, self)) return deny(ctx, 'blocked');
     const dir = flatAimDir(ctx);
     const dist = param(ctx, 'dash', 12);
     const time = Math.max(0.1, param(ctx, 'dashTime', 0.5));
     sim.dash(self.id, dir, dist, time);
-    if (!self.forced) return false;
+    if (!self.forced) return deny(ctx, 'blocked');
     passedBy.delete(self);
     setState(ctx, 'until', self.forced.until);
     setState(ctx, 'px', self.pos.x);

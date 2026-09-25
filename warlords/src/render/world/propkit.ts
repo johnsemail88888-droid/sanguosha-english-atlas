@@ -4,6 +4,7 @@ import type { MapData, MapProp } from '../../core/map';
 import { terrainHeight } from '../../core/map';
 import { GeoBuilder, PRIM, col, mixCol, shade, trs, type ColorLike } from '../core/geo';
 import { hashString, makeRand } from '../core/noise';
+import type { CamOccluderSink } from '../camera/camOccluders';
 import { ARCH } from '../palette';
 
 export interface PropCtx {
@@ -20,6 +21,17 @@ export interface PropCtx {
   groundAt(lx: number, lz: number): number;
   /** world position of a local point */
   toWorld(lx: number, ly: number, lz: number): THREE.Vector3;
+  /** camera-only occluder boxes (roof shells, under dock decks); null when not collected */
+  occ: CamOccluderSink | null;
+}
+
+/**
+ * hipRoof options every building roof should pass: the shell goes into the
+ * double-sided builder (a camera that ends up inside it sees a lit ceiling, not
+ * a black / see-through face) and its volume is registered as a camera occluder.
+ */
+export function roofExtras(c: PropCtx): { shell: GeoBuilder; occ: CamOccluderSink | null } {
+  return { shell: c.cloth, occ: c.occ };
 }
 
 export function makePropCtx(
@@ -28,6 +40,7 @@ export function makePropCtx(
   glow: GeoBuilder,
   p: MapProp,
   map: MapData,
+  occ: CamOccluderSink | null = null,
 ): PropCtx {
   const c = Math.cos(p.rot);
   const s = Math.sin(p.rot);
@@ -39,6 +52,7 @@ export function makePropCtx(
     p,
     map,
     rand: makeRand(seed),
+    occ,
     groundAt(lx, lz) {
       const wx = p.x + lx * c + lz * s;
       const wz = p.z - lx * s + lz * c;
