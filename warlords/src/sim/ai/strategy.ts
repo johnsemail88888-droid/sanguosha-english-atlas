@@ -1,26 +1,32 @@
 // Role strategies (身份局): who a bot considers hostile, who it protects, and
 // what it wants to do when it is not busy fighting / healing / looting.
 //  主公 Lord      — camps near the palace with his squad early, gears up, fights
-//                    revealed / suspected rebels, never executes likely loyalists,
-//                    falls back behind loyalists when hurt, keeps moving; marks
+//                    revealed / suspected rebels, never executes likely loyalists
+//                    nor a 忠-claimer who has not hurt him, braces (cover by his
+//                    escort, 救我) when strangers gather around him, kites back
+//                    behind loyalists / squad when focused, keeps moving; marks
 //                    and calls out (集火此人 / 救我) whoever attacks him.
 //  忠臣 Loyalist  — gears up briefly, then escorts the lord; answers his calls,
 //                    hunts suspected rebels seen near him, fights over airdrops
 //                    with likely rebels; claims 忠 when it helps.
 //  影武者 Double  — escorts the real lord as a decoy crown.
-//  反贼 Rebel     — loots, keeps away from the crowns, picks off isolated
-//                    suspected loyalists, challenges 忠-claimers it runs into
-//                    (by temper) and fights over airdrops; some probe the
-//                    lord early (hit and run). Each rebel has its own seeded push
-//                    time; the first to reach it calls 跟我来 and every rebel who
-//                    hears it stages around the lord and strikes together at the
-//                    same moment. With two crowns the push focuses ONE agreed crown
-//                    (the one seen casting a lord skill, the one pinned / being hit
-//                    / lowest). A push that fails breaks off, regroups and comes
+//  反贼 Rebel     — loots, keeps away from the crowns; mid-game (by temper, not in
+//                    small tables) goes skirmishing — hit-and-run fights with
+//                    heroes that show real loyal signs, away from the crowns,
+//                    that wound but do not execute — and fights over airdrops.
+//                    The decisive push comes late (a push time the rebels share,
+//                    seeded by the table, ≈ 6:40–8:30 on normal): the first to
+//                    reach it calls 跟我来, every rebel who hears it stages around
+//                    the lord and they strike together (a hurt rebel heals first).
+//                    With two crowns the push focuses ONE agreed crown (the one
+//                    seen casting a lord skill, the one pinned / being hit /
+//                    lowest). A push that fails breaks off, regroups and comes
 //                    back. Avoids dying first.
-//  内奸 Traitor   — keeps the balance (helps the weaker side), never lets the lord
-//                    die while rebels live, purges the loyal side once rebels are
-//                    gone, then heals up and duels the lord. Lies with 忠 claims.
+//  内奸 Traitor   — keeps the balance (wounds the side that is ahead, only thins
+//                    it — never the weaker side — mid-game), never lets the lord
+//                    die while rebels live (stands by him against a full-strength
+//                    push), purges the loyal side once rebels are gone, then heals
+//                    up and duels the lord. Lies with 忠 claims.
 //  墙头草 Opportunist — survives: loots, hides far from fights, only shoots back.
 //  赏金猎人 Bounty — gears up, then hunts its secret target while it is seen (or
 //                    was seen recently) and weak or isolated; otherwise plays safe.
@@ -32,7 +38,9 @@ import type { Entity, EntityId, InputFrame, RoleId } from '../../core/types';
 import { WEAPON_BY_ID } from '../../data';
 import type { SimApi } from '../api';
 import { ext } from '../ext';
+import { zonePhaseStart } from '../zone';
 import type { BotMode, BotView } from './botTypes';
+import { findCover } from './cover';
 import type { DifficultyProfile } from './difficulty';
 import { aliveCrowns, ownBountyTarget, realLordFor, roleKnownTo, wearsCrown } from './knowledge';
 
@@ -72,8 +80,48 @@ const PROBE_COOLDOWN = 14;
 const PUSH_FAIL_AFTER = 25;
 /** regrouping after a failed push (s, plus up to 20 s) */
 const REGROUP_TIME = 35;
-/** at push time, wait at most this long (s) for a fellow rebel to show up at the ring */
+/** at push time, a rebel that has already fought (skirmish / probe) waits at most this long (s) for a fellow rebel */
 const PUSH_WAIT = 10;
+/** …one that has not fought yet waits for company this long (s) before going in alone */
+const PUSH_WAIT_ALONE = 40;
+/** a rebel under this HP fraction at push time heals up first… */
+const PUSH_MIN_HP = 0.55;
+/** …for at most this long (s) */
+const PUSH_HEAL_WAIT = 45;
+/** opportunistic strikes on the lord (weak / caught without escort) only this close (s) to the planned push */
+const PUSH_EARLY = 30;
+/** a hero-vs-hero exchange this big (damage, recent) counts as having taken part in a skirmish */
+const SKIRMISH_DMG = 20;
+/** a field challenge breaks off after this long (s)… */
+const SKIRMISH_TIME = 14;
+/** …or once this fraction of max HP is lost in it; then no new challenge for SKIRMISH_REST s */
+const SKIRMISH_HURT = 0.3;
+/** a challenge never takes its victim below this HP fraction (the victim backs off to heal) */
+const SKIRMISH_FLOOR = 0.4;
+const SKIRMISH_REST = 40;
+/**
+ * hit-and-run probes on the lord before the push: off — they only brought the lord fight forward
+ * (and tried for small teams, they cost the rebels more than the lord: measured, G4)
+ */
+const PROBES = false;
+/** seeded temper below which a rebel / 内奸 goes looking for skirmishes mid-game */
+const SKIRMISH_TEMPER = 0.6;
+/** a skirmish quarry must be at least this far (m) from every crown (their escort and soldiers) */
+const SKIRMISH_CROWN_GAP = 50;
+/** end-game pressure ramps from the start of the 100 → 55 m shrink to the last circle's wait */
+const PRESSURE_FROM = zonePhaseStart(3) + 70;
+const PRESSURE_FULL = zonePhaseStart(5) - 10;
+/** the rebels' shared push time: lootPhase + PUSH_AFTER_LOOT + up to PUSH_SPREAD (seeded by the table)… */
+const PUSH_AFTER_LOOT = 285;
+const PUSH_SPREAD = 110;
+/** …plus up to this many seconds of each rebel's own */
+const PUSH_JITTER = 20;
+/** 内奸: how far from the lord it shadows him (m) — close enough to step in when he is in danger */
+const TRAITOR_SHADOW = 36;
+/** a crown's weight in the 内奸's balance of power (see balance()) */
+const CROWN_WEIGHT = 1.4;
+/** 主公: two or more untrusted heroes seen this close (m) → brace (cover, close to the escort) */
+const LORD_WARY = 70;
 /** a 跟我来 heard this long ago (s) still counts as the push call */
 const CALL_MEMORY = STAGE_TIME + 5;
 
@@ -103,22 +151,43 @@ export function facing(x: Entity, at: Vec3, deg: number): boolean {
 }
 
 /**
- * 0..1 end-game pressure: from ~5:10 the closing circle forces decisions, so
- * bots act on weaker suspicion (engage thresholds drop, evidence caps lift).
+ * 0..1 end-game pressure: from ~7:10 (the 100 → 55 m circle closing) the zone
+ * forces decisions, so bots act on weaker suspicion (engage thresholds drop,
+ * evidence caps lift); full pressure by the last circle (~9:00).
  */
 export function pressure(now: number): number {
-  return clamp((now - 310) / 90, 0, 1);
+  return clamp((now - PRESSURE_FROM) / (PRESSURE_FULL - PRESSURE_FROM), 0, 1);
 }
 
 /**
  * Belief-only hostility: capped at `cap` without evidence about the hero,
- * except when the table leaves no doubt (posterior ≥ 0.97).
+ * except when the table leaves no doubt (posterior ≥ 0.97) — and that only once
+ * the hero did something itself (`evidence`) or the closing circle presses: a
+ * hero singled out purely by elimination (everyone else claimed 忠) is not shot
+ * on sight in the middle of the match.
  */
-function sure(p: number, cap: number): number {
-  return p >= 0.97 ? 1 : Math.min(p, cap);
+function sure(p: number, cap: number, evidence: number, now: number): number {
+  return p >= 0.97 && (evidence >= 0.3 || pressure(now) > 0) ? 1 : Math.min(p, cap);
 }
 
 const hyp = (a: Vec3, b: Vec3): number => Math.hypot(a.x - b.x, a.z - b.z);
+
+/**
+ * The rebels' shared push time for this match: lootPhase + 285..395 s (normal ≈ 6:40–8:30),
+ * seeded by the table everybody sees (seats and heroes), so every rebel bot plans the same push
+ * without talking — the table is different every match, the plan with it.
+ */
+export function teamPushAt(sim: SimApi, prof: DifficultyProfile): number {
+  let h = 2166136261;
+  for (const e of [...sim.heroes()].sort((a, b) => (a.hero?.seat ?? 0) - (b.hero?.seat ?? 0))) {
+    const key = `${e.hero?.seat ?? 0}:${e.hero?.heroId ?? ''};`;
+    for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  }
+  h = Math.imul(h ^ (h >>> 15), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  const u = ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  return prof.lootPhase + PUSH_AFTER_LOOT + u * PUSH_SPREAD;
+}
 
 export class RoleStrategy {
   /** rebels: when this rebel wants the coordinated push on the lord to start (seeded per match) */
@@ -141,6 +210,10 @@ export class RoleStrategy {
   private wanderUntil = 0;
   private claimed = 0;
   private nextClaimAt: number;
+  /** comms() ran at least once (a brain created mid-match took over a dropped player's seat) */
+  private commsStarted = false;
+  /** seeded claim temperament: 0..1 — how early / readily this bot claims (varies per bot, not per role) */
+  private readonly claimEagerness: number;
   private lastChatAt = -99;
   private downedChat = false;
   private lastRevivedAt = -99;
@@ -164,6 +237,22 @@ export class RoleStrategy {
   private companyAt = -99;
   private company = false;
   private lastFocusChatAt = -99;
+  /** rebels: took part in a hero-vs-hero fight (skirmish / probe) — a veteran goes into the push without waiting */
+  private skirmished = false;
+  private skirmishCheckAt = -99;
+  /** a running field challenge (skirmish): since when, HP at its start, rest period after it */
+  private skirmishSince = -1;
+  private skirmishHp = 0;
+  private skirmishRestUntil = -99;
+  /** mid-game: the hero this bot is out to pick a (hit-and-run) fight with, away from the crowns */
+  private skirmishTarget: EntityId | undefined;
+  private skirmishPickAt = -99;
+  /** 主公 bracing against a gathering (lordBrace), cached */
+  private braceAt = -99;
+  private braceGoal: Objective | null = null;
+  /** this rebel's own seconds on top of the shared push time */
+  private readonly pushJitter: number;
+  private pushTimed = false;
   /** metrics / tests: pushes started and broken off */
   pushes = 0;
   failedPushes = 0;
@@ -174,16 +263,23 @@ export class RoleStrategy {
     private readonly prof: DifficultyProfile,
     private readonly rng: Rng,
   ) {
-    // each rebel's own push time, seeded per match (the first to reach it calls the others)
-    this.pushAt = prof.lootPhase + 110 + rng.next() * 100;
+    // the decisive push comes in the second half of the match, after the skirmishes: a push time
+    // the rebels share (seeded by the table, see teamPushAt — the first to reach it calls the
+    // others, so independent times would bring the push forward to the earliest of four) plus a
+    // few seconds of this rebel's own
+    this.pushJitter = rng.next() * PUSH_JITTER;
+    this.pushAt = prof.lootPhase + PUSH_AFTER_LOOT + PUSH_SPREAD / 2 + this.pushJitter;
     this.gearUntil = Math.min(prof.lootPhase - 35, 80) + rng.next() * 12;
     this.campUntil = prof.lootPhase + 55;
     this.escortAngle = ((seat * 2.39996) % (Math.PI * 2)) + rng.next() * 0.4;
     this.nextClaimAt = 35 + rng.next() * 60;
+    this.claimEagerness = rng.next();
+    // half the rebels fake a 忠 claim at some point (a table of honest claims would single them out)
     this.fakeLoyal = rng.next() < 0.5;
     this.temper = rng.next();
     this.claimRebelAtPush = rng.next() < 0.5;
-    this.probeAt = rng.next() < 0.75 ? prof.lootPhase * 0.6 + rng.next() * 45 : -1;
+    // hit-and-run probes on the lord between the skirmishes and the push
+    this.probeAt = rng.next() < 0.65 && PROBES ? prof.lootPhase + 80 + rng.next() * 120 : -1;
   }
 
   // ── who is who ──────────────────────────────────────────────────────────
@@ -252,10 +348,15 @@ export class RoleStrategy {
     return best;
   }
 
-  /** Per-tick bookkeeping (rebel push calls, probes, failed pushes). */
+  /** Per-tick bookkeeping (rebel push calls, probes, failed pushes, skirmishes). */
   update(v: BotView): void {
+    this.trackSkirmish(v);
     if (v.role !== 'rebel') return;
     const { sim, self, now } = v;
+    if (!this.pushTimed) {
+      this.pushTimed = true;
+      this.pushAt = teamPushAt(sim, this.prof) + this.pushJitter;
+    }
     // 跟我来 from a hero we do not believe loyal, after the loot phase: the push is on
     const call = v.obs.heard(sim, 'followMe', CALL_MEMORY);
     if (call && call.who !== self.id && call.time > this.heardCallAt && now >= this.prof.lootPhase * 0.7 && now >= this.regroupUntil) {
@@ -290,6 +391,7 @@ export class RoleStrategy {
         this.probeState = 'active';
         this.probeEndAt = now + PROBE_TIME;
         this.probes++;
+        this.skirmished = true;
       }
     }
     if (
@@ -342,20 +444,70 @@ export class RoleStrategy {
     }
   }
 
-  /** Has the rebels' coordinated push started (own clock / the call, or the lord is weak)? */
+  /**
+   * Has the rebels' coordinated push started? At the push time a rebel goes in together with
+   * another rebel at the staging ring — or alone after a short wait if it has already fought
+   * (skirmish / probe), after a longer one if not. Openings (the lord weak, or caught without
+   * his escort) are only taken close to the planned push; a lord on his knees any time after
+   * the loot phase.
+   */
   pushing(v: BotView): boolean {
     if (v.role !== 'rebel') return false;
     if (v.now < this.regroupUntil) return false;
-    if (v.now >= this.pushAt && (this.pushSince >= 0 || this.companyAtRing(v) || v.now >= this.pushAt + PUSH_WAIT)) return true;
+    if (v.now >= this.pushAt) {
+      if (this.pushSince >= 0) return true;
+      // badly hurt, it does not walk into the lord's guns: it heals up first (up to PUSH_HEAL_WAIT late)
+      const hurt = v.self.hp < v.self.maxHp * PUSH_MIN_HP && pressure(v.now) < 0.5 && v.now < this.pushAt + PUSH_HEAL_WAIT;
+      if (!hurt && this.companyAtRing(v)) return true;
+      if (!hurt && (v.now >= this.pushAt + (this.skirmished ? PUSH_WAIT : PUSH_WAIT_ALONE) || pressure(v.now) >= 0.5)) return true;
+    }
     const lord = this.crownRef(v);
-    if (!lord || v.now < this.prof.lootPhase * 0.5) return false;
-    // the lord is visibly weak: everybody in
-    if (v.sight.seenWithin(lord.id, 10) && v.hpFrac(lord) < 0.6) return true;
-    // the lord is caught without his escort and two of us are right here: strike now
-    if (v.now >= this.prof.lootPhase && this.lordExposed(v, lord)) return true;
+    if (!lord || v.now < this.prof.lootPhase) return false;
+    const window = v.now >= this.pushAt - PUSH_EARLY;
+    const seen = v.sight.seenWithin(lord.id, 10);
+    // the lord is on his knees: everybody in
+    if (seen && v.hpFrac(lord) < 0.3 && v.self.hp >= v.self.maxHp * 0.5) return true;
+    // close to the push: the lord visibly weak, or caught without his escort with two of us right here
+    if (window && seen && v.hpFrac(lord) < 0.6) return true;
+    if (window && this.lordExposed(v, lord)) return true;
     // staging and the fight has started anyway (the lord is hit, or his side is shooting at
     // someone): no point waiting for the clock
     return v.now >= this.pushAt - STAGE_TIME && (this.lordUnderAttack(v, lord) || this.lordSideFiring(v, lord));
+  }
+
+  /**
+   * Skirmish bookkeeping (every role): has this bot traded real damage with a hero that is not a
+   * crown (a veteran rebel pushes without waiting), and does a running field challenge end
+   * (time up, or hurt enough: break off and rest)?
+   */
+  private trackSkirmish(v: BotView): void {
+    const { sim, self, now } = v;
+    if (this.skirmishSince >= 0 && (now - this.skirmishSince > SKIRMISH_TIME || self.hp < this.skirmishHp - self.maxHp * SKIRMISH_HURT)) {
+      this.skirmishSince = -1;
+      this.skirmishRestUntil = now + SKIRMISH_REST * (0.8 + this.rng.next() * 0.4);
+    }
+    if (this.skirmished || now - this.skirmishCheckAt < 0.5) return;
+    this.skirmishCheckAt = now;
+    for (const o of sim.heroes()) {
+      if (o === self || !o.hero || o.hero.dead || wearsCrown(sim, o)) continue;
+      if (v.obs.recentDamage(sim, self.id, o.id) >= SKIRMISH_DMG || v.obs.recentDamage(sim, o.id, self.id) >= SKIRMISH_DMG) {
+        this.skirmished = true;
+        return;
+      }
+    }
+  }
+
+  /**
+   * Two rebels or fewer left at the table: every one of them is needed for the push — no field
+   * challenges, no skirmish hunting (a small table that loses one rebel mid-game has lost).
+   */
+  fewRebels(v: BotView): boolean {
+    return (v.beliefs.table?.rebelsAlive ?? 4) < 2.5;
+  }
+
+  /** Has this bot already fought another (non-crown) hero this match? */
+  veteran(): boolean {
+    return this.skirmished;
   }
 
   /**
@@ -443,13 +595,18 @@ export class RoleStrategy {
    * A fight over loot: this bot is going for an airdrop / good crate and `x`
    * (seen, not a crown) is right there too.
    */
-  private contesting(v: BotView, x: Entity): boolean {
+  private contesting(v: BotView, x: Entity, prizeOnly = false): boolean {
     const loot = v.lootTarget;
     // not in the opening minute: everybody is still spreading out and gearing up
     if (!loot || v.now < 60) return false;
-    if (loot.kind !== 'airdrop' && !(loot.kind === 'crate' && (loot.crate?.tier ?? 1) >= 2)) return false;
+    const prize = loot.kind === 'airdrop' || (loot.kind === 'crate' && (loot.crate?.tier ?? 1) >= 2);
+    // after the loot phase any pile is worth a scuffle with a stranger right on top of it (the lord
+    // side only fights over airdrops / bronze crates: a loyalist shot over a common pile is a loss)
+    if (!prize && (prizeOnly || v.now < this.prof.lootPhase * 0.8)) return false;
     if (wearsCrown(v.sim, x) || !v.seesNow(x) || v.self.hp < v.self.maxHp * 0.55) return false;
-    return hyp(x.pos, loot.pos) < 20 && hyp(v.self.pos, loot.pos) < 35;
+    // a loot fight drives the other off, it is no execution (same floor as a field skirmish)
+    if (x.hero?.downed || v.hpFrac(x) < SKIRMISH_FLOOR) return false;
+    return prize ? hyp(x.pos, loot.pos) < 20 && hyp(v.self.pos, loot.pos) < 35 : hyp(x.pos, loot.pos) < 12 && hyp(v.self.pos, loot.pos) < 22;
   }
 
   /**
@@ -462,7 +619,11 @@ export class RoleStrategy {
    */
   private challenge(v: BotView, x: Entity, ls: number, rb: number, tr: number): boolean {
     const { self, now } = v;
-    if (now < Math.max(60, this.prof.lootPhase * 0.55) || self.hp < self.maxHp * 0.65) return false;
+    if (now < Math.max(60, this.prof.lootPhase * 0.55) || now < this.skirmishRestUntil) return false;
+    // a running challenge goes on while this bot is not badly hurt (trackSkirmish ends it)
+    if (self.hp < self.maxHp * (this.skirmishSince >= 0 ? 0.4 : 0.65)) return false;
+    // hit and run, not an execution: a challenge wounds — it stops once the other side is on its knees
+    if (x.hero?.downed || v.hpFrac(x) < SKIRMISH_FLOOR) return false;
     if (wearsCrown(v.sim, x) || !v.seesNow(x) || this.allyScore(v, x) >= 0.45) return false;
     const reach = this.prof.name === 'hard' ? 40 : 34;
     if (hyp(x.pos, self.pos) > reach) return false;
@@ -471,17 +632,93 @@ export class RoleStrategy {
       const cp = v.posOf(c, 5);
       if (cp && (hyp(cp, x.pos) < 40 || hyp(cp, self.pos) < 40)) return false;
     }
+    const quarry = x.id === this.skirmishTarget;
+    let yes: boolean;
     switch (v.role) {
       case 'rebel':
-        // someone who claimed 忠 or looks loyal — never a likely fellow rebel
-        return this.temper < 0.45 && !this.staging(v) && rb < 0.4 && ls >= 0.55;
+        // someone with real loyal signs (a bare 忠 claim is not enough: half the rebels fake one,
+        // and a rebel civil war is lost) or the stranger it went looking for — never a likely
+        // fellow rebel
+        yes = this.temper < SKIRMISH_TEMPER && !this.staging(v) && !this.fewRebels(v) && rb < 0.4 && ((ls >= 0.55 && v.beliefs.evidenceMagnitude(x.id) >= 0.8) || quarry);
+        break;
       case 'traitor':
-        return this.temper < 0.4 && (this.balance(v) < 0.85 ? ls >= 0.4 : rb >= 0.5);
+        yes = this.temper < SKIRMISH_TEMPER && ((this.balance(v) < 0.85 ? ls >= 0.4 : rb >= 0.5) || quarry);
+        break;
       default:
         // the lord side never picks fights with strangers: a loyalist shot by mistake is a
         // loyalist lost (and a crown that shoots one may execute him)
-        return false;
+        yes = false;
     }
+    // a skirmish is hit and run: it starts now and ends after SKIRMISH_TIME or SKIRMISH_HURT
+    if (yes && this.skirmishSince < 0) {
+      this.skirmishSince = now;
+      this.skirmishHp = self.hp;
+    }
+    return yes;
+  }
+
+  /**
+   * Lord side, the rebels gone (only the 内奸 left to find): a hero that has not hurt the lord side
+   * itself is not shot on a hunch — the 内奸 that cleaned up the rebels looks like the loyalist, and a
+   * loyalist gunned down by mistake is the lord's own defeat. The 内奸 has to strike to win; then it
+   * is proven (Beliefs.provenHostile) and the cap is off. The closing circle ends the waiting.
+   */
+  private traitorHunch(v: BotView, x: Entity, hst: number, rebelsLeft: number): number {
+    if (rebelsLeft > 0.5 || roleKnownTo(v.sim, v.self, x) !== undefined || pressure(v.now) >= 0.5) return hst;
+    return v.beliefs.provenHostile(x.id) ? hst : Math.min(hst, 0.5);
+  }
+
+  /**
+   * Mid-game skirmishes (rebels, by temper): between the loot phase and the push, go and pick a
+   * hit-and-run fight with a hero that shows real loyal signs, away from the crowns. challenge()
+   * opens fire when it is in sight; the skirmish ends after SKIRMISH_TIME or SKIRMISH_HURT (then
+   * SKIRMISH_REST before the next). These keep the middle of the match alive: hero-vs-hero contact
+   * long before the lord is hit. (The 内奸 does not go looking — it fights from the shadows, a
+   * stand-up fight mid-game only gets it killed — it keeps to challenge() on whoever it runs into.)
+   */
+  skirmishQuarry(v: BotView): Entity | undefined {
+    const { sim, self, now } = v;
+    const eligible =
+      v.role === 'rebel' &&
+      this.temper < SKIRMISH_TEMPER &&
+      now >= this.prof.lootPhase &&
+      now >= this.skirmishRestUntil &&
+      now < this.pushAt - STAGE_TIME - 15 &&
+      self.hp >= self.maxHp * 0.7 &&
+      !this.fewRebels(v);
+    if (!eligible) {
+      this.skirmishTarget = undefined;
+      return undefined;
+    }
+    if (this.skirmishTarget === undefined || now - this.skirmishPickAt > 3) {
+      this.skirmishPickAt = now;
+      const crowns = aliveCrowns(sim, self)
+        .map((c) => v.posOf(c, 20))
+        .filter((p): p is Vec3 => !!p);
+      let best: Entity | undefined;
+      let bs = -Infinity;
+      for (const x of sim.heroes()) {
+        if (x === self || !x.hero || x.hero.dead || x.hero.downed || wearsCrown(sim, x)) continue;
+        const p = v.posOf(x, 15);
+        if (!p) continue;
+        const d = hyp(p, self.pos);
+        if (d > 110 || crowns.some((c) => hyp(c, p) < SKIRMISH_CROWN_GAP)) continue;
+        const rb = v.beliefs.rebelness(sim, self, x);
+        const ls = v.beliefs.lordSideness(sim, self, x);
+        // real loyal signs (seen escorting a crown, shooting rebels) — a bare 忠 claim is not
+        // enough: half the rebels fake one, and a rebel civil war is lost
+        if (rb >= 0.4 || ls < 0.5 || v.beliefs.evidenceMagnitude(x.id) < 0.8) continue;
+        const s = ls * 2 - d / 60 - v.hpFrac(x) + (x.id === this.skirmishTarget ? 0.5 : 0);
+        if (s > bs) {
+          bs = s;
+          best = x;
+        }
+      }
+      this.skirmishTarget = best?.id;
+    }
+    const q = this.skirmishTarget !== undefined ? sim.get(this.skirmishTarget) : undefined;
+    if (!q?.hero || q.hero.dead) this.skirmishTarget = undefined;
+    return this.skirmishTarget !== undefined ? q : undefined;
   }
 
   /** `x` (seen) is on its own: no other known hero within 25 m, far from the crowns. */
@@ -523,22 +760,27 @@ export class RoleStrategy {
     const rebelsLeft = tk ? tk.rebelsAlive : 1;
     // suspicion alone never outweighs a lack of evidence about this very hero (unless the table
     // forces it) — until the closing circle forces a decision
-    const cap = known !== undefined ? 1 : beliefs.evidenceMagnitude(x.id) >= 0.6 ? 1 : 0.75 + 0.25 * pressure(v.now);
+    const evMag = known !== undefined ? 1 : beliefs.evidenceMagnitude(x.id);
+    const cap = known !== undefined ? 1 : evMag >= 0.6 ? 1 : 0.75 + 0.25 * pressure(v.now);
     const healthy = self.hp >= self.maxHp * 0.6;
     let hst = 0;
     switch (role) {
       case 'lord': {
         if (known === 'double') return 0;
-        hst = Math.min(rb + tr * (rebelsLeft > 0.5 ? 0.35 : 1) + neu * 0.05, sure(rb + tr, cap));
-        if (provoked) hst = Math.max(hst, ls > 0.7 ? 0.25 : RETALIATE);
-        // 主公 must never execute a likely loyalist (drops everything)
+        hst = Math.min(rb + tr * (rebelsLeft > 0.5 ? 0.35 : 1) + neu * 0.05, sure(rb + tr, cap, evMag, v.now));
+        // a hero busy with someone else (collateral) is only answered when it already looks hostile
+        if (provoked) hst = Math.max(hst, ls > 0.7 || (busy && rb + tr < 0.5) ? 0.25 : RETALIATE);
+        // 主公 must never execute a likely loyalist (drops everything), nor anyone who claimed 忠
+        // and has never been seen hurting the lord side
         if (ls > 0.45) hst = Math.min(hst, 0.3);
+        if (beliefs.cleanLoyalClaim(x)) hst = Math.min(hst, 0.2);
+        hst = this.traitorHunch(v, x, hst, rebelsLeft);
         break;
       }
       case 'loyalist':
       case 'double': {
         if (crownX) return 0;
-        hst = Math.min(rb + tr * (rebelsLeft > 0.5 ? 0.35 : 1) + neu * 0.05, sure(rb + tr, cap));
+        hst = Math.min(rb + tr * (rebelsLeft > 0.5 ? 0.35 : 1) + neu * 0.05, sure(rb + tr, cap, evMag, v.now));
         let crownDmg = 0;
         let crownFaced = false;
         for (const c of aliveCrowns(sim, self)) {
@@ -553,7 +795,12 @@ export class RoleStrategy {
         if (crownDmg >= (busy || !crownFaced ? DEFEND_DMG * 4 : DEFEND_DMG)) hst = Math.max(hst, ls > 0.75 ? 0.35 : DEFEND);
         if (provoked) hst = Math.max(hst, ls > 0.75 ? 0.3 : RETALIATE);
         // an airdrop is no place for a likely rebel (a hero who claimed 忠 gets the benefit of the doubt)
-        if (ls < 0.6 && rb + tr >= 0.45 && h.claim !== 'loyalist' && this.contesting(v, x)) hst = Math.max(hst, CONTEST);
+        // (only on a strong read: most strangers are rebels to a loyalist, so the table's base
+        // rate — 4 of 6 in 8p — is no reason to shoot the one who might be the other loyalist)
+        if (ls < 0.4 && rb + tr >= 0.8 && h.claim !== 'loyalist' && this.contesting(v, x, true)) hst = Math.max(hst, CONTEST);
+        // a 忠-claimer never seen hurting the lord side is a fellow loyalist until proven otherwise
+        if (beliefs.cleanLoyalClaim(x) && crownDmg < DEFEND_DMG) hst = Math.min(hst, provoked ? 0.45 : 0.3);
+        if (crownDmg < DEFEND_DMG) hst = this.traitorHunch(v, x, hst, rebelsLeft);
         break;
       }
       case 'rebel': {
@@ -570,12 +817,16 @@ export class RoleStrategy {
             hst = xd < 25 && v.hpFrac(x) < 0.35 ? 0.9 : 0.3;
           }
         } else {
-          hst = Math.min(ls + tr * 0.25 + neu * 0.05, sure(ls, cap));
+          hst = Math.min(ls + tr * 0.25 + neu * 0.05, sure(ls, cap, evMag, v.now));
+          // two rebels or fewer: before the push a read alone never starts a fight — the partner
+          // misread as a loyalist is the whole rebel side
+          if (this.fewRebels(v) && !this.pushing(v) && pressure(v.now) < 0.5) hst = Math.min(hst, 0.6);
           if (provoked) hst = Math.max(hst, rb > 0.7 ? 0.3 : RETALIATE);
           if (rb < 0.6) {
             // pick off a suspected loyalist caught alone, and fight strangers over airdrops
-            if (ls >= 0.5 && healthy && v.seesNow(x) && xd < 45 && v.hpFrac(x) <= self.hp / self.maxHp && this.isolated(v, x)) hst = Math.max(hst, 0.92);
-            if (ls >= 0.45 && this.contesting(v, x)) hst = Math.max(hst, CONTEST);
+            if (ls >= 0.6 && evMag >= 0.8 && healthy && v.seesNow(x) && xd < 45 && v.hpFrac(x) <= self.hp / self.maxHp && this.isolated(v, x)) hst = Math.max(hst, 0.92);
+            // an airdrop / bronze crate is fought over with anyone who is not a likely fellow rebel
+            if (rb < 0.35 && this.contesting(v, x, true)) hst = Math.max(hst, CONTEST);
             if (this.challenge(v, x, ls, rb, tr)) hst = Math.max(hst, this.challengeLevel());
           }
         }
@@ -614,9 +865,14 @@ export class RoleStrategy {
           // while nobody can tell who fired (the classic 内奸 moment)
           if (bal < 0.85 && busyWithRebels && ls >= 0.4 && ready) hst = Math.max(hst, 0.9);
           if (this.challenge(v, x, ls, rb, tr)) hst = Math.max(hst, Math.min(cap, this.challengeLevel()));
-          // the lord is going down: save him from whoever is hitting him (rebels would win)
+          // loot fights over airdrops / bronze crates: the 内奸 takes what it can
+          if (this.contesting(v, x)) hst = Math.max(hst, CONTEST);
+          // the lord is going down: save him from whoever is hitting him (rebels would win) — and
+          // while the rebels are not the weaker side, stand by him from the start of their push
+          // (a lord who falls to a full-strength rebel push is the 内奸's defeat too)
+          const danger = bal >= 0.85 && rb >= 0.4 ? 0.8 : 0.35;
           for (const c of aliveCrowns(sim, self)) {
-            if (v.hpFrac(c) < 0.35 && obs.recentDamage(sim, x.id, c.id) >= 10) hst = Math.max(hst, DEFEND);
+            if (v.hpFrac(c) < danger && obs.recentDamage(sim, x.id, c.id) >= 10) hst = Math.max(hst, DEFEND);
           }
         } else {
           // rebels gone: purge the loyal side one by one, but only from strength
@@ -684,7 +940,12 @@ export class RoleStrategy {
     return frac >= 0.75 || (!hasTao && frac >= 0.45);
   }
 
-  /** Rebel strength / lord-side strength (from this bot's beliefs and last-seen HP). */
+  /**
+   * Rebel strength / lord-side strength (from this bot's beliefs and last-seen HP). A crown counts
+   * CROWN_WEIGHT heroes (+100 HP, +2 soldiers): at full strength a 5-seat table (2 rebels against
+   * the lord and one loyalist) reads as lord-ahead (0.83: the 内奸 wounds loyalists), an 8-seat one
+   * (4 rebels, 2 loyalists) as rebel-ahead (1.18: it wounds rebels).
+   */
   balance(v: BotView): number {
     const { sim, self, beliefs } = v;
     let lord = 0;
@@ -693,7 +954,7 @@ export class RoleStrategy {
       if (!e.hero || e.hero.dead || e === self) continue;
       const f = e.hero.downed ? 0.15 : v.hpFrac(e);
       if (wearsCrown(sim, e)) {
-        lord += 1.3 * f;
+        lord += CROWN_WEIGHT * f;
         continue;
       }
       lord += beliefs.lordSideness(sim, self, e) * f;
@@ -771,6 +1032,44 @@ export class RoleStrategy {
     return this.rallyPoint(v, lord!, now < this.regroupUntil ? 85 : 70);
   }
 
+  /**
+   * 主公: heroes he does not trust gathering around him (two or more seen within LORD_WARY m in
+   * the last few seconds — rebels staging for a push look exactly like this): brace — close in on
+   * his loyalists (else his soldiers) and get into cover from the gathering, instead of standing
+   * in the open where a coordinated push melts him in seconds. Cached ~1.5 s.
+   */
+  private lordBrace(v: BotView, friends: readonly Vec3[]): Objective | null {
+    const { sim, self, now } = v;
+    if (now - this.braceAt < 1.5) return this.braceGoal;
+    this.braceAt = now;
+    this.braceGoal = null;
+    const wary: Vec3[] = [];
+    for (const x of sim.heroes()) {
+      if (x === self || !x.hero || x.hero.dead || x.hero.downed || wearsCrown(sim, x)) continue;
+      const p = v.posOf(x, 5);
+      if (!p || hyp(p, self.pos) > LORD_WARY || v.allyScore(x) >= 0.5) continue;
+      wary.push({ x: p.x, y: p.y + 1.5, z: p.z });
+    }
+    if (wary.length < 2) return null;
+    const squad = self.hero!.squad.map((id) => sim.get(id)).filter((e): e is Entity => !!e && e.alive && hyp(e.pos, self.pos) < 35);
+    const near = friends.filter((f) => hyp(f, self.pos) < 60);
+    const anchor = near.length > 0 ? centroidOf(near) : squad.length >= 2 ? centroidOf(squad.map((e) => e.pos)) : self.pos;
+    // the side of the anchor away from the gathering
+    const w = centroidOf(wary);
+    const ax = anchor.x - w.x;
+    const az = anchor.z - w.z;
+    const l = Math.hypot(ax, az) || 1;
+    const behind = clampIntoZone(sim, { x: anchor.x + (ax / l) * 4, y: anchor.y, z: anchor.z + (az / l) * 4 }, now);
+    let goal = behind;
+    // outnumbered (more of them than his escort and himself): into cover as well
+    if (this.prof.coverUse > 0 && wary.length > near.length + 1) {
+      const cov = findCover(sim, self, { threats: wary, maxDist: 16, budget: 6, maxAdvance: 1 });
+      if (cov && hyp(cov, behind) < 12) goal = cov;
+    }
+    this.braceGoal = { mode: 'guard', goal, arrive: 1.5, sprint: hyp(goal, self.pos) > 20 };
+    return this.braceGoal;
+  }
+
   /** Where to be when nothing urgent is happening. */
   objective(v: BotView): Objective {
     const { sim, self, now } = v;
@@ -791,6 +1090,8 @@ export class RoleStrategy {
         // stay with the believed loyal side, moving around them (a still lord is an easy target)
         const friends: Vec3[] = [];
         for (const a of v.allies()) if (!wearsCrown(sim, a) || roleKnownTo(sim, self, a) === 'double') friends.push(v.posOf(a)!);
+        const brace = this.lordBrace(v, friends);
+        if (brace) return brace;
         if (friends.length > 0) {
           const c = centroidOf(friends);
           if (hyp(c, self.pos) > 14) return { mode: 'guard', goal: clampZone(c), arrive: 6, sprint: false };
@@ -837,6 +1138,9 @@ export class RoleStrategy {
             const g = clampZone({ x: lp.x + (ax / l) * STAGE_RADIUS, y: lp.y, z: lp.z + (az / l) * STAGE_RADIUS });
             return { mode: 'regroup', goal: g, arrive: 5, sprint: d > STAGE_RADIUS + 25 };
           }
+          const q = this.skirmishQuarry(v);
+          const qp = q ? v.posOf(q, 15) : undefined;
+          if (qp) return { mode: 'hunt', goal: { ...qp }, arrive: 18, sprint: hyp(qp, self.pos) > 40 };
           if (now >= this.prof.lootPhase) {
             const rally = this.rallyPoint(v, lord, now < this.regroupUntil ? 85 : 70);
             const far = hyp(rally, self.pos);
@@ -869,11 +1173,11 @@ export class RoleStrategy {
         if (lord && lp && now >= this.prof.lootPhase) {
           // shadow the lord at a distance: close enough to intervene, far enough to stay out of it
           const d = hyp(lp, self.pos);
-          if (d > 50 || d < 25) {
+          if (d > TRAITOR_SHADOW + 14 || d < TRAITOR_SHADOW - 11) {
             const ax = self.pos.x - lp.x;
             const az = self.pos.z - lp.z;
             const l = Math.hypot(ax, az) || 1;
-            return { mode: 'shadow', goal: clampZone({ x: lp.x + (ax / l) * 36, y: self.pos.y, z: lp.z + (az / l) * 36 }), arrive: 6, sprint: d > 70 };
+            return { mode: 'shadow', goal: clampZone({ x: lp.x + (ax / l) * TRAITOR_SHADOW, y: self.pos.y, z: lp.z + (az / l) * TRAITOR_SHADOW }), arrive: 6, sprint: d > TRAITOR_SHADOW + 34 };
           }
           return this.wander(v, self.pos, 8, 'shadow');
         }
@@ -1053,6 +1357,14 @@ export class RoleStrategy {
   }
 
   // ── claims & quick-chat ─────────────────────────────────────────────────
+  /**
+   * This brain took over a dropped player's seat mid-match: it keeps the player's public claim
+   * and says nothing for 30–60 s (an instant new claim — or a flip — would out the takeover).
+   */
+  noteTakeover(now: number): void {
+    this.nextClaimAt = Math.max(this.nextClaimAt, now + 30 + this.rng.next() * 30);
+  }
+
   noteRevived(now: number): void {
     this.lastRevivedAt = now;
   }
@@ -1080,23 +1392,32 @@ export class RoleStrategy {
     const target = v.target;
     const lord = this.crownRef(v);
     const lp = lord ? v.posOf(lord, 3) : undefined;
-    // claims (跳身份)
+    if (!this.commsStarted) {
+      this.commsStarted = true;
+      // a bot that took over a dropped player's seat counts the player's public claim as its own
+      if (h.claim) this.claimed = 1;
+    }
+    // claims (跳身份) — when and whether is a per-bot temperament, so the timing of a 忠 claim
+    // says little about the role behind it (rebels fake it, loyalists / traitors vary)
     if (this.claimed < 2 && now >= this.nextClaimAt) {
       this.nextClaimAt = now + 20 + this.rng.next() * 25;
       let claim: RoleId | null = null;
+      const eager = this.claimEagerness;
       switch (v.role) {
         case 'loyalist': {
           const defending = !!target && target.hero && lord && v.obs.sinceAttack(sim, target.id, lord.id) < 8;
           const near = !!lp && hyp(lp, self.pos) < 30;
-          if (defending || (near && this.rng.next() < 0.7)) claim = 'loyalist';
+          // eager loyalists announce themselves by the lord; reserved ones only when it matters
+          // (defending him) or late in the match
+          if (defending || (near && this.rng.next() < 0.3 + 0.5 * eager) || (now > 150 + 150 * (1 - eager) && this.rng.next() < 0.5)) claim = 'loyalist';
           break;
         }
         case 'traitor':
-          if (now > 60 && this.rng.next() < 0.7) claim = 'loyalist';
+          if (now > 45 + 120 * (1 - eager) && this.rng.next() < 0.45 + 0.35 * eager) claim = 'loyalist';
           break;
         case 'rebel':
           if (this.pushing(v) && this.claimRebelAtPush) claim = 'rebel';
-          else if (!this.pushing(v) && this.fakeLoyal && now > 50) claim = 'loyalist';
+          else if (!this.pushing(v) && this.fakeLoyal && now > 40 + 110 * (1 - eager)) claim = 'loyalist';
           break;
         case 'opportunist':
         case 'bounty':
@@ -1105,6 +1426,8 @@ export class RoleStrategy {
         default:
           break;
       }
+      // never walk back an admitted 反贼 (a dropped player's claim the bot inherited): nobody buys it
+      if (claim === 'loyalist' && h.claim === 'rebel') claim = null;
       if (claim && claim !== h.claim) {
         f.actions.push({ a: 'claim', role: claim });
         this.claimed++;
@@ -1133,6 +1456,11 @@ export class RoleStrategy {
       }
       if (self.hp < self.maxHp * 0.45 && v.underFire > 0.05) {
         chat('help', 25);
+        return;
+      }
+      // bracing against a gathering (lordBrace): call the escort in close before it starts
+      if (this.braceGoal && now - this.braceAt < 2) {
+        chat('help', 30);
         return;
       }
     }

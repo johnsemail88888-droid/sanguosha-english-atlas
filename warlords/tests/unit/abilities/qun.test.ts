@@ -68,6 +68,8 @@ function cast(a: Arena, seat: number, slot: 'q' | 'e' | 'lord', aim: Partial<Inp
 }
 
 const abilityOf = (heroId: string, slot: AbilityDef['slot']): AbilityDef => HERO_BY_ID[heroId].abilities.find((x) => x.slot === slot)!;
+/** one 雷击 bolt from the data (before 鬼道's +30 %) */
+const LEIJI = HERO_BY_ID.zhangjiao.abilities.find((x) => x.id === 'zhangjiao_leiji')!.params.damage;
 const fired = (evs: GameEvent[], id: string): boolean => evs.some((e) => e.t === 'ability' && e.ability === id);
 const lost = (e: Entity): number => e.maxHp - e.hp;
 
@@ -595,7 +597,7 @@ describe('张角 Zhang Jiao', () => {
     expect(a.w.dealDamage({ targetId: foe.id, sourceId: zj.id, amount: 100, type: 'normal' }).dealt).toBeCloseTo(100, 5);
   });
 
-  it('雷击: 3 bolts 0.6 s apart on the cast point, 55 (+30 %) each in 3 m; only the first stuns', () => {
+  it('雷击: 3 bolts 0.6 s apart on the cast point, params.damage (+30 %) each in 3 m; only the first stuns', () => {
     const a = setup();
     const { w } = a;
     const zj = a.at(0);
@@ -607,7 +609,7 @@ describe('张角 Zhang Jiao', () => {
     const evs = cast(a, 0, 'q', aimAtPoint(zj, { x: 0, y: 0, z: 25 }));
     expect(fired(evs, def.id)).toBe(true);
     expect(evs.filter((e) => e.t === 'explosion' && e.kind === 'thunder')).toHaveLength(1);
-    const bolt = 55 * 1.3;
+    const bolt = LEIJI * 1.3;
     expect(lost(e1)).toBeCloseTo(bolt, 5);
     expect(lost(e2)).toBeCloseTo(bolt, 5);
     expect(lost(out)).toBe(0);
@@ -675,9 +677,9 @@ describe('张角 Zhang Jiao', () => {
       w.drainEvents();
       return { a, c, far, plain };
     };
-    // 雷击: 3 bolts × 71.5 each — not 3 × 3 × 71.5 (= 643.5) for the chained cluster
+    // 雷击: 3 bolts each — not 3 × 3 bolts for the chained cluster
     const L = build();
-    const bolt = 55 * 1.3;
+    const bolt = LEIJI * 1.3;
     expect(fired(cast(L.a, 0, 'q', aimAtPoint(L.a.at(0), { x: 0, y: 0, z: 25 })), 'zhangjiao_leiji')).toBe(true);
     for (const e of [...L.c, L.far, L.plain]) expect(lost(e), `seat ${e.hero!.seat} after bolt 1`).toBeCloseTo(bolt, 5);
     // the first bolt stuns everyone inside the circle (spread-reached links too), not the far link
@@ -891,7 +893,7 @@ describe('孟获 Meng Huo', () => {
     expect(mh.hero!.downed).toBe(true);
   });
 
-  it('南蛮入侵: 5 barbarians (20 s) spawn beside him and rush the crosshair point', () => {
+  it('南蛮入侵: params.count barbarians (params.lifetime s) spawn beside him and rush the crosshair point', () => {
     const a = setup();
     const { w } = a;
     const mh = a.at(2);
@@ -902,17 +904,17 @@ describe('孟获 Meng Huo', () => {
     const evs = cast(a, 2, 'q', aimAtPoint(mh, point));
     expect(fired(evs, def.id)).toBe(true);
     const barbs = w.kindList('npc').filter((n) => n.npc?.npcType === 'barbarian' && n.npc.summonerId === mh.id);
-    expect(barbs).toHaveLength(5);
+    expect(barbs).toHaveLength(def.params.count);
     for (const b of barbs) {
       expect(b.npc!.ai.goalX).toBeCloseTo(point.x, 3);
       expect(b.npc!.ai.goalZ).toBeCloseTo(point.z, 3);
-      expect(b.npc!.expiresAt).toBeCloseTo(w.time + 20, 1);
+      expect(b.npc!.expiresAt).toBeCloseTo(w.time + def.params.lifetime, 1);
       expect(Math.hypot(b.pos.x - mh.pos.x, b.pos.z - mh.pos.z)).toBeLessThan(6);
     }
     stepN(w, T(4));
     const mean = barbs.reduce((s, b) => s + b.pos.z, 0) / barbs.length;
     expect(mean).toBeLessThan(40); // rushing toward z = 22
-    stepN(w, T(16.5));
+    stepN(w, T(def.params.lifetime - 3.5));
     expect(barbs.every((b) => !b.alive)).toBe(true);
   });
 
@@ -1019,7 +1021,7 @@ describe('群 robustness', () => {
     kill(a.w, a.at(2));
     stepN(a.w, T(2));
     expect(a.w.result()).toBeNull();
-    expect(lost(foe)).toBeCloseTo(3 * 55 * 1.3, 5);
+    expect(lost(foe)).toBeCloseTo(3 * LEIJI * 1.3, 5);
 
     // 太平要术: the followed target dies → the cloud lingers there and expires cleanly
     const b = arena(['dummy', 'dummy', 'zhangjiao', 'dummy', 'dummy']);
@@ -1097,7 +1099,7 @@ describe('群 robustness', () => {
     expect(lost(m)).toBe(0);
     expect(b.w.hasStatus(m.id, 'stun')).toBe(false);
     stepN(b.w, T(1.3));
-    expect(lost(m)).toBeCloseTo(2 * 55 * 1.3, 5);
+    expect(lost(m)).toBeCloseTo(2 * LEIJI * 1.3, 5);
 
     // 离间 on a hero that can't be charmed (谦逊-like veto): only the other one is turned
     const c = arena(['dummy', 'dummy', 'diaochan', 'dummy', 'dummy']);
@@ -1129,7 +1131,7 @@ describe('群 robustness', () => {
     w.step();
     stepN(w, T(1.5));
     // 6 bolts in total (the stun of the second first bolt refreshes, no extra damage)
-    expect(lost(foe)).toBeCloseTo(6 * 55 * 1.3, 5);
+    expect(lost(foe)).toBeCloseTo(6 * LEIJI * 1.3, 5);
     expect(threw(a.warns)).toEqual([]);
   });
 

@@ -13,8 +13,11 @@
 //    the host reports in `you.forced` is replayed with forcedMove. Residual
 //    error is smoothed away (fast blend for large errors, snap for teleports).
 //  - Input is sent at INPUT_HZ on the unreliable channel; each packet repeats
-//    the edge actions of the previous INPUT_REDUNDANCY frames. When the page
-//    loses focus the controls are released immediately (releaseInput).
+//    the edge actions of the previous INPUT_REDUNDANCY frames. The rate is
+//    driven by elapsed time: a slow render frame (low fps) sends one frame per
+//    elapsed input step (up to MAX_INPUT_BURST), so prediction and the host
+//    advance by the same number of ticks. When the page loses focus the
+//    controls are released immediately (releaseInput).
 //  - Events are released in sync with the rendered tick (capped delay), except
 //    events caused by the local hero, which are released immediately.
 //  - Output entities are pooled per id (interp.ViewEntityPool): the render loop
@@ -73,6 +76,12 @@ const FAST_BLEND_TAU = 0.033;
 /** Keep this much snapshot history (seconds). */
 const BUFFER_SECONDS = 1;
 const MAX_PENDING_INPUTS = 120;
+/**
+ * Input frames sent for one render frame at most (1 s): a slower frame sends
+ * one frame per elapsed input step so the host sees held input for the whole
+ * gap; a longer stall drops the backlog (the host released the controls).
+ */
+export const MAX_INPUT_BURST = INPUT_HZ;
 /** HUD timers are re-derived at most this often (seconds). */
 const HUD_REFRESH = 0.05;
 
@@ -233,6 +242,34 @@ export class ClientView implements ViewSource {
 
   setResult(r: GameResult): void {
     this.resultValue = r;
+  }
+
+  /** The final public player list (sent with a late gameOver: no snapshot follows). */
+  setPlayers(players: readonly PublicPlayerView[]): void {
+    if (this.disposed) return;
+    this.playersOut = players;
+  }
+
+  /**
+   * The snapshot stream starts over (rejoin into the same match): forget the
+   * snapshot buffer, the clock estimate and the unacknowledged inputs — the
+   * host knows nothing of the inputs sent while the link was down. What is on
+   * screen stays until the next snapshot re-establishes everything.
+   */
+  resetNetState(): void {
+    if (this.disposed) return;
+    this.buf = [];
+    this.offset = null;
+    this.renderTime = null;
+    this.pending = [];
+    this.sentHistory = [];
+    this.pred = null;
+    this.predPrev = null;
+    this.forced = null;
+    this.errOffset.x = this.errOffset.y = this.errOffset.z = 0;
+    this.lastReconciledTick = -1;
+    this.lastAuth = null;
+    this.stats.extrapolating = false;
   }
 
   dispose(): void {
@@ -477,15 +514,15 @@ export class ClientView implements ViewSource {
     const now = this.now();
     if (!Number.isFinite(dt) || dt < 0) dt = 0;
 
-    // 1. input at a fixed rate (drop backlog after a stall)
+    // 1. input at a fixed rate, by elapsed time: one frame per elapsed step
+    //    (a slow render frame sends the whole gap), backlog beyond a burst dropped
     const step = 1 / INPUT_HZ;
     this.inputAcc += dt;
-    let sends = 0;
-    while (this.inputAcc >= step) {
-      this.inputAcc -= step;
-      if (sends++ < 3) this.sendFrame();
-    }
-    if (this.inputAcc >= step) this.inputAcc %= step;
+    let due = Math.floor(this.inputAcc / step);
+    this.inputAcc -= due * step;
+    if (due > MAX_INPUT_BURST) due = MAX_INPUT_BURST;
+    if (this.inputAcc < 0) this.inputAcc = 0; // float round-off
+    for (let i = 0; i < due; i++) this.sendFrame();
     const decay = Math.exp(-dt / this.errTau);
     this.errOffset.x *= decay;
     this.errOffset.y *= decay;

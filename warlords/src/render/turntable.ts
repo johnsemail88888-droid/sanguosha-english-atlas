@@ -17,6 +17,9 @@ export interface TurntableHandle {
   dispose(): void;
 }
 
+/** Without parallel shader compile: first draw this long (ms) after the compiles were issued. */
+const TURNTABLE_COMPILE_GRACE_MS = 250;
+
 export function mountHeroTurntable(container: HTMLElement, heroId: string): TurntableHandle {
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'width:100%;height:100%;display:block;touch-action:none;cursor:grab';
@@ -78,9 +81,15 @@ export function mountHeroTurntable(container: HTMLElement, heroId: string): Turn
   const coat = heroMountCoat(heroId, undefined, false);
   if (coat) rig.setMount('horse', coat, kc, '#d8ac4c');
   const frameH = coat ? Math.max(2.55, rig.headHeight() + 0.45) : 2.55;
+  let sizeW = 0;
+  let sizeH = 0;
   const resize = (): void => {
     const w = Math.max(1, container.clientWidth);
     const h = Math.max(1, container.clientHeight);
+    // resizing the drawing buffer is a GPU round trip + reallocation: only on a real change
+    if (w === sizeW && h === sizeH) return;
+    sizeW = w;
+    sizeH = h;
     renderer.setSize(w, h, false);
     cam.aspect = w / h;
     const dist = (frameH / 2 / Math.tan((cam.fov * Math.PI) / 360)) * 1.12;
@@ -131,8 +140,42 @@ export function mountHeroTurntable(container: HTMLElement, heroId: string): Turn
   let last = performance.now();
   let t = 0;
   let disposed = false;
+  // issue the shader compiles now and draw only once they had time to finish
+  // (KHR_parallel_shader_compile: when they report ready), so opening the
+  // gallery / hero detail does not freeze on the first frame's program links.
+  // The AI-art GLB body swaps in once it has loaded: its programs get the same
+  // treatment (the last frame, procedural body, stays up meanwhile).
+  let ready = false;
+  let compileGen = 0;
+  let glbShown = rig.usesGlb;
+  const prepareDraw = (): void => {
+    ready = false;
+    const gen = ++compileGen;
+    const startDrawing = (): void => {
+      if (gen === compileGen) ready = true;
+    };
+    try {
+      if (renderer.extensions.has('KHR_parallel_shader_compile')) void renderer.compileAsync(scene, cam).then(startDrawing, startDrawing);
+      else {
+        renderer.compile(scene, cam);
+        setTimeout(startDrawing, TURNTABLE_COMPILE_GRACE_MS);
+      }
+    } catch {
+      startDrawing();
+    }
+  };
+  prepareDraw();
   const loop = (now: number): void => {
     if (disposed) return;
+    if (rig.usesGlb !== glbShown) {
+      glbShown = rig.usesGlb;
+      prepareDraw();
+    }
+    if (!ready) {
+      last = now;
+      raf = requestAnimationFrame(loop);
+      return;
+    }
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     t += dt;

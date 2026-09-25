@@ -5,7 +5,7 @@ import type { ItemKind } from '../../data/types';
 import { ARMORS, ITEMS, ITEM_KIND_INFO, MOUNTS, ROLES, ROLE_DISTRIBUTION, TROOPS, WEAPONS } from '../../data';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, type Child } from '../dom';
-import { kingdomName, t, tx, type I18nKey } from '../i18n';
+import { colon, kingdomName, t, tx, type I18nKey } from '../i18n';
 import { ORDER_KEYS, RARITY_COLOR, roleInk } from '../theme';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
 import { weaponClassName } from './heroDetail';
@@ -41,7 +41,7 @@ export const CONTROLS: readonly { keys: string[]; zh: string; en: string }[] = [
   { keys: ['Tab'], zh: '战况（按住）', en: 'Scoreboard (hold)' },
   { keys: ['M'], zh: '战场地图', en: 'Battle map' },
   { keys: ['Enter'], zh: '聊天', en: 'Chat' },
-  { keys: ['Esc'], zh: '菜单', en: 'Menu' },
+  { keys: ['Esc'], zh: '菜单（单机自动暂停，联机不暂停）', en: 'Menu (pauses single player; online matches keep running)' },
 ];
 
 const KIND_NAMES: Record<ItemKind, [string, string]> = {
@@ -80,7 +80,7 @@ function rolesTab(): HTMLElement {
       roleSeal(r.id, '2.6em'),
       h('div', null,
         h('div', { class: 'rr-head' }, h('b', { style: `color:${roleInk(r.id)}` }, tx(r.nameZh, r.nameEn)), r.chaosOnly ? h('span', { class: 'sg-chip' }, t('single.modeChaos')) : null, r.publicAtStart ? h('span', { class: 'sg-chip' }, tx('公开', 'Public')) : null),
-        h('div', null, h('b', null, `${t('roles.goal')}：`), tx(r.goalZh, r.goalEn)),
+        h('div', null, h('b', null, `${t('roles.goal')}${colon()}`), tx(r.goalZh, r.goalEn)),
         h('div', { class: 'sg-mute' }, tx(r.tipsZh, r.tipsEn)),
       ),
     ),

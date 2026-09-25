@@ -82,18 +82,28 @@ export const SCREENS_CSS = /* css */ `
   .sg-title.no-gl .sg-title-main { gap: 0.6em; padding-top: 0.8em; }
   .sg-webgl-warn { font-size: 0.78em; padding: 0.5em 0.8em 0.6em; }
 }
-/* short landscape screens (phones): keep the whole logo + menu on screen */
-@media (max-height: 480px) {
-  .sg-title:not(.no-gl) .sg-title-main { gap: 0.45em; padding: 0.4em 1em 1.7em; }
-  .sg-title:not(.no-gl) .sg-tagline { display: none; }
-  .sg-title:not(.no-gl) .sg-logo .l1 { font-size: clamp(2.4em, 11vh, 8.4em); }
-  .sg-title:not(.no-gl) .sg-logo .l2 { font-size: clamp(1.4em, 6.4vh, 3.9em); }
-  .sg-title:not(.no-gl) .sg-logo .en { margin-top: 0.6em; }
-  .sg-title:not(.no-gl) .sg-title-menu { gap: 0.42em; margin-top: 0.1em; }
-  .sg-title:not(.no-gl) .sg-menu-btn { min-height: 2.2em; padding-top: 0.25em; padding-bottom: 0.25em; }
-  .sg-title:not(.no-gl) .sg-menu-btn.primary { min-height: 2.4em; font-size: 1.1em; }
-  .sg-title:not(.no-gl) .sg-title-foot { bottom: 0.35em; font-size: 0.7em; }
+/* landscape phones: the whole title (logo → 设置) fits 390 px, the footer never covers a button */
+@media (max-height: 520px) {
+  .sg-title { overflow-y: auto; align-items: safe center; }
+  .sg-title-main { gap: 0.45em; padding: 0.7em 1em 2.2em; }
+  .sg-logo .l1 { font-size: clamp(2.4em, 13vh, 3.4em); }
+  .sg-logo .l2 { font-size: clamp(1.1em, 6vh, 1.6em); margin-top: 0.05em; }
+  .sg-logo .en { margin-top: 0.4em; font-size: 0.62em; }
+  .sg-logo > .sg-seal { font-size: 0.8em; }
+  .sg-tagline { font-size: 0.85em; }
+  .sg-title-menu { gap: 0.4em; margin-top: 0; }
+  .sg-menu-btn { min-height: 2.25em; padding-top: 0.2em; padding-bottom: 0.2em; }
+  .sg-menu-btn.primary { min-height: 2.4em; font-size: 1.1em; }
+  .sg-title-foot { position: static; margin-top: 0.4em; font-size: 0.7em; }
+  .sg-title { flex-direction: column; justify-content: safe center; }
 }
+@media (max-height: 400px) { .sg-tagline { display: none; } }
+
+/* with the painted key art: the compact phone title also drops the tagline, so more of the painting shows */
+@media (max-height: 480px) {
+  .sg-title.has-art:not(.no-gl) .sg-tagline { display: none; }
+}
+
 .sg-view-failed .sg-fail-detail { font: 0.82em/1.4 ui-monospace, Menlo, Consolas, monospace; opacity: 0.7; word-break: break-word; }
 .sg-title-foot { position: absolute; left: 0; right: 0; bottom: 0.7em; z-index: 2; display: flex; justify-content: center; gap: 1.2em; flex-wrap: wrap; font-size: 0.78em; color: rgba(240, 220, 180, 0.55); text-shadow: 0 1px 2px #000; padding: 0 1em; text-align: center; }
 
@@ -102,6 +112,14 @@ export const SCREENS_CSS = /* css */ `
 .sg-sheet { width: min(46em, 100%); padding: 1.4em 2em 1.7em; margin: auto 0; }
 .sg-sheet > h1 { color: var(--red-lo); margin-bottom: 0.5em; }
 .sg-sheet-actions { display: flex; justify-content: center; margin-top: 1.3em; }
+/* short screens: 出征 stays on screen while the options scroll */
+@media (max-height: 560px) {
+  .sg-menu-screen { padding-top: 3em; padding-bottom: 0; }
+  .sg-sheet { padding-top: 0.9em; padding-bottom: 0; }
+  .sg-sheet > h1 { margin-bottom: 0.2em; font-size: 1.5em; }
+  .sg-single .sg-field { padding-top: 0.35em; padding-bottom: 0.35em; }
+  .sg-single .sg-sheet-actions { position: sticky; bottom: 0; z-index: 2; margin: 0.4em -2em 0; padding: 0.5em 1em 0.7em; background: linear-gradient(180deg, rgba(227, 207, 163, 0), var(--paper-2) 35%); }
+}
 .sg-sheet .sg-field .sg-hint, .sg-sheet .sg-field > span:not(.sg-label) { font-size: 0.88em; }
 .sg-role-preview { display: flex; flex-direction: column; gap: 0.35em; }
 .sg-role-preview .variant { display: flex; gap: 0.3em; align-items: center; flex-wrap: wrap; }
@@ -180,6 +198,37 @@ export const SCREENS_CSS = /* css */ `
 .lobby-foot .act { display: flex; align-items: center; gap: 1em; margin-left: auto; flex-wrap: wrap; }
 .lobby-foot .warn { color: #ffb08a; }
 @media (max-width: 1100px) { .lobby-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .lobby-grid .chat { grid-column: 1 / -1; min-height: 14em; } }
+/* short but wide (960×540): seats, settings and chat side by side, each full height */
+@media (max-height: 620px) and (min-width: 900px) {
+  .lobby-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.9fr); }
+  .lobby-grid .chat { grid-column: auto; min-height: 0; }
+  .sg-lobby { gap: 0.6em; padding: 0.8em 1.2em; }
+  .settings-panel .sg-field { grid-template-columns: minmax(0, 1fr); gap: 0.25em; }
+  .room-code .code { font-size: 1.6em; }
+}
+.lobby-tabs { display: none; }
+/* phones: one panel at a time (tabs), each with the full height */
+@media (max-height: 520px) and (max-width: 899px), (max-width: 720px) {
+  .lobby-tabs { display: flex; gap: 0.3em; }
+  .lobby-tabs .lt { flex: 1; padding: 0.35em 0.6em; border-radius: 5px 5px 0 0; border: 1px solid rgba(214, 173, 82, 0.45); border-bottom: 0; background: rgba(0, 0, 0, 0.35); color: var(--paper); font-family: var(--font-display); font-weight: 700; cursor: pointer; }
+  .lobby-tabs .lt.on { background: linear-gradient(180deg, #8e2616, #5c160c); color: var(--gold-hi); border-color: var(--gold); }
+  .lobby-grid { grid-template-columns: minmax(0, 1fr) !important; margin-top: -0.9em; }
+  .lobby-grid > section { grid-column: 1 / -1 !important; min-height: 0 !important; }
+  .lobby-grid[data-tab="seats"] > :not(.seats-panel),
+  .lobby-grid[data-tab="settings"] > :not(.settings-panel),
+  .lobby-grid[data-tab="chat"] > :not(.chat) { display: none; }
+}
+@media (max-height: 520px) and (max-width: 899px) {
+  .sg-lobby { gap: 0.5em; padding: 0.5em 0.9em; }
+  .lobby-head h1 { font-size: 1.4em; }
+  .room-code { padding: 0 0.8em 0.1em; }
+  .room-code .code { font-size: 1.35em; }
+  .lobby-grid > section { padding: 0.6em 0.9em; }
+  .seat { padding: 0.2em 0.5em; }
+  .seat .avatar { width: 1.8em; height: 1.8em; }
+  .lobby-foot { padding: 0; }
+  .lobby-foot .sg-btn.big { padding-top: 0.3em; padding-bottom: 0.3em; min-height: 0; }
+}
 @media (max-width: 720px) {
   .sg-lobby { padding: 0.8em; }
   .lobby-grid { grid-template-columns: minmax(0, 1fr); flex: none; }
@@ -296,6 +345,35 @@ export const SCREENS_CSS = /* css */ `
   .sg-select .sg-hcard .vname { font-size: 1.1em; }
 }
 
+/* landscape phones (844×390): grid and detail side by side, 选定 always on screen */
+@media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+  .sg-select { overflow: hidden; gap: 0.3em; padding: 0.45em 0.9em 0.5em; font-size: 13px; }
+  .sel-head { gap: 0.6em; }
+  .sel-head h1 { font-size: 1.35em; }
+  .sel-head .stage-text { font-size: 0.82em; margin-top: 0; }
+  .sg-ring { width: 2.9em; height: 2.9em; }
+  .sg-ring .num { font-size: 1.1em; }
+  .picks-strip { gap: 0.3em; padding: 0 0.1em 0.1em; }
+  .pick { width: 4.2em; font-size: 0.72em; flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 0 0.2em; }
+  .pick .thumb { width: 1.7em; }
+  .pick .who { max-width: calc(100% - 2em); }
+  .pick .what { width: 100%; text-align: center; }
+  .sel-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(15em, 44%); flex: 1; min-height: 0; gap: 0.7em; }
+  .grid-wrap { overflow: auto; padding: 0.3em 0.2em; }
+  .sg-select .grid.n-small { grid-template-columns: repeat(3, minmax(0, calc((100vh - 8.6em) / 1.4))); gap: 0.6em; }
+  .sg-select .detail { overflow: hidden; padding: 0.5em 0.7em 0.55em; }
+  .detail-body { overflow: auto; }
+  .sg-select .hd-visual { display: none; }
+  .sg-select .hd-name { font-size: 1.35em; }
+  .sg-select .sg-ability { padding: 0.3em 0.5em; }
+  .sg-select .sg-ability .ab-desc { font-size: 0.88em; margin-top: 0.15em; }
+  .detail-actions { position: static; margin: 0; padding: 0.4em 0 0; background: none; }
+  .detail-actions .sg-btn.big { padding-top: 0.3em; padding-bottom: 0.3em; min-height: 0; }
+}
+.sel-head .sel-back { position: static; flex: none; align-self: flex-start; }
+.sg-roles > .sg-back { position: absolute; }
+.roles-tip { width: min(40em, 94vw); margin-top: 0.2em; font-size: 0.9em; }
+
 /* ── hero detail ───────────────────────────────────────── */
 .sg-hero-detail { display: flex; flex-direction: column; gap: 0.75em; }
 .hd-visual { position: relative; aspect-ratio: 16 / 10; max-height: 36vh; width: 100%; border-radius: 8px; overflow: hidden; background: radial-gradient(ellipse at 50% 35%, color-mix(in srgb, var(--kc) 55%, #fff 20%), color-mix(in srgb, var(--kc) 55%, #000 55%)); box-shadow: 0 0 0 2px var(--gold-lo); flex: none; }
@@ -399,6 +477,17 @@ export const SCREENS_CSS = /* css */ `
 .over-actions { display: flex; justify-content: center; gap: 1em; margin-top: 1.3em; flex-wrap: wrap; align-items: center; }
 .over-actions .wait { display: inline-flex; align-items: center; gap: 0.4em; }
 @media (max-width: 820px) { .over-body { grid-template-columns: minmax(0, 1fr); } .over-sheet { padding: 1em; } .ob-title { font-size: 2.2em; } }
+/* short screens: the buttons stay on screen while the table scrolls */
+@media (max-height: 560px) {
+  .sg-over { padding: 0.5em 0.8em 0; }
+  .over-sheet { padding: 0.7em 1.1em 0; }
+  .over-banner { margin-bottom: 0.4em; gap: 0.8em; }
+  .over-banner .sg-seal { --sz: 3.2em !important; }
+  .ob-title { font-size: 1.9em; }
+  .over-body { grid-template-columns: minmax(0, 1fr) 13em; }
+  .over-table :is(td, th) { padding-top: 0.15em; padding-bottom: 0.15em; }
+  .over-actions { position: sticky; bottom: 0; z-index: 2; margin: 0.4em -1.1em 0; padding: 0.5em 1em 0.6em; background: linear-gradient(180deg, rgba(227, 207, 163, 0), var(--paper-2) 35%); }
+}
 
 /* ── gallery ───────────────────────────────────────────── */
 .sg-gallery { display: flex; flex-direction: column; gap: 0.7em; padding: 0.9em 1.4em 1em; overflow: hidden; }

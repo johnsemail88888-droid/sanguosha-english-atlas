@@ -199,6 +199,31 @@ describe('world art: structure surfaces', () => {
     expect(glsl).toContain(`clamp(vSurf - sid, ${SURF_YAW_LO.toFixed(3)}`);
   });
 
+  it('roof shells go to the double-sided builder with their roof-tile surface (textured and camera-safe)', () => {
+    const map = generateMap(20260924);
+    const count = (g: THREE.BufferGeometry, id: number): number => {
+      const a = g.getAttribute('aSurf');
+      let n = 0;
+      for (let i = 0; i < a.count; i++) if (Math.floor(a.getX(i)) === id) n++;
+      return n;
+    };
+    // a tiled city house: the tiles are in the (double-sided) shell, tagged as roof tiles
+    const house = map.props.find((p) => p.type === 'house' && (p.variant === 0 || p.variant === 1))!;
+    expect(house).toBeDefined();
+    const g = buildPropGeometry(house, map)!;
+    expect(count(g.cloth, SURF.roof)).toBeGreaterThan(0);
+    expect(count(g.opaque, SURF.roof)).toBe(0);
+    // the rest of the shell (underside) and the ornaments stay plain; walls keep their own surfaces
+    expect(count(g.cloth, SURF.plain)).toBeGreaterThan(0);
+    for (const x of [g.opaque, g.cloth, g.glow]) x.dispose();
+    // a thatch roof: shell in the double-sided builder but plain (no roof tiles on straw)
+    const thatch: MapProp = { type: 'house', variant: 3, x: 0, y: 0, z: 0, sx: 6.33, sy: 4.04, sz: 4.94, rot: -5.621 };
+    const t = buildPropGeometry(thatch, map)!;
+    expect(count(t.cloth, SURF.roof)).toBe(0);
+    expect(t.cloth.getAttribute('position').count).toBeGreaterThan(0);
+    for (const x of [t.opaque, t.cloth, t.glow]) x.dispose();
+  });
+
   it('drops the procedural brick courses once the brick texture draws the mortar', () => {
     const vs = compiled().vertexShader;
     expect(vs).toContain('transformed = vec3(0.0)');
@@ -690,6 +715,20 @@ describe('world art: art paths (models and textures listed)', () => {
       if (m.isMesh && m.name.endsWith('_opaque')) mats.add((m.material as THREE.Material).name);
     });
     expect(mats).toEqual(new Set(['structure']));
+    // the double-sided cloth chunks hold the roof shells (camera occluders, G3-2): the
+    // textured double-sided variant keeps their tiles textured and their faces unculled
+    const cloth = new Set<string>();
+    w.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.name.startsWith('chunk_') && m.name.endsWith('_cloth')) {
+        cloth.add((m.material as THREE.Material).name);
+        expect((m.material as THREE.Material).side).toBe(THREE.DoubleSide);
+        expect(m.geometry.getAttribute('aSurf')).toBeDefined();
+      }
+    });
+    expect(cloth).toEqual(new Set(['structureDouble']));
+    // and the camera occluders the roofs registered are still there
+    expect(w.cameraOccluders.length).toBeGreaterThan(0);
     const t = buildTerrain(map);
     let splat = 0;
     t.group.traverse((o) => {

@@ -375,3 +375,215 @@ test('roles: the real Lord is told which crown is the Body Double', async () => 
   expect(dbl.errors).toEqual([]);
   await dbl.ctx.close();
 });
+
+// ── playtest round-1 fixes (G1) ──────────────────────────────────────────────
+
+type HarnessWin = Window & {
+  __ui: {
+    deps: {
+      lastSession: { calls: string[]; view: { elapsed(): number } | null } | null;
+      lastGame: { input: { isLocked(): boolean }; actions: unknown[] } | null;
+    };
+  };
+};
+const calls = (page: Page): Promise<string[]> => page.evaluate(() => (window as unknown as HarnessWin).__ui.deps.lastSession?.calls ?? []);
+
+test('settings sliders: knobs sit on their values, one arrow step = one step', async () => {
+  const { ctx, page, errors } = await open('screen=settings&tab=audio', 1280, 720);
+  const sliders = page.locator('.sg-settings .sg-range');
+  await expect(sliders.first()).toBeVisible();
+  // every knob agrees with its fill (--p) and its label
+  const check = async (): Promise<{ v: string; p: string; out: string; min: string; max: string }[]> =>
+    sliders.evaluateAll((els) => els.map((el) => {
+      const i = el.querySelector('input') as HTMLInputElement;
+      return { v: i.value, p: i.style.getPropertyValue('--p'), out: el.querySelector('output')?.textContent ?? '', min: i.min, max: i.max };
+    }));
+  for (const s of await check()) {
+    const pct = ((Number(s.v) - Number(s.min)) / (Number(s.max) - Number(s.min))) * 100;
+    expect(Number.parseFloat(s.p)).toBeCloseTo(pct, 3);
+    expect(s.out).toBe(`${Math.round(Number(s.v) * 100)}%`);
+  }
+  // 音乐 50 % → one ArrowLeft → 49 %
+  const music = sliders.nth(1).locator('input');
+  const before = Number(await music.inputValue());
+  await music.focus();
+  await page.keyboard.press('ArrowLeft');
+  expect(Number(await music.inputValue())).toBeCloseTo(before - 0.01, 5);
+  await expect(sliders.nth(1).locator('output')).toHaveText(`${Math.round((before - 0.01) * 100)}%`);
+  // 操作: ADS 0.60× stays 0.6 (was 1.2 before value came after min/max/step)
+  await page.locator('.sg-settings .sg-tab[data-tab="controls"]').click();
+  const ads = page.locator('.sg-settings .sg-range').nth(1);
+  const adsVal = Number(await ads.locator('input').inputValue());
+  await expect(ads.locator('output')).toHaveText(`${adsVal.toFixed(2)}×`);
+  expect(adsVal).toBeLessThan(1.5);
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
+test('hero select: cards stay attached while picks arrive, focus is sent, the clicked card is locked in on time', async () => {
+  const { ctx, page, errors } = await open('screen=title', 1280, 720);
+  await page.locator('.sg-menu-btn.primary').click();
+  await page.locator('[data-screen="single"] .sg-btn.gold').click();
+  await expect(page.locator('.sg-select:not(.waiting) .grid .sg-hcard').first()).toBeVisible({ timeout: 20_000 });
+  await page.evaluate(() => {
+    const w = window as Window & { __cards?: Element[] };
+    w.__cards = [...document.querySelectorAll('.sg-select .grid .sg-hcard')];
+  });
+  const cards = page.locator('.sg-select .grid .sg-hcard');
+  const n = await cards.count();
+  // bots pick one by one (a heroSelect event every ~450 ms): click through the cards meanwhile
+  for (let i = 0; i < 6; i++) {
+    await cards.nth(i % n).click();
+    await page.waitForTimeout(220);
+  }
+  const third = cards.nth(Math.min(2, n - 1));
+  await third.click();
+  const hero = (await third.getAttribute('data-hero')) ?? '';
+  expect(await page.evaluate(() => (window as Window & { __cards?: Element[] }).__cards!.every((c) => c.isConnected))).toBe(true);
+  expect(await calls(page)).toContain(`focusHero:${hero}`);
+  // no 选定: the countdown (20 s) locks the clicked card in at ≤ 1.5 s
+  await expect.poll(() => calls(page), { timeout: 30_000 }).toContain(`pickHero:${hero}`);
+  expect((await calls(page)).filter((c) => c.startsWith('pickHero'))).toEqual([`pickHero:${hero}`]);
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
+test('single player: 返回 / Esc on roles and hero select go back to the setup', async () => {
+  const roles = await open('screen=roles&single=1', 1280, 720);
+  await roles.page.locator('.sg-roles .sg-back').click();
+  await expect(roles.page.locator('[data-screen="single"]')).toBeVisible();
+  expect(await calls(roles.page)).toContain('returnToLobby');
+  expect(roles.errors).toEqual([]);
+  await roles.ctx.close();
+  const sel = await open('screen=heroSelect&single=1', 1280, 720);
+  await expect(sel.page.locator('.sel-head .sel-back')).toBeVisible();
+  await sel.page.keyboard.press('Escape');
+  await expect(sel.page.locator('[data-screen="single"]')).toBeVisible();
+  // online sessions have no such button
+  const online = await open('screen=heroSelect', 1280, 720);
+  await expect(online.page.locator('.grid .sg-hcard').first()).toBeVisible();
+  await expect(online.page.locator('.sel-back')).toHaveCount(0);
+  expect(sel.errors).toEqual([]);
+  await sel.ctx.close();
+  await online.ctx.close();
+});
+
+test('pause: single player really pauses (menu, settings), releases the pointer; online reads 菜单 and runs on', async () => {
+  const { ctx, page, errors } = await open('screen=hud', 1280, 720);
+  await expect(page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1, { timeout: 15_000 });
+  const locked = (): Promise<boolean> => page.evaluate(() => (window as unknown as HarnessWin).__ui.deps.lastGame!.input.isLocked());
+  const clock = (): Promise<number> => page.evaluate(() => (window as unknown as HarnessWin).__ui.deps.lastSession!.view!.elapsed());
+  expect(await locked()).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.sg-hud[data-overlay="pause"] .pm-box h2')).toHaveText('暂停');
+  // the menu needs a free cursor: the lock is released at once
+  await expect.poll(locked).toBe(false);
+  expect(await calls(page)).toContain('setPaused:true');
+  const t0 = await clock();
+  await page.waitForTimeout(800);
+  expect(await clock()).toBeCloseTo(t0, 5);
+  // settings from the pause menu: still paused
+  await page.locator('.pm-box .sg-btn').nth(1).click();
+  await expect(page.locator('.sg-settings')).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(await clock()).toBeCloseTo(t0, 5);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.sg-settings')).toHaveCount(0);
+  // 离开对局 is clickable → confirm dialog (cancel)
+  await page.locator('.pm-box .sg-btn', { hasText: '离开对局' }).click();
+  await expect(page.locator('.sg-modal-back[role="dialog"] .sg-modal')).toContainText('确定离开当前对局');
+  await page.locator('.sg-modal .actions .sg-btn').first().click();
+  // 继续战斗 re-takes the lock and resumes the clock
+  await page.locator('.pm-box .sg-btn.gold').click();
+  await expect(page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1);
+  await expect.poll(locked).toBe(true);
+  expect((await calls(page)).filter((c) => c.startsWith('setPaused')).slice(-1)).toEqual(['setPaused:false']);
+  await expect.poll(clock, { timeout: 10_000 }).toBeGreaterThan(t0 + 0.1);
+  // the card guide lists your cards with their effects
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.pm-cards .pc-list.held .pc-card').first()).toBeVisible();
+  await page.locator('.pc-all-toggle').click();
+  await expect(page.locator('.pm-cards .pc-list.all .pc-card')).toHaveCount(20);
+  await expect(page.locator('.pm-cards .pc-list.all .pc-card[data-item="shandian"] .desc')).toContainText('雷');
+  expect(errors).toEqual([]);
+  await ctx.close();
+
+  const on = await open('screen=hud&kind=online', 1280, 720);
+  await expect(on.page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1, { timeout: 15_000 });
+  await on.page.keyboard.press('Escape');
+  await expect(on.page.locator('.pm-box h2')).toHaveText('菜单');
+  await expect(on.page.locator('.pm-box')).not.toContainText('暂停');
+  await expect(on.page.locator('.pm-note')).toContainText('对局仍在进行');
+  expect((await calls(on.page)).filter((c) => c.startsWith('setPaused'))).toEqual([]);
+  // the host can end the match for everyone
+  await on.page.locator('.pm-box .pm-end').click();
+  await on.page.locator('.sg-modal .actions .sg-btn').last().click();
+  await expect.poll(() => calls(on.page)).toContain('returnToLobby');
+  expect(on.errors).toEqual([]);
+  await on.ctx.close();
+});
+
+test('touch: map / scoreboard let the controls through, every overlay button toggles, long-press explains a card', async () => {
+  const { ctx, page, errors } = await open('screen=hud&touch=1', 844, 390);
+  await expect(page.locator('.sg-touch .fire')).toBeVisible({ timeout: 15_000 });
+  const hits = (): Promise<Record<string, string>> => page.evaluate(() => {
+    const out: Record<string, string> = {};
+    for (const sel of ['.hud-touchbar .tb', '.sg-touch .fire', '.sg-touch .zone.move', '.sg-touch .jump']) {
+      const el = document.querySelector(sel)!;
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      out[sel] = hit && (hit === el || el.contains(hit)) ? 'ok' : `${hit?.className}`;
+    }
+    return out;
+  });
+  const tb = (key: string) => page.locator(`.hud-touchbar .tb[data-key="${key}"]`);
+  const overlay = (): Promise<string | undefined> => page.evaluate(() => document.querySelector<HTMLElement>('.sg-hud')!.dataset.overlay);
+  await tb('map').click();
+  expect(await overlay()).toBe('map');
+  expect(await hits()).toEqual({ '.hud-touchbar .tb': 'ok', '.sg-touch .fire': 'ok', '.sg-touch .zone.move': 'ok', '.sg-touch .jump': 'ok' });
+  await tb('map').click();
+  expect(await overlay()).toBe('none');
+  await tb('map').click();
+  await page.locator('.hud-bigmap .hud-close .x').click();
+  expect(await overlay()).toBe('none');
+  await tb('score').click();
+  await expect(page.locator('.sg-hud.show-score')).toHaveCount(1);
+  expect((await hits())['.hud-touchbar .tb']).toBe('ok');
+  await tb('score').click();
+  await expect(page.locator('.sg-hud.show-score')).toHaveCount(0);
+  await tb('score').click();
+  await page.locator('.hud-scoreboard .hud-close').click();
+  await expect(page.locator('.sg-hud.show-score')).toHaveCount(0);
+  await tb('wheel').click();
+  expect(await overlay()).toBe('wheel');
+  await expect(page.locator('.wh-hint')).not.toContainText('Esc');
+  await tb('wheel').click();
+  expect(await overlay()).toBe('none');
+  await tb('wheel').click();
+  await page.mouse.click(420, 30);
+  expect(await overlay()).toBe('none');
+  await tb('chat').click();
+  expect(await overlay()).toBe('chat');
+  await expect(page.locator('.hud-chat.open .chat-close')).toBeVisible();
+  await expect(page.locator('.hud-chat.open input')).toHaveAttribute('placeholder', /发送/);
+  await tb('chat').click();
+  expect(await overlay()).toBe('none');
+  await tb('chat').click();
+  await page.locator('.hud-chat .chat-close').click();
+  expect(await overlay()).toBe('none');
+  // long-press an item slot: its description, and the card is NOT used
+  const slot = page.locator('.sg-touch .item:not(.empty)').first();
+  const before = (await simActions(page)).filter((a) => a.startsWith('item')).length;
+  await slot.dispatchEvent('pointerdown', { pointerId: 21, isPrimary: true });
+  await page.waitForTimeout(650);
+  await slot.dispatchEvent('pointerup', { pointerId: 21, isPrimary: true });
+  await expect(page.locator('.hud-cardinfo:not(.off) .pc-card .desc')).not.toBeEmpty();
+  await page.waitForTimeout(150);
+  expect((await simActions(page)).filter((a) => a.startsWith('item')).length).toBe(before);
+  // a short tap still uses it
+  await slot.dispatchEvent('pointerdown', { pointerId: 22, isPrimary: true });
+  await slot.dispatchEvent('pointerup', { pointerId: 22, isPrimary: true });
+  await expect.poll(async () => (await simActions(page)).filter((a) => a.startsWith('item')).length).toBe(before + 1);
+  expect(errors).toEqual([]);
+  await ctx.close();
+});

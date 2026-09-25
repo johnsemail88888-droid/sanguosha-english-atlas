@@ -430,20 +430,23 @@ export class TroopBadgeLayer {
 
   /**
    * Queue one unit's pennant (or green squad chevron) anchored at the head-top
-   * point (x, y, z), plus its HP bar when `showBar`. Allocation-free.
+   * point (x, y, z), plus its HP bar when `showBar`; `alpha` fades the whole
+   * marker (line-of-sight occlusion). Allocation-free.
    */
-  add(x: number, y: number, z: number, kingdom: THREE.Color, squad: boolean, hpFrac: number, showBar: boolean, dist: number): void {
+  add(x: number, y: number, z: number, kingdom: THREE.Color, squad: boolean, hpFrac: number, showBar: boolean, dist: number, alpha = 1): void {
     const k = Math.max(0.6, Math.min(1, 1 - (dist - 10) / 80));
     const ps = 0.028 * k;
-    this.quad(x, y, z, 0, 0, ps, ps, squad ? SQUAD_GREEN : kingdom, 1, squad ? 2 : 1);
+    const a = Math.max(0, Math.min(1, alpha));
+    if (a <= 0.02) return;
+    this.quad(x, y, z, 0, 0, ps, ps, squad ? SQUAD_GREEN : kingdom, a, squad ? 2 : 1);
     if (!showBar) return;
     const bw = 0.05 * k;
     const bh = 0.0065 * k;
     const lift = ps * 1.15;
     const f = Math.max(0.02, Math.min(1, hpFrac));
-    this.quad(x, y, z, 0, lift - bh * 0.9, bw * 1.06, bh * 1.8, BAR_BG, 0.85, 0);
+    this.quad(x, y, z, 0, lift - bh * 0.9, bw * 1.06, bh * 1.8, BAR_BG, 0.85 * a, 0);
     const col = squad ? SQUAD_GREEN : f > 0.6 ? BAR_HIGH : f > 0.3 ? BAR_MID : BAR_LOW;
-    this.quad(x, y, z, -bw / 2 + (bw * f) / 2, lift - bh * 0.5, bw * f, bh, col, 1, 0);
+    this.quad(x, y, z, -bw / 2 + (bw * f) / 2, lift - bh * 0.5, bw * f, bh, col, a, 0);
   }
 
   /** Upload this frame's quads. */

@@ -50,7 +50,17 @@
       "dist/**/*",
       "electron/**/*",
       "server/**/*",
-      "package.json"
+      "build-res/icon.png",
+      "package.json",
+      "!node_modules/three{,/**/*}",
+      "!node_modules/peerjs{,/**/*}",
+      "!node_modules/@msgpack{,/**/*}",
+      "!node_modules/webrtc-adapter{,/**/*}",
+      "!node_modules/sdp{,/**/*}",
+      "!node_modules/@types{,/**/*}",
+      "!node_modules/yargs{,/**/*}",
+      "!node_modules/yargs-parser{,/**/*}",
+      "!node_modules/web-streams-polyfill{,/**/*}"
     ],
     "directories": {
       "output": "release",

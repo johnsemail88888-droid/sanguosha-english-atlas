@@ -180,6 +180,8 @@ describe('seat reclaim', () => {
     const token = a.session.seatToken;
     expect(token).toMatch(/^[a-z2-9]{20}$/);
     starts = 0;
+    // mid-match: snapshots are flowing (before the first one the host counts as still loading: longer allowance)
+    await waitFor(() => (a!.session.snapshotStats?.full ?? 0) > 0, 2000, 'first snapshot');
 
     h.net.sever(oldId); // no close, no goodbye: the host still thinks the link is alive
     await waitFor(() => a!.session.myId !== oldId && a!.session.phase === 'playing' && starts === 1, 6000, 'auto rejoin');
@@ -224,14 +226,15 @@ describe('seat reclaim', () => {
     expect(h.host.debugState().peers).toBe(2);
   });
 
-  it('a kicked player cannot come back with its token', async () => {
+  it('a kicked player cannot come back with its token (nor under the same name)', async () => {
     const h = makeHost({ seed: 4 });
     const a = await addClient(h, 'A');
     await addClient(h, 'B');
     await runToPlaying(h);
     const token = a.session.seatToken!;
     h.host.kick(a.session.mySeat);
-    await expect(addClient(h, 'A', { token })).rejects.toMatchObject({ code: 'inProgress' });
+    await expect(addClient(h, 'A', { token })).rejects.toMatchObject({ code: 'kicked' });
+    await expect(addClient(h, 'A')).rejects.toMatchObject({ code: 'kicked' });
   });
 
   it('a player who reconnects while the sim is still being created is re-bound to its hero', async () => {

@@ -271,6 +271,8 @@ export const BASE_CSS = /* css */ `
   isolation: isolate;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s;
+  /* the name below scales to the card width (Huang Yueying / Sun Shangxiang on compact cards) */
+  container-type: inline-size;
 }
 .sg-hcard:hover { transform: translateY(-3px); }
 .sg-hcard.selected { box-shadow: 0 0 0 2px #fff4c8, 0 0 0 5px var(--gold), 0 0 26px rgba(245, 210, 120, 0.75), 0 10px 22px rgba(0, 0, 0, 0.6); transform: translateY(-4px); }
@@ -304,7 +306,8 @@ export const BASE_CSS = /* css */ `
   text-shadow: 0 0 3px #000, 0 0 6px #000, 1px 1px 0 color-mix(in srgb, var(--kc) 70%, #000 30%);
 }
 .sg-hcard .bottom { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; padding: 0.4em 0.5em 0.45em; text-align: center; }
-.sg-hcard .bottom .nm { font-family: var(--font-display); font-size: 1.1em; font-weight: 700; letter-spacing: 0.06em; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sg-hcard .bottom .nm { font-family: var(--font-display); font-size: min(1.1em, calc(88cqi / var(--nl, 3) / 1.1)); font-weight: 700; letter-spacing: 0.06em; text-shadow: 0 1px 2px #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sg-root[data-lang="en"] .sg-hcard .bottom .nm { letter-spacing: 0.01em; }
 .sg-hcard .bottom .ttl { font-size: 0.72em; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sg-hcard .tag { position: absolute; z-index: 3; left: 50%; top: 45%; transform: translate(-50%, -50%) rotate(-10deg); }
 .sg-hcard .vname i { font-style: normal; display: block; }

@@ -10,7 +10,7 @@ import type {
 } from '../../core/types';
 import { VF_AIRBORNE, VF_DEAD, VF_DOWNED, VF_OPENED } from '../../core/types';
 import type { AbilityDef, HeroDef, WeaponClass } from '../../data/types';
-import { ARMOR_BY_ID, HERO_BY_ID, ITEM_BY_ID, MOUNT_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, isPassiveAbility } from '../../data';
+import { ABILITY_BY_ID, ARMOR_BY_ID, HERO_BY_ID, ITEM_BY_ID, MOUNT_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, isPassiveAbility } from '../../data';
 import { displayName } from '../../game/names';
 
 // ── HP ───────────────────────────────────────────────────────────────────────
@@ -165,38 +165,60 @@ function hasFreeSlotFor(me: PrivateHeroView, itemId: string): boolean {
   return false;
 }
 
-/** Context-sensitive F prompt from nearby loot / crates / downed heroes. */
-export function deriveInteract(me: PrivateHeroView | null, pos: { x: number; y: number; z: number } | undefined, ents: readonly ViewEntity[]): InteractPrompt | null {
+/** Facing weight of the sim's interact pick (sim/inventory.ts interact(): score = d + (1 − cos) × 1.5). */
+export const INTERACT_FACING_WEIGHT = 1.5;
+/** The sim skips a downed hero this far off your facing (cos < 0.3) unless it is under the crosshair. */
+export const REVIVE_MIN_COS = 0.3;
+
+/**
+ * Context-sensitive F prompt from nearby loot / crates / downed heroes. It names
+ * what F will really take: like the sim's interact() it prefers the thing closest
+ * to where you look (distance + off-crosshair penalty), not the raw nearest one —
+ * after a swap the old mount lands at your feet, and 大宛 in front of you is still
+ * the one F picks up. `pos.yaw` is your facing (no yaw: plain distance).
+ */
+export function deriveInteract(me: PrivateHeroView | null, pos: { x: number; y: number; z: number; yaw?: number } | undefined, ents: readonly ViewEntity[]): InteractPrompt | null {
   if (!me || me.dead) return null;
   if (me.downed) {
     const slot = me.items.findIndex((it) => it?.id === 'jiu');
     return slot >= 0 ? { kind: 'selfRevive', slot } : null;
   }
   if (me.channel || !pos) return null;
-  let best: { p: InteractPrompt; prio: number; d: number } | null = null;
-  const consider = (p: InteractPrompt, prio: number, d: number): void => {
-    if (!best || prio > best.prio || (prio === best.prio && d < best.d)) best = { p, prio, d };
+  const facing = typeof pos.yaw === 'number' && Number.isFinite(pos.yaw);
+  const fx = facing ? -Math.sin(pos.yaw as number) : 0;
+  const fz = facing ? -Math.cos(pos.yaw as number) : 0;
+  let best: { p: InteractPrompt; score: number } | null = null;
+  // a full item bar cannot take a card: only warn when nothing else is in reach
+  let full: { p: InteractPrompt; score: number } | null = null;
+  const consider = (p: InteractPrompt, score: number): void => {
+    if (p.kind === 'full') {
+      if (!full || score < full.score) full = { p, score };
+    } else if (!best || score < best.score) best = { p, score };
   };
   for (const e of ents) {
     if (e.id === me.entityId) continue;
     const dy = Math.abs(e.y - pos.y);
     if (dy > 2.5) continue;
-    const d = Math.hypot(e.x - pos.x, e.z - pos.z);
+    const dx = e.x - pos.x;
+    const dz = e.z - pos.z;
+    const d = Math.hypot(dx, dz);
     if (d > 4) continue;
+    const cos = facing && d > 1e-3 ? (dx * fx + dz * fz) / d : 1;
+    const score = d + (1 - cos) * INTERACT_FACING_WEIGHT;
     switch (e.kind) {
       case 'hero':
-        if (d <= REVIVE_RANGE && e.flags & VF_DOWNED && !(e.flags & VF_DEAD)) {
+        if (d <= REVIVE_RANGE && e.flags & VF_DOWNED && !(e.flags & VF_DEAD) && cos >= REVIVE_MIN_COS) {
           const needPeach = !me.items.some((it) => it?.id === 'tao') && !canReviveFree(me);
-          consider({ kind: 'revive', targetId: e.id, heroId: e.sub, name: e.name ?? e.sub, needPeach }, 4, d);
+          consider({ kind: 'revive', targetId: e.id, heroId: e.sub, name: e.name ?? e.sub, needPeach }, score);
         }
         break;
       case 'airdrop':
-        if (d <= AIRDROP_RANGE && !(e.flags & VF_OPENED) && !(e.flags & VF_AIRBORNE)) consider({ kind: 'airdrop', targetId: e.id }, 3, d);
+        if (d <= AIRDROP_RANGE && !(e.flags & VF_OPENED) && !(e.flags & VF_AIRBORNE)) consider({ kind: 'airdrop', targetId: e.id }, score);
         break;
       case 'crate':
         if (d <= CRATE_RANGE && !(e.flags & VF_OPENED)) {
           const tier = Number(e.sub);
-          consider({ kind: 'crate', targetId: e.id, tier: tier === 2 ? 2 : tier === 3 ? 3 : 1 }, 3, d);
+          consider({ kind: 'crate', targetId: e.id, tier: tier === 2 ? 2 : tier === 3 ? 3 : 1 }, score);
         }
         break;
       case 'loot': {
@@ -204,13 +226,13 @@ export function deriveInteract(me: PrivateHeroView | null, pos: { x: number; y: 
         const id = e.sub;
         if (WEAPON_BY_ID[id]) {
           const cur = me.weapons[0];
-          consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!cur && cur.id !== id }, 2, d);
+          consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!cur && cur.id !== id }, score);
         } else if (ARMOR_BY_ID[id]) {
-          consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!me.armor }, 2, d);
+          consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!me.armor }, score);
         } else if (MOUNT_BY_ID[id]) {
-          consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!me.mount }, 2, d);
+          consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!me.mount }, score);
         } else if (!hasFreeSlotFor(me, id)) {
-          consider({ kind: 'full', targetId: e.id, itemId: id }, 1, d);
+          consider({ kind: 'full', targetId: e.id, itemId: id }, score);
         }
         break;
       }
@@ -218,7 +240,8 @@ export function deriveInteract(me: PrivateHeroView | null, pos: { x: number; y: 
         break;
     }
   }
-  return (best as { p: InteractPrompt } | null)?.p ?? null;
+  const pick = (best ?? full) as { p: InteractPrompt } | null;
+  return pick?.p ?? null;
 }
 
 // ── names ────────────────────────────────────────────────────────────────────
@@ -335,25 +358,44 @@ export class UiKeyDeduper {
 
 // ── refused cards / abilities ────────────────────────────────────────────────
 
+/** Reasons the sim gives for a refused card / ability ('sfx' abilityDenied / itemDenied). */
+export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced';
+
 /**
  * Warning text for a refused card / ability of ours (sfx 'itemDenied' /
  * 'abilityDenied'). Most refusals are NOT about aiming (桃 at full HP, 闪 at its
- * cap…), so without a `reason` from the sim the text stays neutral. The optional
- * `reason` / `item` fields are requested from SIM (INTEGRATION_REQUESTS APP-6).
+ * cap…), so without a `reason` from the sim the text stays neutral. With
+ * `ability` set the text is prefixed with the ability's name ("突袭：目标无效").
  */
-export function deniedText(ev: { reason?: unknown; item?: unknown }): { zh: string; en: string } {
+export function deniedText(ev: { reason?: unknown; item?: unknown; ability?: unknown }): { zh: string; en: string } {
   const reason = typeof ev.reason === 'string' ? ev.reason : '';
   const it = typeof ev.item === 'string' ? ITEM_BY_ID[ev.item] : undefined;
+  const ab = typeof ev.ability === 'string' ? ABILITY_BY_ID[ev.ability] : undefined;
+  let msg: { zh: string; en: string };
   switch (reason) {
     case 'noTarget':
-      return { zh: '准星需对准目标', en: 'Aim at a target first' };
+      msg = { zh: '准星需对准目标', en: 'Aim at a target first' };
+      break;
     case 'fullHp':
-      return { zh: '体力已满', en: 'Already at full health' };
+      msg = { zh: '体力已满', en: 'Already at full health' };
+      break;
     case 'cap':
-      return { zh: it ? `「${it.nameZh}」已达上限` : '已达上限', en: it ? `${it.nameEn}: already at the limit` : 'Already at the limit' };
+      msg = { zh: it ? `「${it.nameZh}」已达上限` : '已达上限', en: it ? `${it.nameEn}: already at the limit` : 'Already at the limit' };
+      break;
     case 'blocked':
-      return { zh: '此处无法使用', en: "Can't use that here" };
+      msg = { zh: '此处无法使用', en: "Can't use that here" };
+      break;
+    case 'needOther':
+      msg = { zh: '附近需要另一名武将', en: 'Needs another hero nearby' };
+      break;
+    case 'invalidTarget':
+      msg = { zh: '目标无效', en: 'Invalid target' };
+      break;
+    case 'silenced':
+      msg = { zh: '无法施放：被沉默', en: 'Silenced' };
+      break;
     default:
-      return it ? { zh: `「${it.nameZh}」现在无法使用`, en: `Can't use ${it.nameEn} now` } : { zh: '现在无法使用', en: "Can't use that now" };
+      msg = it ? { zh: `「${it.nameZh}」现在无法使用`, en: `Can't use ${it.nameEn} now` } : ab ? { zh: '现在无法施放', en: "Can't cast that now" } : { zh: '现在无法使用', en: "Can't use that now" };
   }
+  return ab ? { zh: `${ab.nameZh}：${msg.zh}`, en: `${ab.nameEn}: ${msg.en}` } : msg;
 }

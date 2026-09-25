@@ -331,6 +331,14 @@ export const emptyInput = (seq = 0): InputFrame => ({
 });
 
 // ── Events (host → everyone; drive VFX, audio, HUD, kill feed) ───────────────
+/**
+ * Why an ability / item press did nothing (the private { t:'sfx', name:'abilityDenied' |
+ * 'itemDenied', reason } cue): no aim target, already at full HP, at a cap (闪 charges, squad
+ * size), blocked (rooted, no room, no path…), needs a second unit nearby (离间), the aimed unit
+ * is not a valid target (downed, immune), or the hero is silenced / dancing.
+ */
+export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced';
+
 /** Optional routing shared by every GameEvent. */
 export interface EventRouting {
   /** hidden information: only this hero's player receives the event (private reveal, bounty reward). Absent = public. */
@@ -378,7 +386,17 @@ export type GameEvent = EventRouting &
     | { t: 'chat'; from: string; text: string }
     | { t: 'command'; who: EntityId; order: SquadOrderKind; point?: Vec3; target?: EntityId }
     | { t: 'announce'; zh: string; en: string; kind?: 'info' | 'warn' | 'big' }
-    | { t: 'sfx'; name: string; pos?: Vec3 }
+    | {
+        t: 'sfx';
+        name: string;
+        pos?: Vec3;
+        /** 'itemDenied': the card that could not be used */
+        item?: string;
+        /** 'abilityDenied' / 'itemDenied': why (a DeniedReason; absent = generic refusal) */
+        reason?: string;
+        /** 'abilityDenied': the ability that could not be cast */
+        ability?: string;
+      }
     | { t: 'gameOver'; result: GameResult }
   );
 

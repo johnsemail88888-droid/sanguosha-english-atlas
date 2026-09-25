@@ -4,7 +4,7 @@
 import { ARCH } from '../palette';
 import type { ColorLike } from '../core/geo';
 import { hipRoof, copingRoof } from './roof';
-import { PropCtx, SURF, boxMM, door, jitter, lantern, lattice, pillar, plain, shade, mixCol, surf, trs, PRIM, V } from './propkit';
+import { PropCtx, SURF, boxMM, door, jitter, lantern, lattice, pillar, plain, roofExtras, shade, mixCol, surf, trs, PRIM, V } from './propkit';
 import {
   GATE_HALL_H,
   GATE_LINTEL,
@@ -171,8 +171,8 @@ export function buildGateTower(c: PropCtx): void {
   // double-eave roof (重檐)
   const roofY = top + GATE_HALL_H;
   const v1 = p.variant === 1;
-  hipRoof(b, 0, roofY, 0, sx + 0.2, sz + 0.2, 1.4, { color: ARCH.roofTile, overhang: 0.9, ridge: 0.9, upturn: 0.55, plain: true });
-  hipRoof(b, 0, roofY + 1.3, 0, sx * 0.72, sz * 0.72, v1 ? 3.2 : 2.6, { color: ARCH.roofTile, overhang: 0.8, ridge: 0.7, upturn: 0.6 });
+  hipRoof(b, 0, roofY, 0, sx + 0.2, sz + 0.2, 1.4, { ...roofExtras(c), color: ARCH.roofTile, overhang: 0.9, ridge: 0.9, upturn: 0.55, plain: true });
+  hipRoof(b, 0, roofY + 1.3, 0, sx * 0.72, sz * 0.72, v1 ? 3.2 : 2.6, { ...roofExtras(c), color: ARCH.roofTile, overhang: 0.8, ridge: 0.7, upturn: 0.6 });
   // plaque (匾额) on the front
   b.boxAt(0, roofY - 0.1, -hz - 0.1, 2.2, 0.8, 0.08, ARCH.ink);
   b.boxAt(0, roofY - 0.1, -hz - 0.14, 1.9, 0.55, 0.02, ARCH.gold);
@@ -215,7 +215,7 @@ export function buildPalace(c: PropCtx): void {
   boxMM(b, -0.33 * sx, base + hallH - 0.5, cz - 0.25, 0.33 * sx, base + hallH, cz + 0.25, '#2f6b5a');
   // lower eave roof (overhangs the colonnade) + upper main roof (glazed tiles)
   const lowerY = base + hallH;
-  hipRoof(b, 0, lowerY, 0, 0.84 * sx, 0.8 * sz, 1.4, {
+  hipRoof(b, 0, lowerY, 0, 0.84 * sx, 0.8 * sz, 1.4, { ...roofExtras(c),
     color: ARCH.roofGlazed,
     overhang: 1.2,
     ridge: 0.95,
@@ -226,7 +226,7 @@ export function buildPalace(c: PropCtx): void {
   surf(c, SURF.plaster);
   boxMM(b, -0.6 * sx / 2, lowerY + 0.6, -0.45 * sz / 2, 0.6 * sx / 2, lowerY + 1.6, 0.45 * sz / 2, '#a8342a');
   surf(c, SURF.plain);
-  hipRoof(b, 0, lowerY + 1.6, 0, 0.6 * sx, 0.45 * sz, Math.max(2, sy - lowerY - 1.6), {
+  hipRoof(b, 0, lowerY + 1.6, 0, 0.6 * sx, 0.45 * sz, Math.max(2, sy - lowerY - 1.6), { ...roofExtras(c),
     color: ARCH.roofGlazed,
     overhang: 1.3,
     ridge: 0.7,
@@ -262,7 +262,7 @@ export function buildHouse(c: PropCtx): void {
     // two-storey hall / shop: ground floor, mid eave, upper floor
     const f1 = wallH * 0.52;
     boxMM(b, -hx, 0.35, -hz, hx, f1, hz, wallCol);
-    hipRoof(b, 0, f1, 0, sx, sz, 0.9, { color: ARCH.roofTile, overhang: 0.7, ridge: 1, upturn: 0.3, plain: true });
+    hipRoof(b, 0, f1, 0, sx, sz, 0.9, { ...roofExtras(c), color: ARCH.roofTile, overhang: 0.7, ridge: 1, upturn: 0.3, plain: true });
     surf(c, wallSurf);
     boxMM(b, -hx * 0.9, f1 + 0.3, -hz * 0.9, hx * 0.9, wallH, hz * 0.9, wallCol);
     for (let x = -hx + 1.2; x < hx - 0.8; x += 1.8) lattice(b, x, f1 + (wallH - f1) * 0.55, -hz * 0.9 - 0.02, 1.1, 0.9, ARCH.pillarRedDark);
@@ -305,7 +305,7 @@ export function buildHouse(c: PropCtx): void {
   const roofH = sy - wallH;
   if (v === 3) {
     // thatch: steep, no upturn, straw colour
-    hipRoof(b, 0, wallH, 0, sx, sz, roofH, {
+    hipRoof(b, 0, wallH, 0, sx, sz, roofH, { ...roofExtras(c),
       color: '#b8994e',
       overhang: 0.6,
       ridge: 0.8,
@@ -321,7 +321,7 @@ export function buildHouse(c: PropCtx): void {
     b.boxAt(0, sy + 0.05, 0, Math.max(0.5, sx - sz) * 0.8 + 0.4, 0.2, 0.4, '#8a7038');
   } else {
     const wide = v === 4;
-    hipRoof(b, 0, wallH, 0, sx, sz, roofH, {
+    hipRoof(b, 0, wallH, 0, sx, sz, roofH, { ...roofExtras(c),
       color: jitter(c, v === 1 ? ARCH.roofTileDark : ARCH.roofTile, 0.05),
       overhang: wide ? 0.9 : 0.6,
       ridge: 0.75,
@@ -362,7 +362,7 @@ export function buildPavilion(c: PropCtx): void {
   b.cylAt(0, 0.9, 0, 0.55, 0.08, ARCH.stoneLight, 10);
   // roof: pyramid for squarish plans, hip for long ones
   const square = Math.abs(sx - sz) < 1.5;
-  hipRoof(b, 0, pillarTop, 0, sx + 0.2, sz + 0.2, sy - pillarTop, {
+  hipRoof(b, 0, pillarTop, 0, sx + 0.2, sz + 0.2, sy - pillarTop, { ...roofExtras(c),
     color: p.variant % 2 === 1 ? ARCH.roofGreen : ARCH.roofTile,
     overhang: 0.6,
     ridge: square ? 0 : 0.6,
@@ -424,7 +424,7 @@ export function buildWatchtower(c: PropCtx): void {
   // corner posts + roof
   surf(c, timber ? SURF.woodV : SURF.plain);
   for (const lx of [-(hx - 0.18), hx - 0.18]) for (const lz of [-(hz - 0.18), hz - 0.18]) b.cylAt(lx, top + ph * 0.5, lz, 0.18, WT_POST_H - ph * 0.5, timber ? ARCH.woodDark : ARCH.pillarRed, 6);
-  hipRoof(b, 0, top + WT_POST_H, 0, sx + 0.6, sz + 0.6, 1.6, {
+  hipRoof(b, 0, top + WT_POST_H, 0, sx + 0.6, sz + 0.6, 1.6, { ...roofExtras(c),
     color: timber ? '#8a7048' : ARCH.roofTile,
     overhang: 0.6,
     ridge: 0.2,

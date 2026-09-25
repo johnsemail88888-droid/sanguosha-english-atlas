@@ -44,10 +44,10 @@ export interface BridgePlan {
 
 export interface RiverPlan {
   bridges: BridgePlan[];
-  /** north quay line (odd integer z): dock spans z in [zq-1, zq+3], ships moored south of it */
+  /** north quay line (odd integer z): dock spans z in [zq-1, zq+4.6] up to the hulls of the ships moored south of it */
   zq: number;
   northDock: { x0: number; x1: number };
-  /** south quay line: dock spans z in [zs-3, zs+1], ship north of it */
+  /** south quay line: dock spans z in [zs-4.6, zs+1] from the hull of the ship moored north of it */
   zs: number;
   southDock: { x0: number; x1: number };
 }
@@ -381,12 +381,16 @@ export function buildChibi(b: MapBuilder, plan: RiverPlan, pois: Poi[]): void {
     b.markRect({ x0: br.x - 7, z0: br.zN - 10, x1: br.x + 7, z1: br.zS + 10 });
   });
 
-  // north quay: dock + two chained Wei warships (铁索连环)
+  // north quay: dock + two chained Wei warships (铁索连环). The dock planks run out to the hulls
+  // (flush with the hull collider box): a 1.6 m slot of water between them was a trap — a hero who
+  // stepped off the planks landed on the river bed 2.4 m below the deck with the hull in front and
+  // nothing to climb (G4-7). The gangplanks now rise from the dock planks onto the decks.
   const zq = plan.zq;
   const nd = plan.northDock;
-  const dockZ = zq + 1;
-  b.add({ type: 'dock', x: (nd.x0 + nd.x1) / 2, y: DOCK_Y, z: dockZ, rot: 0, sx: nd.x1 - nd.x0, sy: 3.5, sz: 4, variant: 0 }, 0.5);
   const shipZ = zq + 3 + 1.6 + 3.5;
+  const hullN = shipZ - 3.5; // the ships' boarding side
+  const dockZ = (zq - 1 + hullN) / 2;
+  b.add({ type: 'dock', x: (nd.x0 + nd.x1) / 2, y: DOCK_Y, z: dockZ, rot: 0, sx: nd.x1 - nd.x0, sy: 3.5, sz: hullN - (zq - 1), variant: 0 }, 0.5);
   for (const [sxc, v] of [
     [29, 0],
     [51, 0],
@@ -407,11 +411,12 @@ export function buildChibi(b: MapBuilder, plan: RiverPlan, pois: Poi[]): void {
   pois.push({ x: 30, z: zq - 5, kind: 'crate1', tag: 'quay' });
   b.markRect({ x0: nd.x0 - 4, z0: zq - 9, x1: nd.x1 + 4, z1: zq + 14 });
 
-  // south quay: Wu dock + fire ship
+  // south quay: Wu dock + fire ship (the dock reaches the hull as on the north quay)
   const zs = plan.zs;
   const sd = plan.southDock;
-  b.add({ type: 'dock', x: (sd.x0 + sd.x1) / 2, y: DOCK_Y, z: zs - 1, rot: 0, sx: sd.x1 - sd.x0, sy: 3.5, sz: 4, variant: 1 }, 0.5);
   const wuZ = zs - 3 - 1.6 - 3;
+  const hullS = wuZ + 3; // the fire ship's boarding side
+  b.add({ type: 'dock', x: (sd.x0 + sd.x1) / 2, y: DOCK_Y, z: (hullS + zs + 1) / 2, rot: 0, sx: sd.x1 - sd.x0, sy: 3.5, sz: zs + 1 - hullS, variant: 1 }, 0.5);
   b.add({ type: 'ship', x: -33, y: SHIP_DECK_Y, z: wuZ, rot: ROT_FACE_SOUTH, sx: 16, sy: 3.2, sz: 6, variant: 2, color: KINGDOM_COLORS.wu }, 0.5);
   b.stairs(-33, zs - 3.8, ROT_FACE_NORTH, 2.4, DOCK_Y, SHIP_DECK_Y - DOCK_Y, 1, 1.6);
   pois.push({ x: -29, z: wuZ, y: SHIP_DECK_Y, kind: 'loot', tag: 'fireship' });

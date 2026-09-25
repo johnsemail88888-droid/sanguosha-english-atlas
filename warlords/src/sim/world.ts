@@ -13,6 +13,7 @@ import { Rng } from '../core/rng';
 import type {
   AbilitySlot,
   DamageType,
+  DeniedReason,
   Entity,
   EntityId,
   EntityKind,
@@ -371,9 +372,41 @@ export class World implements SimExt, SimHost {
   }
 
   // ── setup ────────────────────────────────────────────────────────────────
+  /**
+   * Spawn points for `n` non-lord heroes, as far apart as the map allows (APP-8): a greedy
+   * farthest-point pick seeded with the lord's spawn (the first pick is a random ring spawn,
+   * each next one the spawn farthest from every spot already taken). The seats then take them in
+   * a shuffled order, so which hero lands where stays random.
+   */
+  private spawnOrder(n: number): Vec3[] {
+    const pool = this.rng.shuffle([...this.map.spawns]);
+    if (pool.length === 0 || n <= 0) return pool;
+    const taken: Vec3[] = [this.map.lordSpawn];
+    const picked: Vec3[] = [];
+    const d2 = (a: Vec3, b: Vec3): number => (a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z);
+    while (picked.length < Math.min(n, pool.length)) {
+      let best = -1;
+      let bestD = -1;
+      for (let i = 0; i < pool.length; i++) {
+        let m = Infinity;
+        for (const t of taken) m = Math.min(m, d2(pool[i], t));
+        // the first ring pick: every spawn is ~110 m from the palace — take the shuffled first
+        if (picked.length === 0) m = i === 0 ? Infinity : 0;
+        if (m > bestD) {
+          bestD = m;
+          best = i;
+        }
+      }
+      picked.push(pool[best]);
+      taken.push(pool[best]);
+      pool.splice(best, 1);
+    }
+    return [...this.rng.shuffle(picked), ...pool];
+  }
+
   private spawnHeroes(): void {
     const seats = [...this.init.seats].sort((a, b) => a.seat - b.seat);
-    const spawns = this.rng.shuffle([...this.map.spawns]);
+    const order = this.spawnOrder(seats.filter((s) => s.role !== 'lord').length);
     let spawnIdx = 0;
     const heroes: Entity[] = [];
     for (const seat of seats) {
@@ -381,9 +414,9 @@ export class World implements SimExt, SimHost {
       const isLordLike = seat.role === 'lord' || seat.role === 'double';
       let base: Vec3;
       if (seat.role === 'lord') base = this.map.lordSpawn;
-      else if (spawns.length > 0) base = spawns[spawnIdx++ % spawns.length];
+      else if (order.length > 0) base = order[spawnIdx++ % order.length];
       else base = { x: 0, y: 0, z: 0 };
-      if (seat.role !== 'lord' && spawns.length > 0 && spawnIdx > spawns.length) {
+      if (seat.role !== 'lord' && order.length > 0 && spawnIdx > order.length) {
         const a = this.rng.next() * Math.PI * 2;
         base = { x: base.x + Math.cos(a) * 4, y: base.y, z: base.z + Math.sin(a) * 4 };
       }
@@ -764,7 +797,14 @@ export class World implements SimExt, SimHost {
     slot.brain = this.makeBot(slot.seat);
     slot.queue = [];
     const e = this.get(slot.entityId);
-    if (e?.hero) e.hero.isBot = true;
+    if (e?.hero) {
+      e.hero.isBot = true;
+      try {
+        slot.brain.takeOver?.(this, e);
+      } catch (err) {
+        warnOnce(`bot-takeover:${slot.seat}`, `bot takeOver threw: ${String(err)}`);
+      }
+    }
     this.viewDirty = true;
   }
 
@@ -1075,10 +1115,14 @@ export class World implements SimExt, SimHost {
 
   private activateAbility(e: Entity, rt: HeroRuntime, slot: AbilitySlot, cs: ControlState): void {
     const h = e.hero!;
-    if (cs.silenced || cs.dancing) return;
     const entry = rt.abilities.find((a) => a.def.slot === slot);
     if (!entry) return;
     const id = entry.def.id;
+    if (cs.silenced || cs.dancing) {
+      // an active pressed while silenced / dancing: tell the (human) caster why nothing happened
+      if (entry.impl?.activate) this.abilityDenied(e, id, 'silenced');
+      return;
+    }
     if (!entry.impl?.activate) {
       if (!isPassiveAbility(entry.def)) warnOnce(`ability-activate:${id}`, `ability '${id}' has no activate() implementation`);
       return;
@@ -1104,7 +1148,12 @@ export class World implements SimExt, SimHost {
     } finally {
       this.actorId = prevActor;
     }
-    if (!ok) return;
+    if (!ok) {
+      // the press did nothing (no target, nobody for the second half, blocked…): the cooldown
+      // is kept, and a human caster gets a private cue saying why (APP-5)
+      this.abilityDenied(e, id, ctx.deniedReason);
+      return;
+    }
     const cd = this.cooldownFor(rt, entry.def);
     if (entry.def.charges) {
       h.charges[id] = Math.max(0, (h.charges[id] ?? 1) - 1);
@@ -1124,6 +1173,14 @@ export class World implements SimExt, SimHost {
     };
     // a stealthed caster's cast must not give its position away (WU-2)
     this.emit(hidden ? { ...ev, privateTo: e.id } : ev);
+  }
+
+  /** Private "that did nothing" cue for a human caster ({ t:'sfx', name:'abilityDenied' }); bots get none. */
+  private abilityDenied(e: Entity, ability: string, reason: DeniedReason | undefined): void {
+    if (this.isBotHero(e)) return;
+    const ev: GameEvent = { t: 'sfx', name: 'abilityDenied', pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z }, privateTo: e.id, ability };
+    if (reason) ev.reason = reason;
+    this.emit(ev);
   }
 
   private switchWeapon(e: Entity, slot: number): void {

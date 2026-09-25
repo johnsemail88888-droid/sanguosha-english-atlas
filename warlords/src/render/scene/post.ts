@@ -78,6 +78,15 @@ export class PostChain {
   private readonly vignettePass: ShaderPass;
   private readonly outputPass: OutputPass;
   private readonly target: THREE.WebGLRenderTarget;
+  private readonly renderer: THREE.WebGLRenderer;
+  /**
+   * Bloom programs still to compile before the pass is switched on (after a
+   * mid-match quality change) instead of all eight blocking the first bloom
+   * frame (seconds on software GL / phones): see warmBloom().
+   */
+  private bloomWarm: { todo: THREE.ShaderMaterial[]; issued: WebGLProgram[] } | null = null;
+  private warmMesh: THREE.Mesh | null = null;
+  private readonly warmCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
   constructor(
     renderer: THREE.WebGLRenderer,
@@ -86,6 +95,7 @@ export class PostChain {
     camera: THREE.PerspectiveCamera,
     opts: PostOptions,
   ) {
+    this.renderer = renderer;
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     this.target = new THREE.WebGLRenderTarget(Math.max(1, size.x), Math.max(1, size.y), {
       type: THREE.HalfFloatType,
@@ -102,8 +112,20 @@ export class PostChain {
     this.configure(opts);
   }
 
-  configure(opts: PostOptions): void {
-    this.bloomPass.enabled = opts.bloom;
+  /**
+   * Apply the options. `live` (a running match): turning bloom on compiles its
+   * programs a few per frame first and enables the pass once they are ready.
+   */
+  configure(opts: PostOptions, live = false): void {
+    if (opts.bloom && !this.bloomPass.enabled && live) {
+      if (!this.bloomWarm) {
+        const b = this.bloomPass;
+        this.bloomWarm = { todo: [b.materialHighPassFilter, ...b.separableBlurMaterials, b.compositeMaterial, b.blendMaterial], issued: [] };
+      }
+    } else {
+      this.bloomWarm = null;
+      this.bloomPass.enabled = opts.bloom;
+    }
     this.vignettePass.enabled = opts.vignette;
     if (this.target.samples !== opts.msaa) {
       this.target.samples = opts.msaa;
@@ -124,11 +146,69 @@ export class PostChain {
     this.vignettePass.uniforms.uDamage.value = v;
   }
 
+  /** true while bloom programs are still being compiled (bloom off meanwhile) */
+  get bloomWarming(): boolean {
+    return this.bloomWarm !== null;
+  }
+
   render(dt: number): void {
+    if (this.bloomWarm) this.warmBloom(this.bloomWarm);
     this.composer.render(dt);
   }
 
+  /**
+   * One step of the bloom warm-up, once per frame. Shader compiles run in the
+   * GPU process; only querying a program blocks the main thread until it is
+   * linked. With KHR_parallel_shader_compile every program is issued at once
+   * and polled without blocking; without it one program is issued per frame and
+   * queried the frame after (it had that frame to compile). Bloom is switched
+   * on once every program is ready, so its first frame compiles nothing.
+   */
+  private warmBloom(w: { todo: THREE.ShaderMaterial[]; issued: WebGLProgram[] }): void {
+    const r = this.renderer;
+    const gl = r.getContext();
+    const ext = r.extensions.has('KHR_parallel_shader_compile')
+      ? (r.extensions.get('KHR_parallel_shader_compile') as { COMPLETION_STATUS_KHR: number })
+      : null;
+    try {
+      if (w.issued.length) {
+        w.issued = w.issued.filter((p) => (ext ? gl.getProgramParameter(p, ext.COMPLETION_STATUS_KHR) !== true : (gl.getProgramParameter(p, gl.LINK_STATUS), false)));
+        if (w.issued.length) return;
+      }
+      if (w.todo.length) {
+        const known = new Set<unknown>(r.info.programs ?? []);
+        const mesh = (this.warmMesh ??= new THREE.Mesh(new THREE.PlaneGeometry(2, 2)));
+        const prev = r.getRenderTarget();
+        // the bloom pass draws into its own linear targets: compile that variant
+        r.setRenderTarget(this.bloomPass.renderTargetBright);
+        try {
+          // without the extension: one new program per frame (programs already cached cost nothing)
+          while (w.todo.length && (ext || !w.issued.length)) {
+            mesh.material = w.todo.shift() as THREE.ShaderMaterial;
+            r.compile(mesh, this.warmCam);
+            for (const p of r.info.programs ?? []) {
+              if (known.has(p)) continue;
+              known.add(p);
+              const prog = (p as { program?: WebGLProgram }).program;
+              if (prog) w.issued.push(prog);
+            }
+          }
+        } finally {
+          r.setRenderTarget(prev);
+        }
+        if (w.issued.length || w.todo.length) return;
+      }
+    } catch (err) {
+      console.warn('[render] bloom warm-up failed', err);
+    }
+    this.bloomWarm = null;
+    this.bloomPass.enabled = true;
+  }
+
   dispose(): void {
+    this.bloomWarm = null;
+    this.warmMesh?.geometry.dispose();
+    this.warmMesh = null;
     this.bloomPass.dispose();
     this.vignettePass.dispose();
     this.outputPass.dispose();

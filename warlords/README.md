@@ -33,7 +33,7 @@ English section below → [English](#english).*
 | **桌面版** | 在 GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases) 下载：Windows 便携版 / 安装版（`.exe`）、macOS（`.dmg`）、Linux（`.AppImage`）。桌面版自带局域网服务器。 |
 | **离线单文件** | 下载 [`sanguo-warlords-offline.html`](https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/sanguo-warlords-offline.html)（或自行 `npm run build:single` 生成 `dist-single/index.html`），双击即可单机游玩，无需网络。 |
 
-手机横屏也能玩（自动切换触屏操作：左侧摇杆、右侧拖动瞄准、射击 / 开镜 / 跳跃 / 闪避 / 技能按钮）。
+手机横屏也能玩（自动切换触屏操作：左侧摇杆、右侧拖动瞄准、射击 / 开镜 / 跳跃 / 闪避 / 技能按钮；左上角「令 聊 图 战 ☰」再点一次即关闭，长按锦囊栏可查看说明）。
 
 需要 WebGL 2。若标题画面提示「无法启动 3D 画面」，请在浏览器设置里开启硬件加速（图形加速）、更新显卡驱动或浏览器后刷新。
 
@@ -56,7 +56,7 @@ English section below → [English](#english).*
 | B / 中键 | 标记准星处目标（士兵集火） |
 | T | 跳身份 & 快捷喊话轮盘 |
 | Tab / M | 战况（按住）/ 战场地图 |
-| Enter / Esc | 聊天 / 菜单（锁定鼠标时浏览器会先释放鼠标，游戏自动暂停） |
+| Enter / Esc | 聊天 / 菜单（单机自动暂停，联机不暂停；锁定鼠标时浏览器会先释放鼠标，菜单随即打开） |
 
 ### 身份与胜负（简要）
 
@@ -116,7 +116,7 @@ English section below → [English](#english).*
 标题画面 →「联机对战」，选择连接方式：
 
 ### 1. 公共 P2P（房间码）
-主机「创建房间」后得到 5 位房间码（或复制邀请链接），朋友「加入房间」输入房间码即可。通过 WebRTC 直连，
+主机「创建房间」后得到 5 位房间码（或复制邀请链接——链接里带着连接方式和自定义服务器，朋友打开即用同样的方式连接），朋友「加入房间」输入房间码即可。刷新页面（F5）会用原来的方式自动重新加入。通过 WebRTC 直连，
 使用公共 PeerJS 信令服务器，无需自己架服务器。空位由 AI 补齐，掉线的玩家由 AI 接管，重连后可以收回座位。
 
 ### 2. 局域网 / 自建服务器（服务器模式）
@@ -225,8 +225,8 @@ squad of soldiers, and a shrinking beacon-fire zone plus airdrops keep 5–8 pla
 WASD move · mouse aim (click to lock the pointer) · LMB fire · RMB aim down sights · R reload · Shift sprint ·
 Space jump · Ctrl/Alt dodge roll (2 charges) · Q/E abilities · G lord skill (real Lord only) · F pick up / open /
 hold to revive · 1/2 or wheel switch weapon · 4–7 items · Z/X/C/V squad follow/hold/attack/charge · B or MMB mark ·
-T claim & quick-chat wheel · Tab scoreboard · M map · Enter chat · Esc menu (when the browser releases the pointer
-on Esc the game pauses automatically).
+T claim & quick-chat wheel · Tab scoreboard · M map · Enter chat · Esc menu (single player pauses while the menu is
+open; online matches keep running — when the browser releases the pointer on Esc the menu opens by itself).
 
 ### Roles & winning
 5–8 players: 1 Lord, 1–2 Loyalists, 2–4 Rebels, 1 Traitor (chaos mode adds Body Double, Opportunist and Bounty Hunter).
@@ -257,7 +257,7 @@ All 30 heroes with every number and ability: **[docs/HEROES.md](docs/HEROES.md)*
 | Zhen Ji | Nation-Toppling Beauty | Goddess of the Luo | Graceful Steps | — |
 | Xiahou Yuan | Swift March | Godspeed | Tiger Stride | — |
 | Sun Quan ★ | Deliberation | Balance of Power | Master of the Southeast | Rescue |
-| Gan Ning | Brocade Sails | Surprise Raid | Hundred Riders Raid | — |
+| Gan Ning | Brocade Sails | EMP Raid | Hundred Riders Raid | — |
 | Lü Meng | Self-Restraint | Crossing in White | Mind Assault | — |
 | Huang Gai | Burning Loyalty | Self-Injury | Fire Ship Gambit | — |
 | Zhou Yu | Heroic Bearing | Sow Discord | Red Cliffs Inferno | — |
@@ -273,7 +273,8 @@ All 30 heroes with every number and ability: **[docs/HEROES.md](docs/HEROES.md)*
 
 ### Online play
 - **Public P2P (room code):** Play Online → Public P2P → Host a room; friends join with the 5-character code or the
-  invite link. WebRTC through the public PeerJS signalling cloud; empty seats are bots, dropped players are taken over
+  invite link (it carries the connection mode and any custom server, so friends connect the same way; a reload (F5)
+  rejoins the same way too). WebRTC through the public PeerJS signalling cloud; empty seats are bots, dropped players are taken over
   by a bot and can rejoin their seat.
 - **LAN / self-hosted server:** `npm run build && npm run server` (port 8787, `PORT=` to change) serves the game, a
   WebSocket relay on `/ws` and PeerJS signalling on `/peerjs` from one port. Friends on the same network open

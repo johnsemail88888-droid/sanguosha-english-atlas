@@ -49,6 +49,8 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
   const offEvents = handle.onEvents((evs) => {
     for (const e of evs) pending.push(e);
     debug?.onEvents(evs);
+    // 张辽 突袭 of ours: the view turns towards the target (WEI-7)
+    handle.input.onEvents(evs, view.localId());
   });
   const offFire = handle.onLocalFire((weaponId) => audio.localFire(weaponId));
   const offProgress = handle.onProgress((p) => {

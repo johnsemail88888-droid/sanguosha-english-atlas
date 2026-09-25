@@ -4,7 +4,7 @@ import type { Vec3 } from '../../../core/math';
 import type { Entity } from '../../../core/types';
 import type { AbilityCtx, SimApi } from '../../api';
 import { ext } from '../../ext';
-import { UNIT_KINDS, flatAimDir, getState, param, setState } from '../common';
+import { UNIT_KINDS, deny, flatAimDir, getState, param, setState } from '../common';
 import { registerAbility } from '../registry';
 import { applyDebuff, centerOf, crosshairFoe, isUp, publiclyVisible, registerFieldKind, setCast } from './util';
 
@@ -64,7 +64,7 @@ registerAbility({
       ? applyDebuff(ctx, t, 'charm', param(ctx, 'duration', 2), { targetId: other.id })
       : applyDebuff(ctx, t, 'disarm', param(ctx, 'disarm', 2));
     if (outcome === 'landed' && other) setState(ctx, 'victim', t.id);
-    return outcome !== 'resisted';
+    return outcome !== 'resisted' || deny(ctx, 'invalidTarget');
   },
   tick(ctx) {
     const { sim, self } = ctx;

@@ -9,7 +9,10 @@ import type { SgwlDebug } from '../../../src/game/debug';
 import { chromium, expect, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from '@playwright/test';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-export const CACHE = path.join(ROOT, 'node_modules', '.cache', 'sgwl-e2e');
+/** build cache (SGWL_E2E_CACHE overrides it, e.g. to keep concurrent runs of different checkouts apart) */
+export const CACHE = process.env.SGWL_E2E_CACHE ? path.resolve(process.env.SGWL_E2E_CACHE) : path.join(ROOT, 'node_modules', '.cache', 'sgwl-e2e');
+/** added to every game spec's server ports (SGWL_E2E_PORT_OFFSET) so parallel runs on one machine never collide */
+export const PORT_OFFSET = Number(process.env.SGWL_E2E_PORT_OFFSET ?? 0) || 0;
 export const DIST = path.join(CACHE, 'dist');
 export const DIST_SINGLE = path.join(CACHE, 'dist-single');
 const CHROMIUM = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';
@@ -201,10 +204,51 @@ export async function pickHero(page: Page, prefer: readonly string[] = []): Prom
     }
   }
   const hero = (await chosen.getAttribute('data-hero')) ?? '';
+  const t0 = Date.now();
   await chosen.click();
+  const clicked = { ms: Date.now() - t0, ...((await selectState(page)) as object) };
+  // Confirm — unless the page is too slow and the countdown already ran out: the
+  // host then locks in the clicked card (focusHero hint), the screen shows 已锁定
+  // and the confirm button is disabled on purpose.
   const confirm = page.locator('.detail-actions .sg-btn');
-  await confirm.click();
+  const end = Date.now() + 60_000;
+  for (;;) {
+    const st = await page
+      .evaluate(() => {
+        const sel = document.querySelector('.sg-select');
+        const btn = document.querySelector<HTMLButtonElement>('.detail-actions .sg-btn');
+        return { gone: !sel, locked: !!sel?.classList.contains('locked'), enabled: !!btn && !btn.disabled };
+      })
+      .catch(() => ({ gone: true, locked: false, enabled: false }));
+    if (st.gone || st.locked) break;
+    if (st.enabled && (await confirm.click({ timeout: 10_000 }).then(() => true, () => false))) break;
+    if (Date.now() > end) throw new Error(`hero select: cannot confirm ${hero}: after the card click ${JSON.stringify(clicked)}, now ${JSON.stringify(await selectState(page))}`);
+    await page.waitForTimeout(250);
+  }
   return hero;
+}
+
+/** Hero-select diagnostics for a failed pick (what the page shows and what the session holds). */
+export async function selectState(page: Page): Promise<unknown> {
+  return page
+    .evaluate(() => {
+      const g = (window as SgwlWindow).__sgwl;
+      const s = g?.session as unknown as { heroSelect?: { lordPhase: boolean; options: string[]; picks: Record<number, string>; deadline: number; lordSeat: number } | null; myId?: string; lobby?: { seats: { seat: number; playerId: string | null }[] } | null } | null;
+      const v = s?.heroSelect ?? null;
+      const sel = document.querySelector('.sg-select');
+      return {
+        screen: g?.screen ?? null,
+        phase: g?.phase ?? null,
+        cls: sel?.className ?? null,
+        stage: sel?.querySelector('.titles')?.textContent ?? null,
+        ring: sel?.querySelector('.ring')?.textContent ?? null,
+        confirm: document.querySelector('.detail-actions .sg-btn')?.textContent ?? null,
+        view: v ? { lordPhase: v.lordPhase, options: v.options.length, picks: v.picks, deadline: v.deadline, lordSeat: v.lordSeat } : null,
+        me: s?.lobby?.seats.find((x) => x.playerId === s.myId)?.seat ?? null,
+        t: performance.now() | 0,
+      };
+    })
+    .catch((e: unknown) => ({ evalError: String(e) }));
 }
 
 /** Title → 单人练习 → setup → start → roles → hero select → match (HUD up). Returns the picked hero id. */

@@ -104,7 +104,9 @@ electron/, .github/workflows, scripts/  packaging + CI                  (PACKAGI
 | 7 | 主公1 忠臣2 反贼3 内奸1 |
 | 8 | 主公1 忠臣2 反贼4 内奸1 |
 
-乱世 (chaos) mode deals one random variant per count from `ROLE_DISTRIBUTION.chaos`, swapping in:
+乱世 (chaos) mode deals one random variant per count from `ROLE_DISTRIBUTION.chaos` (every variant
+keeps the Traitor and deals at least as many rebels as lord-side seats — lord + loyalists + Double —
+since both crowns carry the lord's bonus), swapping in:
 
 - **影武者 Body Double** (lord side): everyone sees a crown on both the real Lord and the Double;
   only the real Lord knows which is the decoy. The Double gets the Lord's +100 HP but **no lord
@@ -146,14 +148,17 @@ Lies are allowed. Bots claim too (sometimes lying as traitors).
 
 ### Zone 烽火圈 (`sim/zone.ts`)
 
-| Phase | wait (s) | shrink (s) | radius → | dps outside |
-|---|---|---|---|---|
-| 0 | 90 | — | 230 (whole map) | 0 |
-| 1 | 0 | 60 | 160 | 4 |
-| 2 | 60 | 45 | 100 | 8 |
-| 3 | 45 | 40 | 55 | 15 |
-| 4 | 40 | 30 | 25 | 30 |
-| 5 | 30 | 30 | 0 | 60 |
+| Phase | wait (s) | shrink (s) | radius → | dps outside | closes at |
+|---|---|---|---|---|---|
+| 0 | 150 | — | 230 (whole map) | 0 | — |
+| 1 | 0 | 75 | 160 | 4 | 3:45 |
+| 2 | 75 | 60 | 100 | 8 | 6:00 |
+| 3 | 60 | 45 | 55 | 15 | 7:45 |
+| 4 | 45 | 40 | 25 | 30 | 9:10 |
+| 5 | 45 | 45 | 0 | 60 | 10:40 |
+
+The circle reaches 0 at 10:40 (paced for the 8–12 minute target); the 15:00 hard cap below is
+only a backstop (collapse + escalating damage).
 
 Next center is random but inside the current circle, biased towards the map center.
 Zone damage is type `zone` (ignores armor/dodge/shields; troops/NPCs take it too).
@@ -195,8 +200,8 @@ are guidance; DATA tunes them for balance (TTK for a 400 HP hero under sustained
 | xiahoudun | 夏侯惇 | 4 | 刚烈: 30 % of any damage you take is dealt back to the attacker | 拔矢啖睛: heal 30 % of missing HP + dmg ×1.3 for 6 s | 独目怒冲: charge 12 m, stun first hero hit 1 s | — |
 | zhangliao | 张辽 | 4 | 突袭(被动): +50 % damage to targets facing away | 突袭: blink ≤ 12 m to crosshair target, steal 1 item from up to 2 enemies within 6 m, slow them | 威震逍遥津: 10 m shout: enemies silenced 2 s, their troops flee 3 s | — |
 | xuchu | 许褚 | 4 | 虎痴: immune to knockback; squad +1 | 裸衣: 8 s dmg ×1.6, damage taken ×1.25 | 虎卫猛击: ground slam 6 m, 80 dmg + knock-up | — |
-| guojia | 郭嘉 | 3 | 天妒/遗计: taking ≥ 40 dmg in one hit gives you 1 random item and refills your mag (6 s cd) | 遗计: call a supply airdrop at crosshair (lands in 3 s, 2 items) | 鬼谋: mark target 6 s — takes +25 % from all sources and is revealed | — |
-| zhenji | 甄姬 | 3 | 倾国: 25 % chance to evade bullets while moving | 洛神: gamble up to 4 draws (60 %, 50 %, 40 %, 30 %), each success = 1 random item | 凌波微步: blink 10 m, leave a frost field that slows | — |
+| guojia | 郭嘉 | 3 | 天妒/遗计: taking ≥ 35 dmg in one hit gives you 1 random item and refills your mag (5 s cd) | 遗计: call a supply airdrop at crosshair (lands in 3 s, 2 items; 20 s cd) | 鬼谋: mark target 7 s — takes +30 % from all sources and is revealed (14 s cd) | — |
+| zhenji | 甄姬 | 3 | 倾国: 25 % chance to evade bullets while moving | 洛神: gamble up to 4 draws (60 %, 50 %, 40 %, 30 %), each success = 1 random item | 凌波微步: blink 10 m — a frost burst at the landing (45 dmg + slow in 4 m), the frost field left behind slows 40 % and deals 15/s | — |
 | xiahouyuan | 夏侯渊 | 4 | 神速(被动): +15 % move speed; sprint doesn't break ADS | 神速: blink 14 m to point + instant free 5-round volley | 虎步关右: 5 s haste 40 % + dodge recharge | — |
 
 ### 吴 Wu
@@ -206,8 +211,8 @@ are guidance; DATA tunes them for balance (TTK for a 400 HP hero under sustained
 | ganning | 甘宁 | 4 | 锦帆: +10 % speed; kills refill your mag | 奇袭: EMP bolt — target drops armor & mount, loses shield, silenced 3 s | 百骑劫营: 8 s stealth for you + squad; first attack from stealth +60 % | — |
 | lumeng | 吕蒙 | 4 | 克己: not firing for 4 s ⇒ stealth (breaks on firing) | 白衣渡江: 6 s stealth while moving + 30 % haste | 攻心: target disarmed 2.5 s and you steal 1 item | — |
 | huanggai | 黄盖 | 4 | 苦肉(被动): below 50 % HP, fire damage +30 % | 苦肉: lose 40 HP ⇒ gain 2 random items + fire-rate ×1.4 5 s | 诈降火船: launch a burning fire-ship drone (12 m/s), explodes 7 m: 120 fire + fire field | — |
-| zhouyu | 周瑜 | 3 | 英姿: reload +25 %, ability cooldowns −15 % | 反间: charm the crosshair enemy 3 s — they attack the nearest other hero; their troops turn on them | 火烧赤壁: napalm strike along a 25 m line after 1.5 s: 100 fire + burning ground | — |
-| daqiao | 大乔 | 3 | 流离: 30 % of bullets hitting you are redirected to another unit within 8 m | 国色: throw 乐不思蜀 at crosshair enemy: dance 3 s | 安娴: heal you and all allies within 6 m for 80 | — |
+| zhouyu | 周瑜 | 3 | 英姿: reload +25 %, ability cooldowns −20 % | 反间: charm the crosshair enemy 3 s — they attack the nearest other hero; their troops turn on them (18 s cd) | 火烧赤壁: napalm strike along a 25 m line after 1.5 s: 110 fire + burning ground 18/s (24 s cd) | — |
+| daqiao | 大乔 | 3 | 流离: 35 % of bullets hitting you are redirected to another unit within 8 m | 国色: throw 乐不思蜀 at crosshair enemy (25 m): dance 3 s (14 s cd) | 安娴: heal you, your soldiers and heroes within 8 m for 90 (15 s cd) | — |
 | luxun | 陆逊 | 3 | 谦逊: immune to stun/charm/dance/silence/steal. 连营: when your mag empties, instantly reload 50 % | 火烧连营: lay 5 fire fields in a line ahead | 连营: 6 s no-reload; your fire fields spread | — |
 | sunshangxiang | 孙尚香 | 3 | 枭姬: when you lose armor/mount or first drop < 50 % HP: haste + full ammo + 1 item | 结姻: heal yourself and the male hero under crosshair 100 each | 弓腰姬: fire 5 explosive arrows in a fan | — |
 
@@ -217,9 +222,9 @@ are guidance; DATA tunes them for balance (TTK for a 400 HP hero under sustained
 | huatuo | 华佗 | 3 | 急救: revives take 0.5 s and give +80 HP; revive without 桃 once per 30 s | 青囊: heal crosshair ally/self 150 over 3 s + cleanse debuffs | 麻沸散: gas grenade 5 m: enemies stunned 1.5 s + slowed | — |
 | lubu | 吕布 | 4 | 无双: your damage is undodgeable and ignores 50 % of shields; rides 赤兔 (+15 %) | 方天画戟: 360° halberd spin 5 m, 110 dmg + knockback | 辕门射戟: precise long shot 150 dmg, stun 1 s | — |
 | diaochan | 貂蝉 | 3 | 闭月: regen 6 HP/s after 5 s without damage | 离间: crosshair enemy + the nearest other hero to it are charmed to fight each other 3 s | 连环计: chain up to 3 enemies near the target for 8 s (fire/thunder spreads) | — |
-| zhangjiao | 张角 ★ | 3 | 鬼道: thunder damage +30 % | 雷击: 3 lightning bolts at crosshair area (0.6 s apart), 90 thunder each, stun 0.5 s | 太平要术: a storm cloud follows the crosshair enemy 8 s, striking every 1.5 s | 黄天: summon 5 黄巾力士 allies (40 s) |
+| zhangjiao | 张角 ★ | 3 | 鬼道: thunder damage +30 % | 雷击: 3 lightning bolts at the crosshair point (0.6 s apart), 42 thunder each in 3 m, the first stuns 0.5 s (15 s cd) | 太平要术: a storm cloud follows the crosshair enemy 8 s, striking every 1.5 s | 黄天: summon 5 黄巾力士 allies (40 s) |
 | yuanshao | 袁绍 ★ | 4 | 名门: squad +1; troops +20 % HP | 乱击: arrow-rain barrage 12 m radius at crosshair for 3 s | 四世三公: summon 4 crossbowmen (30 s) | 血裔: +50 max HP per living Qun hero; squad +2 |
-| menghuo | 孟获 | 4 | 祸首/再起: immune to barbarians; once per match, when downed instantly rise with 50 % HP | 南蛮入侵: summon 6 barbarian warriors (25 s) rushing the crosshair point | 象兵: a war elephant charges forward 30 m trampling everything | — |
+| menghuo | 孟获 | 4 | 祸首/再起: immune to barbarians; once per match, when downed instantly rise with 50 % HP | 南蛮入侵: summon 4 barbarian warriors (15 s, 30 s cd) rushing the crosshair point | 象兵: a war elephant charges forward 30 m trampling everything | — |
 
 ★ = lord candidate. Lord skills (G) only function if the hero is the real Lord.
 
@@ -256,8 +261,9 @@ troop_shotgun, troop_melee, turret_smg.
 Four item slots (keys 4–7). Basic cards: **杀** ammo box (refill 50 % reserve), **闪** +1 dodge
 charge, **桃** medkit/revive, **酒** next hit ×2 (8 s) or self-revive when downed.
 Tricks (锦囊): **无中生有** 2 random items · **过河拆桥** EMP grenade (strip armor/mount/shield) ·
-**顺手牵羊** grapple-steal an item (8 m) · **决斗** tether duel 10 s (damage between you ×1.5, others
-×0.5) · **借刀杀人** hack the target's troops/turret to attack their owner 6 s · **无懈可击** gain
+**顺手牵羊** grapple-steal an item (8 m) · **决斗** 8 s tether duel; each side's soldiers focus the
+other; whoever lost more HP + shield takes 80; ends early at 35 m or when someone falls ·
+**借刀杀人** hack the target's troops/turret to attack their owner 6 s · **无懈可击** gain
 `nullify` 20 s · **南蛮入侵** summon 5 barbarians (20 s) that attack everyone but you ·
 **万箭齐发** arrow-rain on a point · **桃园结义** heal every hero within 15 m by 80 (enemies too) ·
 **五谷丰登** burst 4 random items onto the ground around you · **火攻** incendiary grenade ·

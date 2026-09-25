@@ -156,16 +156,68 @@ describe('PortraitCache art state', () => {
     expect(pc.known()).toBe(true);
   });
 
-  it('memoizes the procedural render per hero and size', async () => {
-    const { PortraitCache } = await import('../../../src/ui/widgets');
+  it('memoizes the procedural render per hero (one render at PORTRAIT_SIZE, whatever size is asked)', async () => {
+    const { PortraitCache, PORTRAIT_SIZE } = await import('../../../src/ui/widgets');
     let calls = 0;
     const pc = new PortraitCache(async (id, size) => {
       calls++;
       return `${id}@${size}`;
     }, { has: () => false, ready: async () => undefined });
-    expect(await pc.get('liubei', 128)).toBe('liubei@128');
-    expect(await pc.get('liubei', 128)).toBe('liubei@128');
-    expect(await pc.get('liubei', 256)).toBe('liubei@256');
-    expect(calls).toBe(2);
+    const one = `liubei@${PORTRAIT_SIZE}`;
+    expect(await pc.get('liubei', 128)).toBe(one);
+    expect(await pc.get('liubei', 128)).toBe(one);
+    expect(await pc.get('liubei', 256)).toBe(one);
+    expect(calls).toBe(1);
+  });
+
+  it('prioritize() queues only heroes without painted art (they never need a render)', async () => {
+    const { PortraitCache } = await import('../../../src/ui/widgets');
+    const shipped = new Set([portraitArtPath('guanyu'), portraitArtPath('zhangfei')]);
+    const rendered: string[] = [];
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const pc = new PortraitCache(async (id) => {
+      rendered.push(id);
+      if (id === 'first') await gate;
+      return id;
+    }, { has: (p) => shipped.has(p), ready: async () => undefined });
+    const first = pc.get('first');
+    pc.prioritize(['guanyu', 'liubei', 'zhangfei', 'caocao']);
+    expect(pc.pending()).toEqual(['liubei', 'caocao']);
+    release();
+    await first;
+    await Promise.all([pc.get('liubei'), pc.get('caocao')]);
+    expect(rendered).toEqual(['first', 'liubei', 'caocao']);
+  });
+
+  it('prioritize() before the art listing loads queues nothing until the listing says a hero has no art', async () => {
+    const { PortraitCache } = await import('../../../src/ui/widgets');
+    let files: Set<string> | null = null;
+    let release: () => void = () => undefined;
+    const listed = new Promise<void>((r) => (release = r));
+    const rendered: string[] = [];
+    const pc = new PortraitCache(
+      async (id) => {
+        rendered.push(id);
+        return id;
+      },
+      { has: (p) => (files ? files.has(p) : null), ready: () => listed },
+      1,
+      0,
+    );
+    pc.prioritize(['guanyu', 'liubei', 'zhangfei', 'caocao']);
+    // unknown yet: no render (and so no GLB / clip download) is started for any option
+    expect(pc.pending()).toEqual([]);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(rendered).toEqual([]);
+    files = new Set([portraitArtPath('guanyu'), portraitArtPath('zhangfei')]);
+    release();
+    await pc.whenKnown();
+    // queued by prioritize() itself once the listing is known (liubei already running)
+    expect(rendered).toEqual(['liubei']);
+    expect(pc.pending()).toEqual(['caocao']);
+    await Promise.all([pc.get('liubei'), pc.get('caocao')]);
+    // only the heroes without painted art are rendered, in option order
+    expect(rendered).toEqual(['liubei', 'caocao']);
   });
 });

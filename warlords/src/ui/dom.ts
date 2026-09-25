@@ -63,7 +63,6 @@ function applyProps(el: HTMLElement, p: Props): void {
   if (p.id) el.id = p.id;
   if (p.role) el.setAttribute('role', p.role);
   if (p.type !== undefined) el.setAttribute('type', p.type);
-  if (p.value !== undefined) (el as HTMLInputElement).value = p.value;
   if (p.placeholder !== undefined) el.setAttribute('placeholder', p.placeholder);
   if (p.href !== undefined) el.setAttribute('href', p.href);
   if (p.src !== undefined) el.setAttribute('src', p.src);
@@ -75,6 +74,9 @@ function applyProps(el: HTMLElement, p: Props): void {
   if (p.min !== undefined) el.setAttribute('min', String(p.min));
   if (p.max !== undefined) el.setAttribute('max', String(p.max));
   if (p.step !== undefined) el.setAttribute('step', String(p.step));
+  // after type / min / max / step / maxlength: the browser sanitizes `value` against
+  // them when it is set (a range input with the default step 1 turns 0.8 into 1)
+  if (p.value !== undefined) (el as HTMLInputElement).value = p.value;
   if (p.for !== undefined) el.setAttribute('for', p.for);
   if (p.autocomplete !== undefined) el.setAttribute('autocomplete', p.autocomplete);
   if (p.draggable !== undefined) el.draggable = p.draggable;

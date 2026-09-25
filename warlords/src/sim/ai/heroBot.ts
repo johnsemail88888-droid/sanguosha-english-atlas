@@ -31,7 +31,7 @@ import { difficultyProfile } from './difficulty';
 import type { DifficultyProfile } from './difficulty';
 import { lootValue, needsInteract } from './gear';
 import { ItemUser } from './itemUse';
-import { ownBountyTarget, ownRole, wearsCrown } from './knowledge';
+import { ownBountyTarget, ownRole, roleKnownTo, wearsCrown } from './knowledge';
 import { Navigator } from './navigator';
 import { observerFor } from './observer';
 import type { ObsEvent } from './observer';
@@ -55,7 +55,7 @@ const RETREAT_MAX = 10;
 /** how far the lord strays from his anchor (loyalists / squad) in a fight */
 const LORD_LEASH = 12;
 /** how far an escort chases an attacker away from the crown it guards */
-const ESCORT_LEASH = 45;
+const ESCORT_LEASH = 38;
 /** seconds at an objective before drifting around it */
 const IDLE_DRIFT_AFTER = 2.5;
 /** non-hero units checked for line of sight per threat scan */
@@ -186,6 +186,9 @@ export class HeroBot implements BotBrain, BotView {
   private jitterGoal: Vec3 | null = null;
   private jitterUntil = 0;
   private castSerial = 0;
+  /** 主公 kiting: where to fall back to while focused (cached ~1 s) */
+  private kiteAt = -99;
+  private kiteSpot: Vec3 | null = null;
   /** the last combat aim (weapon tracking) this tick */
   private lastAim: { errAngle: number; targetAngle: number; point: Vec3 } | null = null;
   /** 集火此人 from a believed ally: the unit it pointed at */
@@ -204,6 +207,14 @@ export class HeroBot implements BotBrain, BotView {
     this.aimer = new Aimer(this.prof, this.rng);
     this.nav = new Navigator(this.rng);
     this.nextAbilityAt = 1 + this.rng.next() * 2;
+  }
+
+  /** set by takeOver(): this brain replaced a dropped player mid-match at this time */
+  private takenOverAt = -1;
+
+  /** BotBrain.takeOver: a dropped player's seat — keep its public claim, stay quiet for a while. */
+  takeOver(sim: SimApi, _self: Entity): void {
+    this.takenOverAt = sim.time;
   }
 
   /** Rebel push metrics (tests). */
@@ -228,7 +239,10 @@ export class HeroBot implements BotBrain, BotView {
     this.self = self;
     this.now = sim.time;
     this.role = ownRole(self);
-    if (!this.strategy) this.strategy = new RoleStrategy(this.seat, this.prof, this.rng);
+    if (!this.strategy) {
+      this.strategy = new RoleStrategy(this.seat, this.prof, this.rng);
+      if (this.takenOverAt >= 0) this.strategy.noteTakeover(this.takenOverAt);
+    }
     const world = observerFor(sim);
     world.update(sim);
     registerMind(sim, self.id, this);
@@ -601,7 +615,8 @@ export class HeroBot implements BotBrain, BotView {
     const t = this.target;
     const pushing = strat.pushing(this);
     let retreatHp = this.prof.retreatHp;
-    if (this.role === 'rebel' && !pushing) retreatHp += 0.1;
+    // before the push a rebel keeps itself alive for it: back off early and heal
+    if (this.role === 'rebel' && !pushing) retreatHp += 0.16;
     // a push commits only for the kill (the lord low): otherwise a hurt rebel backs off and heals
     // rather than feeding the lord a rebel-kill reward
     if (this.role === 'rebel' && pushing && t && wearsCrown(this.sim, t) && this.hpFrac(t) < 0.35) retreatHp -= 0.12;
@@ -1035,7 +1050,14 @@ export class HeroBot implements BotBrain, BotView {
     const dz = (t.pos.z - self.pos.z) / Math.max(1e-3, d);
     const anchor = this.role === 'lord' ? this.lordAnchor() : null;
     const escortOf = this.role === 'loyalist' || this.role === 'double' ? this.escortAnchor() : null;
-    if (escortOf && dist2d(self.pos, escortOf) > ESCORT_LEASH && dist2d(t.pos, escortOf) > ESCORT_LEASH) {
+    const kite = this.role === 'lord' ? this.lordKiteGoal() : null;
+    if (kite && dist2d(kite, self.pos) > 1.2) {
+      // 主公 under focus: fall back behind his loyalists / squad and into cover, shooting as he goes
+      const n = this.nav.steer(sim, self, kite, 1);
+      mx = n.x;
+      mz = n.z;
+      jump = n.jump;
+    } else if (escortOf && dist2d(self.pos, escortOf) > ESCORT_LEASH && dist2d(t.pos, escortOf) > ESCORT_LEASH) {
       // an escort does not chase a fleeing attacker across the map: back to the lord
       const n = this.nav.steer(sim, self, escortOf, ESCORT_LEASH * 0.5);
       mx = n.x;
@@ -1192,6 +1214,47 @@ export class HeroBot implements BotBrain, BotView {
     return this.posOf(lord, 5) ?? null;
   }
 
+  /**
+   * 主公 being focused (two attackers on him, or one while he takes a beating): the spot to fall
+   * back to — cover near the far side of his loyalists / squad from the attackers, else just behind
+   * them — so he fights from behind his escort instead of trading in the open. null = not focused.
+   */
+  private lordKiteGoal(): Vec3 | null {
+    const { sim, self, now } = this;
+    if (now - this.kiteAt < 1) return this.kiteSpot;
+    this.kiteAt = now;
+    this.kiteSpot = null;
+    const attackers = this.threats.filter((x) => x.e.kind === 'hero' && x.hostility >= 0.6 && x.dist < 50 && this.obs.sinceAttack(sim, x.e.id, self.id) < 5);
+    const hp = self.hp / Math.max(1, self.maxHp);
+    const focused = attackers.length >= 2 || (attackers.length === 1 && (this.underFire > 0.08 || hp < 0.65));
+    if (!focused) return null;
+    let cx = 0;
+    let cz = 0;
+    for (const a of attackers) {
+      const p = this.posOf(a.e) ?? a.e.pos;
+      cx += p.x;
+      cz += p.z;
+    }
+    cx /= attackers.length;
+    cz /= attackers.length;
+    const anchor = this.lordAnchor() ?? self.pos;
+    let ax = anchor.x - cx;
+    let az = anchor.z - cz;
+    const l = Math.hypot(ax, az) || 1;
+    ax /= l;
+    az /= l;
+    const behind = clampIntoZone(sim, { x: anchor.x + ax * 5, y: anchor.y, z: anchor.z + az * 5 }, now);
+    if (this.prof.coverUse > 0) {
+      const cov = findCover(sim, self, { threats: attackers.map((a) => sim.eyePos(a.e)), maxDist: 14, budget: 8, maxAdvance: 1 });
+      if (cov && dist2d(cov, behind) < 12) {
+        this.kiteSpot = cov;
+        return cov;
+      }
+    }
+    this.kiteSpot = behind;
+    return behind;
+  }
+
   /** Where the lord's fight is anchored: his believed loyalists, else his squad, else null. */
   private lordAnchor(): Vec3 | null {
     const { sim, self } = this;
@@ -1211,9 +1274,35 @@ export class HeroBot implements BotBrain, BotView {
    * (killing — or downing — a loyalist costs the lord all his gear).
    */
   private mercy(t: Entity): boolean {
-    if (this.role !== 'lord' || t.kind !== 'hero') return false;
+    if (t.kind !== 'hero') return false;
     if (!t.hero?.downed && t.hp > t.maxHp * 0.35) return false;
+    // the lord side never finishes a hero that claimed 忠 and has not done it real harm
+    if ((this.role === 'lord' || this.role === 'loyalist' || this.role === 'double') && !this.beliefs.mayFinish(t)) return true;
     const { sim, self } = this;
+    // a rebel only finishes the lord side: half the strangers are fellow rebels, and a rebel who
+    // kills one looks loyal to the others — the civil war that follows loses the match. Mid-game it
+    // needs a strong loyal read; in the push, anyone standing with the lord who is not a likely
+    // fellow rebel goes down.
+    if (this.role === 'rebel') {
+      if (wearsCrown(sim, t) || roleKnownTo(sim, self, t) !== undefined || pressure(this.now) >= 0.8) return false;
+      if (this.strategy!.pushing(this)) return this.beliefs.rebelness(sim, self, t) >= 0.45;
+      return this.beliefs.lordSideness(sim, self, t) < 0.6;
+    }
+    // the 内奸 keeps the balance while the rebels live: it only thins the side that is ahead (a
+    // rebel it kills while the lord side leads hands the lord the match), and it cuts down whoever
+    // is about to kill the lord
+    if (this.role === 'traitor') {
+      if (wearsCrown(sim, t) || pressure(this.now) >= 0.5) return false;
+      const tk = this.beliefs.table;
+      if (tk && tk.rebelsAlive <= 0.5) return false;
+      for (const c of sim.heroes()) if (wearsCrown(sim, c) && !c.hero?.dead && this.obs.recentDamage(sim, t.id, c.id) >= 10 && this.hpFrac(c) < 0.5) return false;
+      const bal = this.strategy!.balance(this);
+      const ls = this.beliefs.lordSideness(sim, self, t);
+      if (bal < 0.85) return ls < 0.5;
+      if (bal > 1.2) return ls >= 0.5;
+      return true;
+    }
+    if (this.role !== 'lord') return false;
     const hostile = this.beliefs.p(sim, self, t, 'rebel') + this.beliefs.p(sim, self, t, 'traitor');
     return hostile < 0.85;
   }
@@ -1279,7 +1368,9 @@ export class HeroBot implements BotBrain, BotView {
     if (now < this.ffBlockedUntil) return true;
     // splash weapons re-check every trigger pull (a grenade is one big decision), others on a cadence
     const splashy = !!this.weapon && splashRadius(this.weapon) > 0;
-    if (now < this.ffCheckAt && !splashy) return false;
+    // the 主公 checks every trigger pull: a loyalist he guns down costs him everything
+    const lordly = this.role === 'lord';
+    if (now < this.ffCheckAt && !splashy && !lordly) return false;
     this.ffCheckAt = now + FF_CHECK_EVERY;
     const eye = sim.eyePos(self);
     const dx = aim.x - eye.x;
@@ -1301,7 +1392,7 @@ export class HeroBot implements BotBrain, BotView {
     if (!blocked) {
       // visible heroes close to the line of fire (spread / pellets / splash)
       const td = this.targetDist;
-      const width = w ? (w.projectile && w.projectile.explodeRadius > 0 ? w.projectile.explodeRadius + 1 : w.pellets > 1 || w.projectile ? 1.8 : 0.9) : 0.9;
+      const width = (w ? (w.projectile && w.projectile.explodeRadius > 0 ? w.projectile.explodeRadius + 1 : w.pellets > 1 || w.projectile ? 1.8 : 0.9) : 0.9) * (lordly ? 1.6 : 1);
       const ux = dx / l;
       const uz = dz / l;
       for (const e of sim.heroes()) {
@@ -1311,7 +1402,9 @@ export class HeroBot implements BotBrain, BotView {
         const along = rx * ux + rz * uz;
         if (along < 0.5 || along > td + 1) continue;
         const lat = Math.abs(rx * uz - rz * ux);
-        if (lat < width && protectedHero(e)) {
+        // …and (the lord) anyone tangled up right next to the target: spread and misses find them
+        const tangled = lordly && dist2d(e.pos, t.pos) < 2.5;
+        if ((lat < width || tangled) && protectedHero(e)) {
           blocked = true;
           break;
         }
@@ -1356,6 +1449,9 @@ export class HeroBot implements BotBrain, BotView {
     if (now < this.nextAbilityAt) return;
     this.nextAbilityAt = now + this.prof.abilityEvery * (0.7 + this.rng.next() * 0.6);
     const plan = this.abilities.consider(this);
+    // no finishing blow by ability either: a spared hero (mercy) is not blasted instead
+    const on = plan?.targetId !== undefined ? this.sim.get(plan.targetId) : undefined;
+    if (plan && on?.hero && on !== this.self && this.hostility(on) >= 0.5 && this.mercy(on)) return;
     if (plan) this.startCast(f, 'ability', plan);
   }
 

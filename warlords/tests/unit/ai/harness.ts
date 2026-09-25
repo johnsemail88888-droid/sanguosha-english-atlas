@@ -81,6 +81,10 @@ export interface MatchMetrics {
   /** first / last hero death (NaN: none) */
   firstDeathAt: number;
   lastDeathAt: number;
+  /** when the (real) lord died (NaN: survived) */
+  lordDeathAt: number;
+  /** loyalists killed by another loyalist */
+  loyalKilledLoyal: number;
   /** damage rebels dealt to the real lord / to the 影武者 */
   rebelDmgOnLord: number;
   rebelDmgOnDouble: number;
@@ -142,6 +146,8 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
   let heroDmgBefore180 = 0;
   let firstDeathAt = NaN;
   let lastDeathAt = NaN;
+  let lordDeathAt = NaN;
+  let loyalKilledLoyal = 0;
   let rebelDmgOnLord = 0;
   let rebelDmgOnDouble = 0;
   const tracks = new Map<EntityId, MoveTrack>();
@@ -171,9 +177,11 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
           const victim = w.get(ev.target);
           const killer = ev.killer !== undefined ? w.get(ev.killer) : undefined;
           deathLog.push(`${Math.round(w.time)}:${ev.role ?? '?'}<${killer?.hero ? killer.hero.role : killer ? killer.kind : 'zone'}`);
+          if (ev.role === 'lord') lordDeathAt = w.time;
           if (killer?.hero) {
             deaths.hero++;
             if (killer.hero.role === 'lord' && (ev.role === 'loyalist' || ev.role === 'double')) lordKilledLoyal++;
+            if (killer.hero.role === 'loyalist' && ev.role === 'loyalist' && killer !== victim) loyalKilledLoyal++;
           } else if (killer?.kind === 'npc') deaths.npc++;
           else if (victim && outsideZone(w, victim)) deaths.zone++;
           else deaths.other++;
@@ -241,6 +249,8 @@ export function runMatch(spec: MatchSpec, opts: { timing?: boolean } = {}): Matc
     heroDmgBefore180: Math.round(heroDmgBefore180),
     firstDeathAt,
     lastDeathAt,
+    lordDeathAt,
+    loyalKilledLoyal,
     rebelDmgOnLord: Math.round(rebelDmgOnLord),
     rebelDmgOnDouble: Math.round(rebelDmgOnDouble),
     castsAimed: bots.reduce((a, b) => a + b.stats.castsAimed, 0),
@@ -329,6 +339,14 @@ export interface SampleSummary {
   earlyDamageShare: number;
   medianFirstHit: number;
   medianFirstDeath: number;
+  /** median duration (s) */
+  medianDuration: number;
+  /** share of matches shorter than 300 s */
+  shortShare: number;
+  /** median seconds from the first hero-vs-hero hit to the lord's death (matches the lord lost; NaN: none) */
+  medianLordGap: number;
+  /** lord + loyalists (+ 影武者) win share */
+  lordSideShare: number;
   /** mean seconds between the first and the last hero death (matches with ≥ 2 deaths) */
   meanDeathSpread: number;
   rebelOnLordShare: number;
@@ -358,6 +376,10 @@ export function summarize(rows: MatchMetrics[]): SampleSummary {
     earlyDamageShare: rows.filter((r) => r.heroDmgBefore180 > 0).length / Math.max(1, rows.length),
     medianFirstHit: median(rows.map((r) => r.firstHeroHitAt)),
     medianFirstDeath: median(rows.map((r) => r.firstDeathAt)),
+    medianDuration: median(rows.map((r) => r.duration)),
+    shortShare: rows.filter((r) => r.duration < 300).length / Math.max(1, rows.length),
+    medianLordGap: median(rows.filter((r) => Number.isFinite(r.lordDeathAt) && Number.isFinite(r.firstHeroHitAt)).map((r) => r.lordDeathAt - r.firstHeroHitAt)),
+    lordSideShare: rows.filter((r) => r.winner === 'lord').length / Math.max(1, rows.length),
     meanDeathSpread: spreads.length ? spreads.reduce((s, x) => s + x, 0) / spreads.length : NaN,
     rebelOnLordShare: onLord + onDouble > 0 ? onLord / (onLord + onDouble) : NaN,
   };
@@ -367,6 +389,6 @@ export function formatSummary(s: SampleSummary): string {
   const f = (x: number, d = 0): string => (Number.isFinite(x) ? x.toFixed(d) : '-');
   return [
     `matches ${s.n} · wins ${JSON.stringify(s.wins)} · by mode ${JSON.stringify(s.winsByMode)}`,
-    `avg ${f(s.avgDuration)} s · combat-decided ${f(s.combatShare * 100)}% · hero damage before 180 s in ${f(s.earlyDamageShare * 100)}% · median first hit ${f(s.medianFirstHit)} s · median first death ${f(s.medianFirstDeath)} s · mean first→last death ${f(s.meanDeathSpread)} s · rebel damage on the real lord (乱世) ${f(s.rebelOnLordShare * 100)}%`,
+    `avg ${f(s.avgDuration)} s · median ${f(s.medianDuration)} s · under 5:00 ${f(s.shortShare * 100)}% · lord side wins ${f(s.lordSideShare * 100)}% · median first hit → lord death ${f(s.medianLordGap)} s · combat-decided ${f(s.combatShare * 100)}% · hero damage before 180 s in ${f(s.earlyDamageShare * 100)}% · median first hit ${f(s.medianFirstHit)} s · median first death ${f(s.medianFirstDeath)} s · mean first→last death ${f(s.meanDeathSpread)} s · rebel damage on the real lord (乱世) ${f(s.rebelOnLordShare * 100)}%`,
   ].join('\n');
 }

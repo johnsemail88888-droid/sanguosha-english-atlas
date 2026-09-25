@@ -105,23 +105,27 @@ export const ROLE_DISTRIBUTION: Record<GameMode, RoleDistribution> = {
     7: [['lord', 'loyalist', 'loyalist', 'rebel', 'rebel', 'rebel', 'traitor']],
     8: [['lord', 'loyalist', 'loyalist', 'rebel', 'rebel', 'rebel', 'rebel', 'traitor']],
   },
-  // 乱世模式: one random variant per count, each swaps in fun roles.
+  // 乱世模式: one random variant per count, each swaps in fun roles and keeps the 内奸. Every variant
+  // deals at least as many rebels as lord-side seats (lord + loyalists + 影武者): the crowns carry
+  // +100 HP / +2 soldiers each, and a table of 1 rebel against 2 lord-side seats / 2 rebels against 3
+  // was a lord-side walkover (G4 balance: 乱世 rebels won ~21 %; 8 % / 12 % / 21 % on those three
+  // variants, 0 of 11 on the 6-seat loyalist + bounty table).
   chaos: {
     5: [
       ['lord', 'double', 'rebel', 'rebel', 'traitor'],
-      ['lord', 'loyalist', 'rebel', 'opportunist', 'traitor'],
+      ['lord', 'opportunist', 'rebel', 'rebel', 'traitor'],
     ],
     6: [
       ['lord', 'double', 'rebel', 'rebel', 'opportunist', 'traitor'],
-      ['lord', 'loyalist', 'rebel', 'rebel', 'bounty', 'traitor'],
+      ['lord', 'double', 'rebel', 'rebel', 'rebel', 'traitor'],
     ],
     7: [
-      ['lord', 'loyalist', 'double', 'rebel', 'rebel', 'bounty', 'traitor'],
+      ['lord', 'double', 'rebel', 'rebel', 'rebel', 'bounty', 'traitor'],
       ['lord', 'loyalist', 'double', 'rebel', 'rebel', 'rebel', 'traitor'],
     ],
     8: [
       ['lord', 'loyalist', 'double', 'rebel', 'rebel', 'rebel', 'bounty', 'traitor'],
-      ['lord', 'loyalist', 'double', 'rebel', 'rebel', 'opportunist', 'bounty', 'traitor'],
+      ['lord', 'loyalist', 'double', 'rebel', 'rebel', 'rebel', 'opportunist', 'traitor'],
     ],
   },
 };

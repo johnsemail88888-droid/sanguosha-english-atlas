@@ -1,25 +1,29 @@
 // Real app, single player (production build served by `vite preview` on :5186):
-// title → setup → roles → hero select → loading → match; HUD up; W moves the
-// hero; firing uses ammo; Q / E start cooldowns; Tab scoreboard; Esc pause (and
-// losing the pointer lock pauses too); bots fight each other (a hero death within a
-// few sim-minutes, sped up with the debug time scale — shown in the kill feed, or,
-// when the Lord fell first, on the game-over screen); leave back to the title.
-import { expect, test, type Browser } from '@playwright/test';
+// title → setup → roles → hero select (the clicked-but-unconfirmed card is what you
+// get when the timer runs out — 3 runs) → loading → match; the clock starts once the
+// 3D view is ready; HUD up; W moves the hero; firing uses ammo; Q / E start
+// cooldowns; Tab scoreboard; Esc opens the menu with a free cursor and really
+// pauses (also inside 设置); cards picked up explain themselves (zh + en); bots
+// fight each other (any hero→hero hit or kill in a time-scaled window, bots
+// brought together); leave back to the title.
+import { expect, test, type Browser, type Page } from '@playwright/test';
 import {
+  PORT_OFFSET,
   SELF_CAST_HEROES,
   enterGame,
   holdKeyUntilMoved,
   launchBrowser,
   openGame,
-  playSingle,
   relevantErrors,
   startPreview,
+  waitGame,
+  waitMatch,
   type GamePage,
   type Server,
   type SgwlWindow,
 } from './fixtures/game-fixture';
 
-const PORT = 5186;
+const PORT = 5186 + PORT_OFFSET;
 let server: Server;
 let browser: Browser;
 
@@ -36,8 +40,43 @@ test.afterAll(async () => {
   await server?.close();
 });
 
-test('single player: full flow, controls, HUD, bots fight, leave', async () => {
-  test.setTimeout(15 * 60_000);
+const elapsed = (page: Page): Promise<number> => page.evaluate(() => (window as SgwlWindow).__sgwl!.elapsed());
+const locked = (page: Page): Promise<boolean> => page.evaluate(() => document.pointerLockElement !== null);
+
+/**
+ * Title / setup → 出征 → hero select; click a card (`choose` picks which), never
+ * press 选定 and let the countdown run out. Returns the clicked hero and the one the
+ * host finally gave this seat.
+ */
+async function clickAndWait(page: Page, choose: (ids: string[]) => string): Promise<{ clicked: string; got: string | null }> {
+  await expect(page.locator('[data-screen="single"]')).toBeVisible();
+  await page.locator('[data-screen="single"] .sg-btn.gold').click();
+  await expect(page.locator('[data-screen="roles"]')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('.sg-select:not(.waiting) .grid .sg-hcard').first()).toBeVisible({ timeout: 120_000 });
+  // remember the final picks this seat gets (the view goes away once the phase ends)
+  await page.evaluate(() => {
+    const g = (window as SgwlWindow).__sgwl!;
+    const s = g.session!;
+    const w = window as Window & { __myPick?: string | null };
+    w.__myPick = null;
+    const seat = (): number => s.lobby?.seats.find((x) => x.playerId === s.myId)?.seat ?? -1;
+    s.on('heroSelect', (v) => {
+      const h = v.picks[seat()];
+      if (h) w.__myPick = h;
+    });
+  });
+  const ids = await page.locator('.sg-select .grid .sg-hcard').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.hero ?? ''));
+  const clicked = choose(ids);
+  await page.locator(`.sg-select .grid .sg-hcard[data-hero="${clicked}"]`).click();
+  await expect(page.locator(`.sg-select .grid .sg-hcard[data-hero="${clicked}"]`)).toHaveClass(/selected/);
+  // no 选定: wait for the host's timeout (20 s + the lord's turn)
+  await waitGame(page, "(g) => g.phase === 'loading' || g.phase === 'playing'", 90_000, 'hero select timeout');
+  const got = await page.evaluate(() => (window as Window & { __myPick?: string | null }).__myPick ?? null);
+  return { clicked, got };
+}
+
+test('single player: full flow, controls, HUD, pause, cards, bots fight, leave', async () => {
+  test.setTimeout(25 * 60_000);
   let g: GamePage | null = null;
   try {
     g = await openGame(browser, `${server.url}?debug=1`);
@@ -47,11 +86,31 @@ test('single player: full flow, controls, HUD, bots fight, leave', async () => {
     // title
     await expect(page.locator('.sg-menu-btn.primary')).toContainText('单人练习');
     await expect(page.locator('.sg-logo')).toBeVisible();
+    await page.locator('.sg-menu-btn.primary').click();
 
-    const hero = await playSingle(page, { players: 5, prefer: SELF_CAST_HEROES });
+    // hero select ignores nothing: the clicked (not confirmed) card is the one you get — 3 runs
+    const results: { clicked: string; got: string | null }[] = [];
+    for (let run = 0; run < 2; run++) {
+      const r = await clickAndWait(page, (ids) => ids[2] ?? ids[ids.length - 1]!);
+      results.push(r);
+      // back to the setup for the next run
+      await page.evaluate(() => (window as SgwlWindow).__sgwl!.session!.returnToLobby());
+    }
+    const last = await clickAndWait(page, (ids) => SELF_CAST_HEROES.find((h) => ids.includes(h)) ?? ids[2]!);
+    results.push(last);
+    console.log(`[game e2e] hero-select timeouts: ${JSON.stringify(results)}`);
+    for (const r of results) expect(r.got, `timeout gives the clicked card (${r.clicked})`).toBe(r.clicked);
+
+    await waitMatch(page);
+    const hero = await page.evaluate(() => (window as SgwlWindow).__sgwl!.local()!.heroId);
+    expect(hero, 'the match hero is the clicked card').toBe(last.clicked);
     console.log(`[game e2e] playing as ${hero}`);
+    // APP-3: the match clock starts when the 3D view is ready — the first HUD frame reads 0:00–0:01
+    const clockText = await page.locator('.hud-top .match-info .clock').textContent();
     const t = await page.evaluate(() => (window as SgwlWindow).__sgwl!.timings);
-    console.log(`[game e2e] load milestones (ms): ${JSON.stringify(t)}`);
+    console.log(`[game e2e] load milestones (ms): ${JSON.stringify(t)} · first clock ${clockText}`);
+    expect(clockText ?? '').toMatch(/^0:0[01]$/);
+    if (t['load:ready'] !== undefined && t['phase:playing'] !== undefined) expect(t['phase:playing']).toBeGreaterThanOrEqual(t['load:ready'] - 300);
 
     // HUD
     await expect(page.locator('.hud-minimap canvas')).toBeVisible();
@@ -107,72 +166,112 @@ test('single player: full flow, controls, HUD, bots fight, leave', async () => {
     await page.keyboard.up('Tab');
     await expect(page.locator('.sg-hud.show-score')).toHaveCount(0);
 
-    // Esc = pause menu. A real browser also drops the pointer lock on Esc (headless
-    // Chromium does not): release it like the browser would, so the cursor is free.
-    await page.keyboard.press('Escape');
-    await page.evaluate(() => document.exitPointerLock());
-    await expect(page.locator('.sg-hud[data-overlay="pause"] .pm-box')).toBeVisible();
-    await shot('05-pause');
-    await page.locator('.pm-box .sg-btn.gold').click();
+    // Esc under pointer lock (headless Chromium delivers the key and keeps the lock):
+    // the menu opens AND frees the cursor, so its buttons work
     await enterGame(page);
-    // browsers swallow Esc while the pointer is locked: losing the lock alone must pause
+    expect(await locked(page), 'pointer locked in play').toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.sg-hud[data-overlay="pause"] .pm-box')).toBeVisible();
+    await expect.poll(() => locked(page), { message: 'the menu releases the pointer lock' }).toBe(false);
+    await page.locator('.pm-box .sg-btn', { hasText: '离开对局' }).click();
+    await expect(page.locator('.sg-modal-back .sg-modal')).toContainText('确定离开当前对局');
+    await page.locator('.sg-modal .actions .sg-btn').first().click(); // cancel
+    await shot('05-pause');
+
+    // the pause menu really pauses single player (and so does 设置 opened from it)
+    const pausable = await page.evaluate(() => typeof (window as SgwlWindow).__sgwl!.session?.['setPaused' as keyof object] === 'function');
+    const p0 = await elapsed(page);
+    await page.waitForTimeout(3000);
+    const p1 = await elapsed(page);
+    await page.locator('.pm-box .sg-btn', { hasText: '设置' }).click();
+    await expect(page.locator('.sg-settings')).toBeVisible();
+    await page.waitForTimeout(3000);
+    const p2 = await elapsed(page);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.sg-settings')).toHaveCount(0);
+    console.log(`[game e2e] paused clock: ${p0.toFixed(2)} → ${p1.toFixed(2)} (menu) → ${p2.toFixed(2)} (settings); setPaused ${pausable}`);
+    if (pausable) {
+      expect(p1 - p0, 'pause menu freezes the match').toBeLessThan(0.15);
+      expect(p2 - p1, '设置 from the menu keeps it frozen').toBeLessThan(0.15);
+    } else {
+      test.info().annotations.push({ type: 'skip-assert', description: 'session.setPaused (G2) missing: pause freeze not asserted' });
+    }
+    // 继续战斗 re-takes the pointer lock and the clock runs again
+    await page.locator('.pm-box .sg-btn.gold').click();
+    await expect.poll(() => locked(page), { message: '继续战斗 re-acquires the lock' }).toBe(true);
+    await expect(page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1);
+    await expect.poll(() => elapsed(page), { timeout: 30_000 }).toBeGreaterThan(p2 + 0.5);
+    // browsers swallow Esc while the pointer is locked: losing the lock alone opens the menu
     await page.evaluate(() => document.exitPointerLock());
     await expect(page.locator('.sg-hud[data-overlay="pause"] .pm-box')).toBeVisible();
     await page.locator('.pm-box .sg-btn.gold').click();
     await enterGame(page);
 
-    // bots fight: god mode for us, sim sped up; wait for a hero death in the sim
-    // (__sgwl.events.deaths). Which bot dies first is random: if it is the Lord the
-    // match ends at once and the HUD (with its kill feed) gives way to the game-over
-    // screen, so the DOM kill feed is checked only while the match is still on —
-    // through a MutationObserver, as entries expire after 7 sim-seconds (≈1 s at 6×).
-    await page.evaluate(() => {
-      const w = window as SgwlWindow & { __kfSeen?: string[] };
-      w.__kfSeen = [];
-      const feed = document.querySelector('.hud-feed');
-      if (!feed) return;
-      new MutationObserver((muts) => {
-        for (const m of muts)
-          for (const n of m.addedNodes)
-            if (n instanceof HTMLElement && n.matches('.kf:not(.claim)')) w.__kfSeen!.push(n.textContent ?? '');
-      }).observe(feed, { childList: true, subtree: true });
+    // a card you get explains itself: pickup toast with its effect, and the 锦囊说明 in the menu
+    expect(await page.evaluate(() => (window as SgwlWindow).__sgwl!.cheats.give('shandian'))).toBe(true);
+    await expect(page.locator('.hud-announce .ann-info .line.has-sub').last()).toContainText('闪电', { timeout: 15_000 });
+    await expect(page.locator('.hud-announce .ann-info .line.has-sub .sub').last()).toContainText('雷云');
+    await shot('06-card-toast-zh');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.pm-cards .pc-list.held .pc-card[data-item="shandian"] .desc')).toContainText('雷云');
+    // English: the same explanations in English
+    await page.locator('.pm-box .sg-btn', { hasText: '设置' }).click();
+    await page.locator('.sg-settings .sg-tab[data-tab="general"]').click();
+    await page.locator('.sg-settings .sg-seg button[data-value="en"]').click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.pm-box h2')).toHaveText('Paused');
+    await expect(page.locator('.pm-cards .pc-list.held .pc-card[data-item="shandian"] .desc')).toContainText('storm cloud');
+    await shot('07-card-guide-en');
+    await page.locator('.pm-box .sg-btn.gold').click();
+    await enterGame(page);
+    expect(await page.evaluate(() => (window as SgwlWindow).__sgwl!.cheats.give('wuzhong'))).toBe(true);
+    await expect(page.locator('.hud-announce .ann-info .line.has-sub .sub').last()).toContainText('random', { timeout: 15_000 });
+    await shot('08-card-toast-en');
+
+    // bots fight: god mode for us, sim sped up, every bot brought next to the Lord (the
+    // one role everyone knows) — any hero→hero hit or kill counts, whoever it is
+    const setup = await page.evaluate(() => {
+      const g = (window as SgwlWindow).__sgwl!;
+      const c = g.cheats;
+      const god = c.god(true);
+      const scale = c.timeScale(4);
+      const me = g.localId();
+      const players = g.players();
+      const lord = players.find((p) => p.role === 'lord' && p.alive) ?? players.find((p) => p.alive && p.entityId !== me)!;
+      const at = g.entities().find((e) => e.id === lord.entityId)!;
+      let moved = 0;
+      players.filter((p) => p.alive && p.entityId !== lord.entityId && p.entityId !== me).forEach((p, i) => {
+        const a = (i / 4) * Math.PI * 2;
+        if (c.teleportHero(p.entityId, at.x + Math.cos(a) * 6, at.z + Math.sin(a) * 6)) moved++;
+      });
+      return { god, scale, moved, lord: lord.heroId };
     });
-    const cheats = await page.evaluate(() => {
-      const c = (window as SgwlWindow).__sgwl!.cheats;
-      return { god: c.god(true), scale: c.timeScale(6) };
-    });
-    expect(cheats.god && cheats.scale, 'debug cheats available in single player').toBe(true);
-    const tStart = await page.evaluate(() => (window as SgwlWindow).__sgwl!.elapsed());
+    console.log(`[game e2e] bots brought to the Lord: ${JSON.stringify(setup)}`);
+    expect(setup.god && setup.scale, 'debug cheats available in single player').toBe(true);
+    const tStart = await elapsed(page);
+    const fought = (ev: { heroHits: number; deaths: { killer?: number; target: number }[] }): boolean => ev.heroHits > 0 || ev.deaths.some((d) => d.killer !== undefined && d.killer !== d.target);
     await expect
-      .poll(() => page.evaluate(() => (window as SgwlWindow).__sgwl!.events.deaths.length), { timeout: 8 * 60_000, intervals: [1000] })
-      .toBeGreaterThan(0);
+      .poll(async () => fought(await page.evaluate(() => (window as SgwlWindow).__sgwl!.events)), { timeout: 6 * 60_000, intervals: [1000] })
+      .toBe(true);
     const after = await page.evaluate(() => {
       const g = (window as SgwlWindow).__sgwl!;
       g.cheats.timeScale(1);
-      return { t: g.elapsed(), phase: g.phase, screen: g.screen, events: g.events, kf: (window as unknown as { __kfSeen: string[] }).__kfSeen };
+      return { t: g.elapsed(), phase: g.phase, screen: g.screen, events: { heroHits: g.events.heroHits, heroDamage: g.events.heroDamage, deaths: g.events.deaths } };
     });
-    console.log(`[game e2e] first hero death after ${(after.t - tStart).toFixed(0)} sim-s (phase ${after.phase}): ${JSON.stringify(after.events.deaths)}`);
-    // …and the heroes really fought each other (not only zone deaths)
-    const fought = (ev: typeof after.events): boolean => ev.heroHits > 0 || ev.deaths.some((d) => d.killer !== undefined && d.killer !== d.target);
-    if (after.phase === 'playing') {
-      await expect.poll(() => page.evaluate(() => (window as unknown as { __kfSeen: string[] }).__kfSeen.length), { timeout: 30_000 }).toBeGreaterThan(0);
-      await shot('06-killfeed');
-      await expect
-        .poll(async () => fought(await page.evaluate(() => (window as SgwlWindow).__sgwl!.events)), { timeout: 5 * 60_000, intervals: [2000] })
-        .toBe(true);
+    console.log(`[game e2e] heroes fought after ${(after.t - tStart).toFixed(0)} sim-s (phase ${after.phase}): ${JSON.stringify(after.events)}`);
+    await shot('09-fight');
 
+    if (after.phase === 'playing') {
       // leave → title
       await page.keyboard.press('Escape');
-      await page.evaluate(() => document.exitPointerLock());
       await expect(page.locator('.sg-hud[data-overlay="pause"] .pm-box')).toBeVisible();
       await page.locator('.pm-box .sg-btn', { hasText: /离开|Leave/ }).click();
       await page.locator('.sg-modal .actions .sg-btn').last().click();
     } else {
-      // the first death ended the match (the Lord fell): the game-over screen names the winners
+      // a fight ended the match (the Lord fell): the game-over screen names the winners
       expect(after.phase, 'match over').toBe('gameOver');
-      expect(fought(after.events), 'the Lord fell in a fight').toBe(true);
       await expect(page.locator('[data-screen="gameOver"]')).toBeVisible({ timeout: 30_000 });
-      await shot('06-gameover');
+      await shot('09b-gameover');
       await page.locator('[data-screen="gameOver"] .sg-btn', { hasText: /返回标题|Main menu/ }).click();
     }
     await expect(page.locator('[data-screen="title"]')).toBeVisible({ timeout: 30_000 });

@@ -2,7 +2,7 @@
 // 坐断东南 (recruit over the cap), lord 救援 (Wu damage-reduction aura + regen).
 import type { AbilityCtx, SimApi } from '../../api';
 import { ext } from '../../ext';
-import { UNIT_KINDS, alive, getState, param, setState } from '../common';
+import { UNIT_KINDS, alive, deny, getState, param, setState } from '../common';
 import { registerAbility } from '../registry';
 import { centerOf, grantItems, isUp, refillDodges, reloadAllFromReserve, setCast } from './util';
 
@@ -52,9 +52,9 @@ registerAbility({
     const living = h.squad.filter((id) => alive(sim.get(id))).length;
     const room = squadCap(sim, ctx) + Math.max(0, Math.round(param(ctx, 'overCap', 2))) - living;
     const n = Math.min(Math.max(0, Math.round(param(ctx, 'count', 2))), room);
-    if (n <= 0) return false; // squad full: no cooldown
+    if (n <= 0) return deny(ctx, 'cap'); // squad full: no cooldown
     setCast(ctx, { pos: centerOf(self) });
-    return sim.spawnTroops(self.id, ctx.hero.troopType, n).length > 0;
+    return sim.spawnTroops(self.id, ctx.hero.troopType, n).length > 0 || deny(ctx, 'blocked');
   },
 });
 

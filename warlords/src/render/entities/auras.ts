@@ -268,6 +268,14 @@ export class AuraSet {
     if (flags & VF_ROOTED) fx.burst(body(0.05), { count: n(8), tex: PT.petal, color: COL.root, speed: [0.3, 0.8], up: 1, life: [0.4, 0.7], size: [0.1, 0.06], gravity: -0.5, spin: 4 });
   }
 
+  /**
+   * Gate the mark chevron (drawn through walls, depthTest off) by line of
+   * sight; call after update() each frame.
+   */
+  setMarkVisible(visible: boolean): void {
+    if (this.chevron && !visible) this.chevron.visible = false;
+  }
+
   dispose(): void {
     this.group.removeFromParent();
   }

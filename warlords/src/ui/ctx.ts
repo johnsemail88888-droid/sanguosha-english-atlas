@@ -1,8 +1,10 @@
 // The context object every screen receives from the app shell.
 import type { MatchSettings } from '../core/types';
 import type { GameSession } from '../game/session';
+import type { NetServerConfig } from '../game/settings';
 import type { AppDeps, LoadProgress } from './app';
 import type { PortraitCache, SfxName } from './widgets';
+import type { LobbyChatLog } from './screens/lobby';
 
 export type ScreenId =
   | 'title'
@@ -61,4 +63,8 @@ export interface UiCtx {
    * exists). `cb` is called right away and on every change.
    */
   loadProgress?(cb: (p: LoadProgress | null) => void): () => void;
+  /** lobby chat history of the current online session (kept across matches) */
+  chatLog?(): LobbyChatLog | null;
+  /** how the current online session connects (invite links carry it) */
+  connection?(): { mode: 'peer' | 'ws'; net: NetServerConfig } | null;
 }

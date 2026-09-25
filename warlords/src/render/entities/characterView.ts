@@ -33,9 +33,12 @@ import { AuraSet } from './auras';
 import { Nameplate, type PlateData } from './nameplate';
 import type { EntityCtx } from './context';
 import { CAM_FADE_HIDDEN, cameraFadeTarget, type CamFadeOptions } from './camFade';
+import { LOS_MAX_AGE_HERO, LosCache, needsLos, overheadTarget, stepOcclusion, type OverheadVisibility } from './occlusion';
 import { displayName } from '../../game/names';
 
 const _v = new THREE.Vector3();
+const _losTop = new THREE.Vector3();
+const _losChest = new THREE.Vector3();
 const EMISSIVE = {
   invuln: new THREE.Color(0.55, 0.42, 0.1),
   frozen: new THREE.Color(0.12, 0.25, 0.4),
@@ -66,6 +69,10 @@ export const HERO_WEAPON_SHADOW_DIST = 20;
 export const TROOP_WEAPON_SHADOW_DIST = 8;
 /** Hero nameplates fade out beyond this distance (m). */
 const PLATE_MAX_DIST = 140;
+/** Troop / NPC pennants are drawn within this distance (m). */
+const BADGE_MAX_DIST = 70;
+/** Near-camera fade of a rider: the mount's half length (m, before scale) stands in for the body radius. */
+const MOUNT_FADE_RADIUS = 1.05;
 
 const kingdomColors = new Map<string, THREE.Color>();
 function kingdomColorLinear(k: ViewEntity['kingdom']): THREE.Color {
@@ -92,8 +99,14 @@ export class CharacterView {
   private yaw = 0;
   private initialised = false;
   private hitFlash = 0;
-  private occlusion = 1;
-  private occluded = false;
+  /**
+   * Line-of-sight opacity of the overhead UI drawn through the world (plate,
+   * pennant, mark chevron): 0 while a wall / hill hides the character from the
+   * camera (see ./occlusion.ts), 1 in sight.
+   */
+  private occlusion = 0;
+  private readonly los = new LosCache();
+  private readonly overheadVis: OverheadVisibility = { exposed: false, local: false, squad: false };
   private bubble: { text: string; until: number } | null = null;
   private readonly defaultWeapon: string | null;
   private deadFor = 0;
@@ -279,7 +292,11 @@ export class CharacterView {
         fo.squad = inSquad;
         fo.camDir = ctx.camDir ?? null;
         fo.fovDeg = ctx.fovDeg;
-        target = cameraFadeTarget(ctx.camPos, ctx.focusPos ?? null, pos, this.headHeight(), 0.45 * this.rig.root.scale.x, fo);
+        // low crawling camera while your hero is downed: troops / NPCs get a larger near volume
+        fo.downedCam = !isHero && (ctx.local?.downed ?? false);
+        // a rider's body reaches the mount's head / rump: its "radius" is the half length
+        const radius = (this.rig.mount ? MOUNT_FADE_RADIUS : 0.45) * this.rig.root.scale.x;
+        target = cameraFadeTarget(ctx.camPos, ctx.focusPos ?? null, pos, this.headHeight(), radius, fo);
       }
       // hiding is immediate (a body inside the camera must never flash on screen), fading back in is smooth
       if (target <= CAM_FADE_HIDDEN) this.camFade = 0;
@@ -302,19 +319,26 @@ export class CharacterView {
     const auraFlags = isLocal ? e.flags & ~(VF_LORD | VF_MARKED) : e.flags;
     this.auras.update(auraFlags, head, pos, dt, ctx.time, ctx.fx, ctx.fovDeg, dist, true, isLocal);
 
-    // overhead UI
+    // overhead UI (drawn on top of the world: gated by line of sight, never a wallhack)
+    const vis = this.overheadVis;
+    vis.exposed = (e.flags & VF_EXPOSED) !== 0;
+    vis.local = isLocal;
+    vis.squad = inSquad;
+    const marked = (auraFlags & VF_MARKED) !== 0 && (e.flags & VF_DEAD) === 0;
     if (isHero) {
       if (isLocal) {
         if (this.plate) this.plate.sprite.visible = false;
       } else if (dist > PLATE_MAX_DIST) {
         if (this.plate) this.plate.sprite.visible = false;
+        if (marked) this.updateOcclusion(ctx, pos, head, dist, true);
+        else this.hideOverhead();
       } else {
         if (!this.plate) {
           this.plate = new Nameplate();
           this.root.add(this.plate.sprite);
         }
         this.headPos.set(pos.x, pos.y + head + 0.3, pos.z);
-        this.updateOcclusion(ctx, this.headPos, dist);
+        this.updateOcclusion(ctx, pos, head, dist, true);
         const def = HERO_BY_ID[e.sub];
         const d = this.plateData;
         d.heroName = def ? (ctx.lang === 'en' ? def.nameEn : def.nameZh) : e.sub;
@@ -337,11 +361,23 @@ export class CharacterView {
         this.plate.sprite.position.set(0, head + 0.3, 0);
         this.plate.layout(ctx.fovDeg, dist);
       }
-    } else if ((e.flags & VF_DEAD) === 0 && dist < 70 && plateFade > 0.5) {
-      // troops / NPCs: one instance each in the shared badge batch
-      const showBar = e.hp < e.maxHp - 0.5 && dist < 45;
-      ctx.badges.add(pos.x, pos.y + head + 0.2, pos.z, kingdomColorLinear(e.kingdom), inSquad, e.hp / Math.max(1, e.maxHp), showBar, dist);
-    }
+    } else if ((e.flags & VF_DEAD) === 0 && dist < BADGE_MAX_DIST && plateFade > 0.5) {
+      // troops / NPCs: one instance each in the shared badge batch (hidden behind walls / hills)
+      this.updateOcclusion(ctx, pos, head, dist, false);
+      if (this.occlusion > 0.02) {
+        const showBar = e.hp < e.maxHp - 0.5 && dist < 45;
+        ctx.badges.add(pos.x, pos.y + head + 0.2, pos.z, kingdomColorLinear(e.kingdom), inSquad, e.hp / Math.max(1, e.maxHp), showBar, dist, this.occlusion);
+      }
+    } else if (marked) this.updateOcclusion(ctx, pos, head, dist, false);
+    else this.hideOverhead();
+    // the 鬼谋 mark chevron is drawn through walls too: same line-of-sight rule
+    this.auras.setMarkVisible(isLocal || this.occlusion > 0.3);
+  }
+
+  /** No overhead UI this frame (out of range): forget the cached line of sight. */
+  private hideOverhead(): void {
+    this.los.reset();
+    this.occlusion = 0;
   }
 
   private claimLabelFor(claim: RoleId | undefined, lang: string): string | undefined {
@@ -355,11 +391,29 @@ export class CharacterView {
     return this.claimLabel;
   }
 
-  private updateOcclusion(ctx: EntityCtx, head: THREE.Vector3, dist: number): void {
-    // staggered static LOS test (every ~8 frames per character)
-    if ((ctx.frame + this.id) % 8 === 0) this.occluded = dist > 4 && ctx.blocked(ctx.camPos, head);
-    const target = this.occluded ? 0.12 : 1;
-    this.occlusion += (target - this.occlusion) * (1 - Math.exp(-ctx.dt * 8));
+  /**
+   * Staggered, cached static line-of-sight test (colliders + terrain) from the
+   * camera to the head top (heroes: or the chest), driving `occlusion`. Your
+   * own hero / squad and revealed heroes (VF_EXPOSED) are never hidden.
+   */
+  private updateOcclusion(ctx: EntityCtx, pos: THREE.Vector3, head: number, dist: number, hero: boolean): void {
+    const vis = this.overheadVis;
+    if (!needsLos(vis, dist)) {
+      this.los.reset();
+      this.occlusion = 1;
+      return;
+    }
+    if (this.los.due(ctx.frame, ctx.time, this.id, hero ? LOS_MAX_AGE_HERO : Infinity)) {
+      let blocked = ctx.blocked(ctx.camPos, _losTop.set(pos.x, pos.y + head, pos.z));
+      // a hero whose head is behind a beam but whose body is in the open still shows
+      if (blocked && hero) blocked = ctx.blocked(ctx.camPos, _losChest.set(pos.x, pos.y + head * 0.6, pos.z));
+      if (this.los.set(blocked, ctx.time)) {
+        // first result: start at it (a hidden plate must never flash in; a visible one needs no fade)
+        this.occlusion = blocked ? 0 : 1;
+        return;
+      }
+    }
+    this.occlusion = stepOcclusion(this.occlusion, overheadTarget(this.los.blocked, vis), ctx.dt);
   }
 
   /** `local`: your own hero sits in the middle of the view — status glows are a hint there, not a gold statue */

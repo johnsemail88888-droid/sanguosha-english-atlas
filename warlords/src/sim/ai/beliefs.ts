@@ -50,6 +50,12 @@ const PROXIMITY_EVERY = 2;
 const DEED_MEMORY = 90;
 const SINKHORN_ITERS = 10;
 const SCORE_CLAMP = 8;
+/** evidence per proximity read (every PROXIMITY_EVERY s) against a stranger seen loitering with another at a crown's edge */
+const STAGING_READ = 0.05;
+/** a 忠-claimer seen dealing less than this to the lord side is still "clean" (stray pellets, one collateral sweep) */
+const CLEAN_HARM = 40;
+/** …and the lord side never finishes (executes) a 忠-claimer seen dealing less than this to it */
+const FINISH_HARM = 100;
 
 const LORD_SIDE: ReadonlySet<RoleId> = new Set<RoleId>(['lord', 'loyalist', 'double']);
 
@@ -59,6 +65,11 @@ export class Beliefs {
   private readonly deeds = new Map<EntityId, Deed[]>();
   /** lord-skill tells per crown (only the real lord has lord skills, the 影武者 none) */
   private readonly crownTell = new Map<EntityId, number>();
+  /**
+   * damage each hero was seen dealing to the lord side (a crown; this bot itself when it is lord
+   * side and did not shoot first) — never decays: "has this 忠-claimer ever hurt us?"
+   */
+  private readonly lordSideHarm = new Map<EntityId, number>();
   private lastDecay = -1;
   private nextRecompute = 0;
   private lastRecompute = -99;
@@ -144,14 +155,22 @@ export class Beliefs {
         let retaliation = obs.sinceAttack(sim, ev.target, ev.actor) < 6 ? (wearsCrown(sim, target) ? 0.3 : 0.4) : 1;
         // collateral: the actor is trading fire with someone else (e.g. a loyalist fighting the
         // lord's attacker right next to him) — its hits on bystanders say little
+        // (or fighting the same enemy this bot is fighting: its sweeps catch our side)
+        let collateral = 1;
         for (const o of sim.heroes()) {
           if (o.id === ev.actor || o.id === ev.target || !o.hero || o.hero.dead) continue;
-          if (obs.recentDamage(sim, ev.actor, o.id) >= 10 && obs.recentDamage(sim, o.id, ev.actor) >= 10) {
-            retaliation *= 0.2;
+          if (obs.recentDamage(sim, ev.actor, o.id) >= 10 && (obs.recentDamage(sim, o.id, ev.actor) >= 10 || (o !== self && obs.recentDamage(sim, self.id, o.id) >= 10))) {
+            collateral = 0.2;
             break;
           }
         }
+        retaliation *= collateral;
         const e = this.evOf(ev.actor);
+        if (ev.amount > 0 && this.harmsLordSide(sim, self, obs, ev.actor, target)) {
+          // a sweep / blast that caught the lord side while the actor fought someone else counts
+          // little, and so do soldiers caught in a fight (they are everywhere around the lord)
+          this.lordSideHarm.set(ev.actor, (this.lordSideHarm.get(ev.actor) ?? 0) + ev.amount * (ev.viaSquad ? 0.15 : 1) * (ev.field ? 0.3 : 1) * collateral);
+        }
         if (wearsCrown(sim, target) || (target === self && LORD_SIDE.has(ownRole(self)))) {
           e.anti += (target === self && !wearsCrown(sim, target) ? 1.4 : 2.2) * w * retaliation;
         } else {
@@ -259,14 +278,25 @@ export class Beliefs {
       if (p) crowns.push({ id: e.id, x: p.x, z: p.z });
     }
     if (crowns.length === 0) return;
+    const seen: { id: EntityId; x: number; z: number }[] = [];
     for (const e of sim.heroes()) {
-      if (!this.hidden(sim, self, e.id) || !sight.seesNow(e.id)) continue;
+      if (!this.hidden(sim, self, e.id) || !sight.seesNow(e.id) || wearsCrown(sim, e)) continue;
       const ep = sight.lastPos(e.id)!;
+      seen.push({ id: e.id, x: ep.x, z: ep.z });
+    }
+    for (const e of seen) {
       for (const c of crowns) {
         if (c.id === e.id) continue;
-        const d = Math.hypot(c.x - ep.x, c.z - ep.z);
+        const d = Math.hypot(c.x - e.x, c.z - e.z);
         if (d < 14 && obs.sinceAttack(sim, e.id, c.id) > 25) {
           this.evOf(e.id).pro += 0.06 * this.prof.evidenceGain;
+          break;
+        }
+        // hovering at the edge of a crown's reach together with another stranger — escorts come
+        // close, a pair or a pack loitering 25–60 m out is a push being staged
+        if (d >= 25 && d <= 60 && seen.some((o) => o !== e && Math.hypot(o.x - e.x, o.z - e.z) < 20 && Math.hypot(c.x - o.x, c.z - o.z) >= 20)) {
+          this.evOf(e.id).anti += STAGING_READ * this.prof.evidenceGain;
+          this.dirty = true;
           break;
         }
       }
@@ -353,6 +383,44 @@ export class Beliefs {
   evidenceMagnitude(id: EntityId): number {
     const e = this.ev.get(id);
     return e ? e.pro + e.anti + e.trait : 0;
+  }
+
+  /**
+   * Does `actor` hitting `target` count as harm done to the lord side? Only what this seat can
+   * vouch for: a hit on a crown, or on this bot itself when it is lord side and was not shooting at
+   * the actor first (return fire is no offence). Hits on other 忠-claimers / believed loyalists do
+   * not count: claims are cheap and reads are guesses — a loyalist that shoots a fake-忠 rebel must
+   * not look like a lord-side killer to the 主公.
+   */
+  private harmsLordSide(sim: SimApi, self: Entity, obs: Witness, actor: EntityId, target: Entity): boolean {
+    if (wearsCrown(sim, target)) return true;
+    return target === self && LORD_SIDE.has(ownRole(self)) && obs.sinceAttack(sim, target.id, actor) >= 6;
+  }
+
+  /** Damage this seat saw `id` deal to the lord side (crowns; itself when lord side, unprovoked). */
+  lordSideHarmOf(id: EntityId): number {
+    return this.lordSideHarm.get(id) ?? 0;
+  }
+
+  /**
+   * A hero that claimed 忠臣 and has never been seen hurting the lord side: the lord side must not
+   * shoot — let alone finish — it (a loyalist executed by the 主公 costs him all his gear).
+   */
+  cleanLoyalClaim(e: Entity): boolean {
+    return e.hero?.claim === 'loyalist' && (this.lordSideHarm.get(e.id) ?? 0) < CLEAN_HARM;
+  }
+
+  /** This hero has been seen doing the lord side real harm (crowns / this bot, unprovoked). */
+  provenHostile(id: EntityId): boolean {
+    return (this.lordSideHarm.get(id) ?? 0) >= CLEAN_HARM;
+  }
+
+  /**
+   * The lord side may finish (down / execute) this hero: anyone but a 忠-claimer, and a 忠-claimer
+   * only once it has done the lord side real harm (a stray burst in a crossfire is not enough).
+   */
+  mayFinish(e: Entity): boolean {
+    return e.hero?.claim !== 'loyalist' || (this.lordSideHarm.get(e.id) ?? 0) >= FINISH_HARM;
   }
 
   /** Lord-skill tell for a crown (casts this seat saw; > 0 = it is the real lord). */

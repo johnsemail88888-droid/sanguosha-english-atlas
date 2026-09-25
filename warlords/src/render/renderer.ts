@@ -14,6 +14,7 @@ import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { ViewSource } from './view';
 import { HERO_VIEW_RANGE, qualityPreset, type QualityPreset } from './quality';
+import { AdaptiveResolution, adaptiveFloor } from './adaptiveRes';
 import { LocalFirePredictor, type LocalFireGate } from './localFire';
 import { sharedUniforms, disposeSharedMaterials } from './core/materials';
 import { SKY } from './palette';
@@ -27,11 +28,14 @@ import { buildWorld, type WorldBuild } from './world/world';
 import { FireSystem } from './world/fires';
 import { GrassField } from './scene/grass';
 import { PickWorld } from './camera/pick';
+import { CameraOccluders } from './camera/camOccluders';
 import { TpsCameraRig, tpsCameraPose, PITCH_LIMIT, adsPull } from './camera/tpsCamera';
 import { EntityManager } from './entities/manager';
 import { preloadCharacterArt } from './models/preload';
 import { evictUnusedTemplates } from './models/glb';
 import { setWorldArtQuality, worldTexturesSettled } from './core/worldArt';
+import { releaseObjectGeometryCache } from './entities/objects';
+import { releaseModelCaches } from './models';
 import type { EntityCtx } from './entities/context';
 import { updateAuraShared } from './entities/auras';
 import { Effects } from './vfx/effects';
@@ -46,6 +50,8 @@ export interface GameRendererOptions {
   updateView?: boolean;
   /** initial quality (default: settings.quality) */
   quality?: Quality;
+  /** lower the pixel ratio while frames are slow, raise it again when fast (default true) */
+  adaptiveResolution?: boolean;
 }
 
 export interface RenderStats {
@@ -58,6 +64,12 @@ export interface RenderStats {
   fps: number;
   worldProps: number;
   worldChunks: number;
+  /** pixel ratio the canvas renders at now (adaptive resolution) */
+  pixelRatio: number;
+  /** the quality preset's pixel ratio on this device (the adaptive ceiling) */
+  pixelRatioMax: number;
+  /** smoothed real frame time (ms) the adaptive resolution reacts to */
+  frameMs: number;
 }
 
 const _v = new THREE.Vector3();
@@ -121,6 +133,15 @@ export class GameRenderer {
   private lastLocalHp = -1;
   private squad = new Set<EntityId>();
   private zoomNow = 1;
+  /** pixel ratio controller (frame time → canvas resolution) */
+  private readonly adaptive = new AdaptiveResolution();
+  private lastFrameAt = -1;
+  /**
+   * Point lights allocated to braziers / VFX flashes. Their number is part of
+   * every lit shader program's key: changing it mid-match recompiles every
+   * material (5–15 s on software GL, seconds on phones) — see applyQuality().
+   */
+  private lightSlots: { fires: number; vfx: number } | null = null;
 
   constructor(canvas: HTMLCanvasElement, view: ViewSource, opts: GameRendererOptions = {}) {
     this.canvas = canvas;
@@ -129,6 +150,7 @@ export class GameRenderer {
     const s = settings.get();
     this.quality = opts.quality ?? s.quality;
     this.preset = qualityPreset(this.quality);
+    this.adaptive.enabled = opts.adaptiveResolution !== false;
     // world-art texture sizes / low-tier shaders follow the tier in use (incl. opts.quality)
     setWorldArtQuality(this.quality);
     this.renderer = new THREE.WebGLRenderer({
@@ -145,6 +167,7 @@ export class GameRenderer {
     this.renderer.autoClear = false;
     canvas.addEventListener('webglcontextlost', this.onContextLost, false);
     canvas.addEventListener('webglcontextrestored', this.onContextRestored, false);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibility);
 
     this.camera = new THREE.PerspectiveCamera(s.fov, 1, 0.1, this.preset.drawDistance);
     this.rig = new TpsCameraRig(this.camera);
@@ -165,6 +188,8 @@ export class GameRenderer {
     this.scene.add(this.world.group);
     this.fires = new FireSystem(this.scene, this.world.fires);
     this.pickWorld = new PickWorld(map);
+    // roof shells / under dock decks: the camera boom stops short of them (no black inside faces)
+    this.pickWorld.setCameraOccluders(new CameraOccluders(this.world.cameraOccluders, map.size));
     this.grass = new GrassField(map, this.pickWorld);
     this.scene.add(this.grass.mesh);
     this.fx = new Effects(this.scene, this.preset.vfxLights);
@@ -210,7 +235,7 @@ export class GameRenderer {
     if (this.opts.updateView) this.view.update(d);
     this.time += d;
     this.frameNo++;
-    if (d > 0) this.fps += (1 / d - this.fps) * 0.05;
+    this.adaptResolution();
     sharedUniforms.uTime.value = this.time;
     updateAuraShared(this.time);
 
@@ -392,17 +417,17 @@ export class GameRenderer {
   }
 
   resize(w: number, h: number): void {
+    if (this.disposed) return;
     this.size = { w: Math.max(1, Math.floor(w)), h: Math.max(1, Math.floor(h)) };
-    const pr = this.pixelRatio();
-    this.renderer.setPixelRatio(pr);
-    this.renderer.setSize(this.size.w, this.size.h, false);
-    this.post.setSize(this.size.w, this.size.h, pr);
+    // same ceiling (plain window resize): the adapted ratio is kept
+    this.adaptive.setRange(this.pixelRatio(), adaptiveFloor(this.quality));
+    this.applySize();
     this.camera.aspect = this.size.w / this.size.h;
     this.camera.updateProjectionMatrix();
   }
 
   setQuality(q: Quality): void {
-    if (q === this.quality) return;
+    if (this.disposed || q === this.quality) return;
     this.quality = q;
     this.preset = qualityPreset(q);
     setWorldArtQuality(q);
@@ -415,6 +440,7 @@ export class GameRenderer {
    * against colliders + terrain + water + entities (render meshes are ignored).
    */
   pick(): { aimPoint: Vec3; aimTargetId?: EntityId } {
+    if (this.disposed) return { aimPoint: { x: 0, y: 0, z: 0 } };
     const localId = this.view.localId();
     const ent = localId !== null ? this.view.get(localId) : undefined;
     let origin: Vec3;
@@ -454,12 +480,14 @@ export class GameRenderer {
   }
 
   onLocalFire(cb: (weaponId: string) => void): () => void {
+    if (this.disposed) return () => false;
     this.fireSubs.add(cb);
     return () => this.fireSubs.delete(cb);
   }
 
   /** Every drained GameEvent batch is re-emitted here once per frame (HUD, audio, kill feed). */
   onEvents(cb: (evs: readonly GameEvent[]) => void): () => void {
+    if (this.disposed) return () => false;
     this.eventSubs.add(cb);
     return () => this.eventSubs.delete(cb);
   }
@@ -483,6 +511,7 @@ export class GameRenderer {
 
   /** ADS zoom of the local hero's active weapon when aiming (1 otherwise). UI draws a scope when ≥ 3. */
   get adsZoom(): number {
+    if (this.disposed) return 1;
     const local = this.view.local();
     if (!local || !this.look.ads) return 1;
     const w = local.weapons[local.activeSlot];
@@ -507,6 +536,9 @@ export class GameRenderer {
   }
 
   stats(): RenderStats {
+    if (this.disposed) {
+      return { drawCalls: 0, triangles: 0, geometries: 0, textures: 0, entities: 0, particles: 0, fps: 0, worldProps: 0, worldChunks: 0, pixelRatio: 0, pixelRatioMax: 0, frameMs: 0 };
+    }
     const info = this.renderer.info;
     return {
       drawCalls: info.render.calls,
@@ -518,6 +550,9 @@ export class GameRenderer {
       fps: Math.round(this.fps),
       worldProps: this.world.stats.props,
       worldChunks: this.world.stats.chunks,
+      pixelRatio: this.adaptive.ratio,
+      pixelRatioMax: this.adaptive.ceil,
+      frameMs: Math.round(this.adaptive.frameMs * 10) / 10,
     };
   }
 
@@ -526,6 +561,7 @@ export class GameRenderer {
     this.disposed = true;
     this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility);
     this.unsubSettings();
     this.eventSubs.clear();
     this.fireSubs.clear();
@@ -544,14 +580,65 @@ export class GameRenderer {
     disposeSharedMaterials();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
+    this.releaseMatchData();
+    // shared geometry caches filled by this match (bodies, body+weapon merges, weapons, loot)
+    releaseModelCaches();
+    releaseObjectGeometryCache();
+  }
+
+  /**
+   * After dispose(): drop every reference to the match — scene graph, world /
+   * terrain / grass buffers, the pick world (map arrays), entity views, the
+   * view source (sim / session) and the per-frame context — so that even a
+   * leaked reference to this renderer (a HUD closure that outlived the match)
+   * cannot keep the last match's geometry alive.
+   */
+  private releaseMatchData(): void {
+    this.scene.clear();
+    this.injected = [];
+    this.squad.clear();
+    this.ctx = null;
+    const self = this as unknown as Record<string, unknown>;
+    for (const k of ['view', 'world', 'terrain', 'water', 'grass', 'fires', 'sky', 'post', 'pickWorld', 'fx', 'zone', 'lights', 'fog']) self[k] = null;
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
 
+  /** The quality preset's pixel ratio on this device: the adaptive resolution's ceiling. */
   private pixelRatio(): number {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     return Math.min(this.preset.maxPixelRatio, dpr * this.preset.pixelRatioScale);
   }
+
+  /** Size the canvas / post targets at the adaptive pixel ratio. */
+  private applySize(): void {
+    const pr = this.adaptive.ratio;
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(this.size.w, this.size.h, false);
+    this.post.setSize(this.size.w, this.size.h, pr);
+  }
+
+  /**
+   * Feed the real interval since the previous frame to the adaptive resolution
+   * (smoothed frame time > 33 ms for 3 s → one step down, fast again for a while
+   * → one step up) and re-size the canvas when it moved.
+   */
+  private adaptResolution(): void {
+    const now = performance.now();
+    const prev = this.lastFrameAt;
+    this.lastFrameAt = now;
+    if (prev < 0) return;
+    const s = (now - prev) / 1000;
+    // real frame rate (the game loop clamps dt to 0.1 s: that would never read below 10 fps)
+    if (s > 0 && s < this.adaptive.opts.pauseS) this.fps += (1 / s - this.fps) * (1 - Math.exp(-s / 0.5));
+    if (this.adaptive.update(s)) this.applySize();
+  }
+
+  /** A hidden tab stops the frame loop: the gap until it is visible again is not a slow frame. */
+  private readonly onVisibility = (): void => {
+    this.lastFrameAt = -1;
+    this.adaptive.restart();
+  };
 
   private applyQuality(): void {
     const p = this.preset;
@@ -568,10 +655,17 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
     this.fog.near = p.drawDistance * 0.35;
     this.fog.far = p.drawDistance * 0.95;
-    this.fires.setLightCount(p.brazierLights);
+    // Point-light counts are baked into every lit shader program: a switch that
+    // changes them recompiles every material in the scene (the multi-second
+    // freeze of 均衡 → 精美 mid-match). Keep the match's counts unless this switch
+    // recompiles everything anyway (shadows toggled); the preset's own counts
+    // then apply from that switch or the next match on.
+    if (!this.lightSlots || shadowsChanged) this.lightSlots = { fires: p.brazierLights, vfx: p.vfxLights };
+    this.fires.setLightCount(this.lightSlots.fires);
     this.grass.setDensity(p.grass);
-    this.fx.setBudget(p.particles, p.vfxLights);
-    this.post.configure({ bloom: p.bloom, vignette: p.post, msaa: p.msaa });
+    this.fx.setBudget(p.particles, this.lightSlots.vfx);
+    // mid-match: bloom's programs compile over the next frames, not in one
+    this.post.configure({ bloom: p.bloom, vignette: p.post, msaa: p.msaa }, this.frameNo > 0);
     // character art tier (AI-art vs procedural bodies) follows the active preset, incl. opts.quality
     this.entities.setCharacterArt(p.glbCharacters);
   }
@@ -679,6 +773,7 @@ export class GameRenderer {
    * (VFX + re-emitted to HUD / audio subscribers). Never used by gameplay.
    */
   injectEvents(evs: readonly GameEvent[]): void {
+    if (this.disposed) return;
     for (const e of evs) this.injected.push(e);
   }
 

@@ -7,24 +7,31 @@
 //  - when the link drops (not kicked / host left) and a `reconnect` factory is
 //    given, the session re-opens a transport and rejoins with the token a few
 //    times before reporting the loss. The UI keeps the same GameSession object;
-//    after a rejoin mid-match it receives a fresh 'matchStart' view.
+//    a rejoin into the match it already shows keeps its ClientView (only the
+//    snapshot stream restarts) and re-emits 'matchStart' with that same view —
+//    no loading screen, no renderer rebuild.
+//  - the host-silence watchdog is stall-aware: after this page was frozen
+//    (shader compile, throttled tab) it skips a round so queued messages are
+//    processed first; after a few silent seconds it shows "Waiting for host…".
 //  - when the page is hidden / loses focus the local player's controls are
 //    released immediately (the host also neutralizes a silent client).
 import type { MapData } from '../core/map';
 import {
   PROTOCOL_VERSION,
+  type EntityId,
   type GameResult,
   type HeroSelectView,
   type LobbyState,
   type MatchPhase,
   type MatchSettings,
   type PlayerId,
+  type PublicPlayerView,
   type RoleDealView,
 } from '../core/types';
 import type { GameSession, SessionEvent, SessionEventMap } from '../game/session';
 import type { ViewSource } from '../render/view';
 import type { ClientView } from './clientView';
-import { BIN_SNAPSHOT, isHostMsg, MAX_TOKEN_LEN, sanitizeChat, sanitizeName, type ClientMsg, type HostMsg } from './protocol';
+import { BIN_SNAPSHOT, isHostMsg, MAX_HERO_ID_LEN, MAX_TOKEN_LEN, sanitizeChat, sanitizeName, type ClientMsg, type HostMsg } from './protocol';
 import { binaryTag, decodeJson, encodeInputMsg, encodeJson, SnapshotReceiver, StringTable } from './codec';
 import { Emitter } from './emitter';
 import { NetError, type NetErrorCode } from './errors';
@@ -48,6 +55,17 @@ export interface ClientSessionOptions {
   reconnect?: () => Promise<Transport>;
   /** delays (ms) before each rejoin attempt; default [0, 1500, 3000, 5000] */
   rejoinDelaysMs?: readonly number[];
+  /** host silent this long ⇒ 'status' "Waiting for host…" (ms, default 3000) */
+  waitingStatusMs?: number;
+  /** host-silence watchdog period (ms, default 1000; tests) */
+  checkIntervalMs?: number;
+  /**
+   * Host silence tolerated while the host is still loading the match (ms,
+   * default 45 000): from matchStart until its first snapshot the host's page
+   * builds its scene and compiles shaders — it can freeze for many seconds on
+   * a slow machine without being gone.
+   */
+  hostLoadingTimeoutMs?: number;
 }
 
 const now = (): number => performance.now();
@@ -57,6 +75,10 @@ const RECOVERABLE: ReadonlySet<NetErrorCode> = new Set<NetErrorCode>(['connectio
 /** Rejoin answers that make further attempts pointless. */
 const FINAL_REJOIN: ReadonlySet<NetErrorCode> = new Set<NetErrorCode>(['inProgress', 'roomFull', 'versionMismatch', 'kicked', 'hostLeft', 'roomNotFound']);
 const DEFAULT_REJOIN_DELAYS = [0, 1500, 3000, 5000];
+/** host-silence watchdog period (ms) */
+const CHECK_INTERVAL_MS = 1000;
+/** status key of the "Waiting for host…" line (SessionEventMap.status) */
+export const WAITING_HOST_KEY = 'waitingHost';
 
 const TOKEN_KEY = (room: string): string => `sgwl-seat-${room}`;
 
@@ -103,6 +125,9 @@ export class ClientSession implements GameSession {
   private readonly roomCode: string | undefined;
   private readonly reconnectFn: (() => Promise<Transport>) | null;
   private readonly rejoinDelays: readonly number[];
+  private readonly waitingStatusMs: number;
+  private readonly checkIntervalMs: number;
+  private readonly hostLoadingTimeoutMs: number;
   private transportUnsubs: (() => void)[] = [];
   private unwatchFocus: (() => void) | null = null;
 
@@ -119,7 +144,19 @@ export class ClientSession implements GameSession {
   private snapshots: SnapshotReceiver | null = null;
   private resultValue: GameResult | null = null;
   private matchToken = 0;
+  /** the match the current view shows (a rejoin into the same match keeps the view) */
+  private currentMatch: { id: number | undefined; mapSeed: number; you: EntityId | null } | null = null;
+  /** final player list that arrived with gameOver before the view existed */
+  private pendingPlayers: PublicPlayerView[] | null = null;
+  /** while 'matchStart' is being emitted: the UI may hand over its load promise (setLocalLoading) */
+  private acceptLocalLoad = false;
+  private localLoad: Promise<void> | null = null;
+  /** the local view's load promise that has not settled yet ('loaded' waits for it) */
+  private localLoadPending: Promise<void> | null = null;
+  private lastHint: string | null = null;
   private lastHostMsgAt = now();
+  private lastCheckAt = 0;
+  private waitingHost = false;
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private welcomed = false;
   private everWelcomed = false;
@@ -155,6 +192,9 @@ export class ClientSession implements GameSession {
     this.roomCode = opts.roomCode;
     this.reconnectFn = opts.reconnect ?? null;
     this.rejoinDelays = opts.rejoinDelaysMs?.length ? opts.rejoinDelaysMs : DEFAULT_REJOIN_DELAYS;
+    this.waitingStatusMs = opts.waitingStatusMs ?? 3000;
+    this.checkIntervalMs = Math.max(10, opts.checkIntervalMs ?? CHECK_INTERVAL_MS);
+    this.hostLoadingTimeoutMs = opts.hostLoadingTimeoutMs ?? 45_000;
     this.token = opts.token ?? loadToken(opts.roomCode);
     this.attach(opts.transport);
     this.unwatchFocus = watchPageFocus({
@@ -175,6 +215,7 @@ export class ClientSession implements GameSession {
     this.transport = t;
     this.hostId = t.hostId;
     this.lastHostMsgAt = now();
+    this.lastCheckAt = 0;
     this.transportUnsubs = [
       t.onMessage((from, data, ch) => this.onMessage(from, data, ch)),
       t.onPeerLeave((p) => {
@@ -276,6 +317,11 @@ export class ClientSession implements GameSession {
     return this.token;
   }
 
+  /** true while the host has been silent for a few seconds (status key 'waitingHost'). */
+  get waitingForHost(): boolean {
+    return this.waitingHost;
+  }
+
   on<K extends SessionEvent>(ev: K, cb: (payload: SessionEventMap[K]) => void): () => void {
     return this.emitter.on(ev, cb);
   }
@@ -291,6 +337,24 @@ export class ClientSession implements GameSession {
 
   pickHero(heroId: string): void {
     if (this.phaseValue === 'heroSelect') this.send({ t: 'pick', heroId });
+  }
+
+  /** Hero select: the hero this player is looking at (the host auto-picks it if the timer runs out). */
+  focusHero(heroId: string): void {
+    if (this.phaseValue !== 'heroSelect' || typeof heroId !== 'string' || heroId.length === 0 || heroId.length > MAX_HERO_ID_LEN) return;
+    if (heroId === this.lastHint) return;
+    this.lastHint = heroId;
+    this.send({ t: 'pickHint', hero: heroId });
+  }
+
+  /**
+   * The UI's game view is still loading (scene, shaders): report 'loaded' to
+   * the host only once `ready` settles, so the match clock waits for this
+   * player. Only accepted while 'matchStart' / the phase change to 'playing'
+   * are being emitted (the UI mounts the view there).
+   */
+  setLocalLoading(ready: Promise<void>): void {
+    if (this.acceptLocalLoad) this.localLoad = ready;
   }
 
   sendChat(text: string): void {
@@ -317,6 +381,10 @@ export class ClientSession implements GameSession {
   private onMessage(from: PeerId, data: Payload, _ch: Channel): void {
     if (this.closed || from !== this.hostId) return;
     this.lastHostMsgAt = now();
+    if (this.waitingHost) {
+      this.waitingHost = false;
+      this.emitter.emit('status', { zh: '主机已恢复响应', en: 'Host is responding again', key: WAITING_HOST_KEY, clear: true });
+    }
     if (typeof data !== 'string') {
       if (binaryTag(data) === BIN_SNAPSHOT) this.onSnapshot(data);
       return;
@@ -367,6 +435,7 @@ export class ClientSession implements GameSession {
         this.emitter.emit('roles', msg.deal);
         break;
       case 'heroSelect':
+        if (this.heroSelectValue?.lordPhase !== msg.view.lordPhase) this.lastHint = null;
         this.heroSelectValue = msg.view;
         this.heroSelectDeadlineAt = now() + Math.max(0, msg.view.deadline) * 1000;
         this.setPhase('heroSelect');
@@ -389,12 +458,23 @@ export class ClientSession implements GameSession {
         if (Number.isFinite(rtt) && rtt >= 0) this.rtt = this.rtt === null ? rtt : this.rtt * 0.7 + rtt * 0.3;
         break;
       }
-      case 'gameOver':
+      case 'gameOver': {
         this.resultValue = msg.result;
-        this.viewValue?.setResult(msg.result);
+        const players = Array.isArray(msg.players) && msg.players.length > 0 ? msg.players : null;
+        const view = this.viewValue;
+        if (!view && this.phaseValue === 'loading') {
+          // (re)joined after the end: show the results once the view is built (buildMatch)
+          if (players) this.pendingPlayers = players;
+          break;
+        }
+        if (view) {
+          view.setResult(msg.result);
+          if (players) view.setPlayers(players);
+        }
         this.setPhase('gameOver');
         this.emitter.emit('gameOver', msg.result);
         break;
+      }
       case 'returnToLobby':
         this.resetMatch();
         this.rolesValue = null;
@@ -405,6 +485,7 @@ export class ClientSession implements GameSession {
         break;
       case 'notice':
         this.emitter.emit('status', { zh: msg.zh, en: msg.en });
+        if (msg.log === true) this.emitter.emit('chat', { from: '', text: msg.zh, system: true, zh: msg.zh, en: msg.en });
         break;
       case 'error':
         this.emitter.emit('error', { code: msg.code, zh: msg.zh, en: msg.en });
@@ -437,24 +518,49 @@ export class ClientSession implements GameSession {
       this.token = msg.token;
       saveToken(this.roomCode, msg.token);
     }
-    const phase: MatchPhase = msg.phase === 'playing' || msg.phase === 'loading' ? 'loading' : msg.phase;
+    const inMatch = msg.phase === 'playing' || msg.phase === 'loading' || msg.phase === 'gameOver';
+    let phase: MatchPhase;
+    if (!inMatch) phase = msg.phase;
+    else if (rejoin && this.viewValue) {
+      // back into the match on screen: the host re-sends matchStart for the same
+      // match and the view is kept — no loading screen in between
+      phase = this.phaseValue === 'loading' || this.phaseValue === 'gameOver' ? this.phaseValue : 'playing';
+    } else {
+      // the match (or its results) will be shown once matchStart built the view
+      phase = 'loading';
+    }
     if (rejoin) {
       // the host re-sends roles / hero select / matchStart as needed
-      if (phase !== this.phaseValue && phase === 'lobby') this.resetMatch();
+      if (!inMatch && this.viewValue) this.resetMatch();
+      else if (phase !== this.phaseValue && phase === 'lobby') this.resetMatch();
       this.setPhase(phase);
       this.emitter.emit('lobby', msg.lobby);
     } else {
       this.phaseValue = phase;
     }
     if (this.watchdog) clearInterval(this.watchdog);
-    this.watchdog = setInterval(() => this.checkHost(), 1000);
+    this.lastCheckAt = now();
+    this.watchdog = setInterval(() => this.checkHost(), this.checkIntervalMs);
     this.handshake?.resolve();
     if (rejoin) this.emitter.emit('status', { zh: '已重新连接', en: 'Reconnected' });
     else this.emitter.emit('status', { zh: '已连接到房间', en: 'Connected to the room' });
   }
 
   private onMatchStart(msg: Extract<HostMsg, { t: 'matchStart' }>): void {
-    this.resetMatch();
+    const view = this.viewValue;
+    const cur = this.currentMatch;
+    if (view && cur && msg.matchId !== undefined && cur.id === msg.matchId && cur.mapSeed === msg.mapSeed && cur.you === msg.you) {
+      // a rejoin into the match we already show: keep the view (and the
+      // renderer built on it) — only the snapshot stream starts over
+      this.snapshots = new SnapshotReceiver(new StringTable(msg.strings));
+      view.resetNetState();
+      this.sendLoadedWhen(this.localLoadPending, this.matchToken);
+      this.setPhase(this.resultValue ? 'gameOver' : 'playing');
+      this.emitter.emit('matchStart', view);
+      return;
+    }
+    this.resetMatch(true);
+    this.currentMatch = { id: msg.matchId, mapSeed: msg.mapSeed, you: msg.you };
     const token = this.matchToken;
     this.setPhase('loading');
     void this.buildMatch(msg, token);
@@ -484,32 +590,76 @@ export class ClientSession implements GameSession {
       return;
     }
     if (this.closed || token !== this.matchToken) return;
-    const rx = new SnapshotReceiver(new StringTable(msg.strings));
-    this.snapshots = rx;
+    this.snapshots = new SnapshotReceiver(new StringTable(msg.strings));
     const view = new ViewCtor({
       map,
       localEntityId: msg.you,
       sendInput: (pkt) => {
         if (this.closed || this.rejoining) return;
-        if (rx.newest >= 0) pkt.snapAck = rx.newest;
+        // acknowledge the newest snapshot of the current stream (a rejoin swaps the receiver)
+        const rx = this.snapshots;
+        if (rx && rx.newest >= 0) pkt.snapAck = rx.newest;
         this.transport.send(this.hostId, encodeInputMsg(pkt), 'unreliable');
       },
     });
     if (this.hidden) view.setSuspended(true);
     this.viewValue = view;
     if (this.resultValue) view.setResult(this.resultValue);
-    this.send({ t: 'loaded' });
-    this.setPhase(this.resultValue ? 'gameOver' : 'playing');
-    this.emitter.emit('matchStart', view);
+    if (this.pendingPlayers) view.setPlayers(this.pendingPlayers);
+    this.pendingPlayers = null;
+    const over = this.resultValue;
+    // the UI mounts the view on the phase change / matchStart and may hand over
+    // its load promise (setLocalLoading) meanwhile: 'loaded' waits for it
+    this.localLoad = null;
+    this.acceptLocalLoad = true;
+    try {
+      this.setPhase(over ? 'gameOver' : 'playing');
+      this.emitter.emit('matchStart', view);
+    } finally {
+      this.acceptLocalLoad = false;
+    }
+    if (this.closed || token !== this.matchToken) return;
+    if (over) this.emitter.emit('gameOver', over);
+    const ready = this.localLoad;
+    this.localLoad = null;
+    if (ready) {
+      const pending: Promise<void> = Promise.resolve(ready).then(
+        () => undefined,
+        (err: unknown) => console.warn('[net] local view failed to load', err),
+      );
+      this.localLoadPending = pending;
+      void pending.then(() => {
+        if (this.localLoadPending === pending) this.localLoadPending = null;
+      });
+    }
+    this.sendLoadedWhen(this.localLoadPending, token);
   }
 
-  private resetMatch(): void {
+  /** Report 'loaded' now, or once the local view finished loading. */
+  private sendLoadedWhen(ready: Promise<void> | null, token: number): void {
+    if (!ready) {
+      this.send({ t: 'loaded' });
+      return;
+    }
+    void ready.then(() => {
+      // (during a rejoin this goes nowhere; the host's matchStart after the rejoin gets its own 'loaded')
+      if (!this.closed && token === this.matchToken) this.send({ t: 'loaded' });
+    });
+  }
+
+  /** Drop the current match's view. `keepResult`: a matchStart after the host said the match is over (late rejoin). */
+  private resetMatch(keepResult = false): void {
     this.matchToken++;
     this.viewValue?.dispose();
     this.viewValue = null;
     this.snapshots = null;
+    this.currentMatch = null;
+    this.localLoadPending = null;
     this.heroSelectValue = null;
-    this.resultValue = null;
+    if (!keepResult) {
+      this.resultValue = null;
+      this.pendingPlayers = null;
+    }
   }
 
   private syncSeat(): void {
@@ -520,9 +670,25 @@ export class ClientSession implements GameSession {
   private checkHost(): void {
     if (this.closed || this.rejoining) return;
     const t = now();
-    if (t - this.lastHostMsgAt > this.hostTimeoutMs) {
+    // stall-aware (APP-6): this page itself was frozen (shader compile, throttled
+    // tab, sleep) — the host's messages that queued up meanwhile may not have
+    // been dispatched yet: skip one round instead of declaring the link dead
+    const gap = this.lastCheckAt > 0 ? t - this.lastCheckAt : 0;
+    this.lastCheckAt = t;
+    if (gap > 2 * this.checkIntervalMs + 1000) {
+      this.lastHostMsgAt = Math.max(this.lastHostMsgAt, t - this.checkIntervalMs);
+      return;
+    }
+    const silent = t - this.lastHostMsgAt;
+    // no snapshot yet in this match: the host is still loading it (its page may be frozen)
+    const hostLoading = this.currentMatch !== null && (this.snapshots === null || this.snapshots.newest < 0);
+    if (silent > (hostLoading ? Math.max(this.hostTimeoutMs, this.hostLoadingTimeoutMs) : this.hostTimeoutMs)) {
       this.lost(new NetError('connectionLost'));
       return;
+    }
+    if (silent > this.waitingStatusMs && !this.waitingHost) {
+      this.waitingHost = true;
+      this.emitter.emit('status', { zh: '等待主机响应…', en: 'Waiting for host…', key: WAITING_HOST_KEY });
     }
     // measure our own RTT occasionally (host pings drive its view of us)
     if (++this.pingSeq % 3 === 0) this.send({ t: 'ping', id: this.pingSeq, ts: t });
@@ -546,6 +712,7 @@ export class ClientSession implements GameSession {
   private async rejoin(cause: NetError): Promise<void> {
     this.rejoining = true;
     this.welcomed = false;
+    this.waitingHost = false; // superseded by "reconnecting…"
     this.viewValue?.releaseInput();
     this.detach(true);
     if (this.watchdog) clearInterval(this.watchdog);
@@ -600,6 +767,7 @@ export class ClientSession implements GameSession {
   private setPhase(p: MatchPhase): void {
     if (this.phaseValue === p) return;
     this.phaseValue = p;
+    if (p !== 'heroSelect') this.lastHint = null;
     this.emitter.emit('phase', p);
   }
 

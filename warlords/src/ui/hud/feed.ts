@@ -1,7 +1,7 @@
 // Kill feed (with role-reveal colors), center announcements, and chat log.
 import type { Kingdom, RoleId } from '../../core/types';
 import { h } from '../dom';
-import { heroName, roleName, t } from '../i18n';
+import { colon, getLang, heroName, roleName, t } from '../i18n';
 import { ROLE_GLYPH, kingdomColor, roleColor } from '../theme';
 import type { PortraitCache } from '../widgets';
 
@@ -27,7 +27,7 @@ export class KillFeed {
   }
 
   private party(p: FeedParty | null, cls: string): HTMLElement {
-    if (!p) return h('span', { class: `who ${cls} zone` }, t('hud.zoneDeath'));
+    if (!p) return h('span', { class: `who ${cls} zone` }, t('feed.zone'));
     const face = p.heroId && this.portraits?.hasArt(p.heroId) ? this.portraits.avatar(p.heroId, 'kf-ava') : null;
     const el = h('span', { class: `who ${cls}${face ? ' has-ava' : ''}` }, face, p.heroId ? heroName(p.heroId) : p.name, p.heroId && p.name ? h('small', null, p.name) : null);
     el.style.setProperty('--kc', kingdomColor(p.kingdom));
@@ -42,7 +42,7 @@ export class KillFeed {
       : null;
     const el = h('div', { class: `kf${opts.mine ? ' mine' : ''}${opts.aboutMe ? ' me' : ''}${opts.downed ? ' downed' : ''}` },
       this.party(killer, 'k'),
-      h('span', { class: 'verb' }, opts.downed ? '倒' : '斩'),
+      h('span', { class: `verb${getLang() === 'en' ? ' word' : ''}` }, t(opts.downed ? 'feed.down' : 'feed.kill')),
       this.party(victim, 'v'),
       roleEl,
     );
@@ -84,6 +84,8 @@ export class Announcer {
   private readonly bigEl: HTMLElement;
   private readonly infoEl: HTMLElement;
   private queue: { text: string; kind: AnnKind; sub?: string }[] = [];
+  /** the newest info line (tests / harness) */
+  lastInfo: { text: string; sub?: string } | null = null;
   private showingUntil = 0;
   private hideAt = 0;
   private infos: { el: HTMLElement; until: number }[] = [];
@@ -96,9 +98,11 @@ export class Announcer {
 
   push(text: string, kind: AnnKind = 'info', sub?: string, now = performance.now() / 1000): void {
     if (kind === 'info') {
-      const el = h('div', { class: 'line' }, text);
+      // an info line may carry a second, smaller line (a card's one-line effect)
+      const el = h('div', { class: `line${sub ? ' has-sub' : ''}` }, h('span', { class: 'main' }, text), sub ? h('span', { class: 'sub' }, sub) : null);
       this.infoEl.appendChild(el);
-      this.infos.push({ el, until: now + 4 });
+      this.lastInfo = { text, sub };
+      this.infos.push({ el, until: now + (sub ? 5.5 : 4) });
       while (this.infos.length > 3) this.infos.shift()?.el.remove();
       return;
     }
@@ -150,17 +154,21 @@ export class ChatBox {
   private recent: { key: string; at: number }[] = [];
   private open = false;
 
-  constructor(private readonly onSend: (text: string) => void, private readonly onClose: () => void) {
+  private readonly sendBtn: HTMLButtonElement;
+  private readonly closeBtn: HTMLButtonElement;
+
+  constructor(
+    private readonly onSend: (text: string) => void,
+    private readonly onClose: () => void,
+    private readonly isTouch: () => boolean = () => false,
+  ) {
     this.log = h('div', { class: 'log', role: 'log' });
     this.input = h('input', { class: 'sg-input dark', maxlength: 120, autocomplete: 'off', placeholder: t('chat.placeholder'), aria: { label: t('lobby.chat') } });
     this.input.addEventListener('keydown', (ev) => {
       ev.stopPropagation();
       if (ev.key === 'Enter') {
         ev.preventDefault();
-        const text = this.input.value.trim();
-        this.input.value = '';
-        if (text) this.onSend(text.slice(0, 120));
-        this.onClose();
+        this.submit();
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
         this.input.value = '';
@@ -169,7 +177,26 @@ export class ChatBox {
     });
     // keep game keys from leaking while typing
     this.input.addEventListener('keyup', (ev) => ev.stopPropagation());
-    this.el = h('div', { class: 'hud-chat' }, this.log, h('div', { class: 'input-row' }, this.input));
+    // touch: explicit Send and ✕ (no Enter / Esc keys on a phone keyboard to rely on)
+    this.sendBtn = h('button', { class: 'chat-send', type: 'button' }, t('lobby.send'));
+    this.sendBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.submit();
+    });
+    this.closeBtn = h('button', { class: 'chat-close', type: 'button', aria: { label: t('common.close') }, title: t('common.close') }, '✕');
+    this.closeBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.input.value = '';
+      this.onClose();
+    });
+    this.el = h('div', { class: 'hud-chat' }, this.log, h('div', { class: 'input-row' }, this.input, this.sendBtn, this.closeBtn));
+  }
+
+  private submit(): void {
+    const text = this.input.value.trim();
+    this.input.value = '';
+    if (text) this.onSend(text.slice(0, 120));
+    this.onClose();
   }
 
   add(line: HudChatLine, now: number): void {
@@ -178,7 +205,7 @@ export class ChatBox {
     this.recent = this.recent.filter((r) => now - r.at < 1.5);
     if (this.recent.some((r) => r.key === key)) return;
     this.recent.push({ key, at: now });
-    const el = h('div', { class: `line k-${line.kind ?? 'chat'}` }, line.from ? h('b', { style: line.color ? `color:${line.color}` : '' }, `${line.from}：`) : null, h('span', null, line.text));
+    const el = h('div', { class: `line k-${line.kind ?? 'chat'}` }, line.from ? h('b', { style: line.color ? `color:${line.color}` : '' }, `${line.from}${colon()}`) : null, h('span', null, line.text));
     this.log.appendChild(el);
     this.lines.push({ el, at: now });
     while (this.lines.length > 40) this.lines.shift()?.el.remove();
@@ -189,7 +216,8 @@ export class ChatBox {
     this.open = on;
     this.el.classList.toggle('open', on);
     if (on) {
-      this.input.placeholder = t('chat.placeholder');
+      this.input.placeholder = t(this.isTouch() ? 'chat.placeholderTouch' : 'chat.placeholder');
+      this.sendBtn.textContent = t('lobby.send');
       this.input.focus();
       this.log.scrollTop = this.log.scrollHeight;
     } else this.input.blur();

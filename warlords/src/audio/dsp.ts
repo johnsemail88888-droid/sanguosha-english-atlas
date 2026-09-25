@@ -249,7 +249,19 @@ function raw(key: string, make: () => Float32Array): Float32Array {
 }
 
 const PLUCK_CACHE = 64;
+/**
+ * Byte budgets of the pluck caches (they fill as the music plays new notes and
+ * would otherwise keep ~40 MB of samples for the whole session): the live
+ * context's AudioBuffers, and the module-level sample data shared with the
+ * short-lived baking contexts (a second copy — kept small).
+ */
+const PLUCK_BYTES = 10 * 1024 * 1024;
+const PLUCK_DATA_BYTES = 4 * 1024 * 1024;
 const pluckData = new Map<string, { data: Float32Array; sr: number }>();
+let pluckDataBytes = 0;
+
+/** Bytes held by the module-level pluck sample cache (diagnostics / tests). */
+export const pluckDataCacheBytes = (): number => pluckDataBytes;
 
 export class Kit {
   readonly sr: number;
@@ -257,6 +269,7 @@ export class Kit {
   lite = false;
   private noises = new Map<NoiseColor, AudioBuffer>();
   private plucks = new Map<string, AudioBuffer>();
+  private pluckBytes = 0;
   private curves = new Map<string, Float32Array>();
   private crackles: AudioBuffer | null = null;
   private debrisBuf: AudioBuffer | null = null;
@@ -303,23 +316,28 @@ export class Kit {
     const dataKey = `${key}|${sr}`;
     let entry = pluckData.get(dataKey);
     if (entry) {
-      pluckData.delete(dataKey);
+      pluckData.delete(dataKey); // re-inserted below as the newest
     } else {
       const f = 440 * Math.pow(2, q / 48);
       const dur = Math.min(3, Math.max(0.25, t60 * 0.75));
       entry = { data: karplusStrong(sr, f, dur, { t60, bright, pos, seed: 101 + q * 13 + variant * 977 }), sr };
+      pluckDataBytes += entry.data.byteLength;
     }
     pluckData.set(dataKey, entry);
-    if (pluckData.size > PLUCK_CACHE * 2) {
-      const oldest = pluckData.keys().next().value;
-      if (oldest !== undefined) pluckData.delete(oldest);
+    // LRU by count and bytes (the newest entry always stays)
+    while (pluckData.size > 1 && (pluckData.size > PLUCK_CACHE * 2 || pluckDataBytes > PLUCK_DATA_BYTES)) {
+      const oldest = pluckData.keys().next().value as string;
+      pluckDataBytes -= pluckData.get(oldest)?.data.byteLength ?? 0;
+      pluckData.delete(oldest);
     }
     b = this.mono(entry.data, entry.sr);
-    if (this.plucks.size >= PLUCK_CACHE) {
-      const oldest = this.plucks.keys().next().value;
-      if (oldest !== undefined) this.plucks.delete(oldest);
-    }
     this.plucks.set(key, b);
+    this.pluckBytes += b.length * 4;
+    while (this.plucks.size > 1 && (this.plucks.size > PLUCK_CACHE || this.pluckBytes > PLUCK_BYTES)) {
+      const oldest = this.plucks.keys().next().value as string;
+      this.pluckBytes -= (this.plucks.get(oldest)?.length ?? 0) * 4;
+      this.plucks.delete(oldest);
+    }
     return b;
   }
 

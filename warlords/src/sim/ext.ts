@@ -4,9 +4,9 @@
 // needs these extras calls `ext(ctx.sim)`; everything here is additive and
 // lives in SIM-CORE-owned files, so the frozen contracts stay untouched.
 import type { Vec3 } from '../core/math';
-import type { DamageType, Entity, EntityId, GameEvent, GameMode, StatusId, StatusInstance, WeaponInstance, ZoneView } from '../core/types';
+import type { DamageType, DeniedReason, Entity, EntityId, GameEvent, GameMode, StatusId, StatusInstance, WeaponInstance, ZoneView } from '../core/types';
 import type { WeaponDef } from '../data/types';
-import type { AbilityCtx, AbilityImpl, DamageHookCtx, DamageRequest, DamageResult, ItemImpl, RayHit, SimApi } from './api';
+import type { AbilityCtx, AbilityImpl, DamageHookCtx, DamageRequest, DamageResult, ItemCtx, ItemImpl, RayHit, SimApi } from './api';
 
 /**
  * Aggregated per-hero modifiers. Abilities contribute through
@@ -168,6 +168,13 @@ export interface ItemImplEx extends ItemImpl {
   hiddenUse?: boolean;
   /** optional bot hint: is using this item sensible right now? */
   botShouldUse?(sim: SimApi, self: Entity): boolean;
+  /**
+   * optional pre-check when the card is pressed (after the target is resolved, before any
+   * 使用中 channel starts): return why it cannot be used right now (桃 at full HP → 'fullHp',
+   * 闪 at the dodge cap → 'cap'), or null / undefined when it can. A refused press costs
+   * nothing: no channel, the card stays, the user gets the private itemDenied cue.
+   */
+  canUse?(ctx: ItemCtx): DeniedReason | null | undefined;
 }
 
 export interface HitscanOptions {

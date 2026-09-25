@@ -213,6 +213,11 @@ export class GeoBuilder {
     return this;
   }
 
+  /** The current local frame (read-only: do not mutate). */
+  get frame(): THREE.Matrix4 {
+    return this.stack[this.stack.length - 1];
+  }
+
   /** Append a (non-indexed, normal-bearing) template geometry transformed by m. */
   add(src: THREE.BufferGeometry, m: THREE.Matrix4, color: ColorLike): this {
     const c = col(color);

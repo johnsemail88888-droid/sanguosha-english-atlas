@@ -196,8 +196,10 @@ export function mountMockGame(container: HTMLElement, view: ViewSource, opts: Mo
     requestLock: () => {
       if (!touchMode) setLocked(true);
     },
+    // like InputController.exitLock: menus release the (simulated) pointer lock
+    exitLock: () => setLocked(false),
     isLocked: () => locked,
-  };
+  } as GameHandle['input'];
 
   const handle: MockGameHandle = {
     actions,

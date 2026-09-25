@@ -140,8 +140,9 @@ export const WEI_HEROES: HeroDef[] = [
         // impl: modifyIncoming halves weapon bullets (combat isBulletDamage) and remembers the original;
         //       onDamageTaken reflects original × reflect to the shooter with the engine's reflect
         //       semantics (abilityId 'status:reflect'). A frac-0 'reflect' status + 'guicai' hazard mark it.
-        //       No dtype on purpose: the reflect has no fixed size, which the data tests' castDamage cannot
-        //       rate (docs/SIM_REQUESTS.md "Data note (Wei)"); the code deals `dtype ?? 'normal'`.
+        //       dtype 'normal': the reflected bullets (the code deals `dtype ?? 'normal'`). A reflect has no
+        //       fixed size — the data tests rate it 0 (tests/unit/data castDamage, "Data note (Wei)").
+        dtype: 'normal',
         params: { duration: 2.5, takenMul: 0.5, reflect: 1 },
         targeting: 'self',
         aiHint: 'defense',
@@ -450,9 +451,9 @@ export const WEI_HEROES: HeroDef[] = [
         nameZh: '天妒',
         nameEn: 'Envy of Heaven',
         sgsSkill: '天妒',
-        descZh: '单次受到至少 40 伤害时，获得 1 个随机锦囊并装满弹匣（6 秒冷却）。',
-        descEn: 'When a single hit deals 40+ damage to you, gain 1 random item and refill your magazine (6 s cooldown).',
-        params: { threshold: 40, items: 1, icd: 6 },
+        descZh: '单次受到至少 35 伤害时，获得 1 个随机锦囊并装满弹匣（5 秒冷却）。',
+        descEn: 'When a single hit deals 35+ damage to you, gain 1 random item and refill your magazine (5 s cooldown).',
+        params: { threshold: 35, items: 1, icd: 5 },
         aiHint: 'utility',
       },
       {
@@ -463,7 +464,7 @@ export const WEI_HEROES: HeroDef[] = [
         sgsSkill: '遗计',
         descZh: '向 40 米内准星处呼叫补给空投，3 秒后落地，内含 2 个锦囊。',
         descEn: 'Call a supply drop at the crosshair (40 m). It lands after 3 s carrying 2 items.',
-        cooldown: 28,
+        cooldown: 20,
         // impl: schedule(delay) → spawnLoot for each rollRewardItems(rng, items) around the point.
         params: { range: 40, delay: 3, items: 2 },
         targeting: 'point',
@@ -475,10 +476,10 @@ export const WEI_HEROES: HeroDef[] = [
         nameZh: '鬼谋',
         nameEn: 'Ghostly Scheme',
         sgsSkill: '遗计',
-        descZh: '标记准星处敌人 6 秒：其受到的所有伤害 +25% 并显形。',
-        descEn: 'Mark the enemy under your crosshair for 6 s: it takes +25% damage from all sources and is revealed.',
-        cooldown: 18,
-        params: { range: 60, duration: 6, takenMul: 1.25 },
+        descZh: '标记准星处敌人 7 秒：其受到的所有伤害 +30% 并显形。',
+        descEn: 'Mark the enemy under your crosshair for 7 s: it takes +30% damage from all sources and is revealed.',
+        cooldown: 14,
+        params: { range: 60, duration: 7, takenMul: 1.3 },
         targeting: 'enemy',
         aiHint: 'offense',
       },
@@ -555,10 +556,13 @@ export const WEI_HEROES: HeroDef[] = [
         nameZh: '凌波微步',
         nameEn: 'Graceful Steps',
         sgsSkill: '倾国',
-        descZh: '闪现 10 米，在原地留下 4 米冰霜区 4 秒，敌人减速 40%。',
-        descEn: 'Blink 10 m, leaving a 4 m frost field behind for 4 s that slows enemies 40%.',
+        descZh: '闪现 10 米：落点 4 米内敌人受 45 冰霜伤害并减速；原地留下 4 米冰霜区 4 秒，敌人减速 40%、每秒受 15 伤害。',
+        descEn: 'Blink 10 m: 45 frost damage + slow within 4 m of the landing; the frost field left behind slows 40% and deals 15/s for 4 s.',
         cooldown: 14,
-        params: { blink: 10, radius: 4, duration: 4, slow: 0.4 },
+        // impl: burst = `damage` in `burstRadius` at the landing (+ slow `burstSlowTime`), the trailing
+        //       field ticks fieldDps (per second) and slows. Frost shards: 'pierce' (armor does not help).
+        params: { blink: 10, radius: 4, duration: 4, slow: 0.4, damage: 45, burstRadius: 4, burstSlowTime: 1.5, fieldDps: 15, fieldTime: 4 },
+        dtype: 'pierce',
         targeting: 'direction',
         aiHint: 'mobility',
       },

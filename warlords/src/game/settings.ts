@@ -67,17 +67,49 @@ export const DEFAULT_SETTINGS: UserSettings = {
 const KEY = 'sgwl.settings.v1';
 type Listener = (s: UserSettings) => void;
 
+/** What the device looks like, for first-run defaults (injectable for tests). */
+export interface DeviceHints {
+  /** matchMedia('(pointer: coarse)') — a finger, not a mouse */
+  coarse: boolean;
+  /** min(screen.width, screen.height) in CSS px (0 = unknown) */
+  minSide: number;
+}
+
+export function deviceHints(g: { matchMedia?: (q: string) => { matches: boolean }; screen?: { width: number; height: number } } = globalThis as never): DeviceHints {
+  let coarse = false;
+  try {
+    coarse = !!g.matchMedia?.('(pointer: coarse)').matches;
+  } catch {
+    coarse = false;
+  }
+  const w = Number(g.screen?.width) || 0;
+  const h = Number(g.screen?.height) || 0;
+  return { coarse, minSide: w > 0 && h > 0 ? Math.min(w, h) : 0 };
+}
+
+/** First-run graphics quality: phones and tablets (touch, or a small screen) start on 'low'. */
+export function defaultQuality(d: DeviceHints = deviceHints()): Quality {
+  return d.coarse || (d.minSide > 0 && d.minSide <= 500) ? 'low' : 'medium';
+}
+
 function load(): UserSettings {
   try {
     const raw = globalThis.localStorage?.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<UserSettings>;
-      return { ...DEFAULT_SETTINGS, ...parsed, net: { ...DEFAULT_SETTINGS.net, ...(parsed.net ?? {}) } };
+      const q = parsed.quality;
+      const quality: Quality = q === 'low' || q === 'medium' || q === 'high' ? q : defaultQuality();
+      return { ...DEFAULT_SETTINGS, ...parsed, quality, net: { ...DEFAULT_SETTINGS.net, ...(parsed.net ?? {}) } };
     }
   } catch {
     /* storage unavailable (private mode / file://) */
   }
-  return structuredClone(DEFAULT_SETTINGS);
+  return { ...structuredClone(DEFAULT_SETTINGS), quality: defaultQuality() };
+}
+
+/** Test hook: settings as a fresh load from storage would produce them. */
+export function loadSettingsForTest(): UserSettings {
+  return load();
 }
 
 let current: UserSettings = load();

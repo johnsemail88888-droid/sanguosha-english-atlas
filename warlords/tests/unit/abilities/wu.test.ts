@@ -21,6 +21,9 @@ import { hero, makeWorld, place, stepN } from '../sim/helpers';
 
 const WU = ['sunquan', 'ganning', 'lumeng', 'huanggai', 'zhouyu', 'daqiao', 'luxun', 'sunshangxiang'];
 const D = 'dummy';
+/** an ability's tunables straight from the data (tests follow balance changes) */
+const P = (heroId: string, abilityId: string): Record<string, number> => HERO_BY_ID[heroId].abilities.find((a) => a.id === abilityId)!.params;
+const CD = (heroId: string, abilityId: string): number => HERO_BY_ID[heroId].abilities.find((a) => a.id === abilityId)!.cooldown!;
 const STD5: RoleId[] = ['lord', 'loyalist', 'rebel', 'rebel', 'traitor'];
 
 // Sim warnings are process-wide and reported once per key: any ability/hook/scheduled
@@ -498,14 +501,16 @@ describe('黄盖 Huang Gai', () => {
 
 // ── 周瑜 ─────────────────────────────────────────────────────────────────────
 describe('周瑜 Zhou Yu', () => {
-  it('英姿: reload ×0.75 and ability cooldowns ×0.85', () => {
+  it('英姿: reload ×reloadMul and ability cooldowns ×cdMul', () => {
     const w = mk([D, D, 'zhouyu', D, D]);
     const zy = hero(w, 2);
-    expect(w.modifiers(zy.id).reloadMul).toBeCloseTo(0.75, 5);
-    expect(w.modifiers(zy.id).cooldownMul).toBeCloseTo(0.85, 5);
+    const yz = P('zhouyu', 'zhouyu_yingzi');
+    expect(w.modifiers(zy.id).reloadMul).toBeCloseTo(yz.reloadMul, 5);
+    expect(w.modifiers(zy.id).cooldownMul).toBeCloseTo(yz.cdMul, 5);
+    expect(yz.cdMul).toBeLessThan(1);
     place(w, zy, 0, 30);
     cast(w, 2, 'e');
-    expect(w.cooldownLeft(zy.id, 'zhouyu_chibi')).toBeCloseTo(28 * 0.85, 1);
+    expect(w.cooldownLeft(zy.id, 'zhouyu_chibi')).toBeCloseTo(CD('zhouyu', 'zhouyu_chibi') * yz.cdMul, 1);
   });
 
   it('反间: the charmed enemy attacks the nearest other hero (never him); nobody near → disarm', () => {
@@ -520,7 +525,7 @@ describe('周瑜 Zhou Yu', () => {
     stepN(w, 45);
     expect(lost(other)).toBeGreaterThan(0); // it really shot its neighbour
     expect(lost(zy)).toBe(0);
-    stepN(w, 20);
+    stepN(w, Math.ceil(P('zhouyu', 'zhouyu_fanjian').duration * 30) - 45 + 5);
     expect(w.hasStatus(foe.id, 'charm')).toBe(false);
 
     const w2 = mk([D, D, 'zhouyu', D, D]);
@@ -583,7 +588,8 @@ describe('周瑜 Zhou Yu', () => {
     expect(w2.hasStatus(foe2.id, 'disarm')).toBe(true);
   });
 
-  it('火烧赤壁: after 1.5 s five bombs hit the 25 m line: 100 fire once per unit, then burning ground', () => {
+  it('火烧赤壁: after 1.5 s five bombs hit the 25 m line: params.damage fire once per unit, then burning ground', () => {
+    const { damage: bomb, fieldDps } = P('zhouyu', 'zhouyu_chibi');
     const w = mk([D, D, 'zhouyu', D, D]);
     const [zy, a, b] = [hero(w, 2), hero(w, 3), hero(w, 4)];
     place(w, zy, 0, 40);
@@ -595,13 +601,13 @@ describe('周瑜 Zhou Yu', () => {
     stepN(w, 44);
     expect(lost(a)).toBe(0);
     stepN(w, 1);
-    expect(lost(a)).toBeCloseTo(100, 5);
+    expect(lost(a)).toBeCloseTo(bomb, 5);
     expect(lost(b)).toBe(0);
     expect(hazards(w, NAPALM_FIELD, zy)).toHaveLength(5);
     stepN(w, 30);
-    // burning ground: 15/s; overlapping edges of two fields don't stack
-    expect(lost(a)).toBeGreaterThan(100);
-    expect(lost(a)).toBeLessThanOrEqual(100 + 15 * 1.5 + 1e-6);
+    // burning ground: fieldDps/s; overlapping edges of two fields don't stack
+    expect(lost(a)).toBeGreaterThan(bomb);
+    expect(lost(a)).toBeLessThanOrEqual(bomb + fieldDps * 1.5 + 1e-6);
     stepN(w, 6 * 30);
     expect(hazards(w, NAPALM_FIELD, zy)).toHaveLength(0);
   });
@@ -801,7 +807,7 @@ describe('大乔 Da Qiao', () => {
     });
   });
 
-  it('国色: the crosshair enemy dances 2.5 s and cannot shoot; 谦逊 / 无懈可击 handled', () => {
+  it('国色: the crosshair enemy dances params.duration s and cannot shoot; 谦逊 / 无懈可击 handled', () => {
     const { w, q, att } = dq();
     expect(cast(w, 2, 'q', aimAt(q, att)).fired).toBe(true);
     expect(w.hasStatus(att.id, 'dance')).toBe(true);
@@ -810,7 +816,7 @@ describe('大乔 Da Qiao', () => {
     send(w, 4, [], { ...aimAt(att, q), buttons: BTN_FIRE });
     stepN(w, 10);
     expect(inst.mag).toBe(mag);
-    stepN(w, 2.5 * 30);
+    stepN(w, P('daqiao', 'daqiao_guose').duration * 30);
     expect(w.hasStatus(att.id, 'dance')).toBe(false);
 
     const w2 = mk([D, D, 'daqiao', D, 'luxun']);
@@ -827,7 +833,8 @@ describe('大乔 Da Qiao', () => {
     expect(r.w.cooldownLeft(r.q.id, 'daqiao_guose')).toBeGreaterThan(0);
   });
 
-  it('安娴: heals her, her soldiers and every hero within 8 m for 80', () => {
+  it('安娴: heals her, her soldiers and every hero within 8 m for params.heal', () => {
+    const heal = P('daqiao', 'daqiao_anxian').heal;
     const { w, q, att, by } = dq();
     const lordHero = hero(w, 0);
     place(w, att, 12, 30); // 12 m: out of range
@@ -835,9 +842,9 @@ describe('大乔 Da Qiao', () => {
     const enemyTroop = w.spawnTroops(lordHero.id, 'shu_rifleman', 1, { x: -3, y: 0, z: 30 })[0];
     for (const e of [q, att, by, own, enemyTroop]) e.hp = 10;
     expect(cast(w, 2, 'e').fired).toBe(true);
-    expect(q.hp).toBeCloseTo(90, 5);
-    expect(by.hp).toBeCloseTo(90, 5);
-    expect(own.hp).toBeCloseTo(Math.min(own.maxHp, 90), 5);
+    expect(q.hp).toBeCloseTo(10 + heal, 5);
+    expect(by.hp).toBeCloseTo(10 + heal, 5);
+    expect(own.hp).toBeCloseTo(Math.min(own.maxHp, 10 + heal), 5);
     expect(att.hp).toBe(10);
     expect(enemyTroop.hp).toBe(10);
   });

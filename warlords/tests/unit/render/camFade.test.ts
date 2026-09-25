@@ -71,3 +71,69 @@ describe('cameraFadeTarget (near-camera fade)', () => {
     expect(cameraFadeTarget(cam, focus, { x: 0, y: 0, z: 3 }, 1.8)).toBe(1);
   });
 });
+
+describe('cameraFadeTarget at 0.8 / 1.5 / 2.5 / 4 m from the camera', () => {
+  // camera at chest height, looking along −z; a soldier (1.8 m, radius 0.45)
+  // standing `d` m beside it (distance camera → body axis)
+  const eye = { x: 0, y: 1.5, z: 0 };
+  const fwd = { x: 0, y: 0, z: -1 };
+  const beside = (d: number) => ({ x: d * Math.SQRT1_2, y: 0, z: -d * Math.SQRT1_2 });
+  const troop = (d: number): number => cameraFadeTarget(eye, null, beside(d), 1.8);
+  const own = (d: number): number => cameraFadeTarget(eye, null, beside(d), 1.8, 0.45, { squad: true, camDir: fwd, fovDeg: 70 });
+  const downed = (d: number): number =>
+    cameraFadeTarget({ x: 0, y: 0.75, z: 0 }, null, beside(d), 1.8, 0.45, { camDir: fwd, fovDeg: 70, downedCam: true });
+
+  it('0.8 m: fully hidden, never a giant ghost', () => {
+    expect(troop(0.8)).toBe(0);
+    expect(own(0.8)).toBe(0);
+    expect(downed(0.8)).toBe(0);
+  });
+
+  it('~1 m and 1.5 m: still hidden (the body would cover the whole view)', () => {
+    expect(troop(1.0)).toBe(0);
+    expect(troop(1.5)).toBeLessThanOrEqual(CAM_FADE_HIDDEN);
+    expect(own(1.5)).toBeLessThanOrEqual(CAM_FADE_HIDDEN);
+    // just past the hide distance it is barely visible, not a half-opaque wall
+    expect(troop(1.8)).toBeLessThan(0.15);
+  });
+
+  it('2.5 m: soldiers beside the camera are faded (your own squad more)', () => {
+    const t = troop(2.5);
+    const o = own(2.5);
+    expect(t).toBeGreaterThan(0.4);
+    expect(t).toBeLessThan(1);
+    expect(o).toBeGreaterThan(CAM_FADE_HIDDEN);
+    expect(o).toBeLessThan(0.6);
+    expect(o).toBeLessThan(t);
+  });
+
+  it('4 m: opaque', () => {
+    expect(troop(4)).toBe(1);
+    // own squad: no distance fade any more (only the screen-coverage fade while one fills ≥ 40 % of the view)
+    expect(cameraFadeTarget(eye, null, beside(4), 1.8, 0.45, { squad: true })).toBe(1);
+    expect(own(4)).toBeGreaterThan(0.8);
+  });
+
+  it('fades monotonically with distance', () => {
+    let prev = -1;
+    for (let d = 0.5; d <= 5; d += 0.1) {
+      const f = troop(d);
+      expect(f).toBeGreaterThanOrEqual(prev);
+      prev = f;
+    }
+  });
+
+  it('downed (low camera): troops inside its near volume fade, a little further out than standing', () => {
+    expect(downed(1.8)).toBe(0);
+    expect(downed(2.5)).toBeGreaterThan(0);
+    expect(downed(2.5)).toBeLessThan(troop(2.5));
+    expect(downed(3.2)).toBeLessThan(1);
+    expect(downed(4.2)).toBe(1);
+  });
+
+  it("a rider's mount counts: a horse's head 1 m from the lens hides the rider too", () => {
+    // rider axis 2 m away, mount half length ≈ 1.05 m
+    expect(cameraFadeTarget(eye, null, beside(2), 2.6, 1.05)).toBe(0);
+    expect(cameraFadeTarget(eye, null, beside(2), 2.6, 0.45)).toBeGreaterThan(0);
+  });
+});

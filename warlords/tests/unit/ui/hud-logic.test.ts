@@ -188,14 +188,38 @@ describe('interaction prompt', () => {
   const pos = { x: 0, y: 0, z: 0 };
   const lootWeapon = WEAPONS.find((w) => w.lootable && w.id !== 'pistol') ?? WEAPONS[0];
 
-  it('prefers reviving a downed hero over loot', () => {
-    const ents = [ent(2, 'hero', HEROES[1].id, 1, 1, VF_DOWNED, { name: 'Bob' }), ent(3, 'loot', lootWeapon.id, 0.5, 0), ent(4, 'crate', '1', 1, 0)];
-    const p = deriveInteract(me(), pos, ents);
+  // yaw 0 faces −z (core/math: forward = (−sin yaw, −cos yaw))
+  const facing = { x: 0, y: 0, z: 0, yaw: 0 };
+
+  it('names what F really takes: the thing in front of you beats the raw nearest one', () => {
+    // a downed hero in front, loot and a crate beside / behind you
+    const ents = [ent(2, 'hero', HEROES[1].id, 0, -1.4, VF_DOWNED, { name: 'Bob' }), ent(3, 'loot', lootWeapon.id, 0.5, 0.6), ent(4, 'crate', '1', 1.2, 0.3)];
+    const p = deriveInteract(me(), facing, ents);
     expect(p?.kind).toBe('revive');
     if (p?.kind === 'revive') {
       expect(p.targetId).toBe(2);
       expect(p.needPeach).toBe(HEROES[0].id !== 'huatuo');
     }
+  });
+
+  it('after a swap, the new mount under the crosshair wins over the old one dropped at your feet (大宛)', () => {
+    const ents = [ent(7, 'loot', 'chitu', 0.35, 0.5), ent(8, 'loot', 'dawan', 0.2, -2.1)];
+    const p = deriveInteract(me({ mount: 'zixing' }), facing, ents);
+    expect(p).toMatchObject({ kind: 'pickup', targetId: 8, itemId: 'dawan', swap: true });
+    // looking the other way, the old one is the pick again
+    expect(deriveInteract(me({ mount: 'zixing' }), { ...facing, yaw: Math.PI }, ents)).toMatchObject({ targetId: 7, itemId: 'chitu' });
+  });
+
+  it('skips a downed hero behind you (the sim only revives what you face)', () => {
+    const ents = [ent(2, 'hero', HEROES[1].id, 0, 1.4, VF_DOWNED)];
+    expect(deriveInteract(me(), facing, ents)).toBeNull();
+    // without a known facing: plain distance
+    expect(deriveInteract(me(), pos, ents)?.kind).toBe('revive');
+  });
+
+  it('a full item bar only warns when nothing else is in reach', () => {
+    const full = me({ items: [1, 2, 3, 4].map(() => ({ id: 'zzz', count: 1 })) });
+    expect(deriveInteract(full, facing, [ent(3, 'loot', 'tao', 0, -0.5), ent(4, 'crate', '1', 0, -2.5)])?.kind).toBe('crate');
   });
 
   it('knows when you carry a peach', () => {
@@ -327,6 +351,28 @@ describe('refused card / ability text', () => {
     expect(deniedText({ reason: 'noTarget' }).en).toBe('Aim at a target first');
     expect(deniedText({ reason: 'fullHp', item: 'tao' }).zh).toBe('体力已满');
     expect(deniedText({ reason: 'cap', item: 'shan' }).en).toMatch(/limit/);
+  });
+  it('has a zh and an en text for every reason', () => {
+    const cases: [string, string, string][] = [
+      ['noTarget', '准星需对准目标', 'Aim at a target first'],
+      ['fullHp', '体力已满', 'Already at full health'],
+      ['cap', '已达上限', 'Already at the limit'],
+      ['blocked', '此处无法使用', "Can't use that here"],
+      ['needOther', '附近需要另一名武将', 'Needs another hero nearby'],
+      ['invalidTarget', '目标无效', 'Invalid target'],
+      ['silenced', '无法施放：被沉默', 'Silenced'],
+    ];
+    for (const [reason, zh, en] of cases) expect(deniedText({ reason }), reason).toEqual({ zh, en });
+  });
+  it('prefixes the ability name when the refusal is about an ability', () => {
+    const tuxi = HERO_BY_ID.zhangliao.abilities.find((a) => a.id === 'zhangliao_tuxi')!;
+    expect(deniedText({ reason: 'invalidTarget', ability: 'zhangliao_tuxi' })).toEqual({ zh: `${tuxi.nameZh}：目标无效`, en: `${tuxi.nameEn}: Invalid target` });
+    expect(deniedText({ reason: 'silenced', ability: 'zhangliao_tuxi' }).en).toBe(`${tuxi.nameEn}: Silenced`);
+    expect(deniedText({ reason: 'needOther', ability: 'zhangliao_tuxi' }).zh).toBe(`${tuxi.nameZh}：附近需要另一名武将`);
+    // no reason: neutral, still named
+    expect(deniedText({ ability: 'zhangliao_tuxi' }).en).toBe(`${tuxi.nameEn}: Can't cast that now`);
+    // unknown ability ids are ignored
+    expect(deniedText({ reason: 'noTarget', ability: 'nope' }).en).toBe('Aim at a target first');
   });
   it('ignores junk fields', () => {
     expect(deniedText({ reason: 3, item: 'no-such-card' }).en).toBe("Can't use that now");

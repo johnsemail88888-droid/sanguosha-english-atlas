@@ -104,6 +104,15 @@ export function buildCharacter(spec: CharacterSpec): BuiltCharacter {
 /** Number of cached character geometries (for diagnostics). */
 export const characterGeometryCacheSize = (): number => geoCache.size;
 
+/**
+ * Dispose and forget every cached body geometry (end of a match: the next one
+ * rebuilds what it needs). Rigs still alive keep working with theirs.
+ */
+export function releaseCharacterGeometryCache(): void {
+  for (const v of geoCache.values()) v.geometry.dispose();
+  geoCache.clear();
+}
+
 function buildCharacterGeometry(spec: CharacterSpec): THREE.BufferGeometry {
   const d = bodyDims(spec.body, spec.female, spec.scale ?? 1);
   const b = new GeoBuilder({ skinned: true });

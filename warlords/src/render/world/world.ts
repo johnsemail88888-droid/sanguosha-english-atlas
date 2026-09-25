@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import type { MapData, MapProp, PropType } from '../../core/map';
 import { GeoBuilder, trs } from '../core/geo';
 import { glowMaterial, worldMaterial, worldMaterialDouble } from '../core/materials';
-import { bindStructureSet, structureMaterial } from '../core/structureMaterial';
+import { bindStructureSet, structureMaterial, structureMaterialDouble } from '../core/structureMaterial';
 import { requestStructSet, withWorldArtListing, worldArtPossible } from '../core/worldArt';
 import { assetListSync } from '../../game/assets';
 import { buildPropModels, fullyReplacedTypes, glbPropKind, propModelPath, type GlbPropType, type PropModelSet } from './propModels';
@@ -29,6 +29,7 @@ import { buildNature, natureStyle } from './nature';
 import { buildBanners } from './banners';
 import type { FireSource } from './fires';
 import { makePropCtx, type PropCtx } from './propkit';
+import { CamOccluderSink, type BoxCollider } from '../camera/camOccluders';
 
 const CHUNK = 64;
 
@@ -74,6 +75,8 @@ export interface WorldBuild {
   stats: WorldStats;
   /** Resolves once the AI-art prop models (if any) have been swapped in or given up on. */
   artReady: Promise<void>;
+  /** camera-only occluder boxes (roof shells, under dock decks) — see camera/camOccluders.ts */
+  cameraOccluders: BoxCollider[];
   dispose(): void;
 }
 
@@ -91,17 +94,21 @@ function swappable(p: MapProp, files: ReadonlySet<string> | null): GlbPropType |
 }
 
 /** Build a single prop into fresh builders (used by the dev harness / tests). */
-export function buildPropGeometry(p: MapProp, map: MapData): { opaque: THREE.BufferGeometry; cloth: THREE.BufferGeometry; glow: THREE.BufferGeometry } | null {
+export function buildPropGeometry(
+  p: MapProp,
+  map: MapData,
+  occ: CamOccluderSink | null = null,
+): { opaque: THREE.BufferGeometry; cloth: THREE.BufferGeometry; glow: THREE.BufferGeometry } | null {
   const fn = BUILDERS[p.type];
   if (!fn) return null;
   const opaque = new GeoBuilder({ extraName: 'aSurf' });
-  const cloth = new GeoBuilder();
+  const cloth = new GeoBuilder({ extraName: 'aSurf' }); // roof shells (roofExtras) carry roof-tile surfaces
   const glow = new GeoBuilder();
   const m = trs(p.x, p.y, p.z, 0, p.rot, 0);
   opaque.push(m);
   cloth.push(m);
   glow.push(m);
-  fn(makePropCtx(opaque, cloth, glow, p, map));
+  fn(makePropCtx(opaque, cloth, glow, p, map, occ));
   return { opaque: opaque.build(), cloth: cloth.build(), glow: glow.build() };
 }
 
@@ -111,13 +118,17 @@ export function buildWorld(map: MapData): WorldBuild {
   const chunks = new Map<string, Chunk>();
   const half = map.size / 2;
   const fires: FireSource[] = [];
+  const occ = new CamOccluderSink();
   let failed = 0;
   let built = 0;
   const listing = assetListSync();
+  // the cloth builder takes the double-sided roof shells too (propkit roofExtras),
+  // so it carries the surface channel like the opaque one
+  const newChunk = (): Chunk => ({ opaque: new GeoBuilder({ extraName: 'aSurf' }), cloth: new GeoBuilder({ extraName: 'aSurf' }), glow: new GeoBuilder() });
   const swaps = new Map<GlbPropType, Chunk>();
   const swapOf = (k: GlbPropType): Chunk => {
     let ch = swaps.get(k);
-    if (!ch) swaps.set(k, (ch = { opaque: new GeoBuilder({ extraName: 'aSurf' }), cloth: new GeoBuilder(), glow: new GeoBuilder() }));
+    if (!ch) swaps.set(k, (ch = newChunk()));
     return ch;
   };
   const chunkOf = (x: number, z: number): Chunk => {
@@ -126,7 +137,7 @@ export function buildWorld(map: MapData): WorldBuild {
     const key = `${cx},${cz}`;
     let ch = chunks.get(key);
     if (!ch) {
-      ch = { opaque: new GeoBuilder({ extraName: 'aSurf' }), cloth: new GeoBuilder(), glow: new GeoBuilder() };
+      ch = newChunk();
       chunks.set(key, ch);
     }
     return ch;
@@ -143,8 +154,9 @@ export function buildWorld(map: MapData): WorldBuild {
     ch.cloth.push(m);
     ch.glow.push(m);
     ch.opaque.extra = 0; // every prop starts plain; builders pick their surfaces
+    ch.cloth.extra = 0;
     try {
-      fn(makePropCtx(ch.opaque, ch.cloth, ch.glow, p, map));
+      fn(makePropCtx(ch.opaque, ch.cloth, ch.glow, p, map, occ));
       built++;
     } catch (err) {
       failed++;
@@ -158,6 +170,7 @@ export function buildWorld(map: MapData): WorldBuild {
   let triangles = 0;
   const geos: THREE.BufferGeometry[] = [];
   const opaqueMeshes: THREE.Mesh[] = [];
+  const clothMeshes: THREE.Mesh[] = [];
   const swapMeshes = new Map<GlbPropType, THREE.Mesh[]>();
   const buildChunk = (key: string, ch: Chunk, into: THREE.Mesh[] | null): void => {
     const add = (gb: GeoBuilder, mat: THREE.Material, kind: string, shadows: boolean): void => {
@@ -171,6 +184,7 @@ export function buildWorld(map: MapData): WorldBuild {
       mesh.receiveShadow = kind !== 'glow';
       mesh.matrixAutoUpdate = false;
       if (kind === 'opaque') opaqueMeshes.push(mesh);
+      else if (kind === 'cloth') clothMeshes.push(mesh);
       into?.push(mesh);
       group.add(mesh);
     };
@@ -184,6 +198,11 @@ export function buildWorld(map: MapData): WorldBuild {
     buildChunk(`swap_${k}`, ch, list);
     swapMeshes.set(k, list);
   }
+  // the builders' scratch buffers are copied into the geometries: drop them now
+  // (dispose() below shares this scope — anything left here lives as long as it)
+  const chunkCount = chunks.size;
+  chunks.clear();
+  swaps.clear();
   const nature = buildNature(map.props);
   group.add(nature.group);
   const banners = buildBanners(map.props);
@@ -196,9 +215,12 @@ export function buildWorld(map: MapData): WorldBuild {
     bindStructureSet(set);
     const m = structureMaterial();
     for (const mesh of opaqueMeshes) mesh.material = m;
+    // double-sided cloth chunks hold the roof shells: textured tiles, still no culled faces
+    const md = structureMaterialDouble();
+    for (const mesh of clothMeshes) mesh.material = md;
   });
   // AI-art prop models: instance them, then retire the procedural stand-ins
-  const stats: WorldStats = { props: built, chunks: chunks.size, instanced: nature.count, triangles: Math.round(triangles), failed };
+  const stats: WorldStats = { props: built, chunks: chunkCount, instanced: nature.count, triangles: Math.round(triangles), failed };
   let models: PropModelSet | null = null;
   let settle: () => void = () => undefined;
   const artReady = new Promise<void>((res) => (settle = res));
@@ -220,6 +242,8 @@ export function buildWorld(map: MapData): WorldBuild {
             if (gi >= 0) geos.splice(gi, 1);
             const oi = opaqueMeshes.indexOf(mesh);
             if (oi >= 0) opaqueMeshes.splice(oi, 1);
+            const ci = clothMeshes.indexOf(mesh);
+            if (ci >= 0) clothMeshes.splice(ci, 1);
           }
           swapMeshes.delete(k);
         }
@@ -234,12 +258,21 @@ export function buildWorld(map: MapData): WorldBuild {
     fires,
     stats,
     artReady,
+    cameraOccluders: occ.boxes,
     dispose(): void {
       disposed = true;
       for (const g of geos) g.dispose();
+      // nothing of the match may stay reachable through this closure (a leaked
+      // reference to the WorldBuild must not pin megabytes of vertex arrays)
+      geos.length = 0;
       nature.dispose();
       banners.dispose();
       (models as PropModelSet | null)?.dispose();
+      models = null;
+      opaqueMeshes.length = 0;
+      clothMeshes.length = 0;
+      swapMeshes.clear();
+      group.clear();
       settle();
     },
   };

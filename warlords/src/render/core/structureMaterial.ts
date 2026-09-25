@@ -133,12 +133,12 @@ const FRAGMENT = /* glsl */ `
 }`;
 
 let mat: THREE.MeshStandardMaterial | null = null;
+let matDouble: THREE.MeshStandardMaterial | null = null;
 
-/** The textured structure material (same look as worldMaterial() plus surface detail). */
-export function structureMaterial(): THREE.MeshStandardMaterial {
-  if (mat) return mat;
+function makeStructureMaterial(double: boolean): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.86, metalness: 0 });
-  m.name = 'structure';
+  m.name = double ? 'structureDouble' : 'structure';
+  if (double) m.side = THREE.DoubleSide;
   m.onBeforeCompile = (shader) => {
     applySkyArtFog(shader, m);
     shader.uniforms.uStructTex = uniforms.uStructTex;
@@ -152,9 +152,23 @@ export function structureMaterial(): THREE.MeshStandardMaterial {
       .replace('#include <common>', `#include <common>${PARS_FRAGMENT}`)
       .replace('#include <color_fragment>', `#include <color_fragment>${FRAGMENT}`);
   };
-  m.customProgramCacheKey = () => `structure_v2${skyArtFogKey()}`;
-  mat = m;
+  m.customProgramCacheKey = () => `structure_v2${double ? '_ds' : ''}${skyArtFogKey()}`;
   return m;
+}
+
+/** The textured structure material (same look as worldMaterial() plus surface detail). */
+export function structureMaterial(): THREE.MeshStandardMaterial {
+  return (mat ??= makeStructureMaterial(false));
+}
+
+/**
+ * Double-sided variant (same look as worldMaterialDouble() plus surface detail):
+ * the merged 'cloth' chunks — thin cloth, sails, and the roof shells, which are
+ * double-sided so a camera pulled into an eave never sees a culled / black face
+ * (camera/camOccluders.ts). Plain-surface cloth draws exactly as before.
+ */
+export function structureMaterialDouble(): THREE.MeshStandardMaterial {
+  return (matDouble ??= makeStructureMaterial(true));
 }
 
 /** Point the material at a structure texture set (placeholder now, decoded array once ready). */
@@ -172,6 +186,7 @@ export function bindStructureSet(set: TexArraySet): void {
 
 export function disposeStructureMaterial(): void {
   mat?.dispose();
-  mat = null;
+  matDouble?.dispose();
+  mat = matDouble = null;
   uniforms.uStructTex.value = null;
 }

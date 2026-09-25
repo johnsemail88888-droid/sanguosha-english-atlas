@@ -14,14 +14,28 @@ export interface ZonePhaseDef {
   dps: number;
 }
 
+/**
+ * Paced for 8–12 minute matches: the first circle closes at 2:30, the last one reaches 0 at
+ * 10:40 (the 15:00 hard cap in rules.ts stays the backstop).
+ */
 export const ZONE_PHASES: readonly ZonePhaseDef[] = [
-  { wait: 90, shrink: 0, radius: 230, dps: 0 },
-  { wait: 0, shrink: 60, radius: 160, dps: 4 },
-  { wait: 60, shrink: 45, radius: 100, dps: 8 },
-  { wait: 45, shrink: 40, radius: 55, dps: 15 },
-  { wait: 40, shrink: 30, radius: 25, dps: 30 },
-  { wait: 30, shrink: 30, radius: 0, dps: 60 },
+  { wait: 150, shrink: 0, radius: 230, dps: 0 },
+  { wait: 0, shrink: 75, radius: 160, dps: 4 },
+  { wait: 75, shrink: 60, radius: 100, dps: 8 },
+  { wait: 60, shrink: 45, radius: 55, dps: 15 },
+  { wait: 45, shrink: 40, radius: 25, dps: 30 },
+  { wait: 45, shrink: 45, radius: 0, dps: 60 },
 ];
+
+/** Start (s) of phase `i` (its wait), from the table. */
+export function zonePhaseStart(i: number): number {
+  let t = 0;
+  for (let k = 0; k < Math.min(i, ZONE_PHASES.length); k++) t += ZONE_PHASES[k].wait + ZONE_PHASES[k].shrink;
+  return t;
+}
+
+/** Time (s) the circle reaches radius 0 (end of the last shrink). */
+export const ZONE_CLOSED_AT = zonePhaseStart(ZONE_PHASES.length);
 
 /** zone damage tick period (s) */
 export const ZONE_DAMAGE_PERIOD = 1;

@@ -307,7 +307,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **反馈**<br>Retaliation<br><sub>三国杀：反馈</sub> | — | 受到武将伤害时，偷取其 1 个随机锦囊（8 秒冷却）。<br>When a hero damages you, steal 1 random item from them (8 s cooldown). |
-| Q | **鬼才**<br>Ghostly Talent<br><sub>三国杀：鬼才</sub> | 16 s | 2.5 秒内受到的子弹伤害 -50%，并将原伤害的 100% 反弹给射手。<br>For 2.5 s, bullet damage you take is halved and 100% of the original is reflected back to the shooter. |
+| Q | **鬼才**<br>Ghostly Talent<br><sub>三国杀：鬼才</sub><br><sub>普通伤害 · Normal damage</sub> | 16 s | 2.5 秒内受到的子弹伤害 -50%，并将原伤害的 100% 反弹给射手。<br>For 2.5 s, bullet damage you take is halved and 100% of the original is reflected back to the shooter. |
 | E | **狼顾**<br>Wolf's Glance<br><sub>三国杀：狼顾</sub> | 20 s | 40 米内所有其他武将对你显形 5 秒（仅你可见）；期间你对它们伤害 +40%。<br>Reveal all other heroes within 40 m to you alone for 5 s. Meanwhile you deal +40% damage to them. |
 
 **台词 Quotes**
@@ -410,9 +410,9 @@
 
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
-| 被动<br>Passive | **天妒**<br>Envy of Heaven<br><sub>三国杀：天妒</sub> | — | 单次受到至少 40 伤害时，获得 1 个随机锦囊并装满弹匣（6 秒冷却）。<br>When a single hit deals 40+ damage to you, gain 1 random item and refill your magazine (6 s cooldown). |
-| Q | **遗计**<br>Legacy Stratagem<br><sub>三国杀：遗计</sub> | 28 s | 向 40 米内准星处呼叫补给空投，3 秒后落地，内含 2 个锦囊。<br>Call a supply drop at the crosshair (40 m). It lands after 3 s carrying 2 items. |
-| E | **鬼谋**<br>Ghostly Scheme<br><sub>三国杀：遗计</sub> | 18 s | 标记准星处敌人 6 秒：其受到的所有伤害 +25% 并显形。<br>Mark the enemy under your crosshair for 6 s: it takes +25% damage from all sources and is revealed. |
+| 被动<br>Passive | **天妒**<br>Envy of Heaven<br><sub>三国杀：天妒</sub> | — | 单次受到至少 35 伤害时，获得 1 个随机锦囊并装满弹匣（5 秒冷却）。<br>When a single hit deals 35+ damage to you, gain 1 random item and refill your magazine (5 s cooldown). |
+| Q | **遗计**<br>Legacy Stratagem<br><sub>三国杀：遗计</sub> | 20 s | 向 40 米内准星处呼叫补给空投，3 秒后落地，内含 2 个锦囊。<br>Call a supply drop at the crosshair (40 m). It lands after 3 s carrying 2 items. |
+| E | **鬼谋**<br>Ghostly Scheme<br><sub>三国杀：遗计</sub> | 14 s | 标记准星处敌人 7 秒：其受到的所有伤害 +30% 并显形。<br>Mark the enemy under your crosshair for 7 s: it takes +30% damage from all sources and is revealed. |
 
 **台词 Quotes**
 
@@ -438,7 +438,7 @@
 |---|---|---|---|
 | 被动<br>Passive | **倾国**<br>Nation-Toppling Beauty<br><sub>三国杀：倾国</sub> | — | 移动中受到子弹攻击时，有 25% 几率完全闪避。<br>While moving, each incoming bullet has a 25% chance to be completely evaded. |
 | Q | **洛神**<br>Goddess of the Luo<br><sub>三国杀：洛神</sub> | 20 s | 连续判定至多 4 次（60%/50%/40%/30%），每次成功得 1 个锦囊，失败即停。<br>Roll up to 4 times (60/50/40/30%); each success grants 1 item. Stops at the first failure. |
-| E | **凌波微步**<br>Graceful Steps<br><sub>三国杀：倾国</sub> | 14 s | 闪现 10 米，在原地留下 4 米冰霜区 4 秒，敌人减速 40%。<br>Blink 10 m, leaving a 4 m frost field behind for 4 s that slows enemies 40%. |
+| E | **凌波微步**<br>Graceful Steps<br><sub>三国杀：倾国</sub><br><sub>穿透伤害 · Piercing damage</sub> | 14 s | 闪现 10 米：落点 4 米内敌人受 45 冰霜伤害并减速；原地留下 4 米冰霜区 4 秒，敌人减速 40%、每秒受 15 伤害。<br>Blink 10 m: 45 frost damage + slow within 4 m of the landing; the frost field left behind slows 40% and deals 15/s for 4 s. |
 
 **台词 Quotes**
 
@@ -518,7 +518,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **锦帆**<br>Brocade Sails<br><sub>三国杀：奇袭</sub> | — | 移速 +10%；击杀任意单位后立即装满弹匣。<br>+10% move speed. Killing any unit instantly refills your magazine. |
-| Q | **奇袭**<br>Surprise Raid<br><sub>三国杀：奇袭</sub> | 18 s | 向准星处敌人射出电磁弩：其护甲与坐骑掉落、护盾清空，并沉默 2.5 秒。<br>Fire an EMP bolt at the crosshair enemy: it drops its armor and mount, loses all shield, and is silenced 2.5 s. |
+| Q | **奇袭**<br>EMP Raid<br><sub>三国杀：奇袭</sub> | 18 s | 向准星处敌人射出电磁弩：其护甲与坐骑掉落、护盾清空，并沉默 2.5 秒。<br>Fire an EMP bolt at the crosshair enemy: it drops its armor and mount, loses all shield, and is silenced 2.5 s. |
 | E | **百骑劫营**<br>Hundred Riders Raid<br><sub>三国杀：奇袭</sub> | 28 s | 你与士兵潜行 8 秒；潜行中的首轮攻击（至多 1 秒连射）伤害 +60%。<br>You and your squad turn stealthy for 8 s. Your first attack from stealth (a burst of up to 1 s) deals +60% damage. |
 
 **台词 Quotes**
@@ -595,9 +595,9 @@
 
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
-| 被动<br>Passive | **英姿**<br>Heroic Bearing<br><sub>三国杀：英姿</sub> | — | 换弹速度 +25%；技能冷却 -15%。<br>Reload 25% faster. Ability cooldowns -15%. |
-| Q | **反间**<br>Sow Discord<br><sub>三国杀：反间</sub> | 20 s | 魅惑准星处敌人 2 秒：它攻击 30 米内离它最近、它看得见的另一名武将（不会是你）；若无则缴械它 2 秒。<br>Charm the crosshair enemy for 2 s: it attacks the nearest other hero it can see within 30 m (never you). None: disarm it 2 s. |
-| E | **火烧赤壁**<br>Red Cliffs Inferno<br><sub>三国杀：英姿</sub><br><sub>火焰伤害 · Fire damage</sub> | 28 s | 1.5 秒后沿前方 25 米直线投下 5 枚凝固汽油弹：100 火焰伤害，燃烧地面 6 秒（每秒 15）。<br>After 1.5 s, 5 napalm bombs hit a 25 m line ahead: 100 fire damage and burning ground for 6 s (15/s). |
+| 被动<br>Passive | **英姿**<br>Heroic Bearing<br><sub>三国杀：英姿</sub> | — | 换弹速度 +25%；技能冷却 -20%。<br>Reload 25% faster. Ability cooldowns -20%. |
+| Q | **反间**<br>Sow Discord<br><sub>三国杀：反间</sub> | 18 s | 魅惑准星处敌人 3 秒：它攻击 30 米内离它最近、它看得见的另一名武将（不会是你）；若无则缴械它 3 秒。<br>Charm the crosshair enemy for 3 s: it attacks the nearest other hero it can see within 30 m (never you). None: disarm it 3 s. |
+| E | **火烧赤壁**<br>Red Cliffs Inferno<br><sub>三国杀：英姿</sub><br><sub>火焰伤害 · Fire damage</sub> | 24 s | 1.5 秒后沿前方 25 米直线投下 5 枚凝固汽油弹：110 火焰伤害，燃烧地面 6 秒（每秒 18）。<br>After 1.5 s, 5 napalm bombs hit a 25 m line ahead: 110 fire damage and burning ground for 6 s (18/s). |
 
 **台词 Quotes**
 
@@ -621,9 +621,9 @@
 
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
-| 被动<br>Passive | **流离**<br>Displacement<br><sub>三国杀：流离</sub> | — | 被子弹击中时，30% 几率将该伤害转移给 8 米内你看得见的另一单位（优先敌人，己方士兵最后，攻击者除外）。<br>When hit by a bullet, 30% chance to pass it to a unit in sight within 8 m: enemies first, your soldiers last, never the attacker. |
-| Q | **国色**<br>National Beauty<br><sub>三国杀：国色</sub> | 16 s | 向准星处敌人掷出乐不思蜀：其跳舞 2.5 秒，无法射击与使用技能。<br>Throw Indulgence at the crosshair enemy: it dances for 2.5 s, unable to shoot or use abilities. |
-| E | **安娴**<br>Serenity<br><sub>三国杀：安娴</sub> | 18 s | 为你、你的士兵及 8 米内其他武将回复 80 生命。<br>Heal yourself, your soldiers and other heroes within 8 m for 80. |
+| 被动<br>Passive | **流离**<br>Displacement<br><sub>三国杀：流离</sub> | — | 被子弹击中时，35% 几率将该伤害转移给 8 米内你看得见的另一单位（优先敌人，己方士兵最后，攻击者除外）。<br>When hit by a bullet, 35% chance to pass it to a unit in sight within 8 m: enemies first, your soldiers last, never the attacker. |
+| Q | **国色**<br>National Beauty<br><sub>三国杀：国色</sub> | 14 s | 向 25 米内准星处敌人掷出乐不思蜀：其跳舞 3 秒，无法射击与使用技能。<br>Throw Indulgence at the crosshair enemy (25 m): it dances for 3 s, unable to shoot or use abilities. |
+| E | **安娴**<br>Serenity<br><sub>三国杀：安娴</sub> | 15 s | 为你、你的士兵及 8 米内其他武将回复 90 生命。<br>Heal yourself, your soldiers and other heroes within 8 m for 90. |
 
 **台词 Quotes**
 
@@ -781,7 +781,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **鬼道**<br>Ghostly Way<br><sub>三国杀：鬼道</sub> | — | 你造成的雷电伤害 +30%。<br>Your thunder damage is +30%. |
-| Q | **雷击**<br>Lightning Strike<br><sub>三国杀：雷击</sub><br><sub>雷电伤害 · Thunder damage</sub> | 12 s | 在准星处连降 3 道落雷（间隔 0.6 秒），每道 3 米内 55 雷电伤害；首道眩晕 0.5 秒。<br>Call 3 lightning bolts at the crosshair, 0.6 s apart: 55 thunder damage each in 3 m; the first bolt stuns 0.5 s. |
+| Q | **雷击**<br>Lightning Strike<br><sub>三国杀：雷击</sub><br><sub>雷电伤害 · Thunder damage</sub> | 15 s | 在准星处连降 3 道落雷（间隔 0.6 秒），每道 3 米内 42 雷电伤害；首道眩晕 0.5 秒。<br>Call 3 lightning bolts at the crosshair, 0.6 s apart: 42 thunder damage each in 3 m; the first bolt stuns 0.5 s. |
 | E | **太平要术**<br>Way of Peace<br><sub>三国杀：雷击</sub><br><sub>雷电伤害 · Thunder damage</sub> | 26 s | 雷云跟随准星处敌人 8 秒，每 1.5 秒劈下 35 雷电伤害（2.5 米）。<br>A storm cloud follows the crosshair enemy for 8 s, striking every 1.5 s for 35 thunder damage (2.5 m). |
 | G<br>主公技 | **黄天**<br>Yellow Heaven<br><sub>三国杀：黄天</sub> | 45 s | 召唤 5 名黄巾力士为你作战，持续 30 秒。<br>Summon 5 Yellow Turban Warriors to fight for you for 30 s. |
 
@@ -836,7 +836,7 @@
 |---|---|---|---|
 | 被动<br>Passive | **祸首**<br>Chief Culprit<br><sub>三国杀：祸首</sub> | — | 南蛮单位（含南蛮入侵召唤物与战象）不会攻击你，也无法伤害你。<br>Barbarian units (including Barbarian Invasion summons and war elephants) never attack or damage you. |
 | 被动<br>Passive | **再起**<br>Resurgence<br><sub>三国杀：再起</sub> | — | 每局一次：进入濒死时立即以 50% 生命站起。<br>Once per match: when downed, instantly get back up with 50% HP. |
-| Q | **南蛮入侵**<br>Barbarian Invasion<br><sub>三国杀：祸首</sub> | 28 s | 召唤 5 名南蛮勇士（20 秒）冲向准星处。<br>Summon 5 barbarian warriors (20 s) that rush the crosshair point. |
+| Q | **南蛮入侵**<br>Barbarian Invasion<br><sub>三国杀：祸首</sub> | 30 s | 召唤 4 名南蛮勇士（15 秒）冲向准星处。<br>Summon 4 barbarian warriors (15 s) that rush the crosshair point. |
 | E | **象兵**<br>Elephant Corps<br><sub>三国杀：祸首</sub><br><sub>近战伤害 · Melee damage</sub> | 35 s | 战象向前冲锋 30 米，践踏路径上的敌人：100 近战伤害并击退；之后作战 12 秒。<br>A war elephant charges 30 m ahead, trampling enemies in its path for 100 melee damage + knockback, then fights for 12 s. |
 
 **台词 Quotes**

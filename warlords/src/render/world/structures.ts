@@ -6,7 +6,7 @@ import type { ColorLike } from '../core/geo';
 import { buildCharacter } from '../models/humanoid';
 import { hipRoof } from './roof';
 import { face, tri } from './roof';
-import { PropCtx, SURF, boxMM, jitter, lantern, lattice, pillar, shade, mixCol, surf, trs, PRIM, V, col } from './propkit';
+import { PropCtx, SURF, boxMM, jitter, lantern, lattice, pillar, roofExtras, shade, mixCol, surf, trs, PRIM, V, col } from './propkit';
 import {
   BRIDGE_DECK_T,
   BRIDGE_RAIL_H,
@@ -44,7 +44,7 @@ export function buildTent(c: PropCtx): void {
       boxMM(b, -hx - 0.05, wallH - 0.35, -hz - 0.05, hx + 0.05, wallH, hz + 0.05, mixCol(cc, '#c0392b', 0.6));
       for (let x = -hx + 0.4; x < hx; x += 0.8) b.add(PRIM.cone(3), trs(x, wallH - 0.45, -hz - 0.06, Math.PI, 0, 0, 0.18, 0.2, 0.03), trim);
       boxMM(b, -0.9, 0, -hz - 0.03, 0.9, wallH * 0.95, -hz - 0.01, '#2a1d14');
-      hipRoof(b, 0, wallH, 0, sx, sz, sy - wallH, { color: cc, overhang: 0.35, ridge: 0.5, upturn: 0.1, curve: 1.15, stripes: false, plain: true, underside: shade(cc, 0.6), surface: SURF.plain });
+      hipRoof(b, 0, wallH, 0, sx, sz, sy - wallH, { ...roofExtras(c), color: cc, overhang: 0.35, ridge: 0.5, upturn: 0.1, curve: 1.15, stripes: false, plain: true, underside: shade(cc, 0.6), surface: SURF.plain });
       surf(c, SURF.woodV);
       b.rod(V(0, sy - 0.2, 0), V(0, sy + 2.6, 0), 0.05, ARCH.woodDark, 5);
       b.add(PRIM.cone(4), trs(0, sy + 2.75, 0, 0, 0, 0, 0.07, 0.3, 0.07), ARCH.gold);
@@ -279,6 +279,9 @@ export function buildDock(c: PropCtx): void {
     b.boxAt(0, -0.09, z, sx, 0.18, sz / n - 0.03, jitter(c, ARCH.woodLight, 0.12));
   }
   boxMM(b, -hx, -DOCK_DECK_T, -hz, hx, -0.18, hz, ARCH.woodDark);
+  // the low space between the water and the planks is no place for the camera
+  // (a hero wading beside the dock would otherwise look up at the dark underside)
+  c.occ?.addLocalBox(b.frame, 0, (-sy - DOCK_DECK_T) / 2, 0, hx, (sy - DOCK_DECK_T) / 2, hz);
   surf(c, SURF.woodV);
   for (let x = -hx + 0.3; x <= hx - 0.3 + 1e-3; x += Math.max(2, (sx - 0.6) / Math.max(1, Math.round((sx - 0.6) / 2.5)))) {
     for (const z of [-hz + 0.3, hz - 0.3]) b.cylAt(x, -sy, z, 0.16, sy + 0.1, ARCH.woodDark, 6);
@@ -364,18 +367,18 @@ export function buildShip(c: PropCtx): void {
     }
   } else if (v === 1) {
     // 艨艟: hide-covered armoured deck
-    hipRoof(b, 0, 0.2, 0, sx * 0.8, sz - 1, 2.2, { color: '#5a4030', overhang: 0.1, ridge: 0.9, curve: 0.8, upturn: 0, stripes: false, plain: true, surface: SURF.plain });
+    hipRoof(b, 0, 0.2, 0, sx * 0.8, sz - 1, 2.2, { ...roofExtras(c), color: '#5a4030', overhang: 0.1, ridge: 0.9, curve: 0.8, upturn: 0, stripes: false, plain: true, surface: SURF.plain });
   } else {
     // 楼船 deck house (+ second tier)
     surf(c, SURF.planks);
     boxMM(b, cabinX0, 0, -cz, cabinX1, SHIP_CABIN_H, cz, ARCH.pillarRed);
     for (let x = cabinX0 + 0.8; x < cabinX1 - 0.4; x += 1.4) lattice(b, x, SHIP_CABIN_H * 0.55, -cz - 0.02, 0.9, 1.2, ARCH.gold);
-    hipRoof(b, (cabinX0 + cabinX1) / 2, SHIP_CABIN_H, 0, cabinX1 - cabinX0, cz * 2, 1.0, { color: ARCH.roofTile, overhang: 0.5, ridge: 0.8, upturn: 0.35, plain: true });
+    hipRoof(b, (cabinX0 + cabinX1) / 2, SHIP_CABIN_H, 0, cabinX1 - cabinX0, cz * 2, 1.0, { ...roofExtras(c), color: ARCH.roofTile, overhang: 0.5, ridge: 0.8, upturn: 0.35, plain: true });
     const w2 = (cabinX1 - cabinX0) * 0.6;
     const mx = (cabinX0 + cabinX1) / 2;
     surf(c, SURF.planks);
     boxMM(b, mx - w2 / 2, SHIP_CABIN_H + 0.8, -cz * 0.6, mx + w2 / 2, SHIP_CABIN_H + 2.6, cz * 0.6, ARCH.pillarRed);
-    hipRoof(b, mx, SHIP_CABIN_H + 2.6, 0, w2, cz * 1.2, 1.3, { color: ARCH.roofTile, overhang: 0.5, ridge: 0.6, upturn: 0.45, ornate: true });
+    hipRoof(b, mx, SHIP_CABIN_H + 2.6, 0, w2, cz * 1.2, 1.3, { ...roofExtras(c), color: ARCH.roofTile, overhang: 0.5, ridge: 0.6, upturn: 0.45, ornate: true });
     for (const z of [-cz, cz]) lantern(c, cabinX0 - 0.3, SHIP_CABIN_H - 0.5, z, 0.25);
   }
   // mast + battened junk sail
