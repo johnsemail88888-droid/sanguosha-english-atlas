@@ -1,6 +1,7 @@
 // 诸葛亮 Zhuge Liang — 观星 (passive), 八阵图 (Q), 空城 (E).
 import type { Entity } from '../../../core/types';
 import type { SimApi } from '../../api';
+import { ext } from '../../ext';
 import { registerHazardKind } from '../../hazards';
 import { registerAbility } from '../registry';
 import { crosshairPoint, getState, param, setState } from '../common';
@@ -113,21 +114,7 @@ function fightingSide(sim: SimApi, self: Entity, u: Entity): boolean {
   return sim.isHostileTo(u, self);
 }
 
-/**
- * Drop the current target and hold off re-scanning for `hold` seconds.
- * Workaround: writes the troop / NPC brain's scan timer directly (both brains
- * gate target acquisition on `ai.nextScan`). docs/SIM_REQUESTS.md SHU-4 asks
- * for a proper SimExt.dropAggro(unitId, seconds) so a brain rewrite cannot
- * silently break 空城.
- */
+/** Drop the current target and hold target acquisition for `hold` seconds (SimExt.dropAggro, SHU-4). */
 function loseAggro(sim: SimApi, u: Entity, hold: number): void {
-  const until = sim.time + hold;
-  if (u.troop) {
-    u.troop.targetId = undefined;
-    u.troop.ai.nextScan = Math.max(u.troop.ai.nextScan ?? 0, until);
-  }
-  if (u.npc) {
-    u.npc.targetId = undefined;
-    u.npc.ai.nextScan = Math.max(u.npc.ai.nextScan ?? 0, until);
-  }
+  ext(sim).dropAggro(u.id, hold);
 }

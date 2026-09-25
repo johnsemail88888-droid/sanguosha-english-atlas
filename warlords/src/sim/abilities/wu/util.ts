@@ -192,26 +192,6 @@ export function refillDodges(sim: SimApi, hero: Entity): void {
   h.dodgeRechargeAt = 0;
 }
 
-// ── scheduling ──────────────────────────────────────────────────────────────
-/**
- * Poll every tick until `proj` is gone (contact, wall, expiry), then call
- * `onGone` with its last position. Runs even if the owner died meanwhile.
- * A projectile that outlives `maxLife` (+ slack) is removed first.
- */
-export function whenProjectileGone(sim: SimApi, proj: Entity, maxLife: number, onGone: (pos: Vec3) => void): void {
-  const deadline = sim.time + Math.max(0, maxLife) + 0.5;
-  const poll = (): void => {
-    const live = proj.alive && sim.get(proj.id) === proj;
-    if (live && sim.time < deadline) {
-      sim.schedule(0, poll);
-      return;
-    }
-    if (live) sim.removeEntity(proj.id);
-    onGone({ x: proj.pos.x, y: proj.pos.y, z: proj.pos.z });
-  };
-  sim.schedule(0, poll);
-}
-
 // ── events ──────────────────────────────────────────────────────────────────
 export interface CastInfo {
   pos?: Vec3;

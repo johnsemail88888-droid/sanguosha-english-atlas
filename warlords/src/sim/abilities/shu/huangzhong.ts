@@ -51,23 +51,10 @@ registerAbility({
       abilityId: ctx.def.id,
       radius: 0.15,
     });
-    seedPierceSet(sim, arrow.id);
     setCast(ctx, { dir: d, pos: eye });
     return true;
   },
 });
-
-/**
- * Workaround (docs/SIM_REQUESTS.md "piercing projectiles re-hit"): combat.ts
- * updateProjectiles reads World.projPierced once per tick, before the first
- * pierce creates the set, so the arrow re-hits its first target up to 4× in
- * that tick. Creating the (empty) set up front makes the skip list live.
- * Duck-typed: a no-op on any SimApi without that field.
- */
-function seedPierceSet(sim: SimApi, projectileId: number): void {
-  const m = (sim as unknown as { projPierced?: unknown }).projPierced;
-  if (m instanceof Map && !m.has(projectileId)) m.set(projectileId, new Set<number>());
-}
 
 // 老当益壮 (E): heal a quarter of your max HP and gain haste.
 registerAbility({

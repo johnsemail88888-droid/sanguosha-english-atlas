@@ -1,10 +1,12 @@
 // 黄盖 Huang Gai — 赤胆 (low-HP fire/explosive bonus), 苦肉 (HP for items +
 // fire rate), 诈降火船 (slow fire-ship drone: blast + burning field).
 import type { Vec3 } from '../../../core/math';
+import type { Entity } from '../../../core/types';
 import type { AbilityCtx } from '../../api';
+import { registerProjectileKind } from '../../combat';
 import { param } from '../common';
 import { registerAbility } from '../registry';
-import { centerOf, grantItems, isUp, registerFieldKind, setCast, whenProjectileGone } from './util';
+import { centerOf, grantItems, isUp, registerFieldKind, setCast } from './util';
 
 // 赤胆 (passive): below hpFrac of max HP, your fire and explosive damage ×mul.
 registerAbility({
@@ -67,6 +69,20 @@ function fireshipBlast(ctx: AbilityCtx, at: Vec3): void {
   }
 }
 
+/** The cast each fire ship belongs to (bound at launch: the caster may die or change meanwhile). */
+const shipCasts = new WeakMap<Entity, AbilityCtx>();
+
+// The ship blows up exactly where it goes off — contact, wall or end of flight (WU-7).
+registerProjectileKind({
+  kind: 'fireship',
+  onDetonate(_sim, proj, at) {
+    const cast = shipCasts.get(proj);
+    if (!cast) return;
+    shipCasts.delete(proj);
+    fireshipBlast(cast, at);
+  },
+});
+
 /**
  * Launch direction: eye → crosshair point, or straight along the aim ray when the
  * crosshair rests on nothing within reach (sky, far away) — aimPoint would drop
@@ -107,9 +123,8 @@ registerAbility({
       abilityId: def.id,
       radius: 0.5,
     });
-    // bind the ctx data now: the callback may run after the caster died or changed state
-    const snapshot: AbilityCtx = { ...ctx };
-    whenProjectileGone(sim, ship, lifetime, (at) => fireshipBlast(snapshot, at));
+    // bind the ctx data now: the blast may happen after the caster died or changed state
+    shipCasts.set(ship, { ...ctx });
     return true;
   },
 });
