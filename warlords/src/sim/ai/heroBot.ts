@@ -1363,7 +1363,8 @@ export class HeroBot implements BotBrain, BotView {
     if (now < this.nextItemAt) return;
     this.nextItemAt = now + this.prof.itemEvery * (0.7 + this.rng.next() * 0.6);
     const lordSide = this.role === 'loyalist' || this.role === 'double';
-    const healAt = this.role === 'lord' ? 0.55 : this.prof.name === 'easy' ? 0.4 : 0.5;
+    // rebels top up while staging for the push (a lull, and the fight of the match is coming)
+    const healAt = this.role === 'lord' ? 0.55 : this.strategy!.staging(this) ? 0.8 : this.prof.name === 'easy' ? 0.4 : 0.5;
     const plan = this.items.consider(this, { reserveTao: lordSide && this.strategy!.crownRef(this) !== undefined, healAt });
     if (plan) this.startCast(f, 'item', plan);
   }

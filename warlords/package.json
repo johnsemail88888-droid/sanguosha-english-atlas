@@ -10,14 +10,16 @@
     "build": "tsc -b && vite build",
     "build:single": "vite build --mode single",
     "typecheck": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run && vitest run -c vitest.perf.config.ts",
     "e2e": "playwright test",
     "preview": "vite preview --host",
     "server": "node server/server.mjs",
     "electron": "npm run build && electron .",
     "dist:win": "npm run build && electron-builder --win portable nsis --x64",
     "dist:mac": "npm run build && electron-builder --mac dmg --arm64 --x64",
-    "dist:linux": "npm run build && electron-builder --linux AppImage --x64"
+    "dist:linux": "npm run build && electron-builder --linux AppImage --x64",
+    "test:unit": "vitest run",
+    "test:perf": "vitest run -c vitest.perf.config.ts"
   },
   "dependencies": {
     "peerjs": "^1.5.5",

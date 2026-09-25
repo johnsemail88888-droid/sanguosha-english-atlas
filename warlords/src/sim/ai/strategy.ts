@@ -72,6 +72,8 @@ const PROBE_COOLDOWN = 14;
 const PUSH_FAIL_AFTER = 25;
 /** regrouping after a failed push (s, plus up to 20 s) */
 const REGROUP_TIME = 35;
+/** at push time, wait at most this long (s) for a fellow rebel to show up at the ring */
+const PUSH_WAIT = 10;
 /** a 跟我来 heard this long ago (s) still counts as the push call */
 const CALL_MEMORY = STAGE_TIME + 5;
 
@@ -159,6 +161,8 @@ export class RoleStrategy {
   private agreedAt = -99;
   private exposedAt = -99;
   private exposed = false;
+  private companyAt = -99;
+  private company = false;
   private lastFocusChatAt = -99;
   /** metrics / tests: pushes started and broken off */
   pushes = 0;
@@ -331,8 +335,8 @@ export class RoleStrategy {
         if (op && hyp(op, lp) < 30 && (wearsCrown(sim, o) || v.beliefs.lordSideness(sim, self, o) >= 0.5)) guards++;
       }
     }
-    const beaten = hp < (hasTao ? 0.3 : 0.42) && lordHp > 0.45;
-    const outnumbered = now - this.pushSince > 10 && lordHp > 0.6 && guards + 1 > friends + 1 && hp < 0.7;
+    const beaten = hp < (hasTao ? 0.22 : 0.32) && lordHp > 0.45;
+    const outnumbered = now - this.pushSince > 10 && lordHp > 0.75 && guards > friends && hp < 0.6;
     const stalled = now - this.pushSince > PUSH_FAIL_AFTER && lordHp > 0.7 && friends < 2;
     // the endgame circle leaves no time to regroup
     if ((beaten || stalled || outnumbered) && pressure(now) < 0.7) {
@@ -350,7 +354,7 @@ export class RoleStrategy {
   pushing(v: BotView): boolean {
     if (v.role !== 'rebel') return false;
     if (v.now < this.regroupUntil) return false;
-    if (v.now >= this.pushAt) return true;
+    if (v.now >= this.pushAt && (this.pushSince >= 0 || this.companyAtRing(v) || v.now >= this.pushAt + PUSH_WAIT)) return true;
     const lord = this.crownRef(v);
     if (!lord || v.now < this.prof.lootPhase * 0.5) return false;
     // the lord is visibly weak: everybody in
@@ -384,6 +388,27 @@ export class RoleStrategy {
     }
     this.exposed = mates >= 1;
     return this.exposed;
+  }
+
+  /**
+   * Strike together: at push time, go in once another hero this rebel does not
+   * believe loyal (a fellow rebel, most likely — it answered the same call) is
+   * seen close by, instead of trickling in one by one. Cached ~0.5 s.
+   */
+  private companyAtRing(v: BotView): boolean {
+    const { sim, self, now } = v;
+    if (now - this.companyAt < 0.5) return this.company;
+    this.companyAt = now;
+    this.company = false;
+    for (const o of sim.heroes()) {
+      if (o === self || !o.hero || o.hero.dead || o.hero.downed || wearsCrown(sim, o)) continue;
+      const p = v.posOf(o, 2);
+      if (p && hyp(p, self.pos) < 50 && v.beliefs.lordSideness(sim, self, o) < 0.5) {
+        this.company = true;
+        break;
+      }
+    }
+    return this.company;
   }
 
   /** Is this rebel on its hit-and-run probe right now? */

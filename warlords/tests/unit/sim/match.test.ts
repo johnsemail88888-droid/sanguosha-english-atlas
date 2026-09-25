@@ -1,14 +1,11 @@
 // Full headless matches on the real generated map with the current content
-// data, plus a tick-time benchmark. Must pass with either the stub or the
-// real map generator.
-import { cpus, loadavg } from 'node:os';
+// data. Must pass with either the stub or the real map generator. The tick-time
+// benchmark lives in tests/perf (it runs alone, after the unit suite).
 import { describe, expect, it } from 'vitest';
 import type { GameEvent, GameResult, MatchSettings, RoleId } from '../../../src/core/types';
 import { defaultSettings } from '../../../src/core/types';
 import { HEROES, ROLE_BY_ID } from '../../../src/data';
-import { generateMap } from '../../../src/sim/map/generate';
 import type { MatchInit } from '../../../src/sim/host';
-import { findOpenGround } from '../../../src/sim/physics';
 import { FAILSAFE_TIME } from '../../../src/sim/rules';
 import { ZONE_PHASES } from '../../../src/sim/zone';
 import type { World } from '../../../src/sim/world';
@@ -107,80 +104,4 @@ describe('full bot matches', () => {
     validate(w, result);
     expect(combatDeaths).toBeGreaterThanOrEqual(1);
   }, 180_000);
-});
-
-describe('performance', () => {
-  it('tick ≤ 4 ms avg (p95 bounded) in a real brawl: 8 heroes, ~50 charging troops, ~30 NPCs, launchers', () => {
-    const roles: RoleId[] = ['lord', 'loyalist', 'loyalist', 'rebel', 'rebel', 'rebel', 'rebel', 'traitor'];
-    const map = generateMap(20260924);
-    const w = createWorld(botInit(roles, 99, { playerCount: 8, troopsPerHero: 5, botDifficulty: 'hard' }), { map, onWarn: () => {} });
-    const heroes = w.heroList();
-    // every role public: identity-aware troops and bots engage immediately
-    for (const h of heroes) h.hero!.roleRevealed = true;
-    // projectile weapons (grenades, rockets, arrows) for half of the heroes
-    const launchers = ['guanshi', 'fangtian', 'liegong', 'xiaoji'];
-    heroes.forEach((h, i) => {
-      if (i % 2 === 0) w.giveWeapon(h.id, launchers[(i / 2) % launchers.length]);
-    });
-    // lord side vs rebels on open ground ~30 m apart, traitor in between
-    let k = 0;
-    const rand = (): number => w.rng.next();
-    for (const h of heroes) {
-      const side = h.hero!.role === 'rebel' ? 1 : h.hero!.role === 'traitor' ? 0 : -1;
-      const spot = findOpenGround(w.cw, side * 15, (k++ % 4) * 6 - 9, 6, rand, { radius: 0.6 }) ?? { x: side * 15, y: 0, z: 0 };
-      w.teleport(h.id, spot);
-    }
-    let troops = w.kindList('troop').length;
-    for (let i = 0; troops < 50; i = (i + 1) % heroes.length) troops += w.spawnTroops(heroes[i].id, 'shu_rifleman', 1).length;
-    let npcs = w.kindList('npc').length;
-    for (let i = 0; npcs < 30; i++, npcs++) {
-      const a = (i / 30) * Math.PI * 2;
-      const p = findOpenGround(w.cw, Math.cos(a) * 28, Math.sin(a) * 28, 6, rand, { radius: 0.6 }) ?? { x: Math.cos(a) * 28, y: 0, z: Math.sin(a) * 28 };
-      w.spawnNpc(i % 3 === 0 ? 'barbarian' : 'yellowTurban', p);
-    }
-    for (const h of heroes) w.setSquadOrder(h.id, { kind: 'charge' });
-    // short warm-up (JIT), then measure while the brawl is at full strength
-    for (let i = 0; i < 60; i++) {
-      w.step();
-      w.drainEvents();
-    }
-    const start = { troops: w.kindList('troop').length, npcs: w.kindList('npc').length };
-    const dmg0 = heroes.reduce((s, h) => s + h.hero!.stats.damage, 0);
-    const times: number[] = [];
-    let projectiles = 0;
-    let hits = 0;
-    for (let i = 0; i < 600 && !w.result(); i++) {
-      const t0 = performance.now();
-      w.step();
-      times.push(performance.now() - t0);
-      projectiles = Math.max(projectiles, w.kindList('projectile').length);
-      for (const ev of w.drainEvents()) if (ev.t === 'hit' && ev.amount > 0) hits++;
-      w.snapshotFor('bot-0');
-    }
-    times.sort((a, b) => a - b);
-    const avg = times.reduce((s, t) => s + t, 0) / times.length;
-    const pct = (q: number): number => times[Math.min(times.length - 1, Math.floor(times.length * q))];
-    // wall-clock percentiles also count time the OS gave to other processes: on a
-    // shared machine whose load exceeds its cores, scale the tail budget by the overload
-    const overload = Math.max(1, loadavg()[0] / Math.max(1, cpus().length));
-    const heroDmg = heroes.reduce((s, h) => s + h.hero!.stats.damage, 0) - dmg0;
-    const counts = {
-      start,
-      end: { troops: w.kindList('troop').length, npcs: w.kindList('npc').length },
-      projectilesPeak: projectiles,
-      hits,
-      heroDmg: Math.round(heroDmg),
-    };
-    console.log(
-      `[bench] ${times.length} ticks: avg ${avg.toFixed(3)} ms, p50 ${pct(0.5).toFixed(3)}, p95 ${pct(0.95).toFixed(3)}, p99 ${pct(0.99).toFixed(3)}, ` +
-        `max ${times[times.length - 1].toFixed(2)} ms (machine overload ×${overload.toFixed(2)}) ${JSON.stringify(counts)}`,
-    );
-    // it really is a fight
-    expect(hits).toBeGreaterThan(200);
-    expect(projectiles).toBeGreaterThan(0);
-    expect(counts.end.troops + counts.end.npcs).toBeLessThan(start.troops + start.npcs);
-    // budget: 4 ms per tick on average and for 95 % of ticks (tail scaled by machine overload)
-    expect(avg).toBeLessThan(4);
-    expect(pct(0.95)).toBeLessThan(4 * overload);
-  }, 120_000);
 });
