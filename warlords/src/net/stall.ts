@@ -159,6 +159,59 @@ export function adaptiveTimeoutMs(baseMs: number, recentMs: number, maxMs: numbe
   return Math.max(baseMs, Math.min(maxMs, SILENCE_MARGIN * Math.max(0, recentMs)));
 }
 
+/** A stream counts as steady while its packets are never further apart than this (ms, WarmUp). */
+export const WARM_GAP_MS = 2000;
+/** A warm-up ends at the latest this long after it started (ms, WarmUp). */
+export const WARM_MAX_MS = 120_000;
+
+/**
+ * The first moments after a match view finished loading: on a slow device its
+ * first real frames still freeze the page for many seconds (models, textures,
+ * shaders seen for the first time), so the loading timeout keeps applying. The
+ * warm-up ends once the stream the view produces (a guest's inputs, the host's
+ * snapshots) has flowed steadily — no gap over WARM_GAP_MS — for `steadyMs`, or
+ * WARM_MAX_MS after it started. `steadyMs` 0 disables it.
+ */
+export class WarmUp {
+  private startAt = -1;
+  private steadySince = -1;
+  private last = -1;
+
+  constructor(
+    readonly steadyMs: number,
+    private readonly now: () => number = perfNow,
+  ) {}
+
+  /** The view finished loading: warm up (again). */
+  start(): void {
+    this.startAt = this.steadyMs > 0 ? this.now() : -1;
+    this.steadySince = -1;
+    this.last = -1;
+  }
+
+  /** A packet of the stream arrived. */
+  beat(): void {
+    if (this.startAt < 0) return;
+    const t = this.now();
+    if (this.last < 0 || t - this.last > WARM_GAP_MS) this.steadySince = t;
+    else if (t - this.steadySince >= this.steadyMs) this.startAt = -1; // warm
+    this.last = t;
+  }
+
+  /** Still warming up. */
+  get active(): boolean {
+    if (this.startAt < 0) return false;
+    if (this.now() - this.startAt < WARM_MAX_MS) return true;
+    this.startAt = -1;
+    return false;
+  }
+
+  /** Not warming up (a new match is loading). */
+  reset(): void {
+    this.startAt = -1;
+  }
+}
+
 /** setTimeout in responsive time (see StallAwareTimeout); returns the cancel function. */
 export function stallAwareTimeout(fn: () => void, ms: number, opts?: StallAwareTimeoutOptions): () => void {
   const t = new StallAwareTimeout(ms, fn, opts);

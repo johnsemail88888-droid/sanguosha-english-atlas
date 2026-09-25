@@ -54,7 +54,7 @@ import {
   type RoleDeal,
 } from './flow';
 import { LocalView } from './localView';
-import { adaptiveTimeoutMs, maxStepFor, RecentSilence, ResponsiveClock, SILENCE_DECAY_MS } from './stall';
+import { adaptiveTimeoutMs, maxStepFor, RecentSilence, ResponsiveClock, SILENCE_DECAY_MS, WarmUp } from './stall';
 import { FixedStepLoop } from './ticker';
 import type { Channel, Payload, PeerId, Transport } from './transport';
 import { neutralInput, sanitizeInputPacket } from './validate';
@@ -98,6 +98,13 @@ export interface FlowTimings {
    * match (s): its busy page needs longer to reconnect and rejoin.
    */
   loadDropGrace: number;
+  /**
+   * After a player reported 'loaded', loadGrace / loadDropGrace keep applying
+   * until its input has flowed steadily for this long (s; 0 = at once): a slow
+   * device's first real frames still freeze its page for many seconds (at most
+   * 2 min, see WarmUp in stall.ts).
+   */
+  warmUp: number;
 }
 
 export const DEFAULT_TIMINGS: FlowTimings = {
@@ -112,6 +119,7 @@ export const DEFAULT_TIMINGS: FlowTimings = {
   dropGrace: 5,
   loadGrace: 60,
   loadDropGrace: 20,
+  warmUp: 10,
 };
 
 export const MAX_PLAYERS = 8;
@@ -234,6 +242,8 @@ interface PeerRec {
   chatTimes: number[];
   /** loading the match (matchStart sent, 'loaded' not yet received): timed out after loadGrace, not peerTimeout */
   loading: boolean;
+  /** after 'loaded': the loading timeouts apply until its input flows steadily (timings.warmUp) */
+  warmUp: WarmUp;
   /** arrival time of the previous input packet (ms, 0 = none yet) */
   lastInputAt: number;
   /** longest recent gap between input packets (decays), ms */
@@ -545,6 +555,7 @@ export class HostSession implements GameSession {
       peer.sent.clear();
       peer.snapAck = -1;
       peer.loading = false;
+      peer.warmUp.reset();
       peer.lastInputAt = 0;
       peer.inputGapMs = 0;
     }
@@ -829,6 +840,7 @@ export class HostSession implements GameSession {
       lastSeen: now(),
       silentMs: 0,
       recentSilence: new RecentSilence(SILENCE_DECAY_MS, now),
+      warmUp: new WarmUp(this.timings.warmUp * 1000, now),
       rtt: null,
       pingSeq: 0,
       inputQueue: [],
@@ -876,7 +888,7 @@ export class HostSession implements GameSession {
     this.cancelDrop(rec.seat);
     // a player whose link failed while it was loading the match needs longer to come
     // back: its page is busy building the scene
-    const busy = peer.loading && !said;
+    const busy = (peer.loading || peer.warmUp.active) && !said;
     const grace = Math.max(0, busy ? Math.max(this.timings.dropGrace, this.timings.loadDropGrace) : this.timings.dropGrace) * 1000;
     if (grace <= 0) {
       this.finishDrop(rec);
@@ -1008,6 +1020,7 @@ export class HostSession implements GameSession {
       case 'loaded':
         peer.loaded = true;
         peer.loading = false;
+        peer.warmUp.start();
         this.waitingLoad.delete(from);
         this.maybeBeginPlaying();
         break;
@@ -1203,13 +1216,13 @@ export class HostSession implements GameSession {
 
   /**
    * Silence after which `peer` counts as disconnected (NET-4): loadGrace while it
-   * loads the match; afterwards peerTimeout, raised for a while after it was
-   * silent for long (a slow device still busy with its first frames).
+   * loads the match and warms up (its first frames); afterwards peerTimeout,
+   * raised for a while after it was silent for long.
    */
   private peerTimeoutMs(peer: PeerRec): number {
     const base = this.timings.peerTimeout * 1000;
     const loading = Math.max(base, this.timings.loadGrace * 1000);
-    return peer.loading ? loading : adaptiveTimeoutMs(base, peer.recentSilence.current(), loading);
+    return peer.loading || peer.warmUp.active ? loading : adaptiveTimeoutMs(base, peer.recentSilence.current(), loading);
   }
 
   /** Neutral-input threshold for `peer`: adapts to how bursty its input stream is (see INPUT_STALE_TICKS). */
@@ -1235,6 +1248,7 @@ export class HostSession implements GameSession {
       peer.inputGapMs = Math.max(gap, peer.inputGapMs * Math.exp(-gap / INPUT_GAP_DECAY_MS));
     }
     peer.lastInputAt = t;
+    peer.warmUp.beat();
     // delta baseline acknowledgement (only ticks we actually sent this match)
     const ack = pkt.snapAck;
     if (ack !== undefined && ack > peer.snapAck && peer.sent.has(ack)) peer.snapAck = ack;
@@ -1535,6 +1549,7 @@ export class HostSession implements GameSession {
     // it is building the map / scene and compiling shaders now (a page frozen for
     // seconds at a time on a slow device): the long loading timeout until 'loaded'
     peer.loading = true;
+    peer.warmUp.reset();
     // input cadence is learnt afresh (the gap before this match / during the blip says nothing)
     peer.lastInputAt = 0;
     peer.inputGapMs = 0;

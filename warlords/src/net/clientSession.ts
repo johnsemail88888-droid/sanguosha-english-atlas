@@ -42,7 +42,7 @@ import { binaryTag, decodeJson, encodeInputMsg, encodeJson, SnapshotReceiver, St
 import { Emitter } from './emitter';
 import { NetError, type NetErrorCode } from './errors';
 import { isPageHidden, watchPageFocus } from './focus';
-import { adaptiveTimeoutMs, maxStepFor, RecentSilence, ResponsiveClock, SILENCE_DECAY_MS, StallAwareTimeout } from './stall';
+import { adaptiveTimeoutMs, maxStepFor, RecentSilence, ResponsiveClock, SILENCE_DECAY_MS, StallAwareTimeout, WarmUp } from './stall';
 import type { Channel, Payload, PeerId, Transport } from './transport';
 
 export interface ClientSessionOptions {
@@ -78,11 +78,17 @@ export interface ClientSessionOptions {
   /**
    * Host silence tolerated while the host is still loading the match (ms,
    * default 60 000, like the host's timings.loadGrace for its guests): from
-   * matchStart until its first snapshot the host's page builds its scene and
-   * compiles shaders — it can freeze for many seconds on a slow machine
-   * without being gone.
+   * matchStart until its snapshots flow steadily (hostWarmUpMs) the host's page
+   * builds its scene, compiles shaders and renders its first frames — it can
+   * freeze for many seconds on a slow machine without being gone.
    */
   hostLoadingTimeoutMs?: number;
+  /**
+   * After the host's first snapshot, hostLoadingTimeoutMs keeps applying until
+   * its snapshots have flowed steadily for this long (ms, default 10 000; 0 =
+   * at once): the host's first real frames may still freeze its page (WarmUp).
+   */
+  hostWarmUpMs?: number;
 }
 
 const now = (): number => performance.now();
@@ -218,6 +224,8 @@ export class ClientSession implements GameSession {
   private readonly recentHostSilence = new RecentSilence(SILENCE_DECAY_MS, now);
   /** steps of the host-silence watchdog (stall-aware) */
   private readonly watchClock: ResponsiveClock;
+  /** from the match's first snapshot until they flow steadily: the host is still warming up */
+  private readonly hostWarmUp: WarmUp;
   private waitingHost = false;
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private welcomed = false;
@@ -259,6 +267,7 @@ export class ClientSession implements GameSession {
     this.checkIntervalMs = Math.max(10, opts.checkIntervalMs ?? CHECK_INTERVAL_MS);
     this.watchClock = new ResponsiveClock(maxStepFor(this.checkIntervalMs), now);
     this.hostLoadingTimeoutMs = opts.hostLoadingTimeoutMs ?? 60_000;
+    this.hostWarmUp = new WarmUp(Math.max(0, opts.hostWarmUpMs ?? 10_000), now);
     this.token = opts.token ?? loadToken(opts.roomCode);
     this.attach(opts.transport);
     this.unwatchFocus = watchPageFocus({
@@ -470,8 +479,13 @@ export class ClientSession implements GameSession {
     const rx = this.snapshots;
     if (!view || !rx) return;
     try {
+      const first = rx.newest < 0;
       const got = rx.receive(data);
-      if (got) view.onSnapshot(got.snap, got.byId);
+      if (got) {
+        if (first) this.hostWarmUp.start();
+        this.hostWarmUp.beat();
+        view.onSnapshot(got.snap, got.byId);
+      }
     } catch (err) {
       console.warn('[net] bad snapshot dropped', err);
     }
@@ -725,6 +739,7 @@ export class ClientSession implements GameSession {
     this.viewValue?.dispose();
     this.viewValue = null;
     this.snapshots = null;
+    this.hostWarmUp.reset();
     this.currentMatch = null;
     this.localLoadPending = null;
     this.heroSelectValue = null;
@@ -749,8 +764,9 @@ export class ClientSession implements GameSession {
     // not have been dispatched yet: no verdict this round
     if (this.watchClock.stalled) return;
     const silent = this.hostSilentMs;
-    // no snapshot yet in this match: the host is still loading it (its page may be frozen)
-    const hostLoading = this.currentMatch !== null && (this.snapshots === null || this.snapshots.newest < 0);
+    // no snapshot yet in this match, or not steadily yet: the host is still loading it /
+    // rendering its first frames (its page may be frozen)
+    const hostLoading = this.currentMatch !== null && (this.snapshots === null || this.snapshots.newest < 0 || this.hostWarmUp.active);
     const loadingLimit = Math.max(this.hostTimeoutMs, this.hostLoadingTimeoutMs);
     // after a long silence (a host busy with its first frames) the timeout stays raised for a while
     const limit = hostLoading ? loadingLimit : adaptiveTimeoutMs(this.hostTimeoutMs, this.recentHostSilence.current(), loadingLimit);

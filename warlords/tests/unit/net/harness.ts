@@ -23,6 +23,8 @@ export const FAST: Partial<FlowTimings> = {
   // a closed connection hands the seat to a bot at once (tests of the drop grace set their own)
   dropGrace: 0,
   loadDropGrace: 0,
+  // no warm-up after 'loaded' (tests of the NET-4 warm-up set their own)
+  warmUp: 0,
 };
 
 export interface ClientRec {
@@ -96,7 +98,8 @@ export async function addClient(h: Harness, name: string, extra: Partial<ClientS
   const log: Payload[] = [];
   transport.onMessage((_from, data) => log.push(data));
   const rec = { name, transport, log } as ClientRec;
-  rec.session = await ClientSession.connect({ transport, name, mapFactory: () => flatMap(), ...extra });
+  // (no host warm-up after the first snapshot unless a test asks for it, like FAST's warmUp)
+  rec.session = await ClientSession.connect({ transport, name, mapFactory: () => flatMap(), hostWarmUpMs: 0, ...extra });
   h.clients.push(rec);
   return rec;
 }

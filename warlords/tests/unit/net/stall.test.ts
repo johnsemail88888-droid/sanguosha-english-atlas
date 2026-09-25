@@ -14,6 +14,9 @@ import {
   STALL_SLACK_MS,
   StallAwareTimeout,
   stallAwareSleep,
+  WARM_GAP_MS,
+  WARM_MAX_MS,
+  WarmUp,
 } from '../../../src/net/stall';
 
 afterEach(() => {
@@ -178,6 +181,51 @@ describe('RecentSilence + adaptiveTimeoutMs', () => {
     expect(adaptiveTimeoutMs(15_000, 17_000, 60_000)).toBe(34_000);
     expect(adaptiveTimeoutMs(15_000, 45_000, 60_000)).toBe(60_000);
     expect(adaptiveTimeoutMs(15_000, 45_000, 10_000)).toBe(15_000); // never below the base
+  });
+});
+
+describe('WarmUp (the first frames after loading)', () => {
+  it('lasts until the stream has flowed steadily for steadyMs; a gap over WARM_GAP_MS starts the count again', () => {
+    const c = manualClock(0);
+    const w = new WarmUp(10_000, c.now);
+    expect(w.active).toBe(false); // not started
+    w.start();
+    expect(w.active).toBe(true);
+    for (let i = 0; i < 20; i++) {
+      c.add(500);
+      w.beat();
+    }
+    expect(w.active).toBe(true); // 9.5 s steady so far
+    c.add(17_000); // a 17 s freeze on a first frame
+    expect(17_000).toBeGreaterThan(WARM_GAP_MS);
+    w.beat();
+    for (let i = 0; i < 19; i++) {
+      c.add(500);
+      w.beat();
+    }
+    expect(w.active).toBe(true);
+    c.add(500);
+    w.beat(); // 10 s steady since the freeze
+    expect(w.active).toBe(false);
+    w.beat();
+    expect(w.active).toBe(false); // stays warm
+  });
+
+  it('ends after WARM_MAX_MS even if the stream never flows (a hidden tab); steadyMs 0 disables it; reset() ends it', () => {
+    const c = manualClock(0);
+    const w = new WarmUp(10_000, c.now);
+    w.start();
+    c.add(WARM_MAX_MS - 1);
+    expect(w.active).toBe(true);
+    c.add(1);
+    expect(w.active).toBe(false);
+    w.start(); // a rejoin into the match: warm up again
+    expect(w.active).toBe(true);
+    w.reset();
+    expect(w.active).toBe(false);
+    const off = new WarmUp(0, c.now);
+    off.start();
+    expect(off.active).toBe(false);
   });
 });
 

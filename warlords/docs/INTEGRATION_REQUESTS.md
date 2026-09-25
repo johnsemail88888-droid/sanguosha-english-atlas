@@ -216,10 +216,13 @@ Append new sections at the end; mark `Status:` when applied.
     2 × that as its timeout, decaying with τ = 30 s, between the normal and the loading timeout).
   - Host (`hostSession.ts`): peer silence is counted in host-responsive time; a peer loading the match (matchStart
     sent, `loaded` not received) is timed out after `timings.loadGrace` = 60 s of silence (no cap on the loading
-    itself), afterwards `peerTimeout` 15 s raised by its recent silences (slow first frames); a loading peer whose
-    link closes keeps its seat `timings.loadDropGrace` = 20 s (an explicit `leave` keeps `dropGrace`).
-  - Guest (`clientSession.ts`): the host-silence watchdog counts responsive time (+ adaptive timeout; a host still
-    loading the match gets `hostLoadingTimeoutMs` = 60 s, was 45 s); hello /
+    itself), and so is a peer warming up — after `loaded` until its input has flowed steadily (no gap > 2 s) for
+    `timings.warmUp` = 10 s, at most 2 min (`WarmUp`): the e2e showed 15–17 s freezes on a guest's first frames
+    right after `loaded`. Afterwards `peerTimeout` 15 s, raised by its recent silences. A loading / warming-up
+    peer whose link closes keeps its seat `timings.loadDropGrace` = 20 s (an explicit `leave` keeps `dropGrace`).
+  - Guest (`clientSession.ts`): the host-silence watchdog counts responsive time (+ adaptive timeout); a host still
+    loading the match — no snapshot yet, or not flowing steadily for `hostWarmUpMs` = 10 s — gets
+    `hostLoadingTimeoutMs` = 60 s (was 45 s, until the first snapshot only); hello /
     rejoin timeouts and the relay / PeerJS connect timeouts (`wsTransport.ts`, `peerTransport.ts`) are
     `StallAwareTimeout`s; "room not found" on a P2P rejoin is retried with backoff (1, 2, 4, 5 s…) for 30 s of
     responsive time without using up a rejoin attempt (`openRetryingRoomNotFound`); `joinOnlineSession` does the
@@ -231,6 +234,7 @@ Append new sections at the end; mark `Status:` when applied.
     was not needed (the host's snapshots already come from the tick worker, and the watchdogs no longer count
     time the page was frozen).
 - **Tests:** `tests/unit/net/stall.test.ts`, `tests/unit/net/slowDevice.test.ts` (fake-timer host + a guest page that
-  freezes 18 s at a time for 90 s of loading and 17 s on its first frames; stall-aware hello; P2P retries),
+  freezes 18 s at a time for 90 s of loading and 17 s on its first frames — also a minute after its last loading
+  freeze, which the warm-up covers; host warm-up on the guest; stall-aware hello; P2P retries),
   relay heartbeat in `tests/unit/net/relay.test.ts`; e2e `tests/e2e/game-online.spec.ts` (guests freeze 3 × 12 s
   while loading; P2P F5 while the host's signalling link is down).

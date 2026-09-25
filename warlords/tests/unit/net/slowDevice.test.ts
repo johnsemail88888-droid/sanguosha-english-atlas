@@ -12,13 +12,13 @@ import { emptyInput, PROTOCOL_VERSION } from '../../../src/core/types';
 import { ClientSession } from '../../../src/net/clientSession';
 import { encodeInputMsg, encodeJson } from '../../../src/net/codec';
 import { FakeSim } from '../../../src/net/fakeSim';
-import { DEFAULT_TIMINGS, HostSession } from '../../../src/net/hostSession';
+import { DEFAULT_TIMINGS, HostSession, type FlowTimings } from '../../../src/net/hostSession';
 import { LoopbackNetwork, type LoopbackTransport } from '../../../src/net/loopback';
 import type { ClientMsg, HostMsg } from '../../../src/net/protocol';
 import { NetError } from '../../../src/net/errors';
 import type { Payload } from '../../../src/net/transport';
 import { flatMap, testHeroPool, waitFor } from './fixtures';
-import { addClient, cleanupHarness, FAST, loopbackReconnect, makeHost, type ClientRec } from './harness';
+import { addClient, cleanupHarness, drive, FAST, loopbackReconnect, makeHost, runToPlaying, type ClientRec } from './harness';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -41,6 +41,7 @@ const REAL_TIMINGS = {
   dropGrace: DEFAULT_TIMINGS.dropGrace,
   loadGrace: DEFAULT_TIMINGS.loadGrace,
   loadDropGrace: DEFAULT_TIMINGS.loadDropGrace,
+  warmUp: DEFAULT_TIMINGS.warmUp,
 };
 
 /**
@@ -128,9 +129,9 @@ class SlowPage {
 }
 
 /** Fake-timer host (real connection timings) + one slow guest in the lobby. */
-async function slowRoom(seed: number) {
-  fakeTimers();
-  const h = makeHost({ seed, timings: REAL_TIMINGS });
+async function slowRoom(seed: number, timings: Partial<FlowTimings> = {}) {
+  if (!vi.isFakeTimers()) fakeTimers();
+  const h = makeHost({ seed, timings: { ...REAL_TIMINGS, ...timings } });
   const notices: string[] = [];
   h.host.on('status', (s) => notices.push(s.en));
   h.host.on('heroSelect', (v) => {
@@ -174,6 +175,38 @@ describe('host: a guest on a slow device, loading the match', () => {
     expect(h.sims[0]!.conversions.filter((c) => c.kind === 'bot')).toEqual([]);
     expect(notices.filter((n) => /disconnected|left/.test(n))).toEqual([]);
     g.stop();
+  });
+
+  /**
+   * The e2e case: the long freezes come early in the loading, then the page loads on
+   * in short tasks for a minute (its recent silences are forgotten), reports 'loaded'
+   * and freezes 17 s on its first frames. Returns whether the host dropped it.
+   */
+  async function lateFirstFrameFreeze(seed: number, warmUp: number): Promise<boolean> {
+    fakeTimers();
+    const { h, g, seatOf } = await slowRoom(seed, { warmUp });
+    await toMatchStart(h, g);
+    for (let i = 0; i < 2; i++) {
+      await Promise.all([g.freezeChain(12_000), advance(12_000)]);
+      await advance(150);
+    }
+    await advance(60_000); // loading on, answering in between
+    g.send({ t: 'loaded' });
+    g.play();
+    await advance(1000);
+    await Promise.all([g.freeze(17_000), advance(17_000)]);
+    await advance(5000 + DEFAULT_TIMINGS.loadDropGrace * 1000);
+    g.stop();
+    const dropped = seatOf()?.isBot === true;
+    cleanupHarness();
+    vi.useRealTimers();
+    return dropped;
+  }
+
+  it('the loading tolerance lasts until its input flows steadily (warm-up): a 17 s freeze on its first frames, a minute after the last loading freeze', async () => {
+    expect(await lateFirstFrameFreeze(46, DEFAULT_TIMINGS.warmUp)).toBe(false);
+    // without the warm-up the host would have dropped it (the e2e failure)
+    expect(await lateFirstFrameFreeze(47, 0)).toBe(true);
   });
 
   it('a link that dies in the match is still detected promptly: 15 s peer timeout (+ the drop grace)', async () => {
@@ -231,14 +264,27 @@ describe('host: a guest on a slow device, loading the match', () => {
     expect(notices.filter((n) => /disconnected/.test(n))).toEqual([]);
   });
 
-  it('once loaded, a closed socket gets the normal drop grace', async () => {
+  it('a closed socket right after loading still gets loadDropGrace; once warmed up, the normal drop grace', async () => {
     const { h, g, seatOf } = await slowRoom(45);
     await toMatchStart(h, g);
     g.send({ t: 'loaded' });
     await advance(1000);
-    h.net.dropClient('slow');
-    await advance(DEFAULT_TIMINGS.dropGrace * 1000 + 500);
+    h.net.dropClient('slow'); // its first frames: still warming up
+    await advance(DEFAULT_TIMINGS.dropGrace * 1000 + 2000);
+    expect(seatOf()?.isBot).toBe(false);
+    await advance(DEFAULT_TIMINGS.loadDropGrace * 1000);
     expect(seatOf()?.isBot).toBe(true);
+    cleanupHarness();
+
+    const r = await slowRoom(48);
+    await toMatchStart(r.h, r.g);
+    r.g.send({ t: 'loaded' });
+    r.g.play();
+    await advance(DEFAULT_TIMINGS.warmUp * 1000 + 1000); // input flowed steadily: warm
+    r.g.stop();
+    r.h.net.dropClient('slow');
+    await advance(DEFAULT_TIMINGS.dropGrace * 1000 + 500);
+    expect(r.seatOf()?.isBot).toBe(true);
   });
 });
 
@@ -276,6 +322,37 @@ describe('client: its own stalls never cost it the connection', () => {
     } finally {
       host.leave();
     }
+  });
+});
+
+describe('client: the host warming up after loading (its first frames)', () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const snaps = (c: ClientRec) => (c.session.snapshotStats?.full ?? 0) + (c.session.snapshotStats?.delta ?? 0);
+
+  it('right after the first snapshots a silent host still gets the loading allowance', async () => {
+    const h = makeHost({ seed: 50 });
+    const a = await addClient(h, 'A', { hostTimeoutMs: 400, hostLoadingTimeoutMs: 2000, hostWarmUpMs: 60_000, checkIntervalMs: 100 });
+    const errors: string[] = [];
+    a.session.on('error', (e) => errors.push(e.code));
+    await runToPlaying(h);
+    await waitFor(() => snaps(a) > 0, 3000, 'first snapshot');
+    h.net.sever(a.session.myId); // the host's first frames freeze its page
+    await sleep(1200); // 3 × hostTimeoutMs
+    expect(errors).toEqual([]);
+    await waitFor(() => errors.includes('connectionLost'), 3000, 'lost after the loading allowance');
+  });
+
+  it('once its snapshots flowed steadily, a silent host is found after the normal timeout', async () => {
+    const h = makeHost({ seed: 51 });
+    const a = await addClient(h, 'A', { hostTimeoutMs: 400, hostLoadingTimeoutMs: 5000, hostWarmUpMs: 300, checkIntervalMs: 100 });
+    const errors: string[] = [];
+    a.session.on('error', (e) => errors.push(e.code));
+    await runToPlaying(h);
+    await drive(h, 0.8); // 20 snapshots a second for 0.8 s: warm
+    h.net.sever(a.session.myId);
+    const t0 = Date.now();
+    await waitFor(() => errors.includes('connectionLost'), 4000, 'lost');
+    expect(Date.now() - t0).toBeLessThan(2500); // not the 5 s loading allowance
   });
 });
 
