@@ -1,9 +1,14 @@
-// Procedural mounts: warhorse (heroes on a -1/+1 马, cavalry troops) and war
-// elephant (战象). Rigidly skinned like the humanoids, with their own tiny
-// skeletons and a gait animator.
+// Mounts: warhorse (heroes on a -1/+1 马, cavalry troops) and war elephant
+// (战象), with their own skeletons and a gait animator (walk → trot → gallop
+// by speed, idle breathing, head bob, tail sway; elephant trunk and ears).
+// The AI-art models (models/mounts/*.glb, rigged in code by quadrupedRig.ts /
+// mountGlb.ts) replace the procedural ones — rigidly skinned like the
+// humanoids — as soon as they are rigged; without the files the procedural
+// mounts stay.
 import * as THREE from 'three';
 import { GeoBuilder, PRIM, col, mixCol, shade, trs, segmentMatrix, type ColorLike } from '../core/geo';
 import { characterMaterial } from '../core/materials';
+import { loadMountTemplate, mountCoatVariant, mountMaterial, mountTemplateSync, type MountTemplate } from './mountGlb';
 
 export type MountKind = 'horse' | 'elephant';
 
@@ -56,20 +61,63 @@ export const MOUNT_SCALE: Record<MountKind, number> = { horse: 0.86, elephant: 0
 /** Height of the rider's hip bone above the ground (authored saddle height x MOUNT_SCALE). */
 export const SADDLE_HIP: Record<MountKind, number> = { horse: 1.6 * MOUNT_SCALE.horse, elephant: 3.25 * MOUNT_SCALE.elephant };
 
+/**
+ * Height of the rider's hip bone above the top of the seat (m): the AI-art
+ * mount is scaled so its measured seat sits this far below SADDLE_HIP.
+ */
+export const SEAT_TO_HIP: Record<MountKind, number> = { horse: 0.09, elephant: 0.1 };
+
+/** Seat-top height of the AI-art mount in rig units (the mount's object is scaled by MOUNT_SCALE). */
+export function mountSeatHeight(kind: MountKind): number {
+  return (SADDLE_HIP[kind] - SEAT_TO_HIP[kind]) / MOUNT_SCALE[kind];
+}
+
+const LEGS = ['FL', 'FR', 'BL', 'BR'] as const;
+const TAU = Math.PI * 2;
+
 export class MountRig {
   readonly object: THREE.Group;
-  readonly mesh: THREE.SkinnedMesh;
+  /** the skinned mesh drawn (the procedural one, or the AI-art one once rigged) */
+  mesh: THREE.SkinnedMesh;
+  /** its per-instance material (fades / stealth go here) */
+  material: THREE.MeshStandardMaterial;
   readonly kind: MountKind;
-  private readonly bones = new Map<string, THREE.Bone>();
-  private readonly rest = new Map<string, THREE.Vector3>();
+  private readonly coat: string;
+  private bones = new Map<string, THREE.Bone>();
+  private rest = new Map<string, THREE.Vector3>();
   private phase = 0;
   private gait = 0;
-  readonly material: THREE.MeshStandardMaterial;
+  private glb = false;
+  private disposed = false;
 
   constructor(kind: MountKind, coat: string, cloth: string, trim: string) {
     this.kind = kind;
-    const defs = kind === 'horse' ? HORSE_BONES : ELEPHANT_BONES;
+    this.coat = coat;
+    this.object = new THREE.Group();
+    this.object.scale.setScalar(MOUNT_SCALE[kind]);
+    const tpl = mountTemplateSync(kind);
+    const [mesh, material] = tpl ? this.buildGlb(tpl) : this.buildProcedural(kind, coat, cloth, trim);
+    this.mesh = mesh;
+    this.material = material;
+    if (!tpl) {
+      // the AI-art mount swaps in as soon as it is rigged (preloaded in a match: right away)
+      void loadMountTemplate(kind, mountSeatHeight(kind)).then((t) => {
+        if (t && !this.disposed && !this.glb) this.swapToGlb(t);
+      });
+    }
+    this.object.add(this.mesh);
+  }
+
+  /** true once the AI-art model replaced the procedural one */
+  get usesGlb(): boolean {
+    return this.glb;
+  }
+
+  private makeBones(defs: readonly { name: string; parent: string | null; pos: THREE.Vector3 | readonly [number, number, number] }[]): THREE.Bone[] {
+    this.bones.clear();
+    this.rest.clear();
     const index = new Map<string, number>();
+    const at = (p: THREE.Vector3 | readonly [number, number, number]): THREE.Vector3 => (p instanceof THREE.Vector3 ? p : new THREE.Vector3(p[0], p[1], p[2]));
     const bones = defs.map((d, i) => {
       const b = new THREE.Bone();
       b.name = d.name;
@@ -78,13 +126,21 @@ export class MountRig {
       return b;
     });
     defs.forEach((d, i) => {
+      const p = at(d.pos);
       if (d.parent) {
-        const p = defs[index.get(d.parent)!];
-        bones[index.get(d.parent)!].add(bones[i]);
-        bones[i].position.set(d.pos[0] - p.pos[0], d.pos[1] - p.pos[1], d.pos[2] - p.pos[2]);
-      } else bones[i].position.set(...d.pos);
+        const pi = index.get(d.parent)!;
+        bones[pi].add(bones[i]);
+        bones[i].position.copy(p).sub(at(defs[pi].pos));
+      } else bones[i].position.copy(p);
       this.rest.set(d.name, bones[i].position.clone());
     });
+    return bones;
+  }
+
+  private buildProcedural(kind: MountKind, coat: string, cloth: string, trim: string): [THREE.SkinnedMesh, THREE.MeshStandardMaterial] {
+    const defs = kind === 'horse' ? HORSE_BONES : ELEPHANT_BONES;
+    const bones = this.makeBones(defs);
+    const index = new Map(defs.map((d, i) => [d.name, i]));
     const gb = new GeoBuilder({ skinned: true });
     const on = (n: string): void => {
       gb.bone = index.get(n)!;
@@ -92,27 +148,67 @@ export class MountRig {
     if (kind === 'horse') buildHorse(gb, on, coat, cloth, trim);
     else buildElephant(gb, on, coat, cloth, trim);
     const geo = gb.build();
-    this.material = characterMaterial();
-    this.mesh = new THREE.SkinnedMesh(geo, this.material);
-    this.mesh.add(bones[0]);
-    this.mesh.bind(new THREE.Skeleton(bones));
-    this.mesh.castShadow = true;
-    this.mesh.frustumCulled = false;
-    this.object = new THREE.Group();
-    this.object.scale.setScalar(MOUNT_SCALE[kind]);
-    this.object.add(this.mesh);
+    const material = characterMaterial();
+    const mesh = new THREE.SkinnedMesh(geo, material);
+    mesh.add(bones[0]);
+    mesh.bind(new THREE.Skeleton(bones));
+    mesh.castShadow = true;
+    mesh.frustumCulled = false;
+    return [mesh, material];
+  }
+
+  private buildGlb(tpl: MountTemplate): [THREE.SkinnedMesh, THREE.MeshStandardMaterial] {
+    const bones = this.makeBones(tpl.bones);
+    const material = mountMaterial(tpl, this.kind === 'horse' ? mountCoatVariant(this.coat) : { coat: null, legs: null, blaze: null });
+    // geometry shared by every mount of this kind; skeleton and material per instance
+    const mesh = new THREE.SkinnedMesh(tpl.geometry, material);
+    mesh.add(bones[0]);
+    mesh.bind(new THREE.Skeleton(bones));
+    mesh.castShadow = true;
+    mesh.frustumCulled = false;
+    mesh.name = `mount_${this.kind}`;
+    this.glb = true;
+    return [mesh, material];
+  }
+
+  /** Replace the procedural mesh by the rigged AI-art one, keeping fades / shadow state. */
+  private swapToGlb(tpl: MountTemplate): void {
+    const oldMesh = this.mesh;
+    const oldMat = this.material;
+    const [mesh, material] = this.buildGlb(tpl);
+    material.transparent = oldMat.transparent;
+    material.depthWrite = oldMat.depthWrite;
+    material.opacity = oldMat.opacity;
+    mesh.castShadow = oldMesh.castShadow;
+    mesh.visible = oldMesh.visible;
+    this.object.remove(oldMesh);
+    oldMesh.geometry.dispose();
+    oldMesh.skeleton.dispose();
+    oldMat.dispose();
+    this.mesh = mesh;
+    this.material = material;
+    this.object.add(mesh);
+    this.phase = 0;
   }
 
   /** Advance gait from ground speed (m/s). Returns the vertical bob of the saddle (m). */
   update(dt: number, speed: number, t: number): number {
-    const b = (n: string): THREE.Bone => this.bones.get(n)!;
     const targetGait = Math.min(1, speed / 7);
     this.gait += (targetGait - this.gait) * (1 - Math.exp(-dt * 6));
     const moving = speed > 0.3;
     // stride in world metres (the model is scaled): keeps hooves from sliding
     const stride = (this.kind === 'horse' ? 1.6 + this.gait * 1.6 : 2.4) * MOUNT_SCALE[this.kind];
     this.phase = (this.phase + (dt * speed) / stride) % 1;
-    const P = this.phase * Math.PI * 2;
+    const P = this.phase * TAU;
+    let bob: number;
+    if (this.glb) bob = this.kind === 'horse' ? this.poseGlbHorse(P, moving, t) : this.poseGlbElephant(P, moving, t);
+    else bob = this.poseProcedural(P, moving, t);
+    // bone offsets are in model units; the rider's root is not scaled
+    return bob * MOUNT_SCALE[this.kind];
+  }
+
+  private poseProcedural(P: number, moving: boolean, t: number): number {
+    const b = (n: string): THREE.Bone => this.bones.get(n)!;
     let bob = 0;
     if (this.kind === 'horse') {
       const g = this.gait;
@@ -124,8 +220,8 @@ export class MountRig {
         BR: 0.75 - 0.15 * g,
       };
       const amp = moving ? 0.35 + 0.35 * g : 0;
-      for (const leg of ['FL', 'FR', 'BL', 'BR']) {
-        const ph = P + offs[leg] * Math.PI * 2;
+      for (const leg of LEGS) {
+        const ph = P + offs[leg] * TAU;
         const front = leg[0] === 'F';
         b(`${leg}u`).rotation.x = Math.sin(ph) * amp * (front ? 1 : 0.9);
         const bend = Math.max(0, Math.sin(ph + (front ? 1.2 : -1.2))) * amp * 1.4;
@@ -141,7 +237,7 @@ export class MountRig {
     } else {
       const amp = moving ? 0.28 : 0;
       const offs: Record<string, number> = { FL: 0, FR: 0.5, BL: 0.75, BR: 0.25 };
-      for (const leg of ['FL', 'FR', 'BL', 'BR']) b(leg).rotation.x = Math.sin(P + offs[leg] * Math.PI * 2) * amp;
+      for (const leg of LEGS) b(leg).rotation.x = Math.sin(P + offs[leg] * TAU) * amp;
       bob = moving ? Math.abs(Math.sin(P * 2)) * 0.06 : Math.sin(t * 0.8) * 0.015;
       b('body').position.y = this.rest.get('body')!.y + bob;
       b('body').rotation.z = moving ? Math.sin(P) * 0.03 : 0;
@@ -151,12 +247,93 @@ export class MountRig {
       b('earR').rotation.y = 0.2 - Math.sin(t * 2.1 + 0.4) * 0.25;
       b('tail').rotation.z = Math.sin(t * 2) * 0.3;
     }
-    // bone offsets are in model units; the rider's root is not scaled
-    return bob * MOUNT_SCALE[this.kind];
+    return bob;
+  }
+
+  /**
+   * AI-art horse: the procedural gait on the 4-segment legs. Swing at the
+   * shoulder / hip; in the swing phase the knee folds the cannon back (front)
+   * and the hock folds it forward (hind); in stance the hoof is kept level.
+   */
+  private poseGlbHorse(P: number, moving: boolean, t: number): number {
+    const b = (n: string): THREE.Bone => this.bones.get(n)!;
+    const g = this.gait;
+    // walk (4-beat) → gallop (paired): FL, FR, BL, BR phase offsets
+    const offs = [0, 0.5 - 0.4 * g, 0.25 + 0.25 * g, 0.75 - 0.15 * g];
+    const amp = moving ? 0.3 + 0.3 * g : 0;
+    for (let i = 0; i < 4; i++) {
+      const leg = LEGS[i];
+      const ph = P + offs[i] * TAU;
+      const front = i < 2;
+      const swing = Math.sin(ph) * amp * (front ? 1 : 0.85);
+      // flexion peaks while the leg swings forward (sin rising), zero in stance
+      const bend = moving ? Math.max(0, Math.sin(ph + (front ? 1.2 : -1.0))) * amp * 1.6 : 0;
+      const u = swing;
+      const l = front ? bend * 0.3 : -bend * 0.55;
+      const c = front ? -bend * 1.15 : bend * 1.2;
+      b(`${leg}u`).rotation.x = u;
+      b(`${leg}l`).rotation.x = l;
+      b(`${leg}c`).rotation.x = c;
+      // pastern / hoof: level with the ground in stance, flicked back in the swing
+      b(`${leg}h`).rotation.x = -(u + l + c) * (1 - Math.min(1, bend * 2)) - bend * 0.5;
+    }
+    const bob = moving ? Math.abs(Math.sin(P * (g > 0.5 ? 1 : 2))) * (0.025 + 0.06 * g) : Math.sin(t * 1.3) * 0.008;
+    b('body').rotation.x = moving ? Math.sin(P) * 0.05 * g : 0;
+    b('body').position.y = this.rest.get('body')!.y + bob;
+    // idle breathing: the barrel's front rises and falls a little
+    b('chest').rotation.x = moving ? -Math.sin(P) * 0.03 * g : Math.sin(t * 1.3) * 0.012;
+    b('pelvis').rotation.x = moving ? Math.sin(P + 0.6) * 0.04 * g : 0;
+    const nod = moving ? -Math.sin(P + 0.5) * 0.1 * (0.4 + g) : Math.sin(t * 0.7) * 0.045;
+    b('neck').rotation.x = nod;
+    b('neck2').rotation.x = nod * 0.5;
+    b('head').rotation.x = moving ? Math.sin(P) * 0.07 : Math.sin(t * 0.9 + 1) * 0.05;
+    b('head').rotation.y = moving ? 0 : Math.sin(t * 0.37) * 0.06;
+    b('tail').rotation.x = -0.1 - (moving ? 0.45 * g : 0) + Math.sin(t * 2.3) * 0.05;
+    b('tail').rotation.z = Math.sin(t * 1.7) * 0.1;
+    b('tail2').rotation.z = Math.sin(t * 1.7 - 0.7) * 0.14;
+    b('tail2').rotation.x = moving ? -0.3 * g : 0;
+    return bob;
+  }
+
+  /** AI-art war elephant: lateral walk on 3-segment legs, trunk sway, ear flaps, tail swish. */
+  private poseGlbElephant(P: number, moving: boolean, t: number): number {
+    const b = (n: string): THREE.Bone => this.bones.get(n)!;
+    const amp = moving ? 0.24 : 0;
+    const offs = [0, 0.5, 0.75, 0.25];
+    for (let i = 0; i < 4; i++) {
+      const leg = LEGS[i];
+      const ph = P + offs[i] * TAU;
+      const swing = Math.sin(ph) * amp;
+      const bend = moving ? Math.max(0, Math.sin(ph + 1.2)) * amp * 1.5 : 0;
+      b(`${leg}u`).rotation.x = swing;
+      b(`${leg}l`).rotation.x = -bend;
+      // the foot stays flat on the ground
+      b(`${leg}c`).rotation.x = -(swing - bend) * (1 - Math.min(1, bend * 2)) + bend * 0.3;
+    }
+    const bob = moving ? Math.abs(Math.sin(P * 2)) * 0.045 : Math.sin(t * 0.8) * 0.01;
+    b('body').position.y = this.rest.get('body')!.y + bob;
+    b('body').rotation.z = moving ? Math.sin(P) * 0.025 : 0;
+    b('chest').rotation.x = moving ? 0 : Math.sin(t * 0.8) * 0.008;
+    b('head').rotation.x = Math.sin(t * 0.6) * 0.03 + (moving ? Math.sin(P * 2) * 0.03 : 0);
+    // the trunk: a wave running down it, bigger toward the tip
+    for (let k = 1; k <= 4; k++) {
+      const tr = b(`trunk${k}`);
+      tr.rotation.x = Math.sin(t * 1.1 - k * 0.7) * (0.04 + 0.035 * k) + (moving ? Math.sin(P - k * 0.5) * 0.05 : 0);
+      tr.rotation.z = Math.sin(t * 0.7 - k * 0.5) * 0.05;
+    }
+    const flap = 0.08 + 0.18 * (0.5 + 0.5 * Math.sin(t * 2.1));
+    b('earL').rotation.y = -flap;
+    b('earR').rotation.y = 0.08 + 0.18 * (0.5 + 0.5 * Math.sin(t * 2.1 + 0.4));
+    b('tail').rotation.z = Math.sin(t * 2) * 0.25;
+    b('tail2').rotation.z = Math.sin(t * 2 - 0.6) * 0.3;
+    return bob;
   }
 
   dispose(): void {
-    this.mesh.geometry.dispose();
+    this.disposed = true;
+    // an AI-art mount's geometry is shared by every mount of its kind
+    if (!this.glb) this.mesh.geometry.dispose();
+    this.mesh.skeleton.dispose();
     this.material.dispose();
   }
 }

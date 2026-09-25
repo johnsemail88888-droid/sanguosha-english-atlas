@@ -92,6 +92,28 @@ test('showcase map at low quality, free camera', async ({ page }) => {
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
+test('mount lineup: the AI-art horses (every coat) and war elephant are rigged and animate', async ({ page }) => {
+  test.setTimeout(240_000);
+  const errors = collectErrors(page);
+  await openHarness(page, '?mode=mounts&speed=7&rider=0');
+  const info = await page.evaluate(() => (window as unknown as { __info: { mounts: { kind: string; glb: boolean }[] } }).__info);
+  expect(info.mounts.length).toBe(7);
+  // the deploy ships models/mounts/*.glb: every mount is the rigged model, none procedural
+  expect(info.mounts.every((m) => m.glb)).toBe(true);
+  // the gallop moves the legs: two frames apart differ
+  const a = await page.evaluate(() => {
+    window.__step!(1);
+    return (document.getElementById('c') as HTMLCanvasElement).toDataURL();
+  });
+  const b = await page.evaluate(() => {
+    window.__step!(9);
+    return (document.getElementById('c') as HTMLCanvasElement).toDataURL();
+  });
+  expect(a.length).toBeGreaterThan(5000);
+  expect(b).not.toBe(a);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
 test('hero portraits render to PNG data URLs', async ({ page }) => {
   test.setTimeout(180_000);
   const errors = collectErrors(page);

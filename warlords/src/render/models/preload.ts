@@ -7,6 +7,8 @@ import { assetList } from '../../game/assets';
 import { HERO_BY_ID, TROOPS } from '../../data';
 import { CLIP_IDS, clipFilePath, CLIP_SPECS, loadClip } from '../anim/glbClips';
 import { heroModelPath, loadCharTemplate, troopModelPath } from './glb';
+import { loadMountTemplate, mountModelPath } from './mountGlb';
+import { mountSeatHeight } from './mounts';
 import type { CharacterArt } from '../quality';
 
 /** Give up waiting (the loading bar moves on; late files still swap in when they arrive). */
@@ -36,7 +38,9 @@ export async function preloadCharacterArt(heroIds: Iterable<string>, onProgress?
     const f = CLIP_SPECS[id].file;
     return f ? list.has(clipFilePath(f)) : true;
   });
-  const total = models.length + clips.length;
+  // the rigged AI-art horse / elephant (any tier with character art)
+  const mounts = (['horse', 'elephant'] as const).filter((k) => list.has(mountModelPath(k)));
+  const total = models.length + clips.length + mounts.length;
   if (!models.length || !total) {
     onProgress?.(1);
     return;
@@ -49,6 +53,7 @@ export async function preloadCharacterArt(heroIds: Iterable<string>, onProgress?
   const all = Promise.all([
     ...models.map((p) => loadCharTemplate(p).then(tick, tick)),
     ...clips.map((id) => loadClip(id).then(tick, tick)),
+    ...mounts.map((k) => loadMountTemplate(k, mountSeatHeight(k)).then(tick, tick)),
   ]).then(() => undefined);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<void>((res) => {
