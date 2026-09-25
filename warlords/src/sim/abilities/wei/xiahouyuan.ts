@@ -6,7 +6,7 @@ import type { AbilityCtx } from '../../api';
 import { ext } from '../../ext';
 import { UNIT_KINDS, alive, crosshairEnemy, crosshairPoint, enemiesInRadius, param } from '../common';
 import { registerAbility } from '../registry';
-import { BASE_DODGE_CHARGES, canAct, chestOf, flatDist, immobile, losBetween, safeBlink, setCast } from './shared';
+import { canAct, chestOf, flatDist, immobile, losBetween, safeBlink, setCast } from './shared';
 
 // 疾行 (passive): +15 % move speed; sprinting does not break aim-down-sights.
 registerAbility({
@@ -121,7 +121,7 @@ registerAbility({
     if (!canAct(ctx)) return false;
     const h = self.hero!;
     sim.applyStatus(self.id, 'haste', param(ctx, 'duration', 5), { sourceId: self.id, params: { amount: param(ctx, 'haste', 0.4) } });
-    const max = BASE_DODGE_CHARGES + ext(sim).modifiers(self.id).extraDodgeCharges;
+    const max = ext(sim).maxDodgeCharges(self.id);
     if (h.dodgeCharges < max) h.dodgeCharges = max;
     h.dodgeRechargeAt = 0;
     setCast(ctx, { pos: self.pos, target: self.id });

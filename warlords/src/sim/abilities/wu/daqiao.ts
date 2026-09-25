@@ -1,10 +1,10 @@
 // 大乔 Da Qiao — 流离 (bullet redirect), 国色 (乐不思蜀 dance), 安娴 (group heal).
-import type { Entity, EntityId, StatusInstance } from '../../../core/types';
+import type { Entity } from '../../../core/types';
 import type { DamageHookCtx, DamageRequest, SimApi } from '../../api';
 import { ext } from '../../ext';
 import { UNIT_KINDS, param } from '../common';
 import { registerAbility } from '../registry';
-import { applyDebuff, centerOf, crosshairFoe, emitTrigger, isUp, knownAlly, perSim, publiclyVisible, setCast, weaponOnHit } from './util';
+import { applyDebuff, centerOf, crosshairFoe, emitTrigger, isUp, knownAlly, publiclyVisible, setCast } from './util';
 
 /** A weapon bullet (combat.isBulletDamage): only these can be displaced. */
 const isBullet = (req: DamageRequest): boolean => req.weaponId !== undefined && (req.type === 'normal' || req.type === 'pierce');
@@ -64,83 +64,26 @@ function displaceTarget(ctx: DamageHookCtx, radius: number): Entity | undefined 
   return best;
 }
 
-// ── 酒 carry-over (until docs/SIM_REQUESTS.md WU-10) ─────────────────────────
-// combat.ts consumes the attacker's 酒 (outgoing step) before Da Qiao's modifyIncoming
-// runs, so the ×2 went into the hit she zeroes. The redirect gives it back to the attacker
-// just before re-dealing, so the displaced bullet is the drunk one (and spends it).
-/** drunk instances each hero carried when a Da Qiao last looked (her tick / her last hit) */
-const drunkSeen = new WeakMap<SimApi, Map<EntityId, StatusInstance[]>>();
-
-function noteDrunk(sim: SimApi, e: Entity): void {
-  const seen = perSim(drunkSeen, sim, () => new Map<EntityId, StatusInstance[]>());
-  const list = e.statuses.filter((s) => s.id === 'drunk' && s.until > sim.time);
-  if (list.length > 0) seen.set(e.id, list);
-  else seen.delete(e.id);
-}
-
 /**
- * The attacker's 酒 this very hit consumed: drunk instances it carried when last seen that
- * are gone now (not expired) — unless one of its hits already landed on someone this tick
- * (a shotgun pellet, a melee sweep): then that hit had the 酒.
- * Known gap: 酒 drunk in the same tick as the shot was never seen → not carried over.
- */
-function jiuSpentHere(sim: SimApi, attacker: Entity): StatusInstance[] {
-  const seen = perSim(drunkSeen, sim, () => new Map<EntityId, StatusInstance[]>()).get(attacker.id);
-  if (!seen) return [];
-  const now = sim.time;
-  const gone = seen.filter((s) => s.until > now && !attacker.statuses.includes(s));
-  if (gone.length === 0) return [];
-  for (const e of sim.entities()) if (e.lastDamagedAt === now && e.lastDamagedBy === attacker.id) return [];
-  return gone;
-}
-
-/** Worlds in which a 流离 redirect is being dealt right now (a displaced bullet never bounces again). */
-const redirecting = new WeakSet<SimApi>();
-
-/**
- * Deal the displaced bullet to `other` as the attacker's own hit on it: the world runs the
- * attacker's side of the pipeline (dmgBoost, weapon multipliers, modifyOutgoing, 酒) against
- * the new victim — so the raw request amount is passed — then the victim's (dodge, armor,
- * shield). Kill credit, attack memory and the weapon's on-hit special go to the attacker.
- *
- * Not flagged `redirected`: docs/SIM_REQUESTS.md WEI-1 makes the world skip the outgoing
- * step for flagged requests (right for 护驾, which passes an already-multiplied amount), and
- * 流离 relies on it. WU-10 asks for `redirectDamage(req, newTargetId)`, which carries the
- * multiplied amount, applies the special and reports 'redirect' instead of 'invuln' to the
- * shooter; when it lands this function becomes that one call.
+ * Deal the displaced bullet to `other` as the attacker's own hit on it (SimExt.redirectDamage,
+ * WU-10): the amount after the attacker's outgoing step (dmgBoost, weapon multipliers,
+ * modifyOutgoing, 酒 — spent by this very bullet) is re-dealt `redirected` (no second outgoing
+ * step, never bounces again), then the new victim's side runs (dodge, armor, shield). Kill
+ * credit, attack memory and the weapon's on-hit special go to the attacker; the shooter's
+ * hit on Da Qiao reads 'redirect'.
  */
 function redirectBullet(ctx: DamageHookCtx, other: Entity): void {
-  const { sim, req } = ctx;
-  const src = sim.get(req.sourceId);
-  const shooter = src?.kind === 'hero' ? src : undefined;
-  if (shooter) {
-    for (const s of jiuSpentHere(sim, shooter)) {
-      sim.applyStatus(shooter.id, 'drunk', s.until - sim.time, { sourceId: s.sourceId, params: s.params ? { ...s.params } : undefined });
-    }
-  }
-  redirecting.add(sim);
-  try {
-    const r = sim.dealDamage({ ...req, targetId: other.id, pos: undefined, head: false });
-    if (shooter && req.weaponId !== undefined && !r.blocked && r.dealt + r.absorbed > 0) {
-      weaponOnHit(sim, shooter, req.weaponId, other, r.dealt + r.absorbed);
-    }
-  } finally {
-    redirecting.delete(sim);
-  }
+  ext(ctx.sim).redirectDamage(ctx.req, other.id);
 }
 
 // 流离 (passive): a bullet hitting you has `chance` to be displaced, whole, to another unit
 // within `radius` m that you can see (never the attacker; enemies first, your soldiers last).
 registerAbility({
   id: 'daqiao_liuli',
-  tick(ctx) {
-    for (const h of ctx.sim.heroes()) if (h.alive && !h.hero?.dead) noteDrunk(ctx.sim, h);
-  },
   modifyIncoming(ctx, amount) {
     const { sim, self, req } = ctx;
-    if (req.redirected || redirecting.has(sim) || !(amount > 0) || !isBullet(req) || !isUp(self)) return amount;
+    if (req.redirected || !(amount > 0) || !isBullet(req) || !isUp(self)) return amount;
     if (req.sourceId === undefined || req.sourceId === self.id) return amount;
-    const src = sim.get(req.sourceId);
     let out = amount;
     if (sim.rng.chance(Math.min(1, Math.max(0, param(ctx, 'chance', 0.3))))) {
       const other = displaceTarget(ctx, param(ctx, 'radius', 8));
@@ -151,7 +94,6 @@ registerAbility({
         out = 0;
       }
     }
-    if (src?.kind === 'hero') noteDrunk(sim, src);
     return out;
   },
 });

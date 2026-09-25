@@ -1,10 +1,11 @@
 // 赵云 Zhao Yun — 龙胆 (passive), 七进七出 (Q, 3 charges), 长坂救主 (E).
+import { BASE_DODGE_CHARGES } from '../../ext';
 import { registerAbility } from '../registry';
 import { flatAimDir, getState, param, setState } from '../common';
 import { ahead, charge, crosshairFriend, emitAbility, flatDist, isRooted, setCast } from './util';
 
-/** base dodge-roll charges every hero has (world.ts BASE_DODGE_CHARGES) */
-const BASE_DODGES = 2;
+/** base dodge-roll charges every hero has (WEI-5: the engine's own constant) */
+const BASE_DODGES = BASE_DODGE_CHARGES;
 
 // 龙胆 (passive): 3 dodge charges (you spawn with all 3); every dodge roll
 // empowers your WEAPON damage for a short window.

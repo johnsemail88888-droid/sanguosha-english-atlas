@@ -337,6 +337,9 @@ export interface SimExt extends SimApi {
 
 export const ext = (sim: SimApi): SimExt => sim as SimExt;
 
+/** Dodge-roll charges every hero has (+ modifiers().extraDodgeCharges): SimExt.maxDodgeCharges. */
+export const BASE_DODGE_CHARGES = 2;
+
 /**
  * Status ids that are debuffs: vetoable by canBeAffected (陆逊 谦逊), cancelled by
  * nullify when applied by an enemy (except NULLIFY_EXEMPT), cleansed by 青囊.

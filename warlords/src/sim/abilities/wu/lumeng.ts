@@ -18,9 +18,8 @@ function kejiInstance(e: Entity, now: number): StatusInstance | undefined {
 }
 
 function breakKeji(ctx: AbilityCtx): void {
-  const s = kejiInstance(ctx.self, ctx.sim.time);
-  // expire it now: the status system removes it (with its 'off' event) this tick
-  if (s) s.until = ctx.sim.time;
+  // only the 克己 instance (白衣渡江's stealth stays): SimExt.removeStatusWhere (WU-3)
+  if (kejiInstance(ctx.self, ctx.sim.time)) ext(ctx.sim).removeStatusWhere(ctx.self.id, 'stealth', (s) => (s.params?.keji ?? 0) > 0);
 }
 
 registerAbility({

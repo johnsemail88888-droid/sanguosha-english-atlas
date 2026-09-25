@@ -312,6 +312,10 @@ export const SCREENS_CSS = /* css */ `
 .brush-bar { height: 8px; border-radius: 4px; background: rgba(214, 173, 82, 0.15); overflow: hidden; }
 .brush-bar i { display: block; height: 100%; width: 40%; background: linear-gradient(90deg, transparent, var(--gold-hi), transparent); animation: sg-load 1.6s ease-in-out infinite; }
 @keyframes sg-load { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.brush-bar.det { height: 10px; position: relative; box-shadow: inset 0 0 0 1px rgba(214, 173, 82, 0.35); }
+.brush-bar.det i { width: 0; animation: none; transform: none; transition: width 0.45s ease-out; background: linear-gradient(90deg, #8a5a1c, var(--gold-hi) 85%, #fff3d6); box-shadow: 0 0 12px rgba(255, 210, 120, 0.55); }
+.brush-bar.det::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 245, 220, 0.35), transparent); width: 30%; animation: sg-load 1.6s ease-in-out infinite; }
+.load-stage { font-size: 0.9em; color: var(--paper-mute); letter-spacing: 0.04em; margin-top: -0.4em; font-variant-numeric: tabular-nums; }
 .tip { padding: 0.8em 1em; }
 .tip b { color: var(--gold); margin-right: 0.6em; font-family: var(--font-display); }
 .tip .tip-text { display: inline; margin: 0; }

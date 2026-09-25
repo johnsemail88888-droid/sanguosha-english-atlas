@@ -89,7 +89,9 @@ import {
   weaponDef,
 } from './defs';
 import type { AbilityCast, HitscanOptions, ResolvedModifiers, SimExt, StripOptions } from './ext';
-import { DEBUFF_STATUSES, defaultModifiers } from './ext';
+import { BASE_DODGE_CHARGES, DEBUFF_STATUSES, defaultModifiers } from './ext';
+
+export { BASE_DODGE_CHARGES } from './ext';
 import { hazardIsHarmful, hazardRuntimeFrom, updateHazards } from './hazards';
 import type { HazardRuntime } from './hazards';
 import { isHostile, knownRoleFor } from './hostility';
@@ -228,8 +230,6 @@ interface Scheduled {
 
 const UNIT_KINDS: EntityKind[] = ['hero', 'troop', 'npc', 'turret'];
 const MAX_ACTIONS_PER_TICK = 24;
-/** dodge-roll charges of every hero (+ modifiers().extraDodgeCharges) — SimExt.maxDodgeCharges */
-export const BASE_DODGE_CHARGES = 2;
 /** public events kept for SimExt.publicEventsSince (AI-1) */
 export const PUBLIC_EVENT_LOG = 2048;
 const DODGE_RECHARGE = 8;

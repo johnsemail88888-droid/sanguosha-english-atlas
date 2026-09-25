@@ -1,23 +1,18 @@
 // Shared helpers for the 吴 Wu ability implementations (abilities/wu/*.ts).
 // Everything goes through SimApi / SimExt, stays deterministic (host RNG, sim
-// time) and tolerates dead / downed / vanished entities. The only reaches past
-// SimExt are documented engine gates (World.nullifies / canBeAffected, the same
-// structural cast items/util.ts uses) and combat's weapon on-hit specials for
-// 流离 — each tied to a docs/SIM_REQUESTS.md entry that retires it.
+// time) and tolerates dead / downed / vanished entities.
 import type { Vec3 } from '../../../core/math';
 import type { DamageType, Entity, EntityId, EntityKind, StatusId } from '../../../core/types';
 import { ROLE_BY_ID } from '../../../data';
 import { rollRewardItems } from '../../../data/loot';
 import type { AbilityCtx, SimApi } from '../../api';
-import { applyWeaponSpecialOnHit } from '../../combat';
 import { maxReserve, usesAmmo, weaponDef } from '../../defs';
 import { ext, isDebuff } from '../../ext';
 import { registerHazardKind } from '../../hazards';
-import type { World } from '../../world';
 import { UNIT_KINDS, alive } from '../common';
 
-/** Default dodge-roll charges (world.ts BASE_DODGE_CHARGES). */
-export const BASE_DODGE_CHARGES = 2;
+/** Default dodge-roll charges (SimExt.maxDodgeCharges adds the extra ones). */
+export { BASE_DODGE_CHARGES } from '../../ext';
 
 /** Alive, not dead and not downed (濒死): able to act / be buffed meaningfully. */
 export const isUp = (e: Entity | undefined): boolean => alive(e) && !e.hero?.downed;
@@ -50,20 +45,10 @@ export function otherAbilityParam(ctx: AbilityCtx, abilityId: string, key: strin
   return v === undefined || !Number.isFinite(v) ? fallback : v;
 }
 
-// ── engine gates (World implements these; not on SimExt yet — docs/SIM_REQUESTS.md WU-4 / WU-5, ITEMS-1) ──
-interface EngineGates {
-  /** 无懈可击 for a hostile effect of `sourceId` on `target`: consumes a charge (or echoes this tick's). */
-  nullifies?(target: Entity, sourceId?: EntityId): boolean;
-  /** 谦逊-style veto (AbilityImpl.canBeAffected of the target's abilities); no side effects. */
-  canBeAffected?(target: Entity, what: StatusId | 'steal', sourceId?: EntityId): boolean;
-}
-
-const gates = (sim: SimApi): EngineGates => sim as unknown as EngineGates;
-
+// ── engine gates (SimExt.canBeAffected / nullifies — WU-5, ITEMS-1) ─────────
 /** True when `target` is immune to `what` from `sourceId` (陆逊 谦逊: charm / dance / theft). */
 export function immuneTo(sim: SimApi, target: Entity, what: StatusId | 'steal', sourceId?: EntityId): boolean {
-  const g = gates(sim);
-  return typeof g.canBeAffected === 'function' && g.canBeAffected(target, what, sourceId) === false;
+  return !ext(sim).canBeAffected(target, what, sourceId);
 }
 
 /**
@@ -72,16 +57,10 @@ export function immuneTo(sim: SimApi, target: Entity, what: StatusId | 'steal', 
  * earlier effect of the same enemy on that target was already cancelled this tick.
  */
 export function nullifiedBy(sim: SimApi, target: Entity, sourceId: EntityId): boolean {
-  const g = gates(sim);
-  return typeof g.nullifies === 'function' && g.nullifies(target, sourceId) === true;
+  return ext(sim).nullifies(target, sourceId);
 }
 
 // ── 无懈可击 / 谦逊 aware debuffs ─────────────────────────────────────────────
-function nullifyCharges(sim: SimApi, e: Entity): number {
-  let n = 0;
-  for (const s of e.statuses) if (s.id === 'nullify' && s.until > sim.time) n += s.stacks ?? 1;
-  return n;
-}
 
 /**
  * landed    — the status is on the target;
@@ -98,14 +77,10 @@ export function applyDebuff(ctx: AbilityCtx, target: Entity, id: StatusId, durat
   if (!alive(target) || !(duration > 0)) return 'resisted';
   const hostile = target.id !== self.id && isDebuff(id);
   // immunity is decided up front (WU-5): an immune hero is never a valid target
-  const canAsk = typeof gates(sim).canBeAffected === 'function';
-  if (hostile && canAsk && immuneTo(sim, target, id, self.id)) return 'resisted';
-  const before = nullifyCharges(sim, target);
+  if (hostile && immuneTo(sim, target, id, self.id)) return 'resisted';
   if (sim.applyStatus(target.id, id, duration, { sourceId: self.id, params })) return 'landed';
-  if (!hostile) return 'resisted';
   // alive, not immune, positive duration: only 无懈可击 (a charge or its echo) refuses a debuff
-  if (canAsk) return 'nullified';
-  return nullifyCharges(sim, target) < before ? 'nullified' : 'resisted';
+  return hostile ? 'nullified' : 'resisted';
 }
 
 // ── hidden roles / hidden information ───────────────────────────────────────
@@ -138,19 +113,6 @@ export function publiclyVisible(sim: SimApi, e: Entity): boolean {
     if (s.id === 'stealth') stealth = true;
   }
   return !stealth;
-}
-
-// ── weapon on-hit specials ──────────────────────────────────────────────────
-/**
- * Apply the weapon's on-hit special (寒冰 slow → freeze, 朱雀 burn, 麒麟 dismount,
- * 太平 chain lightning) of a weapon hit `src` landed on `target` — exactly what the
- * world does after a normal weapon hit (combat.ts fireOne / meleeSwing / projectiles).
- * Only for hits the world did not resolve itself (流离 redirect); remove once
- * docs/SIM_REQUESTS.md WU-10 (`redirectDamage`) lands.
- */
-export function weaponOnHit(sim: SimApi, src: Entity, weaponId: string, target: Entity, dealt: number): void {
-  // sim is the World (SimApi is its public face); the special code lives in combat.ts
-  applyWeaponSpecialOnHit(sim as unknown as World, src, weaponDef(weaponId), target, dealt);
 }
 
 // ── targeting ───────────────────────────────────────────────────────────────
@@ -225,7 +187,7 @@ export function fillAllAmmo(sim: SimApi, hero: Entity): void {
 export function refillDodges(sim: SimApi, hero: Entity): void {
   const h = hero.hero;
   if (!h) return;
-  const max = BASE_DODGE_CHARGES + ext(sim).modifiers(hero.id).extraDodgeCharges;
+  const max = ext(sim).maxDodgeCharges(hero.id);
   if (h.dodgeCharges < max) h.dodgeCharges = max;
   h.dodgeRechargeAt = 0;
 }
@@ -278,7 +240,8 @@ export function setCast(ctx: AbilityCtx, info: CastInfo): void {
  */
 export function emitTrigger(ctx: AbilityCtx, o: { target?: EntityId; pos?: Vec3; privateTo?: EntityId } = {}): void {
   const { sim, self } = ctx;
-  const ev = { t: 'ability' as const, src: self.id, ability: ctx.def.id, pos: o.pos ?? centerOf(self), target: o.target };
+  // a proc, not a cast (WEI-10): clients play no cast gesture and a lighter cue
+  const ev = { t: 'ability' as const, src: self.id, ability: ctx.def.id, pos: o.pos ?? centerOf(self), target: o.target, proc: true };
   const to = o.privateTo ?? (sim.hasStatus(self.id, 'stealth') ? self.id : undefined);
   sim.emit(to !== undefined ? { ...ev, privateTo: to } : ev);
 }

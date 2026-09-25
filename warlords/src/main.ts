@@ -19,13 +19,16 @@ const debug = debugEnabled() ? new DebugHooks(pkg.version, () => document.queryS
 function mountGame(container: HTMLElement, view: ViewSource, session: GameSession): GameHandle {
   let pending: GameEvent[] = [];
   let lastIntensity = -1;
-  // `handle` is assigned before the first animation frame calls onFrame.
+  // `handle` is assigned before the first frame calls onFrame (frames start after the staged build).
   // eslint-disable-next-line prefer-const
   let handle: ReturnType<typeof mountGameView>;
   handle = mountGameView(container, view, {
     onFrame: () => {
-      const pose = handle.renderer.getCameraPose();
-      audio.setListener(pose.pos, pose.yaw, pose.pitch);
+      const r = handle.renderer;
+      if (r) {
+        const pose = r.getCameraPose();
+        audio.setListener(pose.pos, pose.yaw, pose.pitch);
+      }
       // Audio also drives footsteps/loops from the view state, so call it every frame.
       const evs = pending;
       pending = [];
@@ -43,14 +46,21 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     for (const e of evs) pending.push(e);
     debug?.onEvents(evs);
   });
-  const offFire = handle.renderer.onLocalFire((weaponId) => audio.localFire(weaponId));
+  const offFire = handle.onLocalFire((weaponId) => audio.localFire(weaponId));
+  const offProgress = handle.onProgress((p) => {
+    debug?.mark(`load:${p.stage}`);
+    if (p.stage === 'failed') console.error('[app] 3D view failed to start:', p.error);
+  });
   const gameHandle: GameHandle = {
     input: handle.input,
     onEvents: (cb) => handle.onEvents(cb),
     setSpectateTarget: (id) => handle.setSpectateTarget(id),
     worldToScreen: (p) => handle.worldToScreen(p),
+    onLoadProgress: (cb) => handle.onProgress(cb),
+    isReady: () => handle.ready,
     dispose: () => {
       offDebug?.();
+      offProgress();
       offEvents();
       offFire();
       audio.setDowned(false);
@@ -58,26 +68,6 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     },
   };
   const offDebug = debug?.attachGame({ view, session, handle, gameHandle });
-  if (debug) {
-    // TEMP profiling
-    const r = handle.renderer as unknown as Record<string, any>;
-    let n = 0;
-    const wrap = (obj: any, key: string, label: string) => {
-      const orig = obj[key].bind(obj);
-      obj[key] = (...a: unknown[]) => {
-        const t = performance.now();
-        const res = orig(...a);
-        if (n < 4) console.log(`[prof] frame${n} ${label} ${(performance.now() - t).toFixed(0)}ms`);
-        return res;
-      };
-    };
-    wrap(r.entities, 'sync', 'entities.sync');
-    wrap(r.post, 'render', 'post.render');
-    wrap(r, 'frame', 'frame');
-    const origFrame = r.frame;
-    let seen = 0;
-    r.frame = (d: number) => { origFrame(d); const ps = r.renderer.info.programs; if (ps.length !== seen) { console.log(`[prof] frame${n} programs ${ps.length}: ${ps.slice(seen).map((p: any) => p.name + '/' + p.type).join(', ')} ext=${!!r.renderer.extensions.get('KHR_parallel_shader_compile')}`); seen = ps.length; } n++; };
-  }
   return gameHandle;
 }
 

@@ -1,6 +1,7 @@
 // 夏侯惇 Xiahou Dun — 刚烈 / 拔矢啖睛 / 独目怒冲.
 import type { Entity, EntityId } from '../../../core/types';
 import type { AbilityCtx } from '../../api';
+import { ext } from '../../ext';
 import { flatAimDir, getState, param, setState, unitsAlongLine } from '../common';
 import { registerAbility } from '../registry';
 import { brakeAtDashEnd, canAct, chestOf, flatDist, immobile, losBetween, setCast } from './shared';
@@ -57,11 +58,8 @@ function endCharge(ctx: AbilityCtx, stop: boolean): void {
   const self = ctx.self;
   setState(ctx, 'until', 0);
   passedBy.delete(self);
-  if (stop && self.forced) {
-    self.forced = undefined;
-    self.vel.x = 0;
-    self.vel.z = 0;
-  }
+  // stop on impact: the world ends the dash at walking speed at most (WEI-6)
+  if (stop) ext(ctx.sim).endDash(self.id);
 }
 
 function chargeContact(ctx: AbilityCtx): void {

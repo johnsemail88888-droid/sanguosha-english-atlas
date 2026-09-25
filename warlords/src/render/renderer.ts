@@ -221,6 +221,7 @@ export class GameRenderer {
 
     // 2. entities
     const ctx = this.entityCtx(d, localId, local);
+    ctx.focusPos = this.cameraFocus(localEnt);
     this.entities.sync(view.entities(), ctx);
 
     // fade the local hero when the camera is pushed into them (walls behind,
@@ -281,6 +282,50 @@ export class GameRenderer {
           console.error('[render] onEvents subscriber failed', err);
         }
       }
+    }
+  }
+
+  /**
+   * Loading-screen warm-up: create the visuals for the entities that exist now
+   * and compile every shader program the scene can use (hidden VFX pools and the
+   * translucent character variant included), so the first rendered frames do
+   * not stall on shader compilation. Uses KHR_parallel_shader_compile when the
+   * GPU offers it (non-blocking); otherwise compiles synchronously.
+   */
+  async warmup(): Promise<void> {
+    if (this.disposed || this.contextLost) return;
+    const view = this.view;
+    const localId = view.localId();
+    const local = view.local();
+    const localEnt = localId !== null ? view.get(localId) : undefined;
+    this.updateCamera(0, localEnt, local?.dead ?? false);
+    const ctx = this.entityCtx(0, localId, local);
+    ctx.focusPos = this.cameraFocus(localEnt);
+    this.entities.sync(view.entities(), ctx);
+    // every object visible for the compile (pools / hidden meshes still need their programs)
+    const hidden: THREE.Object3D[] = [];
+    this.scene.traverse((o) => {
+      if (!o.visible) {
+        hidden.push(o);
+        o.visible = true;
+      }
+    });
+    // translucent variant of the character material (near-camera / stealth fade)
+    let faded: { setFade(a: number): void } | null = null;
+    this.entities.forEachCharacter((v) => {
+      if (!faded && v.id !== localId) faded = v.rig;
+    });
+    const fadedRig = faded as { setFade(a: number): void } | null;
+    fadedRig?.setFade(0.5);
+    try {
+      const parallel = this.renderer.extensions.has('KHR_parallel_shader_compile');
+      if (parallel) await this.renderer.compileAsync(this.scene, this.camera);
+      else this.renderer.compile(this.scene, this.camera);
+    } catch (err) {
+      console.warn('[render] shader warm-up failed', err);
+    } finally {
+      for (const o of hidden) o.visible = false;
+      fadedRig?.setFade(1);
     }
   }
 
@@ -555,6 +600,19 @@ export class GameRenderer {
     }
     this.zoomNow = rig.currentZoom;
     rig.apply(dt);
+  }
+
+  private readonly focusVec = new THREE.Vector3();
+
+  /** Chest of the hero the camera is following (for the near-camera fade), null otherwise. */
+  private cameraFocus(localEnt: ViewEntity | undefined): THREE.Vector3 | null {
+    if (this.freeCam) return null;
+    let e: ViewEntity | undefined;
+    if (this.rig.mode === 'follow') e = localEnt;
+    else if (this.rig.mode === 'spectate' && this.spectateId !== null) e = this.view.get(this.spectateId);
+    if (!e) return null;
+    const downed = (e.flags & VF_DOWNED) !== 0;
+    return this.focusVec.set(e.x, e.y + (downed ? 0.5 : 1.3), e.z);
   }
 
   private shakeAt(pos: THREE.Vector3, intensity: number, radius: number): void {

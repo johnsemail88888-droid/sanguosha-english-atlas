@@ -19,9 +19,31 @@ export const LOADING_TIPS: readonly [string, string][] = [
   ['内奸必须在最后与主公单挑并获胜。', 'The Traitor must be the last one standing against the Lord.'],
 ];
 
+/** Loading stage → [progress, zh, en]; `null` = the host is still generating the match. */
+const STAGES: Record<string, [number, string, string]> = {
+  sim: [0.15, '生成战场与地形…', 'Generating the battlefield…'],
+  scene: [0.4, '搭建城池与山河…', 'Building the world…'],
+  shaders: [0.62, '研墨点彩（编译着色器）…', 'Compiling shaders…'],
+  warmup: [0.88, '整军待发…', 'Mustering the troops…'],
+  ready: [1, '开战！', 'To battle!'],
+  failed: [1, '开战！', 'To battle!'],
+};
+
 export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-loading', data: { screen: 'loading' } });
+  let stage = 'sim';
+  let progress = STAGES.sim[0];
+  const barFill = h('i');
+  const bar = h('div', { class: 'brush-bar det', role: 'progressbar', aria: { valuemin: '0', valuemax: '100' } }, barFill);
+  const stageEl = h('div', { class: 'load-stage' });
+  const showStage = (): void => {
+    const st = STAGES[stage] ?? STAGES.sim;
+    barFill.style.width = `${Math.round(progress * 100)}%`;
+    bar.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+    stageEl.textContent = `${tx(st[1], st[2])} ${Math.round(progress * 100)}%`;
+    el.dataset.stage = stage;
+  };
   let tipIndex = Math.floor(Math.random() * LOADING_TIPS.length);
   const tipEl = h('p', { class: 'tip-text' });
   const showTip = (): void => {
@@ -38,7 +60,8 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
         h('div', { class: 'load-text' },
           hero ? h('div', { class: 'load-hero' }, h('span', { class: 'nm' }, heroName(hero)), h('span', { class: 'ttl' }, heroTitle(hero))) : null,
           h('h1', { class: 'sg-h1' }, t('loading.title')),
-          h('div', { class: 'brush-bar' }, h('i')),
+          bar,
+          stageEl,
           h('div', { class: 'tip sg-dark' }, h('b', null, t('loading.tip')), tipEl),
         ),
       ),
@@ -46,10 +69,28 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
   };
   // a late hero-select broadcast (auto-pick at the deadline) still shows your hero
   bag.add(session.on('heroSelect', () => render()));
+  // real progress of the staged 3D build (render/mountGame.ts)
+  if (ctx.loadProgress) {
+    bag.add(
+      ctx.loadProgress((p) => {
+        stage = p ? p.stage : 'sim';
+        progress = p ? p.progress : STAGES.sim[0];
+        showStage();
+      }),
+    );
+  }
   bag.interval(() => {
     tipIndex++;
     showTip();
   }, 5000);
   render();
-  return { el, relabel: render, dispose: () => bag.dispose() };
+  showStage();
+  return {
+    el,
+    relabel: () => {
+      render();
+      showStage();
+    },
+    dispose: () => bag.dispose(),
+  };
 }

@@ -57,6 +57,20 @@ export interface GameHandle {
    * (null when behind the camera). When present, damage numbers float at the hit point.
    */
   worldToScreen?(p: Vec3): { x: number; y: number } | null;
+  /**
+   * Optional staged loading (scene build → shader warm-up → first frames). `cb` is
+   * called right away with the current state. While not ready the loading screen
+   * stays up (showing this progress) even after the session reached 'playing'.
+   */
+  onLoadProgress?(cb: (p: LoadProgress) => void): () => void;
+  isReady?(): boolean;
+}
+
+export interface LoadProgress {
+  /** 0..1 */
+  progress: number;
+  stage: 'scene' | 'shaders' | 'warmup' | 'ready' | 'failed';
+  error?: string;
 }
 
 export interface MountAppOptions {
@@ -116,7 +130,9 @@ class App implements UiCtx {
   /** your hero this match: sessions stop exposing `heroSelect` once that phase ends */
   private pickedHero: string | null = null;
   private autoRestart = false;
-  private match: { handle: GameHandle; hud: Hud; container: HTMLElement; view: ViewSource } | null = null;
+  private match: { handle: GameHandle; hud: Hud; container: HTMLElement; view: ViewSource; offLoad: () => void } | null = null;
+  private load: LoadProgress | null = null;
+  private readonly loadSubs = new Set<(p: LoadProgress | null) => void>();
   private music: MusicTrack | undefined = undefined;
   private unlocked = false;
   private lastHover = 0;
@@ -252,6 +268,35 @@ class App implements UiCtx {
     this.match?.hud.setSettingsOpen(false);
   }
 
+  loadProgress(cb: (p: LoadProgress | null) => void): () => void {
+    this.loadSubs.add(cb);
+    cb(this.load);
+    return () => this.loadSubs.delete(cb);
+  }
+
+  private setLoad(p: LoadProgress | null): void {
+    this.load = p;
+    for (const cb of this.loadSubs) {
+      try {
+        cb(p);
+      } catch (err) {
+        console.error('[ui] load progress subscriber failed', err);
+      }
+    }
+  }
+
+  /** the 3D view finished its staged build (or there is none / it failed) */
+  private matchReady(): boolean {
+    const hd = this.match?.handle;
+    return !hd || !hd.isReady || hd.isReady();
+  }
+
+  private onLoadProgress(p: LoadProgress): void {
+    this.setLoad(p);
+    if (p.stage === 'failed') this.toast(tx('3D 画面初始化失败（WebGL 不可用？）', '3D view failed to start (WebGL unavailable?)'), 'error');
+    if ((p.stage === 'ready' || p.stage === 'failed') && this.session?.phase === 'playing' && this.screenId === 'loading') this.go('match');
+  }
+
   playerName(): string {
     let name = settings.get().playerName.trim();
     if (!name) {
@@ -377,7 +422,7 @@ class App implements UiCtx {
     bag.add(
       s.on('matchStart', (view) => {
         this.mountMatch(view);
-        if (s.phase === 'playing') this.go('match');
+        if (s.phase === 'playing') this.go(this.matchReady() ? 'match' : 'loading');
       }),
     );
     bag.add(s.on('gameOver', () => this.onPhase('gameOver')));
@@ -420,7 +465,8 @@ class App implements UiCtx {
         break;
       case 'playing':
         if (s.view && !this.match) this.mountMatch(s.view);
-        this.go('match');
+        // keep the loading screen until the 3D view has rendered its first frames
+        this.go(this.matchReady() ? 'match' : 'loading');
         break;
       case 'gameOver':
         if (s.view && !this.match) this.mountMatch(s.view);
@@ -459,13 +505,22 @@ class App implements UiCtx {
     const hud = new Hud(this, { view, handle, session: s });
     hud.setActive(this.screenId === 'match');
     this.hudLayer.appendChild(hud.el);
-    this.match = { handle, hud, container, view };
+    this.match = { handle, hud, container, view, offLoad: () => undefined };
+    if (handle.onLoadProgress) {
+      try {
+        this.match.offLoad = handle.onLoadProgress((p) => this.onLoadProgress(p));
+      } catch (err) {
+        console.error('[ui] onLoadProgress failed', err);
+      }
+    }
   }
 
   private unmountMatch(): void {
     const m = this.match;
     if (!m) return;
     this.match = null;
+    m.offLoad();
+    this.setLoad(null);
     try {
       m.hud.dispose();
     } catch (err) {

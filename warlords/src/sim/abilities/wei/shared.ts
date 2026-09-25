@@ -10,7 +10,7 @@ import { WALK_SPEED } from '../../physics';
 import { UNIT_KINDS, alive, blink } from '../common';
 
 /** World default (sim/world.ts BASE_DODGE_CHARGES); a hero's full count is ext(sim).maxDodgeCharges(id). */
-export { BASE_DODGE_CHARGES } from '../../world';
+export { BASE_DODGE_CHARGES } from '../../ext';
 
 /** Units that carry a kingdom and can soak / deal damage. */
 export const LIVING_KINDS: EntityKind[] = UNIT_KINDS;

@@ -1,7 +1,7 @@
 // The context object every screen receives from the app shell.
 import type { MatchSettings } from '../core/types';
 import type { GameSession } from '../game/session';
-import type { AppDeps } from './app';
+import type { AppDeps, LoadProgress } from './app';
 import type { PortraitCache, SfxName } from './widgets';
 
 export type ScreenId =
@@ -54,4 +54,9 @@ export interface UiCtx {
   myHero(): string | null;
   /** room code from `?room=` (consumed once) */
   pendingRoom(): string | null;
+  /**
+   * Staged 3D loading progress of the current match view (null before the view
+   * exists). `cb` is called right away and on every change.
+   */
+  loadProgress?(cb: (p: LoadProgress | null) => void): () => void;
 }

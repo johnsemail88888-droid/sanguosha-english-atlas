@@ -27,4 +27,9 @@ export interface EntityCtx {
   shadows: boolean;
   /** frame counter (for staggered work) */
   frame: number;
+  /**
+   * Chest of the hero the camera follows (local hero / spectate target), null
+   * for orbit / free cameras: characters between the camera and it fade out.
+   */
+  focusPos?: THREE.Vector3 | null;
 }

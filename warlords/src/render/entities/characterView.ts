@@ -29,6 +29,7 @@ import { kingdomColor } from '../palette';
 import { AuraSet } from './auras';
 import { Nameplate, type PlateData } from './nameplate';
 import type { EntityCtx } from './context';
+import { cameraFadeTarget } from './camFade';
 
 const _v = new THREE.Vector3();
 const EMISSIVE = {
@@ -83,6 +84,8 @@ export class CharacterView {
   private bubble: { text: string; until: number } | null = null;
   private readonly defaultWeapon: string | null;
   private deadFor = 0;
+  /** near-camera / camera-line fade (non-local characters), 1 = opaque */
+  private camFade = 1;
   /** dt accumulated while a far hero skips animation frames */
   private animDt = 0;
   // per-frame scratch (no allocations in update)
@@ -228,6 +231,14 @@ export class CharacterView {
     this.rig.setXray((e.flags & VF_EXPOSED) !== 0 && !isLocal && (e.flags & VF_DEAD) === 0);
     this.rig.setShadows(ctx.shadows && dist < (isHero ? HERO_SHADOW_DIST : TROOP_SHADOW_DIST));
     this.applyTint(e.flags, dt, ctx.time);
+    // characters hugging the camera or standing between it and the followed hero turn translucent
+    if (!isLocal) {
+      const target = dist < 12 ? cameraFadeTarget(ctx.camPos, ctx.focusPos ?? null, pos, this.headHeight(), 0.45 * this.rig.root.scale.x) : 1;
+      this.camFade += (target - this.camFade) * (1 - Math.exp(-dt * 14));
+      if (target === 1 && this.camFade > 0.985) this.camFade = 1;
+      this.rig.setFade(this.camFade);
+    }
+    const plateFade = Math.max(0, Math.min(1, (this.camFade - 0.35) / 0.55));
 
     // death bookkeeping (plates fade a few seconds after death)
     if (e.flags & VF_DEAD) this.deadFor += dt;
@@ -270,11 +281,11 @@ export class CharacterView {
         this.plate.set(d);
         const fadeDead = e.flags & VF_DEAD ? Math.max(0, 1 - (this.deadFor - 4) / 2) : 1;
         const distFade = Math.max(0, Math.min(1, (PLATE_MAX_DIST - dist) / 20));
-        this.plate.opacity = this.occlusion * fadeDead * distFade;
+        this.plate.opacity = this.occlusion * fadeDead * distFade * plateFade;
         this.plate.sprite.position.set(0, head + 0.3, 0);
         this.plate.layout(ctx.fovDeg, dist);
       }
-    } else if ((e.flags & VF_DEAD) === 0 && dist < 70) {
+    } else if ((e.flags & VF_DEAD) === 0 && dist < 70 && plateFade > 0.5) {
       // troops / NPCs: one instance each in the shared badge batch
       const showBar = e.hp < e.maxHp - 0.5 && dist < 45;
       ctx.badges.add(pos.x, pos.y + head + 0.2, pos.z, kingdomColorLinear(e.kingdom), inSquad, e.hp / Math.max(1, e.maxHp), showBar, dist);

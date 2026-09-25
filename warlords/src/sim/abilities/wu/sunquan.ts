@@ -1,6 +1,5 @@
 // 孙权 Sun Quan ★ — 权衡 (reload), 制衡 (reroll items + instant reload + dodges),
 // 坐断东南 (recruit over the cap), lord 救援 (Wu damage-reduction aura + regen).
-import type { MatchSettings } from '../../../core/types';
 import type { AbilityCtx, SimApi } from '../../api';
 import { ext } from '../../ext';
 import { UNIT_KINDS, alive, getState, param, setState } from '../common';
@@ -38,14 +37,9 @@ registerAbility({
   },
 });
 
-/** Normal squad size of a hero (world spawn rule: troopsPerHero + troopBonus + lord/double 2 + squadBonus). */
+/** Normal squad size of a hero: the world's own spawn rule (SimExt.squadCap, WU-6). */
 function squadCap(sim: SimApi, ctx: AbilityCtx): number {
-  // SimApi exposes no settings; World has a public readonly `settings` (see docs/SIM_REQUESTS.md).
-  const settings = (sim as SimApi & { settings?: Partial<MatchSettings> }).settings;
-  const base = settings?.troopsPerHero ?? 4;
-  const role = sim.roleOf(ctx.self);
-  const lordBonus = role === 'lord' || role === 'double' ? 2 : 0;
-  return Math.max(0, base + ctx.hero.troopBonus + lordBonus + ext(sim).modifiers(ctx.self.id).squadBonus);
+  return ext(sim).squadCap(ctx.self.id);
 }
 
 // 坐断东南 (E): recruit `count` of your kingdom's soldiers, up to `overCap` over your squad cap.
