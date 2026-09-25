@@ -8,7 +8,7 @@ import { BTN_FIRE, emptyInput, INPUT_HZ, SIM_DT } from '../../../src/core/types'
 import { ClientView, EXTRAPOLATION_CAP, SMOOTH_DISTANCE, SNAP_DISTANCE } from '../../../src/net/clientView';
 import type { InputPacket } from '../../../src/net/protocol';
 import { emptyZone } from '../../../src/net/interp';
-import { buildCollisionWorld, forcedMove, predictMove, type MoveState } from '../../../src/sim/physics';
+import { WALK_SPEED, brakeForcedEnd, buildCollisionWorld, forcedMove, predictMove, type MoveState } from '../../../src/sim/physics';
 import { flatMap } from './fixtures';
 
 const map = flatMap();
@@ -318,6 +318,7 @@ describe('forced movement prediction', () => {
     let latest: InputFrame = emptyInput();
     const dash = { at: 1.5, vx: 24, vz: 0, duration: 0.5 };
     let forcedUntil = -1;
+    let brakePending = false;
     const errors: { t: number; err: number }[] = [];
     for (let f = 0; f < 3 * 60; f++) {
       clock.t += 1 / 60;
@@ -337,16 +338,25 @@ describe('forced movement prediction', () => {
           ack = next.seq;
         }
         const now = tick * SIM_DT;
-        if (forcedUntil < 0 && now >= dash.at) forcedUntil = now + dash.duration;
+        if (forcedUntil < 0 && now >= dash.at) {
+          forcedUntil = now + dash.duration;
+          brakePending = true;
+        }
         if (now < forcedUntil) forcedMove(cw, st, dash.vx, dash.vz, SIM_DT);
-        else predictMove(cw, st, latest, SIM_DT, mods);
+        else {
+          // like sim/world.ts: the first tick after the dash caps the speed at walking speed (SHU-1)
+          if (brakePending) brakeForcedEnd(st.vel, WALK_SPEED);
+          brakePending = false;
+          predictMove(cw, st, latest, SIM_DT, mods);
+        }
         tick++;
         snapAcc += 20 / 30;
         if (snapAcc >= 1) {
           snapAcc -= 1;
           const time = tick * SIM_DT;
           const y = you(1, { vel: { ...st.vel }, onGround: true, moveMods: { speedMul: 1, canSprint: true, canJump: true, rooted: false } });
-          if (reportForced && time < forcedUntil) y.forced = { vel: { x: dash.vx, y: 0, z: dash.vz }, remaining: forcedUntil - time };
+          // remaining 0 = no forced tick left, the end brake still pending (sim/snapshot.ts forcedForClient)
+          if (reportForced && brakePending) y.forced = { vel: { x: dash.vx, y: 0, z: dash.vz }, remaining: Math.max(0, forcedUntil - time) };
           toClient.push({ at: clock.t + latency, s: snap(tick, [heroEnt(1, st.pos.x, st.pos.z)], { ackSeq: ack, you: y }) });
         }
       }
