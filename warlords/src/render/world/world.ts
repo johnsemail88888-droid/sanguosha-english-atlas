@@ -10,6 +10,7 @@ import { bindStructureSet, structureMaterial, structureMaterialDouble } from '..
 import { requestStructSet, withWorldArtListing, worldArtPossible } from '../core/worldArt';
 import { assetListSync } from '../../game/assets';
 import { buildPropModels, fullyReplacedTypes, glbPropKind, propModelPath, type GlbPropType, type PropModelSet } from './propModels';
+import { FARM_TEX, buildFarmArt, loadFarmTexture, type FarmArt } from './farmFields';
 import { buildGateTower, buildHouse, buildPalace, buildPavilion, buildWall, buildWatchtower } from './buildings';
 import {
   buildBannerPole,
@@ -80,12 +81,20 @@ export interface WorldBuild {
   dispose(): void;
 }
 
+/** What replaces a group of procedural props in AI-art mode: a prop model, or the textured farm fields. */
+type SwapKey = GlbPropType | 'farm';
+
 /**
- * Could this prop be replaced by a prop model? Props that may be are built into
- * per-kind "swap" meshes (hidden once the model is instanced) instead of the
- * merged chunks — only when the listing has the model, or is not known yet.
+ * Could this prop be replaced by a prop model (or the farm-field art)? Props
+ * that may be are built into per-kind "swap" meshes (hidden once the art is in)
+ * instead of the merged chunks — only when the listing has the file, or is not
+ * known yet.
  */
-function swappable(p: MapProp, files: ReadonlySet<string> | null): GlbPropType | null {
+function swappable(p: MapProp, files: ReadonlySet<string> | null): SwapKey | null {
+  if (p.type === 'farmField') {
+    if (!worldArtPossible()) return null;
+    return files === null || files.has(FARM_TEX) ? 'farm' : null;
+  }
   const k = glbPropKind(p);
   if (!k || p.type === 'tree' || p.type === 'pine' || p.type === 'bamboo' || p.type === 'rock') return null; // nature: separate instanced meshes already
   if (!worldArtPossible()) return null; // single-file build, tests, user switch: plain chunks
@@ -125,8 +134,8 @@ export function buildWorld(map: MapData): WorldBuild {
   // the cloth builder takes the double-sided roof shells too (propkit roofExtras),
   // so it carries the surface channel like the opaque one
   const newChunk = (): Chunk => ({ opaque: new GeoBuilder({ extraName: 'aSurf' }), cloth: new GeoBuilder({ extraName: 'aSurf' }), glow: new GeoBuilder() });
-  const swaps = new Map<GlbPropType, Chunk>();
-  const swapOf = (k: GlbPropType): Chunk => {
+  const swaps = new Map<SwapKey, Chunk>();
+  const swapOf = (k: SwapKey): Chunk => {
     let ch = swaps.get(k);
     if (!ch) swaps.set(k, (ch = newChunk()));
     return ch;
@@ -171,7 +180,7 @@ export function buildWorld(map: MapData): WorldBuild {
   const geos: THREE.BufferGeometry[] = [];
   const opaqueMeshes: THREE.Mesh[] = [];
   const clothMeshes: THREE.Mesh[] = [];
-  const swapMeshes = new Map<GlbPropType, THREE.Mesh[]>();
+  const swapMeshes = new Map<SwapKey, THREE.Mesh[]>();
   const buildChunk = (key: string, ch: Chunk, into: THREE.Mesh[] | null): void => {
     const add = (gb: GeoBuilder, mat: THREE.Material, kind: string, shadows: boolean): void => {
       if (gb.isEmpty()) return;
@@ -219,13 +228,27 @@ export function buildWorld(map: MapData): WorldBuild {
     const md = structureMaterialDouble();
     for (const mesh of clothMeshes) mesh.material = md;
   });
-  // AI-art prop models: instance them, then retire the procedural stand-ins
+  // AI-art prop models / farm fields: build them, then retire the procedural stand-ins
   const stats: WorldStats = { props: built, chunks: chunkCount, instanced: nature.count, triangles: Math.round(triangles), failed };
+  const retire = (k: SwapKey): void => {
+    for (const mesh of swapMeshes.get(k) ?? []) {
+      group.remove(mesh);
+      mesh.geometry.dispose();
+      const gi = geos.indexOf(mesh.geometry);
+      if (gi >= 0) geos.splice(gi, 1);
+      const oi = opaqueMeshes.indexOf(mesh);
+      if (oi >= 0) opaqueMeshes.splice(oi, 1);
+      const ci = clothMeshes.indexOf(mesh);
+      if (ci >= 0) clothMeshes.splice(ci, 1);
+    }
+    swapMeshes.delete(k);
+  };
   let models: PropModelSet | null = null;
+  let farm: FarmArt | null = null;
   let settle: () => void = () => undefined;
   const artReady = new Promise<void>((res) => (settle = res));
   const artOn = withWorldArtListing((files) => {
-    void buildPropModels(map.props, map.size, files, () => disposed)
+    const propsDone = buildPropModels(map.props, map.size, files, () => disposed)
       .then((set) => {
         if (!set || disposed) {
           set?.dispose();
@@ -234,23 +257,24 @@ export function buildWorld(map: MapData): WorldBuild {
         models = set;
         group.add(set.group);
         nature.removeTypes(fullyReplacedTypes(set.kinds));
-        for (const k of set.kinds) {
-          for (const mesh of swapMeshes.get(k) ?? []) {
-            group.remove(mesh);
-            mesh.geometry.dispose();
-            const gi = geos.indexOf(mesh.geometry);
-            if (gi >= 0) geos.splice(gi, 1);
-            const oi = opaqueMeshes.indexOf(mesh);
-            if (oi >= 0) opaqueMeshes.splice(oi, 1);
-            const ci = clothMeshes.indexOf(mesh);
-            if (ci >= 0) clothMeshes.splice(ci, 1);
-          }
-          swapMeshes.delete(k);
-        }
+        for (const k of set.kinds) retire(k);
         stats.instanced = nature.count + set.instances;
       })
-      .catch((err) => console.warn('[render] prop models failed', err))
-      .finally(() => settle());
+      .catch((err) => console.warn('[render] prop models failed', err));
+    const farmDone = (files.has(FARM_TEX) && swapMeshes.has('farm') ? loadFarmTexture() : Promise.resolve(null))
+      .then((tex) => {
+        if (!tex) return;
+        const art = disposed ? null : buildFarmArt(map, tex);
+        if (!art) {
+          tex.dispose();
+          return;
+        }
+        farm = art;
+        group.add(art.mesh);
+        retire('farm');
+      })
+      .catch((err) => console.warn('[render] farm fields failed', err));
+    void Promise.all([propsDone, farmDone]).finally(() => settle());
   });
   if (!artOn) settle();
   return {
@@ -269,6 +293,8 @@ export function buildWorld(map: MapData): WorldBuild {
       banners.dispose();
       (models as PropModelSet | null)?.dispose();
       models = null;
+      (farm as FarmArt | null)?.dispose();
+      farm = null;
       opaqueMeshes.length = 0;
       clothMeshes.length = 0;
       swapMeshes.clear();
