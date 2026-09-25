@@ -526,6 +526,9 @@ export class HostSession implements GameSession {
       peer.neutralized = false;
       peer.sent.clear();
       peer.snapAck = -1;
+      peer.graceUntil = 0;
+      peer.lastInputAt = 0;
+      peer.inputGapMs = 0;
     }
     this.deal = null;
     this.pick = null;
@@ -1494,6 +1497,9 @@ export class HostSession implements GameSession {
     peer.snapAck = -1;
     // it is building the map / compiling shaders now (a frozen page): no timeout until 'loaded'
     peer.graceUntil = now() + this.timings.loadGrace * 1000;
+    // input cadence is learnt afresh (the gap before this match / during the blip says nothing)
+    peer.lastInputAt = 0;
+    peer.inputGapMs = 0;
     const seats: SeatInfo[] = [...this.seats.values()]
       .sort((a, b) => a.seat - b.seat)
       .map((r) => {

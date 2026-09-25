@@ -780,6 +780,7 @@ export class Hud {
 
   private openPause(mode: 'menu' | 'click'): void {
     this.pauseMode = mode;
+    this.el.dataset.pauseMode = mode;
     this.pause.setMode(mode);
     this.openOverlay('pause');
     this.syncPause();
@@ -793,6 +794,7 @@ export class Hud {
     }
     if (viaKey) {
       this.pauseMode = 'click';
+      this.el.dataset.pauseMode = 'click';
       this.pause.setMode('click');
       return;
     }

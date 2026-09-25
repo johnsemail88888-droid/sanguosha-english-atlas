@@ -9,6 +9,8 @@
 //   &input=real (the in-match GameHandle uses the real InputController from src/game/input.ts)
 //   &locked=0 (start without the simulated pointer lock → "click to play")
 //   &persist=1 (let settings changed here persist; by default the harness never writes them)
+//   &single=1 (roles / heroSelect / loading / gameOver as a single-player session: 返回 button, 再来一局)
+//   &kind=online (hud / match as an online session: the menu reads 菜单 and never pauses)
 import type { RoleId } from '../../core/types';
 import { settings } from '../../game/settings';
 import { renderHeroPortrait } from '../../render/portrait';
@@ -90,19 +92,19 @@ switch (screen) {
   case 'roles': {
     const s = newSession();
     s.jumpTo('roles');
-    opts.initialSession = { session: s, kind: 'online' };
+    opts.initialSession = { session: s, kind: params.get('single') === '1' ? 'single' : 'online' };
     break;
   }
   case 'heroSelect': {
     const s = newSession();
     s.jumpTo('heroSelect', { lordPhase: params.get('lordPhase') === '1' });
-    opts.initialSession = { session: s, kind: 'online' };
+    opts.initialSession = { session: s, kind: params.get('single') === '1' ? 'single' : 'online' };
     break;
   }
   case 'loading': {
     const s = newSession();
     s.jumpTo('loading');
-    opts.initialSession = { session: s, kind: 'online' };
+    opts.initialSession = { session: s, kind: params.get('single') === '1' ? 'single' : 'online' };
     break;
   }
   case 'hud':
@@ -111,7 +113,7 @@ switch (screen) {
   case 'match': {
     const s = newSession();
     s.jumpTo('playing');
-    opts.initialSession = { session: s, kind: 'single' };
+    opts.initialSession = { session: s, kind: params.get('kind') === 'online' ? 'online' : 'single' };
     break;
   }
   case 'gameOver': {

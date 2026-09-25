@@ -8,7 +8,9 @@ import { Bag, h } from '../dom';
 import { getLang, roleName, seatLabel, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
 import { ROLE_GLYPH, roleColor } from '../theme';
-import { roleSeal, seal } from '../widgets';
+import { roleSeal, seal, textUnits } from '../widgets';
+import { backToSetup } from './heroSelect';
+import { LOADING_TIPS } from './loading';
 
 export function seatName(session: GameSession, seat: number): string {
   const s = session.lobby?.seats.find((x) => x.seat === seat);
@@ -48,12 +50,7 @@ export function shownSeatRole(deal: RoleDealView, seat: number, me: number): Rol
   return seat === me ? deal.yourRole : deal.publicRoles[seat];
 }
 
-/** Rough width of a label in em: CJK glyphs are 1 em, Latin ~0.6 em (fits long role names on small cards). */
-export function textUnits(text: string): number {
-  let n = 0;
-  for (const ch of text) n += (ch.codePointAt(0) ?? 0) >= 0x2e80 ? 1 : 0.6;
-  return Math.max(1, n);
-}
+export { textUnits };
 
 function roleCard(role: RoleId): HTMLElement {
   const def = ROLE_BY_ID[role];
@@ -74,6 +71,20 @@ export function createRolesScreen(ctx: UiCtx, session: GameSession): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-roles', data: { screen: 'roles' } });
   let flipped = false;
+  // single player: back to the setup screen (Esc too)
+  const back = ctx.sessionKind === 'single' ? backToSetup(ctx, session) : null;
+  if (back) bag.add(back);
+  // the loading tips start here: this screen is where new players wait and read
+  let tipIndex = Math.floor(Math.random() * LOADING_TIPS.length);
+  const tipText = h('span', { class: 'tip-text' });
+  const showTip = (): void => {
+    const [zh, en] = LOADING_TIPS[tipIndex % LOADING_TIPS.length];
+    tipText.textContent = tx(zh, en);
+  };
+  bag.interval(() => {
+    tipIndex++;
+    showTip();
+  }, 6000);
 
   const render = (): void => {
     const deal = session.roles;
@@ -130,7 +141,10 @@ export function createRolesScreen(ctx: UiCtx, session: GameSession): Screen {
       }),
     );
 
+    showTip();
+    back?.relabel();
     el.replaceChildren(
+      ...(back ? [back.el] : []),
       h('h1', { class: 'sg-h1 sg-title-bar' }, t('roles.title')),
       h('div', { class: 'stage' },
         h('div', { class: 'card-col' }, card, hint),
@@ -145,6 +159,7 @@ export function createRolesScreen(ctx: UiCtx, session: GameSession): Screen {
       ),
       announce,
       seatStrip,
+      h('div', { class: 'tip roles-tip sg-dark' }, h('b', null, t('loading.tip')), tipText),
     );
     if (!flipped) bag.timeout(flip, 700);
   };

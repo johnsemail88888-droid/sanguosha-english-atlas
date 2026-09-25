@@ -6,6 +6,7 @@ import { Bag, copyText, h } from '../dom';
 import { t, tx } from '../i18n';
 import { button, segmented } from '../widgets';
 import { desktopInfo, detectLocalServer, servedByLocalServer } from '../desktop';
+import { clearRejoin, loadRejoin, markModeChosen, modeChosen, netPatch, parseInvite, type InviteNet, type NetMode } from '../invite';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
 export function normalizeRoomCode(raw: string): string {
@@ -31,24 +32,72 @@ export function isValidRoomCode(code: string): boolean {
   return /^[A-Z0-9]{3,12}$/.test(code);
 }
 
+/** The join failed because the room does not exist (maybe it lives on the other connection mode). */
+export function isRoomNotFound(err: unknown): boolean {
+  const code = err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined;
+  return code === 'roomNotFound' || (typeof code === 'string' && /not.?found/i.test(code));
+}
+
+/** Apply an invite's / rejoin record's server fields to the saved settings (the net layer reads them). */
+function applyNet(over: InviteNet): void {
+  const patch = netPatch(settings.get().net, over);
+  if (patch) settings.update({ net: { ...settings.get().net, ...patch } });
+}
+
+/** One automatic rejoin per page load (a failed one leaves the screen to the player). */
+let rejoinTried = false;
+
 export function createOnlineScreen(ctx: UiCtx): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-menu-screen sg-online', data: { screen: 'online' } });
   const invited = ctx.pendingRoom();
   let code = invited ? normalizeRoomCode(invited) : '';
   const desktop = desktopInfo();
+  // an invite link says how the host is reachable: that beats the saved default
+  const link = invited ? parseInvite(globalThis.location?.search ?? '') : null;
+  const urlMode: NetMode | null = link?.mode ?? null;
+  // F5 mid-session: rejoin the same room the same way (once per page load)
+  const rj = !rejoinTried ? loadRejoin() : null;
+  const rejoin = rj && (!invited || normalizeRoomCode(invited) === rj.code) ? rj : null;
+  if (rejoin) {
+    rejoinTried = true;
+    code = rejoin.code;
+    applyNet(rejoin.net);
+  } else if (link && urlMode) applyNet(link.net);
   // the desktop app (embedded server) and pages served by `npm run server` relay on
   // the same origin: default to server mode there (the player can still pick P2P)
-  let mode: 'peer' | 'ws' = desktop ? 'ws' : settings.get().net.mode;
-  let modeTouched = false;
+  let mode: NetMode = rejoin?.mode ?? urlMode ?? (desktop && !modeChosen() ? 'ws' : settings.get().net.mode);
+  // a mode from the URL / a rejoin, or one the player picked, is never auto-switched
+  let modeTouched = !!rejoin || !!urlMode || modeChosen();
   let busy: 'host' | 'join' | null = null;
   let errorText = '';
+  /** after 房间不存在: offer the other connection mode */
+  let suggest: NetMode | null = null;
+  let runRef: ((kind: 'host' | 'join') => Promise<void>) | null = null;
+  const runJoin = (): Promise<void> => runRef?.('join') ?? Promise.resolve();
   const sameOrigin = (): boolean => servedByLocalServer() && !settings.get().net.wsUrl.trim();
 
   const render = (): void => {
     const status = h('div', { class: 'sg-online-status', aria: { live: 'polite' } });
+    const modeName = (m: NetMode): string => (m === 'peer' ? t('online.peer') : t('online.ws'));
     if (busy) status.append(h('span', { class: 'sg-spinner' }), ' ', busy === 'host' ? t('online.hosting') : t('online.connecting'));
-    else if (errorText) status.append(h('span', { class: 'err' }, errorText));
+    else if (errorText) {
+      status.append(h('span', { class: 'err' }, errorText));
+      if (suggest) {
+        const other = suggest;
+        status.append(
+          h('div', { class: 'suggest' },
+            h('span', { class: 'sg-mute' }, t('online.notFoundHint', { mode: modeName(other) })), ' ',
+            button(t('online.switchRetry', { mode: modeName(other) }), () => {
+              mode = other;
+              modeTouched = true;
+              suggest = null;
+              void run('join');
+            }, { cls: 'small gold switch-mode', sfx: 'confirm' }),
+          ),
+        );
+      }
+    }
 
     const wsMissing = mode === 'ws' && !settings.get().net.wsUrl.trim() && !servedByLocalServer();
     const codeInput = h('input', {
@@ -78,12 +127,16 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       }
       busy = kind;
       errorText = '';
+      suggest = null;
       render();
       try {
         if (kind === 'host') await ctx.hostOnline(mode);
         else await ctx.joinOnline(code, mode);
       } catch (err) {
         errorText = t('online.failed', { msg: errorMessage(err) });
+        // the room may be on the other network: P2P rooms and relay rooms are separate
+        if (kind === 'join' && isRoomNotFound(err)) suggest = mode === 'peer' ? 'ws' : 'peer';
+        if (kind === 'join') clearRejoin();
         ctx.sfx('error');
       } finally {
         busy = null;
@@ -91,6 +144,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       }
     };
 
+    runRef = run;
     const hostBtn = button(t('online.host'), () => void run('host'), { cls: 'gold', sfx: 'confirm', disabled: !!busy || wsMissing });
     const joinBtn = button(t('online.joinBtn'), () => void run('join'), { sfx: 'confirm', disabled: !!busy || !isValidRoomCode(code) || wsMissing });
 
@@ -98,7 +152,8 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       button(`‹ ${t('common.back')}`, () => ctx.go('title'), { cls: 'ghost small sg-back', sfx: 'back' }),
       h('div', { class: 'sg-sheet sg-panel sg-corners' },
         h('h1', { class: 'sg-h1 sg-title-bar' }, t('online.title')),
-        invited ? h('div', { class: 'sg-invite' }, t('online.invited', { code: normalizeRoomCode(invited) })) : null,
+        invited ? h('div', { class: 'sg-invite' }, t('online.invited', { code: normalizeRoomCode(invited) }), urlMode ? h('span', { class: 'via' }, ` · ${t('online.invitedMode', { mode: modeName(urlMode) })}`) : null) : null,
+        rejoin && !invited ? h('div', { class: 'sg-invite' }, t('online.rejoinHint', { code: rejoin.code, mode: modeName(rejoin.mode) })) : null,
         h('div', { class: 'sg-online-mode' },
           h('span', { class: 'sg-label' }, t('online.via')),
           segmented([
@@ -107,8 +162,10 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
           ], mode, (v) => {
             mode = v;
             modeTouched = true;
+            markModeChosen();
             settings.update({ net: { ...settings.get().net, mode: v } });
             errorText = '';
+            suggest = null;
             render();
           }, { disabled: !!busy, name: t('online.via') }),
           h('span', { class: 'sg-mute desc' }, mode === 'peer' ? t('online.peerDesc') : t('online.wsDesc')),
@@ -160,6 +217,9 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   }
 
   render();
+  if (rejoin) queueMicrotask(() => {
+    if (el.isConnected && !busy) void runJoin();
+  });
   // a page served by our own server (LAN / self-host): same-origin relay → default to server mode
   if (!desktop) {
     void detectLocalServer().then((ok) => {

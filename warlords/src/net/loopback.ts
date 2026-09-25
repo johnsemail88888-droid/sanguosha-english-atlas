@@ -51,6 +51,11 @@ export class LoopbackNetwork {
     this.severed.add(clientId);
   }
 
+  /** Test helper: undo sever() — a link that was only silent for a while (frozen host, congested path). */
+  restore(clientId: PeerId): void {
+    this.severed.delete(clientId);
+  }
+
   /** @internal */
   deliver(from: LoopbackTransport, to: PeerId, data: Payload, channel: Channel): void {
     if (this.severed.has(from.selfId) || this.severed.has(to)) return;

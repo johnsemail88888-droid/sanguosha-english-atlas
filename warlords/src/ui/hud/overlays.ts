@@ -295,7 +295,7 @@ export class PauseMenu {
     this.render();
   }
 
-  private cards(): HTMLElement {
+  private cards(again = false): HTMLElement {
     const held = this.ctx.items().filter((s): s is ItemStack => !!s && !!ITEM_BY_ID[s.id]);
     const heldList = held.length
       ? h('ul', { class: 'pc-list held' }, held.map((s) => cardRow(s.id, s.count)))
@@ -304,9 +304,10 @@ export class PauseMenu {
     allBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
       this.showAll = !this.showAll;
-      this.render();
+      // only the card panel changes (the menu box keeps its place and focus)
+      section.replaceWith(this.cards(true));
     });
-    return h('section', { class: 'pm-cards sg-panel sg-corners', aria: { label: t('pause.cards') } },
+    const section = h('section', { class: `pm-cards sg-panel sg-corners${again ? ' static' : ''}`, aria: { label: t('pause.cards') } },
       h('h3', { class: 'sg-h3' }, t('pause.cards')),
       h('div', { class: 'pc-scroll' },
         h('div', { class: 'pc-sub' }, t('pause.cardsHeld')),
@@ -315,6 +316,7 @@ export class PauseMenu {
         this.showAll ? h('ul', { class: 'pc-list all' }, ITEMS.map((it) => cardRow(it.id))) : null,
       ),
     );
+    return section;
   }
 
   render(): void {

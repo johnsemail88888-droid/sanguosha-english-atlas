@@ -314,7 +314,11 @@ export class MockView implements ViewSource {
     this.events.push({ t: 'downed', target: 107, src: this.myId });
   }
 
+  /** single-player pause (MockSession.setPaused): the clock and the "sim" stand still */
+  paused = false;
+
   update(dt: number): void {
+    if (this.paused) return;
     this.t += dt;
     this.tick++;
     const t = this.t;
@@ -610,6 +614,18 @@ export class MockSession implements GameSession {
     const s = this.lobby?.seats.find((x) => x.playerId === this.myId);
     if (s) s.ready = ready;
     this.emitLobby();
+  }
+  /** GameSession extension (G2): the card the player is looking at — the host picks it on timeout */
+  focusHero(heroId: string): void {
+    this.calls.push(`focusHero:${heroId}`);
+  }
+  /** GameSession extension (G2): local single-player pause */
+  paused = false;
+  setPaused(paused: boolean): void {
+    if (paused === this.paused) return;
+    this.calls.push(`setPaused:${paused}`);
+    this.paused = paused;
+    if (this.view) this.view.paused = paused;
   }
   pickHero(heroId: string): void {
     this.calls.push(`pickHero:${heroId}`);

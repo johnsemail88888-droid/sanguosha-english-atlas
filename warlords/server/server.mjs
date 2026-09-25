@@ -16,7 +16,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isLoopbackHost, lanAddressesFrom } from './lan.mjs';
 import { createRelay } from './relay.mjs';
+
+export { rankLanAddresses } from './lan.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DIST = path.resolve(HERE, '..', 'dist');
@@ -55,15 +58,13 @@ const MIME = {
   '.otf': 'font/otf',
 };
 
-/** Non-internal IPv4 addresses of this machine. */
+/**
+ * Non-internal IPv4 addresses of this machine, best first: typical Wi-Fi /
+ * Ethernet 192.168.x / 10.x adapters before virtual / host-only ones
+ * (VirtualBox, Hyper-V / WSL vEthernet, Docker, VPN tunnels — see lan.mjs).
+ */
 export function lanAddresses() {
-  const out = [];
-  for (const list of Object.values(os.networkInterfaces())) {
-    for (const ni of list ?? []) {
-      if ((ni.family === 'IPv4' || ni.family === 4) && !ni.internal) out.push(ni.address);
-    }
-  }
-  return out;
+  return lanAddressesFrom(os.networkInterfaces());
 }
 
 const NO_BUILD_PAGE = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>三国杀·枪火乱世 服务器</title>
@@ -288,14 +289,20 @@ export async function startServer(opts = {}) {
   const addr = server.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
 
-  const ips = host === '0.0.0.0' || host === '::' ? lanAddresses() : [host];
+  // bound to loopback (HOST=127.0.0.1): nobody else can connect — do not advertise a "LAN" address
+  const lanOff = isLoopbackHost(host);
+  const ips = lanOff ? [] : host === '0.0.0.0' || host === '::' ? lanAddresses() : [host];
   const urls = [`http://localhost:${actualPort}`, ...ips.map((ip) => `http://${ip}:${actualPort}`)];
   const lines = [
     '',
     '  三国杀·枪火乱世 服务器已启动 / Sanguo Warlords server is running',
     '',
     `  本机访问 Local:        http://localhost:${actualPort}`,
-    ...ips.map((ip) => `  局域网访问 LAN:        http://${ip}:${actualPort}`),
+    ...(lanOff
+      ? [`  局域网访问 LAN:        未开启（只监听 ${host}）。允许局域网访问请设置 HOST=0.0.0.0`, `                         off (listening on ${host} only) — set HOST=0.0.0.0 to let LAN players in`]
+      : ips.length
+        ? ips.map((ip, i) => `  局域网访问 LAN:        http://${ip}:${actualPort}${i === 0 && ips.length > 1 ? '   ← 推荐 / best guess' : ''}`)
+        : ['  局域网访问 LAN:        未检测到局域网地址 / no LAN address found']),
     '',
     `  联机中继 WS relay:     ${ips.length ? ips.map((ip) => `ws://${ip}:${actualPort}/ws`).join('  ') : `ws://localhost:${actualPort}/ws`}`,
     peerMount
@@ -303,9 +310,12 @@ export async function startServer(opts = {}) {
       : '  PeerJS 信令 signalling: 未启用 / disabled',
     fs.existsSync(distDir) ? `  游戏文件 Game files:    ${distDir}` : `  ⚠ 未找到游戏文件，请先运行 npm run build / dist not found — run npm run build first (${distDir})`,
     '',
-    '  同一局域网的玩家用浏览器打开上面的局域网地址即可联机；',
-    '  或在「设置 → 联机服务器」中填写以上地址。',
-    '  Players on the same network open the LAN URL above, or enter these addresses in Settings → Server.',
+    lanOff ? '  本机玩家用浏览器打开上面的本机地址即可；' : '  同一局域网的玩家用浏览器打开上面的局域网地址即可联机（选择「服务器」模式）；',
+    '  使用其他网页版时，在「设置 → 网络 → 中转服务器地址」中填写上面的 WS relay 地址。',
+    lanOff
+      ? '  Open the local URL above in a browser on this machine.'
+      : '  Players on the same network open the LAN URL above (choose Server mode).',
+    '  From another copy of the game, enter the WS relay address in Settings → Network → Relay server URL.',
     '',
   ];
   log(lines.join('\n'));

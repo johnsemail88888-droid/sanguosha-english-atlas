@@ -145,3 +145,44 @@ describe('hidden information across kills', () => {
     expect(receivedEvents(h.clients[0].log).filter((e) => e.t === 'reward')).toEqual([{ t: 'reward', who: aEntity, kind: 'bounty', items: [] }]);
   });
 });
+
+describe('denied-action sfx carry their optional fields to the private recipient', () => {
+  it('reason / item / ability survive eventFilter, the JSON codec and the ClientView queue', async () => {
+    const h = makeHost({ seed: 21, settings: { playerCount: 5 } });
+    const a = await addClient(h, 'A');
+    const b = await addClient(h, 'B');
+    await runToPlaying(h);
+    const sim = h.sims[0];
+    const aEntity = sim.entityOf(a.session.myId)!;
+    const me = sim.entityOf('host')!;
+    // APP-5 / APP-7: the sim tells only this player why a card / ability did nothing
+    const denied = { t: 'sfx', name: 'itemDenied', pos: { x: 1.25, y: 0, z: -3.5 }, privateTo: aEntity, item: 'tao', reason: 'fullHp' } as GameEvent;
+    const ability = { t: 'sfx', name: 'abilityDenied', pos: { x: 0, y: 0, z: 0 }, privateTo: aEntity, ability: 'guanyu_yijue', reason: 'noTarget' } as GameEvent;
+    const mine = { t: 'sfx', name: 'itemDenied', privateTo: me, item: 'shan', reason: 'cap' } as GameEvent;
+    expect(filterEventsFor([denied, ability, mine], aEntity)).toEqual([denied, ability]);
+    sim.emit(denied);
+    sim.emit(ability);
+    sim.emit(mine);
+    await waitFor(() => receivedEvents(a.log).filter((e) => e.t === 'sfx').length >= 2, 2000, 'private sfx');
+    const got = receivedEvents(a.log).filter((e) => e.t === 'sfx');
+    expect(got).toEqual([denied, ability]);
+    // the other guest never sees them
+    await drive(h, 0.1);
+    expect(receivedEvents(b.log).filter((e) => e.t === 'sfx' && (e as { name: string }).name.endsWith('Denied'))).toEqual([]);
+    // through the recipient's ClientView (released by its render clock) with every field intact
+    let viewSfx: GameEvent[] = [];
+    await waitFor(
+      () => {
+        a.session.view!.update(0.05);
+        viewSfx = viewSfx.concat(a.session.view!.drainEvents().filter((e) => e.t === 'sfx'));
+        return viewSfx.length >= 2;
+      },
+      2000,
+      'view sfx',
+    );
+    expect(viewSfx).toEqual([denied, ability]);
+    // and the host player's own LocalView gets its own
+    const hostSfx = h.host.view!.drainEvents().filter((e) => e.t === 'sfx');
+    expect(hostSfx).toEqual([mine]);
+  });
+});

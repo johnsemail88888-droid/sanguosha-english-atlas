@@ -9,6 +9,11 @@ describe('displayName', () => {
   it('leaves human names alone', () => {
     expect(displayName('人机爱好者', 'en')).toBe('人机爱好者');
     expect(displayName('Alice', 'en')).toBe('Alice');
-    expect(displayName('无名592', 'en')).toBe('无名592');
+  });
+  it('shows the generated default name 无名N in the viewer language', () => {
+    expect(displayName('无名592', 'en')).toBe('Nameless 592');
+    expect(displayName('无名592', 'zh')).toBe('无名592');
+    // only the generated form: a chosen name that merely starts with 无名 stays
+    expect(displayName('无名英雄', 'en')).toBe('无名英雄');
   });
 });

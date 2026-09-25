@@ -119,9 +119,23 @@ describe('worker ticker fallback', () => {
   });
 
   it('falls back to setInterval when the worker never ticks (watchdog)', async () => {
-    const r = await run('silent');
-    expect(r.kind).toBe('interval');
-    expect(r.n).toBeGreaterThan(3);
+    ScriptedWorker.mode = 'silent';
+    let n = 0;
+    const warn = console.warn;
+    console.warn = () => {};
+    const tk = createTicker(5, () => n++, { WorkerImpl, watchdogMs: 40 });
+    try {
+      tk.start();
+      // 3 on-time misses (a loaded CI box may fire some periods late: those re-arm, so poll)
+      const end = Date.now() + 3000;
+      while (tk.kind !== 'interval' && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 60));
+    } finally {
+      tk.stop();
+      console.warn = warn;
+    }
+    expect(tk.kind).toBe('interval');
+    expect(n).toBeGreaterThan(3);
   });
 });
 

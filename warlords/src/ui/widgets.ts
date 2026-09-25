@@ -71,31 +71,93 @@ export function difficultyStars(n: number): HTMLElement {
 
 // ── portraits ────────────────────────────────────────────────────────────────
 
-/** Memoizes deps.renderHeroPortrait and builds <img> layers with a calligraphy placeholder. */
+/** Every portrait is rendered once, at this size; smaller uses (128 / 192 px) are CSS-scaled. */
+export const PORTRAIT_SIZE = 256;
+
+interface PortraitJob {
+  id: string;
+  prio: number;
+  seq: number;
+  resolve: (url: string) => void;
+}
+
+/**
+ * Memoizes deps.renderHeroPortrait and builds <img> layers with a calligraphy
+ * placeholder. Portraits are keyed by hero only (one render per hero, not one per
+ * size) and rendered one at a time from a priority queue, so the cards a player
+ * must choose from are drawn before the picks strip / other seats.
+ */
 export class PortraitCache {
   private cache = new Map<string, Promise<string>>();
+  private queue: PortraitJob[] = [];
+  private running = 0;
+  private seq = 0;
 
-  constructor(private readonly render: (heroId: string, size?: number) => Promise<string>) {}
+  constructor(private readonly render: (heroId: string, size?: number) => Promise<string>, private readonly concurrency = 1) {}
 
-  get(heroId: string, size = 256): Promise<string> {
-    const key = `${heroId}@${size}`;
-    let p = this.cache.get(key);
-    if (!p) {
-      p = this.render(heroId, size).catch((err: unknown) => {
-        console.warn('[ui] portrait render failed', heroId, err);
-        return '';
-      });
-      this.cache.set(key, p);
+  /** The portrait data URL of a hero ('' when it could not be rendered). `size` is ignored (always PORTRAIT_SIZE). */
+  get(heroId: string, _size?: number, priority = 0): Promise<string> {
+    const hit = this.cache.get(heroId);
+    if (hit) {
+      this.bump(heroId, priority);
+      return hit;
     }
+    const p = new Promise<string>((resolve) => this.queue.push({ id: heroId, prio: priority, seq: this.seq++, resolve }));
+    this.cache.set(heroId, p);
+    this.pump();
     return p;
   }
 
+  /** Render these heroes before anything else still waiting (e.g. your options on hero select). */
+  prioritize(heroIds: readonly string[], priority = 10): void {
+    heroIds.forEach((id, i) => this.get(id, undefined, priority - i * 1e-3));
+  }
+
+  /** Heroes waiting to be rendered, in the order they will be (tests / debugging). */
+  pending(): string[] {
+    return [...this.queue].sort((a, b) => b.prio - a.prio || a.seq - b.seq).map((j) => j.id);
+  }
+
+  private bump(heroId: string, priority: number): void {
+    const job = this.queue.find((j) => j.id === heroId);
+    if (job && priority > job.prio) job.prio = priority;
+  }
+
+  private pump(): void {
+    while (this.running < this.concurrency && this.queue.length) {
+      let bi = 0;
+      for (let i = 1; i < this.queue.length; i++) {
+        const a = this.queue[i];
+        const b = this.queue[bi];
+        if (a.prio > b.prio || (a.prio === b.prio && a.seq < b.seq)) bi = i;
+      }
+      const job = this.queue.splice(bi, 1)[0];
+      this.running++;
+      let out: Promise<string>;
+      try {
+        out = this.render(job.id, PORTRAIT_SIZE);
+      } catch (err) {
+        out = Promise.reject(err);
+      }
+      out
+        .catch((err: unknown) => {
+          console.warn('[ui] portrait render failed', job.id, err);
+          return '';
+        })
+        .then((url) => job.resolve(url))
+        .finally(() => {
+          this.running--;
+          this.pump();
+        });
+    }
+  }
+
   /** A `.portrait` layer: placeholder glyph now, image once rendered. */
-  layer(heroId: string, size = 256): HTMLElement {
+  layer(heroId: string, _size = PORTRAIT_SIZE, priority = 0): HTMLElement {
     const def = HERO_BY_ID[heroId];
     const glyph = def ? def.nameZh.slice(-1) : '?';
     const wrap = h('div', { class: 'portrait' }, h('div', { class: 'ph' }, glyph));
-    void this.get(heroId, size).then((url) => {
+    void this.get(heroId, undefined, priority).then((url) => {
       // tiny data URLs are the 1×1 stub — keep the placeholder
       if (!url || url.length < 200) return;
       const img = h('img', { alt: '', draggable: false });
@@ -116,6 +178,8 @@ export interface HeroCardOpts {
   /** overlay stamp (e.g. "taken") */
   tag?: HTMLElement | null;
   size?: number;
+  /** portrait render priority (your own options first) */
+  priority?: number;
   onClick?: () => void;
 }
 
@@ -130,7 +194,7 @@ export function heroCard(portraits: PortraitCache, heroId: string, opts: HeroCar
     aria: { label: heroName(heroId), pressed: !!opts.selected, disabled: !!opts.disabled },
   });
   card.style.setProperty('--kc', kingdomColor(def?.kingdom));
-  card.appendChild(portraits.layer(heroId, opts.size ?? 256));
+  card.appendChild(portraits.layer(heroId, opts.size ?? PORTRAIT_SIZE, opts.priority ?? 0));
   card.appendChild(h('div', { class: 'shade' }));
   card.appendChild(
     h('div', { class: 'top' },
@@ -142,7 +206,7 @@ export function heroCard(portraits: PortraitCache, heroId: string, opts: HeroCar
   card.appendChild(h('div', { class: 'vname' }, [...(def ? def.nameZh : heroId.slice(0, 4))].map((ch) => h('i', null, ch))));
   card.appendChild(
     h('div', { class: 'bottom' },
-      h('div', { class: 'nm' }, heroName(heroId)),
+      h('div', { class: 'nm', style: `--nl:${textUnits(heroName(heroId)).toFixed(1)}` }, heroName(heroId)),
       h('div', { class: 'ttl' }, heroTitle(heroId)),
     ),
   );
@@ -160,6 +224,13 @@ export function heroCard(portraits: PortraitCache, heroId: string, opts: HeroCar
     });
   }
   return card;
+}
+
+/** Rough width of a label in em: CJK glyphs are 1 em, Latin ~0.6 em (fits long names on small cards). */
+export function textUnits(text: string): number {
+  let n = 0;
+  for (const ch of text) n += (ch.codePointAt(0) ?? 0) >= 0x2e80 ? 1 : 0.6;
+  return Math.max(1, n);
 }
 
 // ── form controls ────────────────────────────────────────────────────────────

@@ -399,7 +399,8 @@ export class AbilityBar {
       if (it) {
         const def = ITEM_BY_ID[it.id];
         setText(rec.glyph, def?.icon ?? gearName(it.id).slice(0, 1));
-        setText(rec.name, itemShort(it.id, f.lang));
+        const short = itemShort(it.id, f.lang);
+        setText(rec.name, short !== def?.icon ? short : '');
         rec.root.style.setProperty('--ic', def?.color ?? '#e8d8b0');
         rec.root.title = def ? `${tx(def.nameZh, def.nameEn)}\n${tx(def.descZh, def.descEn)}` : it.id;
         setText(rec.count, it.count > 1 ? String(it.count) : '');

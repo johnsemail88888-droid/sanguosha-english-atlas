@@ -14,7 +14,7 @@ import { PortraitCache, button, type SfxName } from './widgets';
 import { createTitleScreen } from './screens/title';
 import { createSingleScreen } from './screens/single';
 import { createOnlineScreen } from './screens/online';
-import { createLobbyScreen } from './screens/lobby';
+import { LobbyChatLog, createLobbyScreen } from './screens/lobby';
 import { createRolesScreen, mySeat } from './screens/roles';
 import { createHeroSelectScreen } from './screens/heroSelect';
 import { createLoadingScreen } from './screens/loading';
@@ -24,6 +24,8 @@ import { createHelpScreen } from './screens/help';
 import { createSettingsPanel } from './screens/settings';
 import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
+import { clearRejoin, loadRejoin, netFor, saveRejoin } from './invite';
+import type { NetServerConfig } from '../game/settings';
 
 export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
 
@@ -113,6 +115,11 @@ export function isFatalSessionError(code: string): boolean {
   return FATAL_CODES.has(code) || FATAL_ERROR.test(code);
 }
 
+/** Session endings that are news, not malfunctions: titled 提示 / Notice instead of 出错了. */
+export function isNoticeCode(code: string): boolean {
+  return code === 'kicked' || code === 'hostLeft' || /kick|host.?left/i.test(code);
+}
+
 class App implements UiCtx {
   readonly root: HTMLElement;
   readonly portraits: PortraitCache;
@@ -133,7 +140,11 @@ class App implements UiCtx {
   /** your hero this match: sessions stop exposing `heroSelect` once that phase ends */
   private pickedHero: string | null = null;
   private autoRestart = false;
-  private match: { handle: GameHandle; hud: Hud; container: HTMLElement; view: ViewSource; offLoad: () => void } | null = null;
+  private match: { handle: GameHandle; hud: Hud; container: HTMLElement; view: ViewSource; offLoad: () => void; settleLoad: () => void } | null = null;
+  /** lobby chat of the current online session: kept across matches (the lobby screen is rebuilt) */
+  private lobbyChat: LobbyChatLog | null = null;
+  /** connection of the current online session (host or guest) */
+  private conn: { mode: 'peer' | 'ws'; net: NetServerConfig } | null = null;
   private load: LoadProgress | null = null;
   private readonly loadSubs = new Set<(p: LoadProgress | null) => void>();
   private music: MusicTrack | undefined = undefined;
@@ -187,8 +198,10 @@ class App implements UiCtx {
         }
       }),
     );
-    // no WebGL: an invite link still lands on the title, which explains why nothing can start
-    this.go(opts.initialScreen ?? (this.roomCode && this.webgl.ok ? 'online' : 'title'));
+    // no WebGL: an invite link still lands on the title, which explains why nothing can start.
+    // A reload in the middle of an online session (F5) goes back to the online screen, which rejoins.
+    const rejoin = opts.initialScreen || opts.initialSession ? null : loadRejoin();
+    this.go(opts.initialScreen ?? ((this.roomCode || rejoin) && this.webgl.ok ? 'online' : 'title'));
     if (opts.initialSession) {
       const { session, kind } = opts.initialSession;
       this.attachSession(session, kind);
@@ -351,10 +364,15 @@ class App implements UiCtx {
   playerName(): string {
     let name = settings.get().playerName.trim();
     if (!name) {
-      name = `${tx('无名', 'Nameless')}${100 + Math.floor(Math.random() * 900)}`;
+      // stored language-neutral: displayName() shows 无名N as "Nameless N" in English
+      name = `无名${100 + Math.floor(Math.random() * 900)}`;
       settings.update({ playerName: name });
     }
     return name;
+  }
+
+  chatLog(): LobbyChatLog | null {
+    return this.lobbyChat;
   }
 
   myHero(): string | null {
@@ -407,27 +425,39 @@ class App implements UiCtx {
   async hostOnline(mode: 'peer' | 'ws'): Promise<void> {
     if (!this.canPlay()) return;
     const s = await this.deps.hostOnline(this.playerName(), mode);
-    this.adoptOnline(s);
+    if (this.adoptOnline(s)) this.conn = { mode, net: { ...settings.get().net } };
   }
 
   async joinOnline(code: string, mode: 'peer' | 'ws'): Promise<void> {
     if (!this.canPlay()) return;
     const s = await this.deps.joinOnline(code, this.playerName(), mode);
-    this.adoptOnline(s);
+    if (!this.adoptOnline(s)) return;
+    const net = { ...settings.get().net };
+    this.conn = { mode, net };
+    // F5 in the lobby or mid-match rejoins this room the same way (see screens/online.ts)
+    saveRejoin({ code: (s.lobby?.roomCode || code).toUpperCase(), mode, net: netFor(mode, net) });
   }
 
-  private adoptOnline(s: GameSession): void {
+  connection(): { mode: 'peer' | 'ws'; net: NetServerConfig } | null {
+    return this.sessionKind === 'online' ? this.conn : null;
+  }
+
+  private adoptOnline(s: GameSession): boolean {
     // the player navigated away while connecting → drop the new session
     if (this.screenId !== 'online') {
       s.leave();
-      return;
+      return false;
     }
     this.leaveSession(false);
     this.attachSession(s, 'online');
+    return true;
   }
 
-  leaveSession(goTitle = true): void {
+  /** `keepRejoin`: a page unload (F5) must not forget how to rejoin this tab's room */
+  leaveSession(goTitle = true, keepRejoin = false): void {
     const s = this.session;
+    if (!keepRejoin) clearRejoin();
+    this.conn = null;
     this.sessionBag?.dispose();
     this.sessionBag = null;
     this.session = null;
@@ -435,6 +465,8 @@ class App implements UiCtx {
     this.lastPhase = null;
     this.pickedHero = null;
     this.autoRestart = false;
+    this.lobbyChat?.dispose();
+    this.lobbyChat = null;
     this.unmountMatch();
     if (s) {
       try {
@@ -466,6 +498,7 @@ class App implements UiCtx {
     this.pickedHero = s.heroSelect?.picks[mySeat(s)] ?? null;
     const bag = new Bag();
     this.sessionBag = bag;
+    if (kind === 'online') this.lobbyChat = new LobbyChatLog(s);
     bag.add(
       s.on('heroSelect', (v) => {
         const hero = v.picks[mySeat(s)];
@@ -534,7 +567,8 @@ class App implements UiCtx {
     const msg = tx(e.zh, e.en);
     if (isFatalSessionError(e.code)) {
       this.leaveSession(true);
-      void this.alert(t('error.title'), msg);
+      // being kicked or the host closing the room is news, not a malfunction
+      void this.alert(isNoticeCode(e.code) ? t('notice.title') : t('error.title'), msg);
     } else {
       this.toast(msg, 'error');
     }
@@ -559,13 +593,30 @@ class App implements UiCtx {
     const hud = new Hud(this, { view, handle, session: s });
     hud.setActive(this.screenId === 'match');
     this.hudLayer.appendChild(hud.el);
-    this.match = { handle, hud, container, view, offLoad: () => undefined };
+    // APP-3: the match clock waits for this view — a promise that settles once the
+    // staged build reports 'ready' (or fails, or the match is unmounted first)
+    let settle: () => void = () => undefined;
+    const viewReady = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const match = { handle, hud, container, view, offLoad: () => undefined as void, settleLoad: settle };
+    this.match = match;
     if (handle.onLoadProgress) {
       try {
-        this.match.offLoad = handle.onLoadProgress((p) => this.onLoadProgress(p));
+        match.offLoad = handle.onLoadProgress((p) => {
+          if (p.stage === 'ready' || p.stage === 'failed') match.settleLoad();
+          this.onLoadProgress(p);
+        });
       } catch (err) {
         console.error('[ui] onLoadProgress failed', err);
+        settle();
       }
+    } else settle();
+    if (handle.isReady?.()) settle();
+    try {
+      (s as GameSession & { setLocalLoading?(ready: Promise<void>): void }).setLocalLoading?.(viewReady);
+    } catch (err) {
+      console.warn('[ui] setLocalLoading failed', err);
     }
   }
 
@@ -574,6 +625,7 @@ class App implements UiCtx {
     const m = this.match;
     if (!m) return;
     this.match = null;
+    m.settleLoad();
     m.offLoad();
     this.setLoad(null);
     try {
@@ -717,7 +769,7 @@ class App implements UiCtx {
 
   dispose(): void {
     this.closeSettings();
-    this.leaveSession(false);
+    this.leaveSession(false, true);
     if (this.screen) {
       this.screen.dispose();
       this.screen = null;

@@ -3,6 +3,7 @@ import { settings } from '../../game/settings';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, s } from '../dom';
 import { getLang, t, tx } from '../i18n';
+import { displayName } from '../../game/names';
 import { button, seal } from '../widgets';
 
 /** Periodic ridge line (period = width/2) so the layer can scroll seamlessly. */
@@ -75,7 +76,8 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
     el.replaceChildren(bg);
     const name = h('input', {
       class: 'sg-input dark',
-      value: settings.get().playerName,
+      // a generated 无名N reads "Nameless N" in English (stored unchanged until edited)
+      value: displayName(settings.get().playerName, getLang()),
       placeholder: t('title.namePh'),
       maxlength: 16,
       autocomplete: 'off',

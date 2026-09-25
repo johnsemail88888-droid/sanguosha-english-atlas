@@ -387,7 +387,9 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
         setClass(it.el, 'empty', !st);
         const idef = st ? ITEM_BY_ID[st.id] : undefined;
         setText(it.g, st ? idef?.icon ?? st.id.slice(0, 1) : '');
-        setText(it.n, st ? itemShort(st.id, lang) : '');
+        // the short name under the glyph (not repeated when it IS the glyph: 桃, 酒 …)
+        const short = st ? itemShort(st.id, lang) : '';
+        setText(it.n, short && short !== idef?.icon ? short : '');
         setText(it.c, st && st.count > 1 ? String(st.count) : '');
         it.el.title = idef ? `${tx(idef.nameZh, idef.nameEn)} · ${t('hud.cardHint')}` : '';
         it.el.style.setProperty('--ic', idef?.color ?? '#e8d8b0');

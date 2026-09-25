@@ -20,8 +20,25 @@ export interface InputRendererLike {
   pick(): { aimPoint: Vec3; aimTargetId?: EntityId };
   setLookAngles?(yaw: number, pitch: number, ads?: boolean, fireHeld?: boolean): void;
   readonly adsZoom?: number;
-  readonly view?: { viewTick(): number; local(): { activeSlot: number; weapons: unknown[] } | null; localId(): EntityId | null; get(id: EntityId): { yaw: number; pitch: number } | undefined };
+  readonly view?: { viewTick(): number; local(): { activeSlot: number; weapons: unknown[] } | null; localId(): EntityId | null; get(id: EntityId): { yaw: number; pitch: number; x?: number; z?: number } | undefined };
 }
+
+/** Yaw (core/math convention: forward = (−sin yaw, −cos yaw)) that faces from `a` towards `b`. */
+export function yawToward(a: { x: number; z: number }, b: { x: number; z: number }): number {
+  return Math.atan2(-(b.x - a.x), -(b.z - a.z));
+}
+
+/**
+ * One step of a timed turn: move `cur` towards `want` (shortest way round) so it
+ * arrives exactly when `remaining` seconds have passed.
+ */
+export function easeYaw(cur: number, want: number, dt: number, remaining: number): number {
+  const frac = remaining <= dt || remaining <= 0 ? 1 : Math.max(0, dt) / remaining;
+  return wrapAngle(cur + wrapAngle(want - cur) * frac);
+}
+
+/** Seconds the camera takes to face the target after 张辽 突袭 (WEI-7). */
+export const TUXI_TURN_SECONDS = 0.15;
 
 type ActionKey = { kind: 'action'; action: InputAction } | { kind: 'ui'; key: UiKey } | { kind: 'held'; btn: number };
 
@@ -116,6 +133,11 @@ export class InputState {
   private readonly keys = new Set<string>();
   private readonly held = { fire: false, ads: false, sprint: false, interact: false, jump: false };
   private readonly touchHeld = { fire: false, ads: false, sprint: false, interact: false };
+  /**
+   * A fire press seen since the last frame(): a click (or touch tap) that starts
+   * and ends between two frames still fires once instead of vanishing.
+   */
+  private fireLatch = false;
   private touchMove = { x: 0, z: 0 };
   private actions: InputAction[] = [];
   enabled = true;
@@ -146,11 +168,13 @@ export class InputState {
 
   setMouseButton(btn: 'fire' | 'ads', down: boolean): void {
     if (!this.enabled && down) return;
+    if (btn === 'fire' && down) this.fireLatch = true;
     this.held[btn] = down;
   }
 
   setTouchHeld(btn: 'fire' | 'ads' | 'sprint' | 'interact', down: boolean): void {
     if (!this.enabled && down) return;
+    if (btn === 'fire' && down) this.fireLatch = true;
     this.touchHeld[btn] = down;
   }
 
@@ -171,6 +195,7 @@ export class InputState {
     this.keys.clear();
     this.held.fire = this.held.ads = this.held.sprint = this.held.interact = this.held.jump = false;
     this.touchHeld.fire = this.touchHeld.ads = this.touchHeld.sprint = this.touchHeld.interact = false;
+    this.fireLatch = false;
     this.touchMove = { x: 0, z: 0 };
     this.lookDx = this.lookDy = 0;
   }
@@ -231,7 +256,8 @@ export class InputState {
     f.yaw = this.yaw;
     f.pitch = this.pitch;
     let b = 0;
-    if (this.held.fire || this.touchHeld.fire) b |= BTN_FIRE;
+    if (this.held.fire || this.touchHeld.fire || this.fireLatch) b |= BTN_FIRE;
+    this.fireLatch = false;
     if (this.held.ads || this.touchHeld.ads) b |= BTN_ADS;
     if (this.held.sprint || this.touchHeld.sprint) b |= BTN_SPRINT;
     if (this.held.jump) b |= BTN_JUMP;
@@ -247,6 +273,8 @@ export class InputState {
     return f;
   }
 }
+
+const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const isEditable = (t: EventTarget | null): boolean => {
   const el = t as HTMLElement | null;
@@ -272,6 +300,8 @@ export class InputController implements InputSink {
   private seededFromView = false;
   private disposed = false;
   private activeSlot = 0;
+  /** timed turn towards an entity (张辽 突袭 lands behind the target: face it) */
+  private turn: { targetId: EntityId; remaining: number; last: number } | null = null;
 
   constructor(target: HTMLElement, opts: InputControllerOptions = {}) {
     this.target = target;
@@ -422,6 +452,40 @@ export class InputController implements InputSink {
     this.seededFromView = true;
   }
 
+  /** Ease the camera yaw towards an entity over `seconds` (mouse / touch look still adds on top). */
+  turnToward(targetId: EntityId, seconds = TUXI_TURN_SECONDS): void {
+    this.turn = { targetId, remaining: Math.max(0.01, seconds), last: now() };
+  }
+
+  /**
+   * GameEvents of the local match (the renderer re-emits them): a successful
+   * 张辽 突袭 of ours turns the view towards its target (WEI-7).
+   */
+  onEvents(evs: readonly { t: string; ability?: string; src?: EntityId; target?: EntityId; proc?: boolean }[], localId: EntityId | null): void {
+    if (localId === null) return;
+    for (const e of evs) {
+      if (e.t === 'ability' && e.ability === 'zhangliao_tuxi' && e.src === localId && e.target !== undefined && !e.proc) this.turnToward(e.target);
+    }
+  }
+
+  private advanceTurn(view: InputRendererLike['view']): void {
+    const turn = this.turn;
+    if (!turn) return;
+    const t = now();
+    const dt = Math.min(0.1, Math.max(0, (t - turn.last) / 1000));
+    turn.last = t;
+    const id = view?.localId();
+    const me = id !== null && id !== undefined ? view?.get(id) : undefined;
+    const tgt = view?.get(turn.targetId);
+    if (!me || !tgt || me.x === undefined || me.z === undefined || tgt.x === undefined || tgt.z === undefined) {
+      this.turn = null;
+      return;
+    }
+    this.state.yaw = easeYaw(this.state.yaw, yawToward({ x: me.x, z: me.z }, { x: tgt.x, z: tgt.z }), dt, turn.remaining);
+    turn.remaining -= dt;
+    if (turn.remaining <= 1e-4) this.turn = null;
+  }
+
   /** Build this frame's InputFrame. Call exactly once per rendered frame. */
   sample(renderer: InputRendererLike): InputFrame {
     // adopt the hero's facing the first time it exists (spawn orientation)
@@ -435,6 +499,7 @@ export class InputController implements InputSink {
       }
     }
     this.activeSlot = view?.local()?.activeSlot ?? this.activeSlot;
+    this.advanceTurn(view);
     const s = settings.get();
     const ads = this.state.isHeld('ads');
     const zoom = renderer.adsZoom ?? 1;

@@ -4,28 +4,64 @@ import type { BotDifficulty, GameMode, LobbySeat, LobbyState, MatchSettings } fr
 import type { GameSession } from '../../game/session';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, appendChildren, copyText, h } from '../dom';
-import { getLang, t, tx } from '../i18n';
+import { colon, getLang, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
 import { button, field, segmented, toggle } from '../widgets';
 import { rolePreview } from './single';
-import { shareBase } from '../desktop';
+import { inviteLink } from '../invite';
+
+export { inviteLink };
 
 export interface ChatLine {
   from: string;
   text: string;
   system?: boolean;
+  /** system lines carry both languages (rendered in the current one) */
+  zh?: string;
+  en?: string;
 }
 
-/** Invite link for a room code, based on the current page URL. */
-export function inviteLink(code: string, loc: { origin: string; pathname: string } = location): string {
-  // desktop app: the page is http://127.0.0.1:<port>/ — friends need the LAN address
-  return `${shareBase(loc)}?room=${encodeURIComponent(code)}`;
+/** A 'chat' session payload (G2 adds `system` + bilingual text for join / leave / kick lines). */
+type ChatPayload = { from: string; text: string; system?: boolean; zh?: string; en?: string };
+
+export function toChatLine(c: ChatPayload): ChatLine {
+  return c.system ? { from: '', text: c.text, system: true, zh: c.zh ?? c.text, en: c.en ?? c.text } : { from: c.from, text: c.text };
+}
+
+/**
+ * Lobby chat of one online session, owned by the app shell: the lobby screen is
+ * rebuilt after every match, the conversation (and its join / leave / kick
+ * lines) is not.
+ */
+export class LobbyChatLog {
+  readonly lines: ChatLine[] = [];
+  private readonly subs = new Set<(line: ChatLine) => void>();
+  private readonly off: () => void;
+
+  constructor(session: GameSession, private readonly max = 100) {
+    this.off = session.on('chat', (c) => this.push(toChatLine(c as ChatPayload)));
+  }
+
+  push(line: ChatLine): void {
+    this.lines.push(line);
+    while (this.lines.length > this.max) this.lines.shift();
+    for (const cb of [...this.subs]) cb(line);
+  }
+
+  subscribe(cb: (line: ChatLine) => void): () => void {
+    this.subs.add(cb);
+    return () => this.subs.delete(cb);
+  }
+
+  dispose(): void {
+    this.off();
+    this.subs.clear();
+  }
 }
 
 export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-lobby', data: { screen: 'lobby' } });
-  const chatLines: ChatLine[] = [];
   let statusText: { zh: string; en: string } | null = null;
   const chatLog = h('div', { class: 'chat-log', role: 'log', aria: { live: 'polite' } });
   const chatInput = h('input', { class: 'sg-input dark', placeholder: t('lobby.chatPh'), maxlength: 120, autocomplete: 'off', aria: { label: t('lobby.chat') } });
@@ -47,11 +83,18 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     }
   });
 
+  // history lives in the app's LobbyChatLog (survives matches); a bare session gets a local one
+  const log = ctx.chatLog?.() ?? null;
+  const ownLog = log ? null : new LobbyChatLog(session);
+  const chat = log ?? (ownLog as LobbyChatLog);
+  if (ownLog) bag.add(ownLog);
   const appendChat = (line: ChatLine): void => {
-    chatLines.push(line);
-    if (chatLines.length > 100) chatLines.shift();
     chatLog.appendChild(chatRow(line));
     while (chatLog.childElementCount > 100) chatLog.firstElementChild?.remove();
+    chatLog.scrollTop = chatLog.scrollHeight;
+  };
+  const renderChat = (): void => {
+    chatLog.replaceChildren(...chat.lines.map(chatRow));
     chatLog.scrollTop = chatLog.scrollHeight;
   };
 
@@ -71,12 +114,13 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
       h('div', { class: 'code-box' },
         copyCodeBtn,
         button(t('lobby.copyLink'), () => {
-          const link = inviteLink(code);
+          const link = inviteLink(code, location, ctx.connection?.() ?? undefined);
           void copyText(link).then((ok) => ctx.toast(ok ? t('common.copied') : link));
         }, { cls: 'small dark' }),
       ),
       button(t('lobby.leave'), () => {
-        void ctx.confirm(tx('确定离开房间？', 'Leave this room?')).then((yes) => {
+        // the host's session IS the room
+        void ctx.confirm(t(session.isHost ? 'lobby.hostLeaveConfirm' : 'lobby.leaveConfirm')).then((yes) => {
           if (yes) ctx.leaveSession(true);
         });
       }, { cls: 'small ghost', sfx: 'back' }),
@@ -205,20 +249,34 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
       chatLog,
       h('div', { class: 'chat-row' }, chatInput, button(t('lobby.send'), sendChat, { cls: 'small' })),
     );
-    el.replaceChildren(
-      headBox,
-      h('div', { class: 'lobby-grid' },
-        h('section', { class: 'seats-panel sg-panel sg-corners' }, seatsBox),
-        h('section', { class: 'settings-panel sg-panel sg-corners' }, settingsBox),
-        chatBox,
-      ),
-      footBox,
+    // phones: seats / settings / chat as tabs (each gets the full height)
+    const tabBar = h('div', { class: 'lobby-tabs', role: 'tablist' },
+      (['seats', 'settings', 'chat'] as const).map((id) => {
+        const b = h('button', { class: `lt${phoneTab === id ? ' on' : ''}`, type: 'button', role: 'tab', data: { tab: id }, aria: { selected: phoneTab === id } }, t(id === 'seats' ? 'lobby.tabSeats' : id === 'settings' ? 'lobby.settings' : 'lobby.chat'));
+        b.addEventListener('click', () => {
+          phoneTab = id;
+          grid.dataset.tab = id;
+          for (const x of tabBar.querySelectorAll<HTMLElement>('.lt')) {
+            x.classList.toggle('on', x.dataset.tab === id);
+            x.setAttribute('aria-selected', String(x.dataset.tab === id));
+          }
+        });
+        return b;
+      }),
     );
+    const grid = h('div', { class: 'lobby-grid', data: { tab: phoneTab } },
+      h('section', { class: 'seats-panel sg-panel sg-corners' }, seatsBox),
+      h('section', { class: 'settings-panel sg-panel sg-corners' }, settingsBox),
+      chatBox,
+    );
+    el.replaceChildren(headBox, tabBar, grid, footBox);
+    renderChat();
     update();
   };
+  let phoneTab: 'seats' | 'settings' | 'chat' = 'seats';
 
   bag.add(session.on('lobby', () => update()));
-  bag.add(session.on('chat', (c) => appendChat({ from: c.from, text: c.text })));
+  bag.add(chat.subscribe((line) => appendChat(line)));
   bag.add(
     session.on('status', (st) => {
       statusText = st;
@@ -235,5 +293,6 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
 }
 
 export function chatRow(line: ChatLine): HTMLElement {
-  return h('div', { class: `chat-line${line.system ? ' system' : ''}` }, h('b', null, line.from, '：'), h('span', null, line.text));
+  if (line.system) return h('div', { class: 'chat-line system' }, h('span', null, tx(line.zh ?? line.text, line.en ?? line.text)));
+  return h('div', { class: 'chat-line' }, h('b', null, displayName(line.from, getLang()), colon()), h('span', null, line.text));
 }

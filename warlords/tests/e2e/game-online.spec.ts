@@ -129,3 +129,67 @@ test('online (ws relay, same origin): host + 2 guests join by room code, play, s
     for (const g of pages) await g.ctx.close();
   }
 });
+
+test('P2P invite on a server-served page joins in P2P without touching the mode; F5 mid-match reclaims the seat in P2P', async () => {
+  test.setTimeout(15 * 60_000);
+  const pages: GamePage[] = [];
+  // the host uses the server's own PeerJS signalling (no internet here): a non-default PeerJS server
+  const peer = { mode: 'peer', peerHost: '127.0.0.1', peerPort: RELAY_PORT, peerPath: '/peerjs', peerSecure: false };
+  try {
+    const host = await openGame(browser, `${relay.url}?debug=1`, { viewport: VIEWPORT, name: '主持人', settings: { net: peer } });
+    pages.push(host);
+    await host.ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: relay.url.replace(/\/$/, '') });
+    await host.page.locator('.sg-menu-btn', { hasText: '联机对战' }).click();
+    await expect(host.page.locator('[data-screen="online"]')).toBeVisible();
+    await host.page.locator('.sg-online-mode .sg-seg button[data-value="peer"]').click();
+    await host.page.locator('.sg-online-cols .col .sg-btn.gold').click();
+    await expect(host.page.locator('[data-screen="lobby"] .room-code .code')).toHaveText(/^[A-Z0-9]{4,8}$/, { timeout: 60_000 });
+    const code = (await host.page.locator('[data-screen="lobby"] .room-code .code').textContent())!.trim();
+    await host.page.locator('.lobby-head .sg-btn', { hasText: '复制邀请链接' }).click();
+    await expect.poll(() => host.page.evaluate(() => navigator.clipboard.readText().catch(() => '')), { timeout: 10_000 }).toContain(code);
+    const link = await host.page.evaluate(() => navigator.clipboard.readText());
+    console.log(`[online e2e] P2P invite: ${link}`);
+    const q = new URL(link).searchParams;
+    expect(q.get('mode')).toBe('peer');
+    expect(q.get('ph')).toBe('127.0.0.1');
+    expect(q.get('pa')).toBe('/peerjs');
+
+    // a fresh guest (default settings: public PeerJS cloud) opens the invite on the server-served page
+    const guest = await openGame(browser, `${link}&debug=1`, { viewport: VIEWPORT, name: '远客' });
+    pages.push(guest);
+    await expect(guest.page.locator('[data-screen="online"]')).toBeVisible();
+    await expect(guest.page.locator('.sg-code-input')).toHaveValue(code);
+    // the server probe must not flip the mode the link asked for
+    await guest.page.waitForTimeout(3000);
+    await expect(guest.page.locator('.sg-online-mode .sg-seg button[data-value="peer"]')).toHaveAttribute('aria-pressed', 'true');
+    await guest.page.locator('.join-row .sg-btn').click();
+    await expect(guest.page.locator('[data-screen="lobby"] .room-code .code')).toHaveText(code, { timeout: 60_000 });
+    await guest.page.locator('.lobby-foot .sg-btn.gold').click(); // ready
+    await expect(host.page.locator('.seat:not(.empty):not(.bot)')).toHaveCount(2, { timeout: 30_000 });
+    await host.page.locator('.lobby-foot .sg-btn.gold').click();
+    const confirm = host.page.locator('.sg-modal .actions .sg-btn').last();
+    if (await confirm.isVisible().catch(() => false)) await confirm.click();
+    await Promise.all(pages.map((g) => expect(g.page.locator('[data-screen="roles"]')).toBeVisible({ timeout: 60_000 })));
+    const heroes = await Promise.all(pages.map((g) => pickHero(g.page)));
+    await Promise.all(pages.map((g) => waitMatch(g.page, 300_000)));
+    const guestHero = await guest.page.evaluate(() => (window as SgwlWindow).__sgwl!.local()!.heroId);
+    expect(guestHero).toBe(heroes[1]);
+    expect(await guest.page.evaluate(() => JSON.parse(sessionStorage.getItem('sgwl.rejoin.v1') ?? 'null'))).toMatchObject({ code, mode: 'peer' });
+
+    // F5 mid-match: the tab rejoins the same room over P2P and gets its hero back
+    await guest.page.reload();
+    await waitMatch(guest.page, 300_000);
+    const after = await guest.page.evaluate(() => {
+      const g = (window as SgwlWindow).__sgwl!;
+      return { kind: g.sessionKind, phase: g.phase, hero: g.local()?.heroId, rejoin: JSON.parse(sessionStorage.getItem('sgwl.rejoin.v1') ?? 'null') };
+    });
+    console.log(`[online e2e] after F5: ${JSON.stringify(after)}`);
+    expect(after).toMatchObject({ kind: 'guest', phase: 'playing', hero: guestHero, rejoin: { code, mode: 'peer' } });
+    const humans = await host.page.evaluate(() => (window as SgwlWindow).__sgwl!.players().filter((p) => !p.isBot).length);
+    expect(humans, 'the host sees the guest human again').toBe(2);
+    await guest.page.screenshot({ path: test.info().outputPath('p2p-after-f5.png') });
+    for (const g of pages) expect(relevantErrors(g.errors)).toEqual([]);
+  } finally {
+    for (const g of pages) await g.ctx.close();
+  }
+});

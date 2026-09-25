@@ -5,7 +5,10 @@ engineers (src/sim/**, src/net/**). One section per request: file · function ·
 Append new sections at the end; mark `Status:` when applied.
 
 ## APP-1 · NET · formal debug time scale for the host sim (e2e / play-testing)
-- **Status:** open (a fallback is in place, see below)
+- **Status:** applied (G2) — `HostSession.setDebugTimeScale(scale)` (clamped 0.1..10, remembered for the next
+  match's loop) → `FixedStepLoop.setTimeScale(k)` (`acc += elapsed × k`, catch-up cap `ceil(5 × k)`).
+  `__sgwl.cheats.timeScale` now takes the formal path; the `loop.stepMs` fallback in debug.ts still works
+  (field names unchanged). Unit tests: tests/unit/net/ticker.test.ts, contracts.test.ts.
 - **File / function:** `src/net/hostSession.ts` (`HostSession`), `src/net/ticker.ts` (`FixedStepLoop`).
 - **Change:** add
   ```ts
@@ -20,7 +23,10 @@ Append new sections at the end; mark `Status:` when applied.
   runtime — works today but relies on private field names.
 
 ## APP-2 · NET · tick worker watchdog degrades to setInterval whenever the main thread stalls at match start
-- **Status:** open
+- **Status:** applied (G2) — the watchdog re-arms (never re-posting the start to the worker) when its own timer
+  fired late (> 2 × 400 ms: the main thread was busy), degrades only after `WORKER_WATCHDOG_MISSES` (3)
+  consecutive on-time misses (a dead worker falls back after ~1.2 s), and gives up after 15 s without any tick
+  whatever the stalls. Unit tests: tests/unit/net/ticker.test.ts ("watchdog vs main-thread stalls").
 - **File / function:** `src/net/ticker.ts` `WorkerTicker.start()` watchdog.
 - **Observed:** every single-player / host match logs
   `[net] tick worker unavailable (worker never ticked); falling back to setInterval`. The worker is
@@ -45,7 +51,11 @@ Append new sections at the end; mark `Status:` when applied.
   watchdog periods.
 
 ## APP-3 · NET · let the host's own 3D view finish loading before the sim starts
-- **Status:** open (the UI side is done) — **still hurts players:** measured on the host (single player, SwiftShader) the sim
+- **Status:** applied (G2) — `GameSession.setLocalLoading?(ready)`: the host keeps its own seat in the load gate until
+  `ready` settles (a rejection counts as settled; capped by `timings.loadTimeout`); `matchStart` is emitted before
+  `maybeBeginPlaying()`. Clients accept the promise while emitting the phase change / `matchStart` and send
+  `{t:'loaded'}` once it settles. Never called ⇒ unchanged behaviour. Unit tests: tests/unit/net/contracts.test.ts.
+- **Was:** open (the UI side is done) — **still hurts players:** measured on the host (single player, SwiftShader) the sim
   reaches `phase:playing` 3.3–4.8 s before the host's view is ready (`__sgwl.timings`: phase:playing 22 289 ms vs
   load:ready 25 618 ms). Bots move, shoot and loot during that time while the human sits on the loading screen; with a
   close spawn (see APP-8) 吕布 wiped a player's whole squad 38 s into a match.
@@ -63,7 +73,10 @@ Append new sections at the end; mark `Status:` when applied.
   The UI already keeps the loading screen (with real progress) up until the view is ready.
 
 ## APP-4 · NET · expose the debug cheats the e2e / play-test hooks use
-- **Status:** open (works today through `HostSession.simHost` + `World` methods)
+- **Status:** applied (G2) — `HostSession.debugCheats: HostDebugCheats` with `god(playerId, on)` (re-applied every
+  tick), `give(playerId, itemId, count?)`, `giveWeapon`, `teleport(playerId, x, z)`, `killHero(entityId)`,
+  `setCooldownsReady(playerId)`; each returns false without a match or when the sim lacks the hook.
+  `src/game/debug.ts` may switch to it (its current `simHost` path keeps working).
 - **File / function:** `src/net/hostSession.ts`.
 - **Change:** a small typed `debugCheats` object on `HostSession` (only meaningful on the host):
   `god(playerId, on)`, `give(playerId, itemId)`, `giveWeapon`, `teleport(playerId, x, z)`,
@@ -90,7 +103,12 @@ Append new sections at the end; mark `Status:` when applied.
   by the audio resolver, so card denials were silent too.
 
 ## APP-6 · NET · connection watchdogs must not fire right after the page itself was frozen
-- **Status:** open
+- **Status:** applied (G2) — both checks skip one round after a gap > 2 × interval + 1 s (client: `checkHost`,
+  host: `pingPeers`); guests emit `status {key:'waitingHost'}` "等待主机响应… / Waiting for host…" after 3 s of
+  host silence and `{key:'waitingHost', clear:true}` "主机已恢复响应 / Host is responding again" when it speaks
+  again. The host also exempts a peer that is loading a match from `peerTimeout` until it reports `loaded`
+  (≤ `timings.loadGrace`, 30 s), and keeps a closed connection's seat for `timings.dropGrace` (5 s) before a bot
+  takes over, so a blip + auto-rejoin never bounces the seat. Unit tests: tests/unit/net/rejoin.test.ts.
 - **Files / functions:** `src/net/clientSession.ts` `checkHost()` (1 s interval, `hostTimeoutMs` 15 s);
   `src/net/hostSession.ts` the peer-timeout check (`t - peer.lastSeen > this.timings.peerTimeout * 1000`, run from the ping timer).
 - **Observed:** e2e `tests/e2e/game-online.spec.ts` (host + 2 guests, SwiftShader, busy 4-CPU box) intermittently shows
@@ -144,4 +162,32 @@ Append new sections at the end; mark `Status:` when applied.
   2. `chooseSpawns`: raise the pair-distance rejection from 36 m to ~55 m (fall back to the old 36 m only if a sector
      would otherwise stay empty), so 8 players on the ~110 m ring are ≥ 60 m apart in practice.
   3. (nice to have) a unit test: for seeds 1..20 and 8 seats, min pairwise hero spawn distance ≥ 55 m.
+
+## NET-1 · UI · fresh, ranked LAN addresses on the desktop app
+- **Status:** open (the NET/desktop side is done)
+- **Files / functions:** `src/ui/desktop.ts` `desktopInfo()` / `shareBase()`; `src/ui/screens/online.ts` `lanBox()`.
+- **Now available:** `window.sgwlDesktop.getLanUrls(): string[]` (electron/preload.cjs → main via IPC) returns the
+  machine's `http://<ip>:<port>/` list *right now*, best first (Wi-Fi / Ethernet before VirtualBox 192.168.56.x,
+  Hyper-V / WSL vEthernet, Docker, VPN adapters — ranking in server/lan.mjs). `sgwlDesktop.lanUrls` stays the list
+  from window creation (also ranked).
+- **Change:** in `desktopInfo()`, prefer `typeof d.getLanUrls === 'function' ? d.getLanUrls() : d.lanUrls` (filter as
+  today), and call it each time the online screen renders its LAN box / builds an invite link, so the first
+  (copied) address is the reachable one even after the Wi-Fi changed.
+
+## NET-2 · UI · lobby notices as system chat lines, "waiting for host" status
+- **Status:** open (the session side is done)
+- **Files:** `src/ui/screens/lobby.ts` (`session.on('chat')`), `src/ui/hud/hud.ts` (`'chat'`, `'status'`).
+- **Now emitted:** `chat` events may carry `system: true` with `from: ''` and localized `zh` / `en` (player joined /
+  left / was kicked — host and guests). `status` events may carry `key` and `clear` (today only
+  `key: 'waitingHost'`); `session.waitingForHost` (guests) mirrors it.
+- **Change:** lobby: `appendChat({ from: tx('系统', 'System'), text: tx(c.zh ?? c.text, c.en ?? c.text), system: true })`
+  when `c.system`; HUD: show a keyed status as one persistent line that the `clear` event removes (instead of an
+  announcement + a chat line for both).
+
+## NET-3 · E2E · rejoin / host-freeze checks for tests/e2e/game-online.spec.ts
+- **Status:** open — proposed checks, verified by G2 with a scratch spec against the same server:
+  after the match starts, on a guest `__sgwl.session.transport.ws.close()` → that guest is back on screen `match`
+  within 3 s with the same `<canvas>` element, and no 「断开连接」 announce reaches anyone; then on the host
+  `page.evaluate(() => { const end = performance.now() + 20000; while (performance.now() < end); })` → no guest is
+  announced as dropped and the guests' `__sgwl.session.waitingForHost` became true meanwhile.
 

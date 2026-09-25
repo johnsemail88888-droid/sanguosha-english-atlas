@@ -100,6 +100,8 @@ export interface SgwlDebug {
     equip(id: string): boolean;
     heal(): boolean;
     teleport(x: number, z: number): boolean;
+    /** move any hero (a bot too) to (x, ground, z) — e.g. bring two bots together so they fight */
+    teleportHero(entityId: EntityId, x: number, z: number): boolean;
     /** kill a hero (other entity kinds are refused) */
     kill(entityId: EntityId): boolean;
     /** knock your own hero down (濒死) — or `entityId`'s */
@@ -131,7 +133,11 @@ export function debugEnabled(): boolean {
 }
 
 export class DebugHooks {
-  private session: GameSession | null = null;
+  /**
+   * The newest session, held weakly: the hooks must not keep a finished match
+   * (host, sim, views) alive after the app dropped it (memory checks run with ?debug=1).
+   */
+  private sessionRef: WeakRef<GameSession> | null = null;
   private readonly kinds = new WeakMap<GameSession, DebugSessionKind>();
   private game: DebugGame | null = null;
   private readonly timings: Record<string, number> = {};
@@ -145,6 +151,14 @@ export class DebugHooks {
     private readonly root: () => HTMLElement | null,
   ) {
     this.install();
+  }
+
+  private get session(): GameSession | null {
+    return this.sessionRef?.deref() ?? null;
+  }
+
+  private set session(s: GameSession | null) {
+    this.sessionRef = s ? new WeakRef(s) : null;
   }
 
   /** Remember the newest session (wrap every session factory with this) and how it was made. */
@@ -224,6 +238,16 @@ export class DebugHooks {
       await nextFrame();
     }
     return evs.length;
+  }
+
+  /** Synthetic events through the renderer (they reach every onEvents subscriber, the HUD included). */
+  private inject(evs: GameEvent[]): void {
+    const r = (this.game?.handle as { renderer?: { injectEvents(evs: GameEvent[]): void } | null } | undefined)?.renderer;
+    try {
+      r?.injectEvents(evs);
+    } catch {
+      /* no renderer yet */
+    }
   }
 
   private kindOf(s: GameSession | null): DebugSessionKind | null {
@@ -354,7 +378,10 @@ export class DebugHooks {
         give: (itemId, count = 1) => {
           const world = w();
           const id = this.meId();
-          return !!(world && id !== null && world.giveItem?.(id, itemId, count));
+          const ok = !!(world && id !== null && world.giveItem?.(id, itemId, count));
+          // like a real pickup for the UI: the HUD toasts the card with its effect line
+          if (ok && id !== null) this.inject([{ t: 'pickup', who: id, item: itemId }]);
+          return ok;
         },
         weapon: (weaponId) => {
           const world = w();
@@ -383,6 +410,14 @@ export class DebugHooks {
           if (!world?.teleport || id === null) return false;
           const y = world.groundHeight ? world.groundHeight(x, z) : 0;
           world.teleport(id, { x, y, z });
+          return true;
+        },
+        teleportHero: (entityId, x, z) => {
+          const world = w();
+          const e = world?.get(entityId);
+          if (!world?.teleport || !e || e.kind !== 'hero' || e.dead) return false;
+          const y = world.groundHeight ? world.groundHeight(x, z) : 0;
+          world.teleport(entityId, { x, y, z });
           return true;
         },
         kill: (entityId) => {

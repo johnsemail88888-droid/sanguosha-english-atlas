@@ -2,6 +2,7 @@
 // with a FakeSim (or a custom sim factory). Every payload a client receives is
 // logged for hidden-information scans.
 import type { HeroSelectView, MatchSettings } from '../../../src/core/types';
+import type { HeroDef } from '../../../src/data/types';
 import type { MatchInit, SimHost } from '../../../src/sim/host';
 import { ClientSession, type ClientSessionOptions } from '../../../src/net/clientSession';
 import { FakeSim, type FakeSimOptions } from '../../../src/net/fakeSim';
@@ -60,6 +61,8 @@ export interface MakeHostOptions {
   timings?: Partial<FlowTimings>;
   /** custom sim factory (defaults to FakeSim on a flat map) */
   createMatch?: (init: MatchInit) => SimHost | Promise<SimHost>;
+  /** hero pool (defaults to testHeroPool()) */
+  heroes?: readonly HeroDef[];
 }
 
 export function makeHost(opts: MakeHostOptions = {}): Harness {
@@ -69,7 +72,7 @@ export function makeHost(opts: MakeHostOptions = {}): Harness {
     name: '房主',
     transport: net.createHost('host'),
     roomCode: 'TEST2',
-    heroes: testHeroPool(),
+    heroes: opts.heroes ?? testHeroPool(),
     timings: { ...FAST, ...opts.timings },
     seed: opts.seed ?? 42,
     preferWorkerTicker: false,

@@ -1,10 +1,28 @@
 // Settings modal: language, name, controls, graphics, audio, network
 // (explains 公共P2P vs 局域网/自建服务器 and `npm run server`).
-import { DEFAULT_SETTINGS, settings, type Lang, type Quality, type UserSettings } from '../../game/settings';
+import { DEFAULT_SETTINGS, defaultQuality, settings, type Lang, type Quality, type UserSettings } from '../../game/settings';
 import type { Screen, SettingsTab, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
 import { t, tx } from '../i18n';
 import { button, field, segmented, slider, tabs, textInput, toggle } from '../widgets';
+import { markModeChosen } from '../invite';
+
+/** localhost, 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, ::1, fc00::/7, *.local: nobody has a TLS certificate there */
+export function isPrivateHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return false;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h === '::1') return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+}
+
+/** Reset every setting but the player's name and language. */
+export function resetSettings(current: UserSettings): UserSettings {
+  return { ...structuredClone(DEFAULT_SETTINGS), quality: defaultQuality(), playerName: current.playerName, lang: current.lang };
+}
 
 const pct = (v: number): string => `${Math.round(v * 100)}%`;
 const mul = (v: number): string => `${v.toFixed(2)}×`;
@@ -103,17 +121,30 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
             '局域网 / 自建服务器：在任意一台电脑的 warlords 目录运行 ',
             'LAN / self-hosted: on any machine, run ',
           ), h('code', null, 'npm run server'), tx(
-            '（默认端口 8787），然后把地址填为 ws://<该电脑IP>:8787/ws。该服务器同时提供 PeerJS 信令，可一并填入上方。',
-            ' inside the warlords folder (port 8787 by default), then set the address to ws://<that-machine-IP>:8787/ws. The same server also hosts a PeerJS signalling endpoint you can use above.',
+            '（默认端口 8787），然后把地址填为 ws://<该电脑IP>:8787/ws。该服务器同时提供 PeerJS 信令（路径 /peerjs），可填入下方的 PeerJS 设置。',
+            ' inside the warlords folder (port 8787 by default), then set the address to ws://<that-machine-IP>:8787/ws. The same server also hosts PeerJS signalling (path /peerjs) for the PeerJS fields below.',
           )),
         ),
       ),
       field(t('settings.netMode'), segmented([
         { value: 'peer' as const, label: t('online.peer') },
         { value: 'ws' as const, label: t('online.ws') },
-      ], n.mode, (v) => net({ mode: v }), { name: t('settings.netMode') })),
+      ], n.mode, (v) => {
+        markModeChosen();
+        net({ mode: v });
+      }, { name: t('settings.netMode') })),
       field(t('settings.wsUrl'), textInput(n.wsUrl, (v) => net({ wsUrl: v.trim() }), { placeholder: t('settings.wsUrlPh'), label: t('settings.wsUrl') })),
-      field(t('settings.peerHost'), textInput(n.peerHost, (v) => net({ peerHost: v.trim() }), { placeholder: t('settings.peerHostPh'), label: t('settings.peerHost') })),
+      field(t('settings.peerHost'), (() => {
+        const input = textInput(n.peerHost, (v) => net({ peerHost: v.trim() }), { placeholder: t('settings.peerHostPh'), label: t('settings.peerHost') });
+        // a LAN / localhost signalling server has no TLS certificate: HTTPS/WSS off by itself
+        input.addEventListener('change', () => {
+          if (isPrivateHost(input.value) && settings.get().net.peerSecure) {
+            net({ peerSecure: false });
+            renderBody();
+          }
+        });
+        return input;
+      })(), tx('局域网 / 本机地址会自动关闭 HTTPS/WSS。', 'LAN / localhost addresses switch HTTPS/WSS off automatically.')),
       field(t('settings.peerPort'), textInput(String(n.peerPort), (v) => {
         const port = Number.parseInt(v, 10);
         if (Number.isFinite(port) && port > 0 && port < 65536) net({ peerPort: port });
@@ -151,10 +182,9 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
       body,
       h('footer', { class: 'set-foot' },
         button(t('settings.reset'), () => {
-          void ctx.confirm(tx('恢复全部默认设置？（名号会保留）', 'Reset every setting to default? (your name is kept)')).then((yes) => {
+          void ctx.confirm(tx('恢复全部默认设置？（名号与语言会保留）', 'Reset every setting to default? (your name and language are kept)')).then((yes) => {
             if (!yes) return;
-            const name = settings.get().playerName;
-            settings.update({ ...structuredClone(DEFAULT_SETTINGS), playerName: name });
+            settings.update(resetSettings(settings.get()));
             build();
           });
         }, { cls: 'small dark' }),
