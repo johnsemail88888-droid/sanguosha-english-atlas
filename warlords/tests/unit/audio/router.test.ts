@@ -509,4 +509,14 @@ describe('EventRouter: ability procs and EMP (G3-7/8)', () => {
     expect(emp.o.size ?? 1).toBeLessThan(frag.o.size ?? 1);
     expect(frag.o.variant).toBe('frag');
   });
+
+  it("matches 'emp' as a word only", () => {
+    const view = fakeView([], null);
+    router.handle([{ t: 'explosion', pos: { x: 5, y: 0, z: 5 }, radius: 8, kind: 'emp_pulse' }], view);
+    router.handle([{ t: 'explosion', pos: { x: 5, y: 0, z: 5 }, radius: 10, kind: 'tempest' }], view);
+    const [a, b] = sink.named('explosion');
+    expect(a.o.variant).toBe('thunder');
+    expect(a.o.size).toBe(EMP_SIZE);
+    expect(b.o.size).toBe(2);
+  });
 });

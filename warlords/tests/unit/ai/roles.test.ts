@@ -3,7 +3,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Entity, GameEvent, InputAction, MatchSettings, RoleId } from '../../../src/core/types';
 import { emptyInput } from '../../../src/core/types';
+import { DIFFICULTY_PROFILES } from '../../../src/sim/ai/difficulty';
 import { HeroBot } from '../../../src/sim/ai/heroBot';
+import { teamPushAt } from '../../../src/sim/ai/strategy';
 import type { World } from '../../../src/sim/world';
 import { hero, makeWorld, place, stepN } from '../sim/helpers';
 
@@ -152,7 +154,8 @@ describe('opportunist (墙头草) and bounty hunter (赏金猎人)', () => {
     const { w } = world(OPP5, [3], ['caocao', 'guanyu', 'guanyu', 'guanyu', 'guanyu'], { settings: { mode: 'chaos' } });
     const me = hero(w, 3);
     const prey = hero(w, 2);
-    place(w, me, 0, 30);
+    // close enough that a crawling (low) target is hit reliably whatever the aim-error draws
+    place(w, me, 0, 25);
     place(w, prey, 0, 18);
     place(w, hero(w, 0), -50, -52);
     place(w, hero(w, 1), -40, -52);
@@ -217,7 +220,8 @@ describe('乱世 crowns', () => {
     place(w, hero(w, 2), -6, 54);
     place(w, hero(w, 3), 10, 54);
     place(w, hero(w, 4), -50, -52);
-    setTime(w, 320);
+    // well inside the table's push (shared push time + a rebel's own seconds + the wait for company)
+    setTime(w, teamPushAt(w, DIFFICULTY_PROFILES.normal) + 61);
     let onLord = 0;
     let onDouble = 0;
     const evs = run(w, 30 * 12, (t) => {
@@ -256,6 +260,49 @@ describe('lord (主公)', () => {
       else longest = Math.max(longest, w.time - anchor.t);
     });
     expect(longest).toBeLessThan(10);
+  }, 30_000);
+
+  it('never finishes a hero who claimed 忠 and has not hurt the lord side — even one caught in his crossfire', () => {
+    const { w, bot } = world(STD5, [0], ['caocao', 'guanyu', 'guanyu', 'guanyu', 'guanyu']);
+    const lord = hero(w, 0);
+    const loyal = hero(w, 1);
+    tough(lord);
+    place(w, lord, 0, 30, 0);
+    place(w, loyal, 0, 20);
+    [2, 3, 4].forEach((s, i) => place(w, hero(w, s), -50 + i * 5, -52));
+    setTime(w, 250);
+    act(w, 1, [{ a: 'claim', role: 'loyalist' }]);
+    run(w, 30);
+    expect(loyal.hero!.claim).toBe('loyalist');
+    // the loyalist is on his knees right in front of the lord (hurt by someone else)
+    w.dealDamage({ targetId: loyal.id, amount: loyal.maxHp * 0.8, type: 'true' });
+    const mind = bot(0);
+    expect(mind.beliefs.cleanLoyalClaim(loyal)).toBe(true);
+    expect(mind.hostility(loyal)).toBeLessThanOrEqual(0.2);
+    const hp0 = loyal.hp;
+    const evs = run(w, 30 * 8);
+    expect(loyal.hero!.dead).toBe(false);
+    // not a single bullet from the lord (or his squad) on the kneeling 忠-claimer
+    expect(evs.filter((e) => e.t === 'hit' && e.target === loyal.id && e.src === lord.id && e.amount > 0)).toEqual([]);
+    expect(loyal.hp).toBeGreaterThanOrEqual(hp0 - 1e-6);
+  }, 30_000);
+
+  it('a 忠-claimer who shoots the lord loses that protection', () => {
+    const { w, bot } = world(STD5, [0], ['caocao', 'guanyu', 'guanyu', 'guanyu', 'guanyu']);
+    const lord = hero(w, 0);
+    const fake = hero(w, 2);
+    tough(lord);
+    place(w, lord, 0, 30, 0);
+    place(w, fake, 0, 14);
+    [1, 3, 4].forEach((s, i) => place(w, hero(w, s), -50 + i * 5, -52));
+    setTime(w, 250);
+    act(w, 2, [{ a: 'claim', role: 'loyalist' }]);
+    run(w, 30);
+    expect(bot(0).beliefs.cleanLoyalClaim(fake)).toBe(true);
+    run(w, 30 * 3, (t) => {
+      if (t % 10 === 0) w.dealDamage({ targetId: lord.id, sourceId: fake.id, amount: 15, type: 'normal', canDodge: false });
+    });
+    expect(bot(0).beliefs.cleanLoyalClaim(fake)).toBe(false);
   }, 30_000);
 });
 

@@ -718,7 +718,7 @@ describe('许褚 Xu Chu', () => {
 
 // ── 郭嘉 ────────────────────────────────────────────────────────────────────
 describe('郭嘉 Guo Jia', () => {
-  it('天妒: a hit of 40+ grants 1 item and refills the magazine (6 s icd); smaller hits do nothing', () => {
+  it('天妒: a hit of 35+ grants 1 item and refills the magazine (5 s icd); smaller hits do nothing', () => {
     const { w, me, foe } = duel('guojia');
     bigHp(me);
     me.hero!.items = [null, null, null, null];
@@ -780,7 +780,7 @@ describe('郭嘉 Guo Jia', () => {
     expect(Math.hypot(m.pos.x - me.pos.x, m.pos.z - me.pos.z)).toBeLessThanOrEqual(40.01);
   });
 
-  it('鬼谋 marks the crosshair enemy: ×1.25 damage from every source, public reveal, squad mark', () => {
+  it('鬼谋 marks the crosshair enemy: ×takenMul damage from every source, public reveal, squad mark', () => {
     const { w, me, foe } = duel('guojia');
     bigHp(foe);
     const other = hero(w, 4);
@@ -793,8 +793,8 @@ describe('郭嘉 Guo Jia', () => {
     expect(w.hasStatus(foe.id, 'marked')).toBe(true);
     const f = foe.hp;
     w.dealDamage({ targetId: foe.id, sourceId: other.id, amount: 100, type: 'normal' });
-    expect(f - foe.hp).toBeCloseTo(125, 5);
-    stepN(w, secs(6.2));
+    expect(f - foe.hp).toBeCloseTo(100 * def.params.takenMul, 5);
+    stepN(w, secs(def.params.duration + 0.2));
     expect(w.hasStatus(foe.id, 'dmgTakenUp')).toBe(false);
     expect(w.hasStatus(foe.id, 'reveal')).toBe(false);
   });

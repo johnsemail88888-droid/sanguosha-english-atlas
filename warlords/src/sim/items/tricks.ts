@@ -3,10 +3,10 @@
 // Tunables come from ItemDef.params (data/items.ts); every use() returns false
 // (item kept) when it could not do anything, true when the card was spent.
 import type { Vec3 } from '../../core/math';
-import type { DamageType, Entity, EntityId, SquadOrder } from '../../core/types';
+import type { DamageType, DeniedReason, Entity, EntityId, SquadOrder } from '../../core/types';
 import { ITEM_BY_ID } from '../../data/items';
 import { rollRewardItems } from '../../data/loot';
-import type { SimApi } from '../api';
+import type { ItemCtx, SimApi } from '../api';
 import { ext } from '../ext';
 import { registerItem } from './registry';
 import {
@@ -36,6 +36,12 @@ import {
 import type { ThrowPlan } from './util';
 
 const P = itemParam;
+
+/** use() refusing: record why on the context (the user's private itemDenied cue) and keep the card. */
+function refuse(ctx: ItemCtx, reason: DeniedReason): false {
+  ctx.deniedReason = reason;
+  return false;
+}
 
 /**
  * A thrown item lands (visual projectile), lies on the ground as a visible
@@ -179,11 +185,11 @@ registerItem({
     const { sim, self } = ctx;
     const range = prm(ctx, 'range', ctx.def.range || 8);
     const victim = resolveEnemyHero(ctx, range, { allowDowned: true });
-    if (!victim?.hero) return false;
+    if (!victim?.hero) return refuse(ctx, ctx.target ? 'invalidTarget' : 'noTarget');
     const incl = prm(ctx, 'includeEquipment', 1) > 0;
     const vh = victim.hero;
-    if (!vh.items.some(Boolean) && !(incl && (vh.armor || vh.mount))) return false; // nothing to take
-    if (vetoes(sim, victim, 'steal', self.id)) return false; // 谦逊: cannot be targeted at all
+    if (!vh.items.some(Boolean) && !(incl && (vh.armor || vh.mount))) return refuse(ctx, 'invalidTarget'); // nothing to take
+    if (vetoes(sim, victim, 'steal', self.id)) return refuse(ctx, 'invalidTarget'); // 谦逊: cannot be targeted at all
     const before = statusStacks(victim, 'nullify', sim.time);
     const n = Math.max(1, Math.round(prm(ctx, 'count', 1)));
     let got = 0;
@@ -249,7 +255,8 @@ registerItem({
   use(ctx) {
     const { sim, self } = ctx;
     const foe = resolveEnemyHero(ctx, prm(ctx, 'range', ctx.def.range || 20));
-    if (!foe || inDuel(sim, self)) return false;
+    if (!foe) return refuse(ctx, ctx.target ? 'invalidTarget' : 'noTarget');
+    if (inDuel(sim, self)) return refuse(ctx, 'blocked');
     if (nullified(sim, foe, self.id)) return true; // 无懈可击: the duel is refused, card spent
     const dur = prm(ctx, 'duration', 8);
     const breakDist = prm(ctx, 'breakDist', 35);
@@ -341,10 +348,10 @@ registerItem({
   use(ctx) {
     const { sim, self } = ctx;
     const victim = resolveEnemyHero(ctx, prm(ctx, 'range', ctx.def.range || 40), { allowDowned: true, viaCommander: true });
-    if (!victim?.hero || !hasMinions(sim, victim)) return false;
+    if (!victim?.hero || !hasMinions(sim, victim)) return refuse(ctx, ctx.target ? 'invalidTarget' : 'noTarget');
     const searchR = prm(ctx, 'searchRadius', 40);
     let prey = hackVictimTarget(sim, victim, self.id, searchR);
-    if (!prey) return false; // nobody to turn them on: card kept
+    if (!prey) return refuse(ctx, 'needOther'); // nobody to turn them on: card kept
     if (nullified(sim, victim, self.id)) return true; // 无懈可击: hack refused, card spent
     const dur = prm(ctx, 'duration', 6);
     const poll = Math.max(0.1, prm(ctx, 'pollEvery', 0.5));
@@ -487,6 +494,13 @@ registerItem({
 // ── 桃园结义: heal everyone around (enemies too) ─────────────────────────────
 registerItem({
   id: 'taoyuan',
+  canUse(ctx) {
+    // nobody around (you included) is hurt: the card would do nothing
+    const { sim, self } = ctx;
+    const radius = prm(ctx, 'radius', 15);
+    for (const u of sim.queryRadius(self.pos, radius, { kinds: ['hero', 'troop'] })) if (isStanding(u) && u.hp < u.maxHp) return null;
+    return 'fullHp';
+  },
   use(ctx) {
     const { sim, self } = ctx;
     const radius = prm(ctx, 'radius', 15);
@@ -495,7 +509,7 @@ registerItem({
     for (const u of sim.queryRadius(self.pos, radius, { kinds: ['hero', 'troop'] })) {
       if (isStanding(u)) total += sim.heal(u.id, amount, self.id);
     }
-    if (total <= 0) return false; // nobody was hurt: card kept
+    if (total <= 0) return refuse(ctx, 'fullHp'); // nobody was hurt: card kept
     sim.emit({ t: 'explosion', pos: { ...self.pos }, radius, kind: 'heal' });
     return true;
   },
@@ -590,7 +604,7 @@ registerItem({
       .filter((e) => isEnemyUnit(sim, self, e))
       .sort((a, b) => (a.kind === 'hero' ? 0 : 1) - (b.kind === 'hero' ? 0 : 1) || flatDist(a.pos, at) - flatDist(b.pos, at) || a.id - b.id)
       .slice(0, max);
-    if (cands.length === 0) return false; // nobody to chain: card kept
+    if (cands.length === 0) return refuse(ctx, 'noTarget'); // nobody to chain: card kept
     for (const t of cands) sim.applyStatus(t.id, 'chained', dur, { sourceId: self.id });
     return true;
   },
@@ -620,14 +634,18 @@ function livingSquad(sim: SimApi, self: Entity): number {
 
 registerItem({
   id: 'zhengbing',
+  canUse(ctx) {
+    const { sim, self } = ctx;
+    return squadCap(sim, self) + Math.round(prm(ctx, 'overCap', 2)) - livingSquad(sim, self) <= 0 ? 'cap' : null;
+  },
   use(ctx) {
     const { sim, self } = ctx;
     const def = sim.heroDef(self);
     if (!def || !self.hero) return false;
     const room = squadCap(sim, self) + Math.round(prm(ctx, 'overCap', 2)) - livingSquad(sim, self);
     const n = Math.min(Math.round(prm(ctx, 'count', 2)), room);
-    if (n <= 0) return false; // squad full: card kept
-    return sim.spawnTroops(self.id, def.troopType, n).length > 0;
+    if (n <= 0) return refuse(ctx, 'cap'); // squad full: card kept
+    return sim.spawnTroops(self.id, def.troopType, n).length > 0 || refuse(ctx, 'blocked');
   },
   botShouldUse(sim, self) {
     const v = botView(sim, self);

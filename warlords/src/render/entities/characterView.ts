@@ -59,6 +59,8 @@ export const TROOP_SHADOW_DIST = 25;
 const PLATE_MAX_DIST = 140;
 /** Troop / NPC pennants are drawn within this distance (m). */
 const BADGE_MAX_DIST = 70;
+/** Near-camera fade of a rider: the mount's half length (m, before scale) stands in for the body radius. */
+const MOUNT_FADE_RADIUS = 1.05;
 
 const kingdomColors = new Map<string, THREE.Color>();
 function kingdomColorLinear(k: ViewEntity['kingdom']): THREE.Color {
@@ -254,7 +256,11 @@ export class CharacterView {
         fo.squad = inSquad;
         fo.camDir = ctx.camDir ?? null;
         fo.fovDeg = ctx.fovDeg;
-        target = cameraFadeTarget(ctx.camPos, ctx.focusPos ?? null, pos, this.headHeight(), 0.45 * this.rig.root.scale.x, fo);
+        // low crawling camera while your hero is downed: troops / NPCs get a larger near volume
+        fo.downedCam = !isHero && (ctx.local?.downed ?? false);
+        // a rider's body reaches the mount's head / rump: its "radius" is the half length
+        const radius = (this.rig.mount ? MOUNT_FADE_RADIUS : 0.45) * this.rig.root.scale.x;
+        target = cameraFadeTarget(ctx.camPos, ctx.focusPos ?? null, pos, this.headHeight(), radius, fo);
       }
       // hiding is immediate (a body inside the camera must never flash on screen), fading back in is smooth
       if (target <= CAM_FADE_HIDDEN) this.camFade = 0;

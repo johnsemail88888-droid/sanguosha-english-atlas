@@ -10,6 +10,8 @@ import { FAILSAFE_TIME } from '../../../src/sim/rules';
 import type { MatchMetrics, MatchSpec } from './harness';
 import { formatSummary, formatTable, runMatch, summarize } from './harness';
 
+// 8 matches (they run ~2× longer since the 8–12 min pacing, so the test's runtime stays about
+// what 12 shorter ones took): every player count, both modes, every difficulty.
 const SPECS: MatchSpec[] = [
   { players: 8, mode: 'standard', difficulty: 'normal', seed: 11 },
   { players: 8, mode: 'chaos', difficulty: 'hard', seed: 23 },
@@ -18,15 +20,11 @@ const SPECS: MatchSpec[] = [
   { players: 7, mode: 'chaos', difficulty: 'normal', seed: 41 },
   { players: 8, mode: 'standard', difficulty: 'easy', seed: 53 },
   { players: 5, mode: 'chaos', difficulty: 'normal', seed: 67 },
-  { players: 6, mode: 'chaos', difficulty: 'easy', seed: 71 },
-  { players: 7, mode: 'standard', difficulty: 'hard', seed: 89 },
-  { players: 8, mode: 'chaos', difficulty: 'normal', seed: 97 },
   { players: 6, mode: 'standard', difficulty: 'normal', seed: 103 },
-  { players: 7, mode: 'chaos', difficulty: 'hard', seed: 113 },
 ];
 
 describe('AI full matches', () => {
-  it(`${SPECS.length} bot matches: valid results, combat-decided, varied winners, 4–10 min, nobody stuck, tick budget`, () => {
+  it(`${SPECS.length} bot matches: valid results, combat-decided, varied winners, 6–13 min, nobody stuck, tick budget`, () => {
     const rows: MatchMetrics[] = SPECS.map((s) => runMatch(s, { timing: true }));
     process.stdout.write(`\n[ai] ${rows.length} full bot matches\n${formatTable(rows)}\n`);
     for (const r of rows) process.stdout.write(`[ai] seed ${r.spec.seed} deaths: ${r.deathLog.join(' ')}\n`);
@@ -50,18 +48,20 @@ describe('AI full matches', () => {
     // different sides win
     const winners = new Set(rows.map((r) => r.winner));
     expect(winners.size).toBeGreaterThanOrEqual(2);
-    // pacing: 4–10 minutes on average, skirmishes before the big push, deaths spread over the match
+    // pacing (8–12 min target, the circle closes at 10:40): 6–13 minutes on average, hero-vs-hero
+    // skirmishes long before the lord falls, deaths spread over the match
     const sum = summarize(rows);
     process.stdout.write(`${formatSummary(sum)}\n`);
     const avg = sum.avgDuration;
-    expect(avg).toBeGreaterThanOrEqual(240);
-    expect(avg).toBeLessThanOrEqual(600);
-    expect(sum.earlyDamageShare, 'matches with hero-on-hero damage before 180 s').toBeGreaterThanOrEqual(0.5);
+    expect(avg).toBeGreaterThanOrEqual(360);
+    expect(avg).toBeLessThanOrEqual(780);
+    expect(sum.medianFirstHit, 'median first hero-on-hero hit').toBeLessThanOrEqual(330);
+    if (rows.filter((r) => Number.isFinite(r.lordDeathAt)).length >= 2) expect(sum.medianLordGap, 'median first hit → lord death').toBeGreaterThanOrEqual(45);
     expect(sum.meanDeathSpread, 'mean seconds between the first and the last death').toBeGreaterThanOrEqual(45);
     // nobody stuck: every living, standing bot covers ground every minute
     for (const r of rows) expect(r.minMetersPerMinute, `seed ${r.spec.seed}`).toBeGreaterThanOrEqual(10);
     // the lord almost never executes a loyalist
-    expect(rows.reduce((s, r) => s + r.lordKilledLoyal, 0)).toBeLessThanOrEqual(2);
+    expect(rows.reduce((s, r) => s + r.lordKilledLoyal, 0)).toBeLessThanOrEqual(1);
     // abilities and items are used
     for (const r of rows) {
       expect(r.abilities).toBeGreaterThan(0);

@@ -328,7 +328,11 @@ export function refillMag(w: World, heroId: EntityId, slot?: number): void {
   if (slot === undefined || slot === h.activeSlot) h.reloadUntil = 0;
 }
 
-export function equip(w: World, heroId: EntityId, armorOrMountId: string): void {
+/**
+ * Equip armor / a mount; the piece it replaces drops at the hero's feet — or where `drop` says
+ * (a swap at a loot pile drops it clear of the pile, locked briefly for the hero).
+ */
+export function equip(w: World, heroId: EntityId, armorOrMountId: string, drop?: SwapDrop): void {
   const e = w.get(heroId);
   const h = e?.hero;
   if (!e || !h) return;
@@ -336,11 +340,11 @@ export function equip(w: World, heroId: EntityId, armorOrMountId: string): void 
   if (kind === 'armor' || (kind === 'unknown' && armorDef(armorOrMountId))) {
     const old = h.armor;
     setArmor(w, heroId, armorOrMountId);
-    if (old) w.spawnLoot(e.pos, { itemId: old });
+    if (old) w.spawnLoot(drop?.pos ?? e.pos, { itemId: old }, undefined, drop?.lock);
   } else if (kind === 'mount') {
     const old = h.mount;
     h.mount = armorOrMountId;
-    if (old) w.spawnLoot(e.pos, { itemId: old });
+    if (old) w.spawnLoot(drop?.pos ?? e.pos, { itemId: old }, undefined, drop?.lock);
   } else {
     warnOnce(`equip:${armorOrMountId}`, `equip: '${armorOrMountId}' is neither armor nor a mount`);
   }
@@ -601,6 +605,67 @@ export function autoPickup(w: World, e: Entity): void {
   }
 }
 
+/** Where (and with what pickup lock) the gear a swap replaces is dropped. */
+export interface SwapDrop {
+  pos: Vec3;
+  lock?: { heroId: EntityId; seconds: number };
+}
+
+/** seconds the hero who swapped gear cannot pick the old piece back up (no accidental re-swap on the next F) */
+export const SWAP_LOCK = 1.5;
+/** how far behind the hero the replaced gear lands */
+const SWAP_DROP_DIST = 1.35;
+/** loot this close to the picked item counts as its pile */
+const PILE_RADIUS = 3.5;
+
+/**
+ * Drop spot for gear replaced by a swap at `pile` (the loot just taken): ~1.35 m behind the
+ * hero, on the side away from the rest of the pile, so the next F press at the pile takes the
+ * next piece instead of the one just dropped. Picks the candidate direction that keeps the
+ * most room to every other pile item and is not behind a wall.
+ */
+export function swapDropPos(w: World, e: Entity, pile: Entity): Vec3 {
+  const others: Vec3[] = [];
+  for (const o of w.queryRadius(pile.pos, PILE_RADIUS, { kinds: ['loot', 'crate', 'airdrop'], exclude: [pile.id] })) if (o.alive) others.push(o.pos);
+  // away from the pile (its centre incl. the taken item), else straight behind the hero
+  let cx = pile.pos.x;
+  let cz = pile.pos.z;
+  for (const o of others) {
+    cx += o.x;
+    cz += o.z;
+  }
+  cx /= others.length + 1;
+  cz /= others.length + 1;
+  let bx = e.pos.x - cx;
+  let bz = e.pos.z - cz;
+  let l = Math.hypot(bx, bz);
+  if (l < 0.3) {
+    bx = Math.sin(e.yaw);
+    bz = Math.cos(e.yaw);
+    l = 1;
+  }
+  bx /= l;
+  bz /= l;
+  const chest = { x: e.pos.x, y: e.pos.y + 0.8, z: e.pos.z };
+  let best: Vec3 | null = null;
+  let bestRoom = -Infinity;
+  for (const deg of [0, 40, -40, 80, -80, 125, -125, 180]) {
+    const a = (deg * Math.PI) / 180;
+    const dx = bx * Math.cos(a) - bz * Math.sin(a);
+    const dz = bx * Math.sin(a) + bz * Math.cos(a);
+    const p = { x: e.pos.x + dx * SWAP_DROP_DIST, y: e.pos.y, z: e.pos.z + dz * SWAP_DROP_DIST };
+    if (!w.lineOfSight(chest, { x: p.x, y: p.y + 0.8, z: p.z })) continue;
+    let room = Infinity;
+    for (const o of others) room = Math.min(room, Math.hypot(o.x - p.x, o.z - p.z));
+    if (room >= 1.2) return p;
+    if (room > bestRoom) {
+      bestRoom = room;
+      best = p;
+    }
+  }
+  return best ?? { x: e.pos.x, y: e.pos.y, z: e.pos.z };
+}
+
 /** Pick up a loot entity. Equipment only when `explicit` (F). */
 export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boolean {
   const h = e.hero!;
@@ -620,7 +685,8 @@ export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boole
     h.reloadUntil = 0;
     h.burst = 0;
     w.removeEntity(l.id);
-    if (old) w.spawnLoot(l.pos, { weaponId: old.id }, old);
+    // the replaced gun lands behind the hero, clear of the pile, briefly locked for him
+    if (old) w.spawnLoot(swapDropPos(w, e, l), { weaponId: old.id }, old, { heroId: e.id, seconds: SWAP_LOCK });
     w.emit({ t: 'pickup', who: e.id, item: lo.weaponId });
     return true;
   }
@@ -629,7 +695,7 @@ export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boole
   if (kind === 'armor' || kind === 'mount') {
     if (!explicit) return false;
     w.removeEntity(l.id);
-    equip(w, e.id, id);
+    equip(w, e.id, id, { pos: swapDropPos(w, e, l), lock: { heroId: e.id, seconds: SWAP_LOCK } });
     w.emit({ t: 'pickup', who: e.id, item: id });
     return true;
   }

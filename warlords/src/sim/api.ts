@@ -292,4 +292,9 @@ export interface SimApi {
 /** AI brain for bot heroes: produce an InputFrame each tick. */
 export interface BotBrain {
   think(sim: SimApi, self: Entity, dt: number): InputFrame;
+  /**
+   * optional: called once when this brain takes over a seat mid-match (World.convertToBot — a
+   * dropped player's hero), before its first think(). The hero keeps its public claim.
+   */
+  takeOver?(sim: SimApi, self: Entity): void;
 }

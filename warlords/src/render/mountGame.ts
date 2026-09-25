@@ -47,6 +47,8 @@ export interface MountGameOptions {
   sync?: boolean;
 }
 
+const noop = (): void => undefined;
+
 /** Run `fn` after the browser had a chance to paint (hidden tabs: next task). */
 function afterPaint(fn: () => void): void {
   if (typeof document !== 'undefined' && !document.hidden && typeof requestAnimationFrame === 'function') {
@@ -56,7 +58,12 @@ function afterPaint(fn: () => void): void {
   }
 }
 
-export function mountGameView(container: HTMLElement, view: ViewSource, opts: MountGameOptions = {}): GameViewHandle {
+export function mountGameView(container: HTMLElement, viewSource: ViewSource, opts: MountGameOptions = {}): GameViewHandle {
+  // Everything the returned handle's closures can reach is dropped on dispose()
+  // (view, renderer, subscribers, callbacks): a UI object that outlives the
+  // match and still holds this handle must not keep the match alive.
+  let view: ViewSource | null = viewSource;
+  let onFrame = opts.onFrame;
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;outline:none';
   canvas.tabIndex = 0;
@@ -92,12 +99,13 @@ export function mountGameView(container: HTMLElement, view: ViewSource, opts: Mo
 
   const frame = (dt: number): void => {
     const r = renderer;
-    if (!r) return;
+    const v = view;
+    if (!r || !v) return;
     const f = input.sample(r);
-    view.pushInput(f);
-    view.update(dt);
+    v.pushInput(f);
+    v.update(dt);
     r.frame(dt);
-    opts.onFrame?.(dt);
+    onFrame?.(dt);
   };
 
   const loop = (now: number): void => {
@@ -118,6 +126,7 @@ export function mountGameView(container: HTMLElement, view: ViewSource, opts: Mo
   };
 
   const build = (): boolean => {
+    if (!view) return false;
     try {
       const r = new GameRenderer(canvas, view);
       renderer = r;
@@ -186,24 +195,29 @@ export function mountGameView(container: HTMLElement, view: ViewSource, opts: Mo
     get ready() {
       return progress.stage === 'ready' || progress.stage === 'failed';
     },
+    // after dispose() every subscription is a no-op that keeps nothing
     onProgress(cb) {
+      if (disposed) return noop;
       progressSubs.add(cb);
       cb(progress);
       return () => progressSubs.delete(cb);
     },
     onEvents(cb) {
+      if (disposed) return noop;
       eventSubs.add(cb);
       return () => eventSubs.delete(cb);
     },
     onLocalFire(cb) {
+      if (disposed) return noop;
       fireSubs.add(cb);
       return () => fireSubs.delete(cb);
     },
     setSpectateTarget(id) {
+      if (disposed) return;
       spectate = id;
       renderer?.setSpectateTarget(id);
     },
-    worldToScreen: (p) => renderer?.worldToScreen(p) ?? null,
+    worldToScreen: (p) => (disposed ? null : renderer?.worldToScreen(p) ?? null),
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -216,6 +230,10 @@ export function mountGameView(container: HTMLElement, view: ViewSource, opts: Mo
       input.dispose();
       renderer?.dispose();
       canvas.remove();
+      // drop the match: renderer (world / terrain / entity buffers), view (sim / session), frame callback
+      renderer = null;
+      view = null;
+      onFrame = undefined;
     },
   };
 }

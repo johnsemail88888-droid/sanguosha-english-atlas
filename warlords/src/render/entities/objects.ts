@@ -19,6 +19,12 @@ const ROCKET_SMOKE = new THREE.Color(0.55, 0.53, 0.5);
 const SIGNAL_SMOKE = new THREE.Color(0.85, 0.12, 0.08);
 const SIGNAL_SMOKE1 = new THREE.Color(0.7, 0.45, 0.4);
 const FLARE = new THREE.Color(3, 0.6, 0.3);
+/** Dispose and forget the cached loot / crate / projectile geometries (end of a match). */
+export function releaseObjectGeometryCache(): void {
+  for (const g of geoCache.values()) g.dispose();
+  geoCache.clear();
+}
+
 function cachedGeo(key: string, build: (b: GeoBuilder) => void): THREE.BufferGeometry {
   let g = geoCache.get(key);
   if (!g) {

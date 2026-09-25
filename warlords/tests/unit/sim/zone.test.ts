@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../../src/core/rng';
-import { ZONE_PHASES, Zone } from '../../../src/sim/zone';
+import { HARD_CAP_TIME } from '../../../src/sim/rules';
+import { ZONE_CLOSED_AT, ZONE_PHASES, Zone, zonePhaseStart } from '../../../src/sim/zone';
 import { hero, makeWorld, place } from './helpers';
 
 describe('烽火圈 zone schedule', () => {
@@ -11,32 +12,39 @@ describe('烽火圈 zone schedule', () => {
       return { r: z.radius, dps: z.dps, phase: z.phase };
     };
     expect(at(0)).toEqual({ r: 230, dps: 0, phase: 0 });
-    expect(at(89)).toEqual({ r: 230, dps: 0, phase: 0 });
-    expect(at(90).phase).toBe(1);
-    expect(at(120).r).toBeCloseTo(195, 5); // halfway 230 → 160
-    expect(at(120).dps).toBe(4);
-    const p2 = at(150);
+    expect(at(149)).toEqual({ r: 230, dps: 0, phase: 0 });
+    expect(at(150).phase).toBe(1);
+    expect(at(187.5).r).toBeCloseTo(195, 5); // halfway 230 → 160
+    expect(at(187.5).dps).toBe(4);
+    const p2 = at(225);
     expect(p2.phase).toBe(2);
     expect(p2.r).toBeCloseTo(160, 5);
-    expect(at(209).r).toBeCloseTo(160, 5); // 60 s wait
-    expect(at(255).r).toBeCloseTo(100, 5);
-    expect(at(255).dps).toBe(15); // phase 3 begins at 255
-    expect(at(340).r).toBeCloseTo(55, 5);
-    expect(at(410).r).toBeCloseTo(25, 5);
-    expect(at(440).r).toBeCloseTo(25, 5);
-    expect(at(470).r).toBeCloseTo(0, 5);
-    expect(at(600)).toMatchObject({ r: 0, dps: 60, phase: 5 });
+    expect(at(299).r).toBeCloseTo(160, 5); // 75 s wait
+    expect(at(360).r).toBeCloseTo(100, 5);
+    expect(at(360).dps).toBe(15); // phase 3 begins at 360
+    expect(at(465).r).toBeCloseTo(55, 5);
+    expect(at(550).r).toBeCloseTo(25, 5);
+    expect(at(595).r).toBeCloseTo(25, 5); // last wait
+    expect(at(617.5).r).toBeCloseTo(12.5, 5);
+    expect(at(640).r).toBeCloseTo(0, 5);
+    expect(at(800)).toMatchObject({ r: 0, dps: 60, phase: 5 });
   });
 
-  it('shrink timing matches the table exactly', () => {
+  it('shrink timing matches the table exactly: the circle closes at 10:40, well before the 15:00 cap', () => {
     let t = 0;
     const starts: number[] = [];
     for (const p of ZONE_PHASES) {
       starts.push(t);
       t += p.wait + p.shrink;
     }
-    expect(starts).toEqual([0, 90, 150, 255, 340, 410]);
-    expect(t).toBe(470);
+    expect(starts).toEqual([0, 150, 225, 360, 465, 550]);
+    expect(t).toBe(640);
+    expect(ZONE_CLOSED_AT).toBe(640);
+    expect(zonePhaseStart(3)).toBe(360);
+    // 8–12 minute matches: closed between 10:30 and 11:00, the hard cap (15:00) is only a backstop
+    expect(ZONE_CLOSED_AT).toBeGreaterThanOrEqual(630);
+    expect(ZONE_CLOSED_AT).toBeLessThanOrEqual(660);
+    expect(ZONE_CLOSED_AT).toBeLessThan(HARD_CAP_TIME);
   });
 
   it('every next circle lies inside the current one (many seeds)', () => {
@@ -44,7 +52,7 @@ describe('烽火圈 zone schedule', () => {
       const z = new Zone(new Rng(seed), 900);
       let prevC = { ...z.targetCenter };
       let prevR = z.targetRadius;
-      for (let t = 0; t <= 480; t += 5) {
+      for (let t = 0; t <= 660; t += 5) {
         z.update(t);
         if (z.targetRadius !== prevR) {
           const d = Math.hypot(z.targetCenter.x - prevC.x, z.targetCenter.z - prevC.z);
@@ -85,7 +93,7 @@ describe('烽火圈 zone schedule', () => {
     const w = makeWorld(['lord', 'loyalist', 'rebel', 'rebel', 'traitor'], { zone: true });
     const e = hero(w, 2);
     // fast-forward into phase 3 (dps 15) and stand far outside
-    while (w.time < 300) w.step();
+    while (w.time < zonePhaseStart(3) + 10) w.step();
     const z = w.zoneView();
     const dx = z.center.x > 0 ? -1 : 1;
     place(w, e, dx * 58, z.center.z > 0 ? -58 : 58);

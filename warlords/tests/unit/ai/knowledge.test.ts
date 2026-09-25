@@ -72,18 +72,20 @@ describe('knowledge gate', () => {
   });
 
   it('乱世 with two possible deals averages over the consistent variants', () => {
-    // 7p chaos: [lord, loyalist, double, rebel, rebel, bounty, traitor] or [lord, loyalist, double, rebel×3, traitor]
-    const roles: RoleId[] = ['lord', 'loyalist', 'double', 'rebel', 'rebel', 'bounty', 'traitor'];
+    // 8p chaos: [lord, loyalist, double, rebel×3, bounty, traitor] or [lord, loyalist, double, rebel×3, opportunist, traitor]
+    const roles: RoleId[] = ['lord', 'loyalist', 'double', 'rebel', 'rebel', 'rebel', 'bounty', 'traitor'];
     const w = makeWorld(roles, { settings: { mode: 'chaos' } });
     const tk = tableKnowledge(w, hero(w, 1));
-    expect(tk.unknownIds.length).toBe(4);
-    expect(tk.unknown.rebel).toBeCloseTo(2.5);
+    expect(tk.unknownIds.length).toBe(5);
+    expect(tk.unknown.rebel).toBeCloseTo(3);
     expect(tk.unknown.bounty).toBeCloseTo(0.5);
+    expect(tk.unknown.opportunist).toBeCloseTo(0.5);
     expect(tk.unknown.traitor).toBeCloseTo(1);
     // the bounty hunter knows its own card: only the first deal is possible
-    const tkB = tableKnowledge(w, hero(w, 5));
-    expect(tkB.unknown.rebel).toBeCloseTo(2);
+    const tkB = tableKnowledge(w, hero(w, 6));
+    expect(tkB.unknown.rebel).toBeCloseTo(3);
     expect(tkB.unknown.bounty).toBeCloseTo(0);
+    expect(tkB.unknown.opportunist).toBeCloseTo(0);
   });
 });
 

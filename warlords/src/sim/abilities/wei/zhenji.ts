@@ -1,5 +1,5 @@
 // 甄姬 Zhen Ji — 倾国 / 洛神 / 凌波微步.
-import { deny, flatAimDir, param, setState } from '../common';
+import { circleAttack, deny, flatAimDir, param, setState } from '../common';
 import { registerAbility } from '../registry';
 import { canAct, flatDist, grantRandomItems, immobile, safeBlink, setCast } from './shared';
 
@@ -52,7 +52,8 @@ registerAbility({
 });
 
 // 凌波微步 (E): blink 10 m along your aim (targeting 'direction'), leaving a 4 m frost field at
-// the start point for 4 s that slows enemies 40 %.
+// the start point for 4 s that slows enemies 40 % and chills them (fieldDps); a frost burst at the
+// landing hits enemies within burstRadius (damage + a short slow).
 registerAbility({
   id: 'zhenji_lingbo',
   activate(ctx) {
@@ -67,15 +68,31 @@ registerAbility({
       sim.teleport(self.id, start);
       return deny(ctx, 'blocked');
     }
+    const dtype = ctx.def.dtype ?? 'pierce';
+    const tick = 0.25;
     sim.spawnHazard({
       kind: 'lingboFrost',
       ownerId: self.id,
       pos: start,
       radius: param(ctx, 'radius', 4),
       duration: param(ctx, 'duration', 4),
-      tickEvery: 0.25,
-      params: { slow: param(ctx, 'slow', 0.4) },
+      tickEvery: tick,
+      params: { slow: param(ctx, 'slow', 0.4), damage: param(ctx, 'fieldDps', 0) * tick },
+      dtype,
     });
+    // the frost burst where she lands: blink into a fight and chill everyone around
+    const burst = param(ctx, 'damage', 0);
+    if (burst > 0) {
+      const slowTime = param(ctx, 'burstSlowTime', 1.5);
+      circleAttack(sim, self, { ...dest }, param(ctx, 'burstRadius', 4), {
+        damage: burst,
+        dtype,
+        abilityId: ctx.def.id,
+        canDodge: false,
+        vfx: 'ice',
+        status: slowTime > 0 ? { id: 'slow', duration: slowTime, params: { amount: param(ctx, 'slow', 0.4) } } : undefined,
+      });
+    }
     // pos = where the blink started (the frost field; she is at the landing): the VFX streak
     setCast(ctx, { pos: start, dir });
     return true;

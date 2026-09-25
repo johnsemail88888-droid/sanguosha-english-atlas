@@ -19,6 +19,7 @@ import {
   MOUNTS,
   MOUNT_BY_ID,
   ROLES,
+  ROLE_DISTRIBUTION,
   STATUS_HINTS,
   STATUS_HINT_BY_ID,
   TROOPS,
@@ -90,15 +91,22 @@ function badNumbers(value: unknown, path: string, out: string[]): void {
   }
 }
 
-/** Params that mean "this deals damage": such abilities/items must declare `dtype` (and vice versa). */
-const DAMAGE_KEYS = ['damage', 'shotDamage', 'explodeDamage', 'fieldDps', 'dps', 'burnDps', 'bonusSlash', 'reflectFrac', 'loserDamage'];
+/**
+ * Params that mean "this deals damage": such abilities/items must declare `dtype` (and vice versa).
+ * `reflect` / `reflectFrac` = reflected damage (鬼才, 刚烈): a share of what the owner is hit with,
+ * so it has a type but no fixed size.
+ */
+const DAMAGE_KEYS = ['damage', 'shotDamage', 'explodeDamage', 'fieldDps', 'dps', 'burnDps', 'bonusSlash', 'reflectFrac', 'reflect', 'loserDamage'];
 const dealsDamage = (params: Record<string, number>): boolean => DAMAGE_KEYS.some((k) => params[k] !== undefined);
+/** Reflect abilities: all their damage is the attacker's own, bounced back — castDamage rates them 0. */
+const isReflect = (params: Record<string, number>): boolean => params.reflect !== undefined || params.reflectFrac !== undefined;
 
 /**
  * Most damage one cast can put on ONE target (all charges, every counted hit, one full fire field),
  * before the owner's passives. Line blasts (`blasts`) hit each unit once (heroes.ts header).
  */
 function castDamage(p: Record<string, number>, charges = 1): number {
+  if (isReflect(p)) return 0;
   const period = p.tickEvery ?? p.interval;
   const hits = p.bolts ?? p.arrows ?? p.shots ?? (p.duration !== undefined && period ? Math.floor(p.duration / period) : 1);
   const perHit = (p.damage ?? p.shotDamage ?? 0) + (p.explodeDamage ?? 0);
@@ -159,6 +167,37 @@ describe('ids', () => {
     expect(Object.keys(TROOP_BY_ID)).toHaveLength(TROOPS.length);
     for (const [aid, hid] of Object.entries(ABILITY_HERO)) {
       expect(HERO_BY_ID[hid].abilities).toContain(ABILITY_BY_ID[aid]);
+    }
+  });
+});
+
+describe('role tables', () => {
+  it('every table deals one lord at seat 0 and the right seat count', () => {
+    for (const mode of ['standard', 'chaos'] as const) {
+      for (const n of [5, 6, 7, 8] as const) {
+        const variants = ROLE_DISTRIBUTION[mode][n];
+        expect(variants.length, `${mode} ${n}`).toBeGreaterThan(0);
+        for (const v of variants) {
+          expect(v.length, `${mode} ${n} ${v.join(',')}`).toBe(n);
+          expect(v[0]).toBe('lord');
+          expect(v.filter((r) => r === 'lord')).toHaveLength(1);
+        }
+      }
+    }
+  });
+
+  it('乱世: every variant deals at least as many rebels as lord-side seats (lord, loyalists, 影武者)', () => {
+    // both crowns carry the lord's +100 HP / +2 soldiers: 1 rebel against 2 crowns, or 2 rebels against
+    // 3 lord-side seats, was a walkover (G4 balance: 乱世 rebels won ~21 %; ≥ 30 % after this rule)
+    for (const n of [5, 6, 7, 8] as const) {
+      for (const v of ROLE_DISTRIBUTION.chaos[n]) {
+        const rebels = v.filter((r) => r === 'rebel').length;
+        const lordSide = v.filter((r) => r === 'lord' || r === 'loyalist' || r === 'double').length;
+        expect(rebels, v.join(',')).toBeGreaterThanOrEqual(lordSide);
+        // …and still swaps in at least one 乱世 role, and keeps the 内奸
+        expect(v.some((r) => r === 'double' || r === 'opportunist' || r === 'bounty'), v.join(',')).toBe(true);
+        expect(v.filter((r) => r === 'traitor'), v.join(',')).toHaveLength(1);
+      }
     }
   });
 });
@@ -317,13 +356,14 @@ describe('heroes', () => {
         .map((a) => {
           const base = castDamage(a.params, a.charges ?? 1);
           const mul = passiveMul(h.id, a);
-          return { ability: a.id, dtype: a.dtype, cd: a.cooldown, base: Math.round(base), passiveMul: mul, burst: Math.round(base * mul) };
+          return { ability: a.id, dtype: a.dtype, cd: a.cooldown, base: Math.round(base), passiveMul: mul, burst: Math.round(base * mul), reflect: isReflect(a.params) };
         }),
     );
     // eslint-disable-next-line no-console
     console.table(rows);
     for (const r of rows) {
-      expect(r.base, `${r.ability} recognised by castDamage`).toBeGreaterThan(0);
+      // a reflect has no size of its own (it returns the attacker's damage): nothing to recognise
+      if (!r.reflect) expect(r.base, `${r.ability} recognised by castDamage`).toBeGreaterThan(0);
       expect(r.burst, `${r.ability} burst`).toBeLessThan(300);
     }
     // 酒 must stay weapon-only, otherwise single-hit abilities (辕门射戟, 百步穿杨) double past the cap

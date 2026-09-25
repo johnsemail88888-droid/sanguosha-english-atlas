@@ -186,9 +186,28 @@ function crateVariant(e: ViewEntity): '1' | '2' | '3' {
   return /3|gold|air/.test(e.sub) ? '3' : /2|bronze/.test(e.sub) ? '2' : '1';
 }
 
+/** A reference that does not keep its target alive (strong where WeakRef is missing). */
+interface Ref<T> {
+  deref(): T | undefined;
+}
+function weakRef<T extends object>(v: T): Ref<T> {
+  return typeof WeakRef === 'function' ? new WeakRef(v) : { deref: () => v };
+}
+
 export class EventRouter {
-  private view: ViewSource | null = null;
-  private surfaces: SurfaceIndex | null = null;
+  /**
+   * The match view being fed and its surface index, held weakly: the engine
+   * outlives every match, and a finished match (its view → host → sim world,
+   * map) must not stay in memory through it.
+   */
+  private viewRef: Ref<ViewSource> | null = null;
+  private surfacesRef: Ref<SurfaceIndex> | null = null;
+  private get view(): ViewSource | null {
+    return this.viewRef?.deref() ?? null;
+  }
+  private get surfaces(): SurfaceIndex | null {
+    return this.surfacesRef?.deref() ?? null;
+  }
   private pendingLocal: PendingShot[] = [];
   private lastShotAt = new Map<EntityId, number>();
   private flags = new Map<EntityId, number>();
@@ -314,12 +333,14 @@ export class EventRouter {
   handle(events: readonly GameEvent[], view: ViewSource): void {
     if (view !== this.view) {
       this.reset();
-      this.view = view;
+      this.viewRef = weakRef(view);
+      let idx: SurfaceIndex | null = null;
       try {
-        this.surfaces = surfaceIndexFor(view.map);
+        idx = surfaceIndexFor(view.map);
       } catch {
-        this.surfaces = null;
+        idx = null;
       }
+      this.surfacesRef = idx ? weakRef(idx) : null;
     }
     const now = this.sink.now();
     const dt = this.lastUpdate < 0 ? 0 : Math.max(0, Math.min(0.25, now - this.lastUpdate));
@@ -362,7 +383,7 @@ export class EventRouter {
       case 'explosion': {
         const k = (ev.kind || '').toLowerCase();
         // EMP pulse (过河拆桥): an electric crack, not a frag blast — the thunder recipe, kept small
-        const emp = /emp/.test(k);
+        const emp = /(^|[^a-z])emp([^a-z]|$)/.test(k); // 'emp', 'emp_pulse' — not 'tempest'
         const variant = /fire|napalm|incend|burn|flame/.test(k)
           ? 'fire'
           : emp || /thunder|lightning|storm|shock/.test(k)

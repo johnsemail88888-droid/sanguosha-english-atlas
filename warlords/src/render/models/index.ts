@@ -6,9 +6,9 @@ import { HERO_BY_ID, MOUNT_BY_ID, TROOP_BY_ID } from '../../data';
 import type { HeroVisual, TroopTypeDef } from '../../data/types';
 import { kingdomColor } from '../palette';
 import { hashString } from '../core/noise';
-import { CharacterRig } from './character';
-import { specFromHeroVisual, type CharacterSpec } from './humanoid';
-import { buildWeapon } from './weapons';
+import { CharacterRig, releaseMergedGeometryCache } from './character';
+import { releaseCharacterGeometryCache, specFromHeroVisual, type CharacterSpec } from './humanoid';
+import { buildWeapon, releaseWeaponGeometryCache } from './weapons';
 import type { MountKind } from './mounts';
 
 export { CharacterRig } from './character';
@@ -19,6 +19,17 @@ export type { HoldStyle, WeaponModel, WeaponModelInfo } from './weapons';
 export { MountRig, MOUNT_SCALE, SADDLE_HIP } from './mounts';
 export { registerHeroGlb, resolveHeroGlbUrl, GLB_HERO_HEIGHT } from './glb';
 export type { MountKind } from './mounts';
+
+/**
+ * Free the character / weapon geometry caches (called when a match's renderer
+ * is disposed): they grow with every hero, troop and weapon a match shows
+ * (~0.5 MB per body+weapon) and would otherwise stay at the title screen.
+ */
+export function releaseModelCaches(): void {
+  releaseMergedGeometryCache();
+  releaseCharacterGeometryCache();
+  releaseWeaponGeometryCache();
+}
 
 const FALLBACK_VISUAL: HeroVisual = {
   skin: '#d9a877',

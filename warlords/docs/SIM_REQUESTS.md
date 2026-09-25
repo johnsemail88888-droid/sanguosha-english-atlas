@@ -237,6 +237,14 @@ file · function · exact proposed change · why · which ability needs it. The 
 
 ### ITEMS-7 · feedback when an item cannot be used (UX, low priority)
 - **Status:** DONE (`{ t: 'sfx', name: 'itemDenied', privateTo }` for human users when an 'enemy' card has no target or `use()` returns false). DEFERRED → AUDIO: map sfx 'itemDenied' to a short "denied" cue (router.ts).
+  **Follow-up (G4, APP-7):** the cue now says which card and why — `{ t:'sfx', name:'itemDenied', privateTo, item, reason? }`
+  with `reason` a `DeniedReason` (core/types.ts: 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' |
+  'invalidTarget' | 'silenced'); `use()` reports it through `ItemCtx.deniedReason`, and the optional
+  `ItemImplEx.canUse(ctx)` refuses *before* the 使用中 channel starts (桃 at full HP → 'fullHp', 闪 at the dodge cap /
+  杀 with full reserves / 征兵令 with a full squad → 'cap', 桃园结义 with nobody hurt → 'fullHp'). Abilities got the same:
+  `{ t:'sfx', name:'abilityDenied', privateTo, ability, reason? }` when `activate()` returns false (reason from
+  `AbilityCtx.deniedReason`, helpers `deny()` / `denyTarget()` in abilities/common.ts) or on a silenced / dancing press
+  (APP-5). Bots never get either cue. The HUD text lives in ui/hud/logic.ts `deniedText` (G1).
 - **File / function:** `src/sim/inventory.ts` `useItemSlot` (no aim target for an 'enemy' item) and `completeItem` (`use()`
   returned false: nothing to steal, nobody hurt, squad full …).
 - **Proposed change:** `w.emit({ t: 'sfx', name: 'itemDenied', pos: { ...e.pos }, privateTo: e.id })` so the HUD/audio can
@@ -264,7 +272,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   `dismount` / `stripArmor`): the EMP checks 无懈可击 itself and no longer calls `dismount`, so WU-4 cannot double-consume it.
 
 ### ITEMS-10 · RENDER + AUDIO: the EMP looks and sounds like a frag grenade; item-use VFX registry
-- **Status:** DEFERRED → RENDER (`render/vfx/effects.ts explosion()` `case 'emp'` as described; item VFX registry in `eventVfx.ts case 'itemUse'`), AUDIO (`router.ts` explosion variant `/emp|shock/` → the 'thunder' variant at low size), UI (duel indicator from `abilityState['item:juedou:vs' / ':until']`). Nothing in sim.
+- **Status:** DONE (landed by RENDER / AUDIO / UI, verified in the tree): `render/vfx/effects.ts explosion()` `case 'emp'` (blue-white rings, sphere pulse, sparks, arcs, cold flash); the item VFX registry `render/vfx/itemRegistry.ts` + `items-vfx.ts`, called from `eventVfx.ts case 'itemUse'`; AUDIO `router.ts` maps `/emp/` explosions to the electric cue (`EMP_SIZE`, recipes/world.ts `case 'emp'`); UI duel indicator from `abilityState['item:juedou:vs' / ':until']` (`ui/hud/combat.ts` `DUEL_VS_KEY` / `DUEL_UNTIL_KEY`). Nothing in sim.
 - **RENDER, `src/render/vfx/effects.ts` `explosion()`:** add `case 'emp':` — expanding blue-white shock ring on the ground
   (`fx.ring`, radius0 0.3 → radius × 1.2, color ~C(0.6, 1.2, 2.4)), a thin translucent sphere pulse (`fx.sphere`, 0.3 s),
   a handful of short electric sparks (`PT.spark`, blue, low gravity), a small cold light flash — no fireball, no smoke,
@@ -298,7 +306,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   used). The planner's 'point' + 'defense' branch (≤ 10 m midpoint) no longer applies to them.
 
 ### ITEMS-12 · docs: regenerate HEROES.md, align GAME_SPEC §7 决斗
-- **Status:** DONE for HEROES.md (regenerated with `UPDATE_DOCS=1 npx vitest run tests/unit/data`). DEFERRED → orchestrator (GAME_SPEC owner): §7 should read "**决斗** tether duel 8 s (each side's soldiers focus the other; whoever lost more HP + shield takes 80; ends early at 35 m or when someone falls)".
+- **Status:** DONE (HEROES.md regenerated with `UPDATE_DOCS=1 npx vitest run tests/unit/data`; GAME_SPEC §7 now reads "8 s tether duel; each side's soldiers focus the other; whoever lost more HP + shield takes 80; ends early at 35 m or when someone falls" — G4).
 - `docs/HEROES.md` is stale (tests/unit/data/heroes-doc.test.ts fails): item text in data/items.ts changed (借刀杀人,
   南蛮入侵, 乐不思蜀, 兵粮寸断, 闪电, and now 过河拆桥's knock-away + 5 s lock) plus Wu's 百骑劫营. Run
   `UPDATE_DOCS=1 npx vitest run tests/unit/data` (docs/ is outside the ITEMS paths).
@@ -497,7 +505,7 @@ redundant (not wrong) once the request lands.
   (`sim/abilities/wei/xiahoudun.ts` `endCharge`). Works, but ability code mutating movement state is fragile.
 
 ### WEI-7 · (render / input, not sim) face the target after 张辽 突袭 — UX
-- **Status:** DEFERRED → RENDER (input controller: on a local `{ t: 'ability', ability: 'zhangliao_tuxi', src: me }` ease the camera yaw toward `ev.target` over ~0.15 s; WEI-3 has landed).
+- **Status:** DONE (landed, verified in the tree: `src/game/input.ts` turns the local camera toward `ev.target` on the local player's own `zhangliao_tuxi` ability event — `turnToward`, skipped for `proc` events).
 - **File / function:** the client input controller (`src/game/input.ts` / render InputController) on `{ t: 'ability',
   ability: 'zhangliao_tuxi', src: <local hero> }`.
 - **Problem:** 突袭 teleports *behind* the target; when the target was facing Zhang Liao, "behind" is on the far side, so
@@ -533,7 +541,7 @@ redundant (not wrong) once the request lands.
   if a timer-less HUD icon is preferred.
 
 ### WEI-10 · mark passive procs on the ability event — UX (render gesture + audio), all kingdoms
-- **Status:** DONE sim side (`proc?: boolean` on the ability event — events are JSON, no codec bit needed; set by Wei `emitProc`, Wu `emitTrigger`, Shu `emitAbility`, Qun 再起 / 急救). DEFERRED → RENDER (`eventVfx.ts case 'ability'`: skip `src?.onCast()` when `ev.proc`) and AUDIO (`router.ts case 'ability'`: lighter cue, e.g. abilityCast gain ×0.5 / size 0.6, when `ev.proc`).
+- **Status:** DONE (sim: `proc?: boolean` on the ability event, set by Wei `emitProc`, Wu `emitTrigger`, Shu `emitAbility`, Qun 再起 / 急救; RENDER `eventVfx.ts case 'ability'` skips `src?.onCast()` when `ev.proc`; AUDIO `router.ts case 'ability'` plays the lighter `PROC_GAIN` / `PROC_SIZE` cue — landed, verified in the tree).
 - **Files:** `src/core/types.ts` (the `{ t: 'ability' }` event), `src/net/codec.ts` (one flag bit),
   `src/render/vfx/eventVfx.ts` (`case 'ability'`), `src/audio/router.ts` (`case 'ability'`).
 - **Problem:** passive triggers are announced as `{ t: 'ability' }` events (Wei `emitProc`: 奸雄 / 反馈 / 天妒; Wu
@@ -561,7 +569,7 @@ redundant (not wrong) once the request lands.
   distance at `abilityReach(def) − 1.5`, so the bot steps into reach before pressing.
 
 ### Data note (Wei)
-- **Status:** DEFERRED → DATA (tests/unit/data `castDamage` / `DAMAGE_KEYS` must learn reflect abilities before `dtype` can be added to 鬼才).
+- **Status:** DONE (G4): `tests/unit/data` counts `reflect` / `reflectFrac` as damage params (dtype required) and `castDamage` rates reflect abilities 0 (no size of their own — the "recognised" assertion skips them); `simayi_guicai` now carries `dtype: 'normal'`.
 - `simayi_guicai` deals reflected damage but carries no `dtype`: `tests/unit/data/data.test.ts` requires every damaging
   active to have a fixed size (`castDamage > 0`), which a reflect has not. If the data owner wants the header rule
   ("dtype on reflected damage too") enforced, teach `castDamage` / `DAMAGE_KEYS` about reflect abilities (e.g. rate

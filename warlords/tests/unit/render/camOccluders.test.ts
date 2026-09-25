@@ -4,7 +4,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { MapData, MapProp } from '../../../src/core/map';
-import { dirFromYawPitch, rightFromYaw } from '../../../src/core/math';
 import { CamOccluderSink, CameraOccluders } from '../../../src/render/camera/camOccluders';
 import { PickWorld } from '../../../src/render/camera/pick';
 import { CAM_BACK, resolveCameraCollision } from '../../../src/render/camera/tpsCamera';
@@ -127,8 +126,6 @@ describe('roof and dock occluders from the prop builders', () => {
     const bare = new PickWorld(flatMap(propColliders(house)));
     const raw = resolveCameraCollision(bare, pos, yaw, -0.2);
     expect(occ.contains(raw.pos)).toBe(true);
-    void dirFromYawPitch;
-    void rightFromYaw;
   });
 
   it('a hero wading beside a dock: the camera is not under the deck', () => {

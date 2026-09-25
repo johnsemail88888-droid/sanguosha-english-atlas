@@ -5,8 +5,11 @@ import type { Entity, GameEvent, MatchSettings, RoleId } from '../../../src/core
 import { emptyInput } from '../../../src/core/types';
 import { HEROES } from '../../../src/data';
 import { getAbility } from '../../../src/sim/abilities/registry';
+import { DIFFICULTY_PROFILES } from '../../../src/sim/ai/difficulty';
 import { HeroBot } from '../../../src/sim/ai/heroBot';
+import { teamPushAt } from '../../../src/sim/ai/strategy';
 import type { CreateMatchOptions, World } from '../../../src/sim/world';
+import { zonePhaseStart } from '../../../src/sim/zone';
 import { createWorld } from '../../../src/sim/world';
 import { hero, makeInit, makeWorld, place, stepN } from '../sim/helpers';
 import { realMap } from './harness';
@@ -56,6 +59,14 @@ function realWorld(roles: RoleId[], botSeat: number, heroes: string[], opts: Cre
   return { w, bot: bot! };
 }
 
+/**
+ * Well inside this table's push: the rebels' shared push time (+ up to 20 s of a rebel's own) +
+ * the 40 s a rebel who has not fought yet waits at the staging ring for company.
+ */
+function pushOn(w: World): number {
+  return teamPushAt(w, DIFFICULTY_PROFILES.normal) + 20 + 41;
+}
+
 function farAway(w: World, seats: number[]): void {
   seats.forEach((s, i) => place(w, hero(w, s), -50 + i * 6, -52));
 }
@@ -67,7 +78,7 @@ describe('combat', () => {
     place(w, lord, 0, 30);
     place(w, hero(w, 2), 0, 52);
     farAway(w, [1, 3, 4]);
-    setTime(w, 300);
+    setTime(w, pushOn(w));
     stepN(w, 30 * 8);
     expect(lord.hp).toBeLessThan(lord.maxHp);
   });
@@ -224,7 +235,7 @@ describe('loot, zone and navigation', () => {
     const { w } = realWorld(roles, 4, ['caocao', 'guanyu', 'guanyu', 'guanyu', 'guanyu'], { zone: true });
     const me = hero(w, 4);
     // play the clock normally (zone damage is accounted per tick) up to phase 3 (~100 m circle)
-    while (w.time < 262) {
+    while (w.time < zonePhaseStart(3) + 7) {
       w.step();
       w.drainEvents();
     }
@@ -261,7 +272,7 @@ describe('squad and abilities', () => {
     for (const id of hero(w, 2).hero!.squad) place(w, w.get(id)!, (id % 3) - 1, 55);
     farAway(w, [1, 3, 4]);
     for (const s of [0, 1, 3, 4]) for (const id of hero(w, s).hero!.squad) place(w, w.get(id)!, -50, 50);
-    setTime(w, 300);
+    setTime(w, pushOn(w));
     stepN(w, 30 * 6);
     expect(bot.target?.id).toBe(lord.id);
     expect(hero(w, 2).hero!.order.kind).toBe('attack');

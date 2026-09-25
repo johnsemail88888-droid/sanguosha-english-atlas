@@ -329,6 +329,17 @@ export class AbilityUser {
   }
 }
 
+/**
+ * The 主公 keeps a wider berth around his own side with area effects (m): a loyalist who steps
+ * into an arrow rain or a lightning strike he called is his own defeat — and a lasting effect
+ * (a rain, a storm cloud that follows its target) has seconds for his escort to walk into.
+ */
+function lordMargin(v: BotView, p: Record<string, number>): number {
+  if (ownRole(v.self) !== 'lord') return 0;
+  const lasting = (p.duration ?? p.lifetime ?? p.fieldTime ?? 0) > 1;
+  return lasting ? 14 : 5;
+}
+
 /** Heroes this bot must not hit with an area effect. */
 export function protectedHero(v: BotView, e: Entity, targetId: number | undefined): boolean {
   if (e === v.self || !e.hero || e.hero.dead || e.id === targetId) return false;
@@ -350,7 +361,8 @@ export function areaClear(
 ): boolean {
   const self = v.self;
   const heroes = knownHeroes(v);
-  const radius = p.radius ?? p.explodeRadius ?? p.fieldRadius ?? 0;
+  const margin = lordMargin(v, p);
+  const radius = (p.radius ?? p.explodeRadius ?? p.fieldRadius ?? 0) + margin;
   if (targeting === 'self' || targeting === 'none') {
     if (radius <= 0) return true;
     for (const e of heroes) if (protectedHero(v, e.e, targetId) && dist2d(e.p, self.pos) <= radius + 1) return false;
@@ -359,7 +371,7 @@ export function areaClear(
   if (targeting === 'enemy') {
     const r = p.radius ?? 0;
     if (r <= 0 || !aim) return true;
-    for (const e of heroes) if (protectedHero(v, e.e, targetId) && dist2d(e.p, aim) <= r * 0.6) return false;
+    for (const e of heroes) if (protectedHero(v, e.e, targetId) && dist2d(e.p, aim) <= r * 0.6 + margin) return false;
     return true;
   }
   if (!aim) return true;

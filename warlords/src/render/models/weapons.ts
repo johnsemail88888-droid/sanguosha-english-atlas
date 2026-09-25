@@ -95,6 +95,12 @@ export function weaponSpecOf(id: string): { spec: WeaponModelSpec; def?: WeaponD
 
 const cache = new Map<string, { geo: THREE.BufferGeometry; info: WeaponModelInfo }>();
 
+/** Dispose and forget the cached weapon geometries (end of a match). */
+export function releaseWeaponGeometryCache(): void {
+  for (const v of cache.values()) v.geo.dispose();
+  cache.clear();
+}
+
 /** Create a weapon mesh (geometry cached per id; shared material). */
 export function buildWeapon(id: string): WeaponModel {
   let hit = cache.get(id);

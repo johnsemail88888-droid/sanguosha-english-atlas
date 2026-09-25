@@ -18,6 +18,10 @@ export interface Poi {
 
 export const SPAWN_COUNT = 10;
 export const SPAWN_RADIUS = { min: 100, max: 120, ideal: 110 };
+/** Spawns closer than this (m) are rejected… */
+export const SPAWN_SEPARATION = 55;
+/** …unless a sector has no candidate that far out: then this is the floor. */
+export const SPAWN_SEPARATION_MIN = 36;
 /** Minimum horizontal clearance (m) between a spawn point and any collider. */
 export const SPAWN_CLEARANCE = 1.5;
 const SPOT_CLEARANCE = 0.7;
@@ -125,39 +129,44 @@ export function chooseSpots(nav: NavGrid, pois: Poi[], targets = { crate2: 12, c
 /**
  * Hero spawns on a ring ~110 m from the centre, one per angular sector. Each is
  * on dry terrain (not a deck), in the main nav component, with generous collider
- * clearance and away from NPC camps.
+ * clearance and away from NPC camps, and ≥ SPAWN_SEPARATION (55 m) from the
+ * spawns already chosen — a sector with no such candidate falls back to
+ * SPAWN_SEPARATION_MIN (36 m) rather than staying empty (APP-8).
  */
 export function chooseSpawns(map: MapData, nav: NavGrid, avoid: { pos: Vec3; r: number }[], angleOffset: number): Vec3[] {
   const out: Vec3[] = [];
-  const offsets = [0, 0.07, -0.07, 0.14, -0.14, 0.21, -0.21, 0.28, -0.28, 0.35, -0.35];
-  const radii = [SPAWN_RADIUS.ideal, 105, 115, 100, 120];
   for (let k = 0; k < SPAWN_COUNT; k++) {
     const base = angleOffset + (k * 2 * PI) / SPAWN_COUNT;
-    let found: Vec3 | null = null;
-    for (const da of offsets) {
-      for (const r of radii) {
-        const a = base + da;
-        // compass angle: 0 = north (-Z), clockwise
-        const x = r * dsin(a);
-        const z = -r * dcos(a);
-        const node = locateNode(nav, { x, y: NaN, z });
-        if (node < 0) continue;
-        const f = nav.flags[node];
-        if (!(f & NAV_MAIN) || f & NAV_WATER || linkCount(nav, node) < 8) continue;
-        const pos = navNodePos(nav, node);
-        const ground = terrainHeight(map, pos.x, pos.z);
-        if (Math.abs(pos.y - ground) > 0.01 || ground < map.waterLevel + 0.3) continue;
-        if (nav.colliders.clearance(pos.x, pos.z, ground - 0.5, ground + 2, 3) < SPAWN_CLEARANCE) continue;
-        const dc = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
-        if (dc < SPAWN_RADIUS.min || dc > SPAWN_RADIUS.max) continue;
-        if (avoid.some((c) => (c.pos.x - pos.x) * (c.pos.x - pos.x) + (c.pos.z - pos.z) * (c.pos.z - pos.z) < c.r * c.r)) continue;
-        if (out.some((s) => (s.x - pos.x) * (s.x - pos.x) + (s.z - pos.z) * (s.z - pos.z) < 36 * 36)) continue;
-        found = { x: pos.x, y: ground, z: pos.z };
-        break;
-      }
-      if (found) break;
-    }
+    const found = spawnInSector(map, nav, avoid, base, out, SPAWN_SEPARATION) ?? spawnInSector(map, nav, avoid, base, out, SPAWN_SEPARATION_MIN);
     if (found) out.push(found);
   }
   return out;
+}
+
+/** First valid spawn candidate around compass angle `base` that is ≥ `sep` m from every spawn in `out`. */
+function spawnInSector(map: MapData, nav: NavGrid, avoid: { pos: Vec3; r: number }[], base: number, out: readonly Vec3[], sep: number): Vec3 | null {
+  const offsets = [0, 0.07, -0.07, 0.14, -0.14, 0.21, -0.21, 0.28, -0.28, 0.35, -0.35];
+  const radii = [SPAWN_RADIUS.ideal, 105, 115, 100, 120];
+  for (const da of offsets) {
+    for (const r of radii) {
+      const a = base + da;
+      // compass angle: 0 = north (-Z), clockwise
+      const x = r * dsin(a);
+      const z = -r * dcos(a);
+      const node = locateNode(nav, { x, y: NaN, z });
+      if (node < 0) continue;
+      const f = nav.flags[node];
+      if (!(f & NAV_MAIN) || f & NAV_WATER || linkCount(nav, node) < 8) continue;
+      const pos = navNodePos(nav, node);
+      const ground = terrainHeight(map, pos.x, pos.z);
+      if (Math.abs(pos.y - ground) > 0.01 || ground < map.waterLevel + 0.3) continue;
+      if (nav.colliders.clearance(pos.x, pos.z, ground - 0.5, ground + 2, 3) < SPAWN_CLEARANCE) continue;
+      const dc = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+      if (dc < SPAWN_RADIUS.min || dc > SPAWN_RADIUS.max) continue;
+      if (avoid.some((c) => (c.pos.x - pos.x) * (c.pos.x - pos.x) + (c.pos.z - pos.z) * (c.pos.z - pos.z) < c.r * c.r)) continue;
+      if (out.some((s) => (s.x - pos.x) * (s.x - pos.x) + (s.z - pos.z) * (s.z - pos.z) < sep * sep)) continue;
+      return { x: pos.x, y: ground, z: pos.z };
+    }
+  }
+  return null;
 }

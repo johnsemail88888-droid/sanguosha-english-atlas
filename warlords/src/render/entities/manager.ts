@@ -160,6 +160,8 @@ export class EntityManager {
     this.kinds.clear();
     this.subs.clear();
     this.corpses = [];
+    this.died.clear();
+    this.seen.clear();
     this.badges.dispose();
   }
 }

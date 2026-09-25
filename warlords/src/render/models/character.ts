@@ -21,6 +21,12 @@ export interface RigUpdate {
 
 const mergedCache = new Map<string, THREE.BufferGeometry>();
 
+/** Dispose and forget the body+weapon geometries merged so far (end of a match). */
+export function releaseMergedGeometryCache(): void {
+  for (const g of mergedCache.values()) g.dispose();
+  mergedCache.clear();
+}
+
 let xrayMat: THREE.MeshBasicMaterial | null = null;
 function xrayMaterial(): THREE.MeshBasicMaterial {
   if (!xrayMat) {
