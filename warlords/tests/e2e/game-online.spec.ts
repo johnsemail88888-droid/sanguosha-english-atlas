@@ -3,6 +3,11 @@
 // contexts) use the UI: host creates a room in 服务器 (ws) mode — same-origin
 // relay, no configuration — guests open the invite link and join by room code;
 // everyone picks a hero, reaches 'playing' and sees the other players' heroes move.
+// Then connection trouble mid-match (NET-3): one guest's relay socket drops (it must
+// rejoin by itself within seconds, same view, seat never handed to a bot) and the
+// host's page freezes ~8 s (the guests wait for it, then the match goes on).
+// A second test joins over P2P from an invite link and reloads the guest (F5): the
+// tab keeps its seat token across the reload and gets its hero back.
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import {
   PORT_OFFSET,
@@ -61,7 +66,126 @@ async function othersSeen(page: Page): Promise<Record<number, { x: number; z: nu
   });
 }
 
-test('online (ws relay, same origin): host + 2 guests join by room code, play, see each other move', async () => {
+/** A guest back in the match after a relay blip within this (seamless rejoin: ~0.1 s idle, a few s on a loaded machine). */
+const BLIP_RECONNECT_MS = 15_000;
+/** The host's page freezes this long (under the guests' 15 s host timeout: no rejoin, just "Waiting for host…"). */
+const HOST_FREEZE_MS = 8_000;
+
+type StatusWindow = SgwlWindow & { __e2eStatus?: string[] };
+
+/** Record the session's connection status lines (English) from now on. */
+async function recordStatus(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as StatusWindow;
+    if (w.__e2eStatus) return;
+    const log: string[] = (w.__e2eStatus = []);
+    w.__sgwl!.session!.on('status', (s) => log.push(s.en));
+  });
+}
+
+const statusLog = (page: Page): Promise<string[]> => page.evaluate(() => (window as StatusWindow).__e2eStatus ?? []);
+const sessionId = (page: Page): Promise<string> => page.evaluate(() => (window as SgwlWindow).__sgwl!.session!.myId);
+const matchClock = (page: Page): Promise<number> => page.evaluate(() => (window as SgwlWindow).__sgwl!.elapsed());
+const humansSeen = (page: Page): Promise<number> => page.evaluate(() => (window as SgwlWindow).__sgwl!.players().filter((p) => !p.isBot).length);
+
+/** Wait until this page's match clock ran `seconds` past its reading now (the match goes on for it). */
+async function clockRuns(page: Page, seconds: number, timeout: number, what: string): Promise<void> {
+  const t0 = await matchClock(page);
+  await expect.poll(async () => (await matchClock(page)) - t0, { message: `${what}: the match clock runs`, timeout }).toBeGreaterThan(seconds);
+}
+
+/**
+ * A short relay drop: the guest's socket to the relay closes. The guest must rejoin
+ * the running match by itself within BLIP_RECONNECT_MS — same game view (no loading
+ * screen), its seat never handed to a bot.
+ */
+async function blipGuest(guest: Page, host: Page): Promise<void> {
+  const oldId = await guest.evaluate(() => {
+    document.querySelector<HTMLCanvasElement>('.sg-game canvas')!.dataset.e2e = 'before-blip';
+    return (window as SgwlWindow).__sgwl!.session!.myId;
+  });
+  const t0 = Date.now();
+  await guest.evaluate(() => ((window as SgwlWindow).__sgwl!.session as unknown as { transport: { ws: WebSocket } }).transport.ws.close());
+  await guest.waitForFunction(
+    (old) => {
+      const g = (window as SgwlWindow).__sgwl!;
+      return g.session!.myId !== old && g.screen === 'match' && g.phase === 'playing' && g.localEntity() !== null;
+    },
+    oldId,
+    { timeout: BLIP_RECONNECT_MS, polling: 100 },
+  );
+  const backMs = Date.now() - t0;
+  const kept = await guest.evaluate(() => {
+    const c = document.querySelectorAll<HTMLCanvasElement>('.sg-game canvas');
+    return c.length === 1 && c[0]!.dataset.e2e === 'before-blip';
+  });
+  console.log(`[online e2e] relay blip: guest back in the match after ${backMs} ms, same view: ${kept}`);
+  expect(kept, 'the rejoin keeps the game view (no loading screen, no rebuild)').toBe(true);
+  expect(await statusLog(guest)).toContain('Reconnected');
+  await clockRuns(guest, 2, 20_000, 'guest after the blip');
+  await expect.poll(() => humansSeen(host), { message: 'the host still has three humans', timeout: 10_000 }).toBe(3);
+}
+
+/**
+ * The host's page freezes for HOST_FREEZE_MS (a long GC / shader compile / debugger
+ * pause). The guests show "Waiting for host…" meanwhile, then recover on the same
+ * connection, and the match goes on: clocks run, a guest's input reaches the host.
+ */
+async function freezeHost(host: Page, guests: Page[]): Promise<void> {
+  const ids = await Promise.all(guests.map(sessionId));
+  const waited = guests.map(() => false);
+  let frozen = true;
+  const watch = (async () => {
+    while (frozen) {
+      for (const [i, g] of guests.entries()) {
+        const w = await g.evaluate(() => ((window as SgwlWindow).__sgwl!.session as unknown as { waitingForHost?: boolean }).waitingForHost === true).catch(() => false);
+        if (w) waited[i] = true;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  })();
+  const t0 = Date.now();
+  await host.evaluate((ms) => {
+    const end = performance.now() + ms;
+    while (performance.now() < end) {
+      /* the host's main thread is stuck */
+    }
+  }, HOST_FREEZE_MS);
+  frozen = false;
+  await watch;
+  console.log(`[online e2e] host frozen for ${Date.now() - t0} ms; guests saw "Waiting for host…": ${JSON.stringify(waited)}`);
+  expect(waited, 'every guest shows "Waiting for host…" while the host is frozen').toEqual(guests.map(() => true));
+  for (const g of guests) {
+    await g.waitForFunction(() => ((window as SgwlWindow).__sgwl!.session as unknown as { waitingForHost?: boolean }).waitingForHost === false, null, { timeout: 20_000, polling: 250 });
+  }
+  // the match goes on for everyone
+  await Promise.all([host, ...guests].map((p, i) => clockRuns(p, 2, 30_000, i === 0 ? 'host after the freeze' : `guest ${i} after the freeze`)));
+  // recovered on the same connection: no rejoin was needed
+  expect(await Promise.all(guests.map(sessionId))).toEqual(ids);
+  for (const g of guests) expect(await statusLog(g)).toEqual(expect.arrayContaining(['Waiting for host…', 'Host is responding again']));
+  expect(await humansSeen(host)).toBe(3);
+  // a guest's input reaches the host again: the host sees that guest walk
+  const mover = guests[guests.length - 1]!;
+  const moverId = await mover.evaluate(() => (window as SgwlWindow).__sgwl!.localId());
+  const from = (await othersSeen(host))[moverId!];
+  expect(from, 'the host sees the guest hero').toBeTruthy();
+  await mover.keyboard.down('w');
+  try {
+    await expect
+      .poll(
+        async () => {
+          const p = (await othersSeen(host))[moverId!];
+          return p ? Math.hypot(p.x - from!.x, p.z - from!.z) : 0;
+        },
+        { message: 'the host sees the guest move after the freeze', timeout: 60_000, intervals: [1000] },
+      )
+      .toBeGreaterThan(1.5);
+  } finally {
+    await mover.keyboard.up('w');
+  }
+}
+
+test('online (ws relay, same origin): host + 2 guests join by room code, play, see each other move, survive a relay blip and a host freeze', async () => {
   test.setTimeout(15 * 60_000);
   const pages: GamePage[] = [];
   try {
@@ -94,9 +218,11 @@ test('online (ws relay, same origin): host + 2 guests join by room code, play, s
     const heroes = await Promise.all(pages.map((g) => pickHero(g.page)));
     console.log(`[online e2e] heroes: ${heroes.join(', ')}`);
     await Promise.all(pages.map((g) => waitMatch(g.page, 300_000)));
+    // a guest whose page stalled while building the scene may drop and rejoin (the host shows
+    // "断开连接 … 重新连接"): its seat comes back within seconds — poll instead of reading once
     for (const g of pages) {
-      const st = await g.page.evaluate(() => ({ phase: (window as SgwlWindow).__sgwl!.phase, humans: (window as SgwlWindow).__sgwl!.players().filter((p) => !p.isBot).length }));
-      expect(st).toEqual({ phase: 'playing', humans: 3 });
+      const st = () => g.page.evaluate(() => ({ phase: (window as SgwlWindow).__sgwl!.phase, humans: (window as SgwlWindow).__sgwl!.players().filter((p) => !p.isBot).length }));
+      await expect.poll(st, { message: 'every client plays with 3 humans', timeout: 60_000 }).toEqual({ phase: 'playing', humans: 3 });
     }
 
     // everyone walks forward; every client must see the two other heroes move
@@ -124,6 +250,15 @@ test('online (ws relay, same origin): host + 2 guests join by room code, play, s
     console.log(`[online e2e] own moves: ${after.map((p, i) => Math.hypot(p.x - start[i].x, p.z - start[i].z).toFixed(1)).join(' / ')} m`);
     expect(ok, `every client sees both other heroes move: before ${JSON.stringify(before)} after ${JSON.stringify(last)}`).toBe(true);
     for (const [i, g] of pages.entries()) await g.page.screenshot({ path: test.info().outputPath(`client-${i}.png`) });
+
+    // ── NET-3: connection trouble in the running match ─────────────────────────
+    for (const g of pages) await recordStatus(g.page);
+    await blipGuest(pages[1].page, host.page);
+    await freezeHost(host.page, [pages[1].page, pages[2].page]);
+    const lines = await Promise.all(pages.map((g) => statusLog(g.page)));
+    console.log(`[online e2e] status lines: ${JSON.stringify(lines)}`);
+    // nobody was ever announced as dropped / handed to a bot
+    expect(lines.flat().filter((l) => /disconnected|bot takes over/i.test(l))).toEqual([]);
     for (const g of pages) expect(relevantErrors(g.errors)).toEqual([]);
   } finally {
     for (const g of pages) await g.ctx.close();
@@ -175,6 +310,14 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
     const guestHero = await guest.page.evaluate(() => (window as SgwlWindow).__sgwl!.local()!.heroId);
     expect(guestHero).toBe(heroes[1]);
     expect(await guest.page.evaluate(() => JSON.parse(sessionStorage.getItem('sgwl.rejoin.v1') ?? 'null'))).toMatchObject({ code, mode: 'peer' });
+    // the seat token (sessionStorage) must survive the unload: the reloaded tab reclaims
+    // its seat with it, not just by player name. Read it before the new page's app runs.
+    const tokenKey = `sgwl-seat-${code}`;
+    const seatToken = await guest.page.evaluate((k) => sessionStorage.getItem(k), tokenKey);
+    expect(seatToken, 'the guest holds a seat token').toBeTruthy();
+    await guest.page.addInitScript((k) => {
+      (window as Window & { __seatAtBoot?: string | null }).__seatAtBoot = sessionStorage.getItem(k);
+    }, tokenKey);
 
     // F5 mid-match: the tab rejoins the same room over P2P and gets its hero back.
     // The reload cancels the old page's in-flight art downloads (GLB bodies, clips and
@@ -185,12 +328,19 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
     await guest.page.reload({ waitUntil: 'commit' });
     guest.errors.splice(loggedBeforeF5);
     await waitMatch(guest.page, 300_000);
-    const after = await guest.page.evaluate(() => {
+    const after = await guest.page.evaluate((k) => {
       const g = (window as SgwlWindow).__sgwl!;
-      return { kind: g.sessionKind, phase: g.phase, hero: g.local()?.heroId, rejoin: JSON.parse(sessionStorage.getItem('sgwl.rejoin.v1') ?? 'null') };
-    });
+      return {
+        kind: g.sessionKind,
+        phase: g.phase,
+        hero: g.local()?.heroId,
+        rejoin: JSON.parse(sessionStorage.getItem('sgwl.rejoin.v1') ?? 'null'),
+        seatAtBoot: (window as Window & { __seatAtBoot?: string | null }).__seatAtBoot ?? null,
+        seat: sessionStorage.getItem(k),
+      };
+    }, tokenKey);
     console.log(`[online e2e] after F5: ${JSON.stringify(after)}`);
-    expect(after).toMatchObject({ kind: 'guest', phase: 'playing', hero: guestHero, rejoin: { code, mode: 'peer' } });
+    expect(after).toMatchObject({ kind: 'guest', phase: 'playing', hero: guestHero, rejoin: { code, mode: 'peer' }, seatAtBoot: seatToken, seat: seatToken });
     // the host's own view can trail the guest by a frame or two (a slow SwiftShader frame
     // with the art loaded): poll instead of reading once
     const humans = () => host.page.evaluate(() => (window as SgwlWindow).__sgwl!.players().filter((p) => !p.isBot).length);
