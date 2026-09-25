@@ -79,10 +79,14 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
 
 const track = <T extends GameSession>(s: T, kind: DebugSessionKind): T => (debug ? debug.trackSession(s, kind) : s);
 
+// The latest online guest session (the one the App shows; older ones are closed):
+// a reload of this tab must not give up its seat (see pagehide below).
+let guest: GameSession | null = null;
+
 const deps: AppDeps = {
   createLocalSession: (name) => track(createLocalSession({ name }), 'local'),
   hostOnline: async (name, mode) => track(await hostOnlineSession({ name, mode }), 'host'),
-  joinOnline: async (code, name, mode) => track(await joinOnlineSession(code, { name, mode }), 'guest'),
+  joinOnline: async (code, name, mode) => (guest = track(await joinOnlineSession(code, { name, mode }), 'guest')),
   mountGame,
   renderHeroPortrait,
   mountHeroTurntable,
@@ -101,6 +105,13 @@ const app = mountApp(root, deps, { version: pkg.version });
 // (persisted) must come back exactly as it was, not as an empty #app.
 window.addEventListener('pagehide', (ev) => {
   if ((ev as PageTransitionEvent).persisted) return;
+  // F5 / closing the tab is not a leave: the guest keeps its seat token (sessionStorage
+  // survives a reload of this tab) and the reloaded page reclaims the same seat with it —
+  // not just by player name. Leave it before app.dispose(), whose plain leave() (the same
+  // one the Leave button and "back to title" after game over use) would forget the token;
+  // on the already closed session that second leave() is a no-op.
+  guest?.leave({ keepToken: true });
+  guest = null;
   app.dispose();
   audio.dispose();
 });

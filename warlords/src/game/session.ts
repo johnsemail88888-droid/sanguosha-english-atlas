@@ -37,6 +37,11 @@ export type SessionEventMap = {
 
 export type SessionEvent = keyof SessionEventMap;
 
+export interface LeaveOptions {
+  /** the page is unloading (reload / tab closed), not leaving: keep the seat token (see GameSession.leave) */
+  keepToken?: boolean;
+}
+
 export interface GameSession {
   readonly isHost: boolean;
   readonly myId: PlayerId;
@@ -54,7 +59,14 @@ export interface GameSession {
   setReady(ready: boolean): void;
   pickHero(heroId: string): void;
   sendChat(text: string): void;
-  leave(): void;
+  /**
+   * Leave the room / end the session. `keepToken`: this is not a real leave but
+   * the page going away (F5 / closing the tab) — an online guest keeps its seat
+   * token (sessionStorage survives a reload of the same tab), so the reloaded
+   * page reclaims the same seat. A plain leave() forgets it: the next join is a
+   * new seat. The host and single player ignore it.
+   */
+  leave(opts?: LeaveOptions): void;
 
   // host only (no-ops on clients)
   updateSettings(patch: Partial<MatchSettings>): void;

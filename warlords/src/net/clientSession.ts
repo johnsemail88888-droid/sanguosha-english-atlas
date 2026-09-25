@@ -28,7 +28,7 @@ import {
   type PublicPlayerView,
   type RoleDealView,
 } from '../core/types';
-import type { GameSession, SessionEvent, SessionEventMap } from '../game/session';
+import type { GameSession, LeaveOptions, SessionEvent, SessionEventMap } from '../game/session';
 import type { ViewSource } from '../render/view';
 import type { ClientView } from './clientView';
 import { BIN_SNAPSHOT, isHostMsg, MAX_HERO_ID_LEN, MAX_TOKEN_LEN, sanitizeChat, sanitizeName, type ClientMsg, type HostMsg } from './protocol';
@@ -362,10 +362,16 @@ export class ClientSession implements GameSession {
     if (clean) this.send({ t: 'chat', text: clean });
   }
 
-  leave(): void {
+  /**
+   * Leave the room. `keepToken` (page unload, F5): the seat token stays in
+   * sessionStorage so the reloaded tab reclaims this seat; the host treats the
+   * 'leave' like a dropped link (drop grace, then a bot until the token is back).
+   */
+  leave(opts?: LeaveOptions): void {
     if (this.closed) return;
     this.send({ t: 'leave' });
-    saveToken(this.roomCode, null); // leaving on purpose: the next join is a new seat
+    // leaving on purpose (Leave button, back to the title after game over): the next join is a new seat
+    if (!opts?.keepToken) saveToken(this.roomCode, null);
     this.dispose();
   }
 
