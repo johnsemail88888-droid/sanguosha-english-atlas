@@ -12,6 +12,8 @@ import { crosshairStyle, deriveInteract, distanceOutsideZone, relativeBearing, s
 import type { HudFrame } from './types';
 import { viewport } from './viewport';
 import type { PortraitCache } from '../widgets';
+import { gearArt } from '../cardArt';
+import { setArt } from '../artIcons';
 
 const canAnimate = typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function';
 
@@ -275,13 +277,16 @@ export class InteractPromptView {
   private readonly keyEl: HTMLElement;
   private readonly textEl: HTMLElement;
   private readonly subEl: HTMLElement;
+  /** the painted weapon / card / armor / mount on offer (empty without art) */
+  private readonly artEl: HTMLElement;
   private key = '';
 
   constructor(private readonly onTap?: () => void) {
     this.keyEl = h('span', { class: 'sg-key' });
     this.textEl = h('span', { class: 'txt' });
     this.subEl = h('span', { class: 'sub' });
-    this.el = h('div', { class: 'hud-interact off' }, this.keyEl, this.textEl, this.subEl);
+    this.artEl = h('span', { class: 'ip-art' });
+    this.el = h('div', { class: 'hud-interact off' }, this.keyEl, this.artEl, this.textEl, this.subEl);
     this.el.addEventListener('click', () => this.onTap?.());
   }
 
@@ -302,6 +307,9 @@ export class InteractPromptView {
         setText(this.subEl, txt.sub);
         setClass(this.subEl, 'sg-hidden', !txt.sub);
         setClass(this.el, 'warn', p.kind === 'full' || (p.kind === 'revive' && p.needPeach));
+        const ref = p.kind === 'pickup' || p.kind === 'full' ? gearArt(p.itemId) : null;
+        setArt(this.artEl, ref);
+        setClass(this.artEl, 'weapon', ref?.shape === 'weapon');
       }
     }
     return p;

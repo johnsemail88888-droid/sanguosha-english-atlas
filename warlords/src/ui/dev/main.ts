@@ -4,6 +4,7 @@
 //   &overlay=wheel|chat|pause|controls  &lordPhase=1  &freePick=1  &host=0  &outside=1
 //   &double=1 (deal a 影武者; `role=double` makes it you)
 //   &weapon=<weaponId> &ads=1 (crosshair / scope preview)
+//   &status=silence,stun (statuses kept on you: the silenced ability bar)
 //   &portraits=real (use the renderer's portrait instead of the procedural mock)
 //   &real=1 (single player runs the real HostSession + sim; the 3D view stays a painted backdrop)
 //   &input=real (the in-match GameHandle uses the real InputController from src/game/input.ts)
@@ -12,7 +13,7 @@
 //   &art=0 (pretend no painted art ships: the procedural look of the single-file build)
 //   &single=1 (roles / heroSelect / loading / gameOver as a single-player session: 返回 button, 再来一局)
 //   &kind=online (hud / match as an online session: the menu reads 菜单 and never pauses)
-import type { RoleId } from '../../core/types';
+import type { RoleId, StatusId } from '../../core/types';
 import { setAssetListForTests } from '../../game/assets';
 import { settings } from '../../game/settings';
 import { mountApp, type MountAppOptions } from '../app';
@@ -63,7 +64,12 @@ if (!root) throw new Error('#app missing');
 const opts: MountAppOptions = { version: 'dev', ...(params.get('nowebgl') === '1' ? { webgl: false } : {}) };
 const online = params.get('online') !== '0';
 const isHost = params.get('host') !== '0';
-const view = { weaponId: params.get('weapon') ?? undefined, ads: params.get('ads') === '1', outside: params.get('outside') === '1' };
+const view = {
+  weaponId: params.get('weapon') ?? undefined,
+  ads: params.get('ads') === '1',
+  outside: params.get('outside') === '1',
+  statuses: (params.get('status') ?? '').split(',').filter(Boolean) as StatusId[],
+};
 const newSession = (): MockSession => {
   const s = new MockSession({ name: settings.get().playerName, isHost, online: screen === 'lobby' ? true : online && screen !== 'hud', role, state, freePick: params.get('freePick') === '1', asLord: role === 'lord', double: params.get('double') === '1', view });
   deps.lastSession = s;

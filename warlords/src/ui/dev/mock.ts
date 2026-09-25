@@ -92,6 +92,8 @@ export interface MockViewOptions {
   ads?: boolean;
   /** add a 影武者 (a second crown); implied when `role` is 'double' */
   double?: boolean;
+  /** statuses kept on you the whole time (e.g. 'silence' → the silenced ability bar) */
+  statuses?: StatusId[];
 }
 
 export class MockView implements ViewSource {
@@ -306,12 +308,30 @@ export class MockView implements ViewSource {
       const e = this.ents.get(target);
       return { t: 'death', target, killer, kind: 'hero', role, heroId: e?.sub, name: e?.name };
     };
+    // what each kill / down was made with (the kill feed's weapon / skill glyph)
+    this.events.push(...this.strike(106, 105, 'weapon'));
     this.events.push(k(106, 105, 'rebel'));
     this.events.push({ t: 'claim', who: 104, role: 'loyalist' });
     this.events.push({ t: 'chat', from: MOCK_NAMES[4], text: '主公跟我走，西边安全！' });
     this.events.push({ t: 'quickchat', who: 107, id: 'focus' });
     this.events.push({ t: 'announce', zh: '烽火圈开始收缩！', en: 'The zone is closing in!', kind: 'warn' });
+    this.events.push(...this.strike(this.myId, 107, 'ability'));
     this.events.push({ t: 'downed', target: 107, src: this.myId });
+  }
+
+  /** A shot with the attacker's weapon, or one of its hero's skills, landing on `target`. */
+  private strike(src: EntityId, target: EntityId, how: 'weapon' | 'ability'): GameEvent[] {
+    const a = this.ents.get(src);
+    const v = this.ents.get(target);
+    if (!a || !v) return [];
+    const at = { x: v.x, y: 1.2, z: v.z };
+    const from = { x: a.x, y: 1.5, z: a.z };
+    const skill = HERO_BY_ID[a.sub]?.abilities.find((x) => x.slot === 'q' || x.slot === 'e');
+    const lead: GameEvent =
+      how === 'ability' && skill
+        ? { t: 'ability', src, ability: skill.id, target, pos: at }
+        : { t: 'shot', src, weapon: a.weapon ?? 'pistol', from, to: at, hit: target };
+    return [lead, { t: 'hit', target, src, amount: 60, dtype: 'normal', pos: at }];
   }
 
   /** single-player pause (MockSession.setPaused): the clock and the "sim" stand still */
@@ -381,6 +401,7 @@ export class MockView implements ViewSource {
       const burn = cyc(17, 3, 9);
       if (burn) st.push({ id: 'burn', remaining: burn });
       st.push({ id: 'nullify', remaining: 14.2 });
+      for (const id of this.opts.statuses ?? []) st.push({ id, remaining: 6.5 });
       me.statuses = st;
       // channel every 20 s
       const ch = (t % 20) / 2;
@@ -446,7 +467,10 @@ export class MockView implements ViewSource {
       const i = this.killIdx++ % victims.length;
       const v = this.ents.get(victims[i]);
       const roles: RoleId[] = ['rebel', 'traitor', 'loyalist', 'rebel'];
-      if (v) this.events.push({ t: 'death', target: v.id, killer: killers[i], kind: 'hero', role: roles[i], heroId: v.sub, name: v.name });
+      if (v) {
+        this.events.push(...this.strike(killers[i], v.id, i % 2 ? 'ability' : 'weapon'));
+        this.events.push({ t: 'death', target: v.id, killer: killers[i], kind: 'hero', role: roles[i], heroId: v.sub, name: v.name });
+      }
     }
     if (tm.ann <= 0) {
       tm.ann = 16;
@@ -524,7 +548,7 @@ export interface MockSessionOptions {
   /** deal a 影武者 at seat 3 (implied when `role` is 'double': then it is you) */
   double?: boolean;
   /** passed through to the MockView */
-  view?: Pick<MockViewOptions, 'weaponId' | 'ads' | 'outside'>;
+  view?: Pick<MockViewOptions, 'weaponId' | 'ads' | 'outside' | 'statuses'>;
   roomCode?: string;
 }
 
@@ -878,8 +902,8 @@ export class MockSession implements GameSession {
     this.emit('error', { code, zh, en });
   }
 
-  /** Harness: emit a status line. */
-  status(zh: string, en: string): void {
-    this.emit('status', { zh, en });
+  /** Harness: emit a status line (`extra.key` / `clear`: a keyed condition such as 'waitingHost'). */
+  status(zh: string, en: string, extra: { key?: string; clear?: boolean } = {}): void {
+    this.emit('status', { zh, en, ...extra });
   }
 }

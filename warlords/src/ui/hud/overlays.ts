@@ -2,13 +2,15 @@
 // (T), pause menu (Esc).
 import type { MapData } from '../../core/map';
 import type { EntityId, ItemStack, PrivateHeroView, PublicPlayerView, RoleId } from '../../core/types';
-import { ITEMS, ITEM_BY_ID } from '../../data';
+import { ITEMS, ITEM_BY_ID, ROLE_BY_ID } from '../../data';
 import { h, setText } from '../dom';
 import { getLang, heroName, roleName, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
 import { CLAIMABLE_ROLES, CLAIM_TEXT, QUICKCHAT, ROLE_GLYPH, roleColor, roleInk } from '../theme';
 import { itemShort } from '../short';
 import { button, heroIcon, kingdomBadge, roleSeal, type PortraitCache } from '../widgets';
+import { gearArt, roleCardPath } from '../cardArt';
+import { artEl, artUrl, roleArt, roleCardBadge, setArt } from '../artIcons';
 import { drawBigMap, type MarkerInput } from './minimap';
 
 /**
@@ -86,7 +88,7 @@ export class Scoreboard {
           h('td', { class: 'num' }, String(p.seat + 1)),
           h('td', null, h('span', { class: 'hero-cell' }, this.heroIcon(p), heroName(p.heroId))),
           h('td', null, displayName(p.name, getLang()), p.isBot ? h('span', { class: 'sg-chip bot' }, t('common.bot')) : null, allyChip(p)),
-          h('td', null, role ? h('span', { class: 'role-cell', style: `color:${roleInk(role)}` }, roleSeal(role, '1.5em'), roleName(role)) : h('span', { class: 'sg-mute' }, t('score.hidden'))),
+          h('td', null, role ? h('span', { class: 'role-cell', style: `color:${roleInk(role)}` }, this.roleIcon(p.entityId, role), roleName(role)) : h('span', { class: 'sg-mute' }, t('score.hidden'))),
           h('td', null, p.claim ? h('span', { class: 'role-cell claim', style: `color:${roleInk(p.claim)}` }, roleSeal(p.claim, '1.4em', true), roleName(p.claim)) : '—'),
           h('td', { class: 'num' }, String(p.kills)),
           h('td', null, h('span', { class: `st ${status}` }, t(status === 'dead' ? 'score.dead' : status === 'downed' ? 'score.downed' : 'score.alive'))),
@@ -106,6 +108,17 @@ export class Scoreboard {
           ]
         : []),
     );
+  }
+
+  /** The revealed role: its painted card when the art ships (cached like the avatars: no re-decode), else the seal. */
+  private roleIcon(entityId: EntityId, role: RoleId): HTMLElement {
+    const key = `role|${entityId}|${role}`;
+    let el = this.icons.get(key);
+    if (!el) {
+      el = roleCardBadge(role, () => roleSeal(role, '1.5em'), 'sb-card');
+      this.icons.set(key, el);
+    }
+    return el;
   }
 
   private heroIcon(p: PublicPlayerView): HTMLElement {
@@ -277,13 +290,18 @@ export interface PauseContext {
   isHost(): boolean;
   /** your item slots (for the card guide) */
   items(): readonly (ItemStack | null)[];
+  /** your role (the painted identity card reminder, when the art ships) */
+  role?(): RoleId | undefined;
 }
 
 /** One card row of the 锦囊说明 list: glyph, name (+ count), one-line effect. */
 export function cardRow(id: string, count?: number): HTMLElement {
   const def = ITEM_BY_ID[id];
+  const glyph = h('span', { class: 'item-glyph', style: `--ic:${def?.color ?? '#999'}` }, def?.icon ?? id.slice(0, 1));
+  // the card's painted emblem in a round frame when the art ships
+  setArt(glyph, gearArt(id), { lazy: true });
   const el = h('li', { class: 'pc-card', data: { item: id } },
-    h('span', { class: 'item-glyph', style: `--ic:${def?.color ?? '#999'}` }, def?.icon ?? id.slice(0, 1)),
+    glyph,
     h('div', { class: 'pc-text' },
       h('b', null, def ? tx(def.nameZh, def.nameEn) : id, count && count > 1 ? h('span', { class: 'cnt' }, ` ×${count}`) : null),
       h('span', { class: 'desc' }, def ? tx(def.descZh, def.descEn) : ''),
@@ -335,6 +353,27 @@ export class PauseMenu {
     return section;
   }
 
+  /** Your identity card and goal (only with the painted card art: the menu is unchanged without it). */
+  private roleReminder(): HTMLElement | null {
+    const role = this.ctx.role?.();
+    if (!role || !artUrl(roleCardPath(role))) return null;
+    const def = ROLE_BY_ID[role];
+    let el: HTMLElement | null = null;
+    // a file that fails to load takes the whole reminder away (the menu as it was)
+    const card = h('span', { class: 'sg-rcard pm-rcard' }, artEl(roleArt(role), { onFail: () => el?.remove() }));
+    el = h('div', { class: 'pm-role' },
+      card,
+      h('div', { class: 'pm-rtext' },
+        h('span', { class: 'yr' }, t('roles.yourRole')),
+        h('b', null, roleName(role)),
+        def ? h('span', { class: 'goal' }, tx(def.goalZh, def.goalEn)) : null,
+      ),
+    );
+    el.style.setProperty('--rc', roleColor(role));
+    el.style.setProperty('--ri', roleInk(role));
+    return el;
+  }
+
   render(): void {
     if (this.mode === 'click') {
       const prompt = h('button', { class: 'click-prompt', type: 'button' }, h('span', { class: 'sg-seal', style: '--sz:2.4em' }, h('span', null, '战')), h('span', null, t('hud.clickToPlay')));
@@ -350,6 +389,7 @@ export class PauseMenu {
         h('div', { class: 'pm-box sg-panel sg-corners' },
           h('h2', { class: 'sg-h2 sg-title-bar' }, online ? t('pause.menu') : t('pause.title')),
           online ? h('p', { class: 'pm-note' }, h('span', { class: 'live' }), t('pause.onlineNote')) : null,
+          this.roleReminder(),
           button(t('pause.resume'), () => this.actions.resume(), { cls: 'gold wide', sfx: 'confirm' }),
           button(t('pause.settings'), () => this.actions.settings(), { cls: 'dark wide' }),
           button(t('pause.controls'), () => this.actions.help(), { cls: 'dark wide' }),

@@ -587,3 +587,153 @@ test('touch: map / scoreboard let the controls through, every overlay button tog
   expect(errors).toEqual([]);
   await ctx.close();
 });
+
+// ── wave 2: painted card / icon art, lord toast, link chip ───────────────────
+
+/** Like open(), also recording every HTTP error and every card / icon / weapon art request. */
+async function openArt(query: string, width = 1280, height = 720): Promise<Opened & { http: string[]; art: string[] }> {
+  const ctx = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  const errors: string[] = [];
+  const http: string[] = [];
+  const art: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text());
+  });
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+  page.on('response', (r) => {
+    if (r.status() >= 400) http.push(`${r.status()} ${r.url()}`);
+    if (/\/assets\/(cards|icons|weapons)\//.test(r.url())) art.push(r.url());
+  });
+  await page.goto(`${URL}?${query}`);
+  return { ctx, page, errors, http, art };
+}
+
+/** card / icon art elements anywhere in the UI */
+const artCount = (page: Page): Promise<number> => page.evaluate(() => document.querySelectorAll('.sg-art, .art-on, .sg-rcard, .front.art, .pm-role').length);
+
+type ArtHarness = { __ui: { deps: { lastGame: { emitUiKey(k: string, d: boolean): void }; lastSession: { heroSelect: object; emit(e: string, v: unknown): void; othersPhase(): void; status(zh: string, en: string, extra?: { key?: string; clear?: boolean }): void } } } };
+
+test('card art: HUD, pause, identity card and 玩法说明 use the painted art — without files, not one art element or request', async () => {
+  const a = await openArt('screen=hud');
+  const pg = a.page;
+  await expect(pg.locator('.hud-abilities .ico.art-on .sg-art.disc img').first()).toBeVisible({ timeout: 15_000 });
+  expect(await pg.locator('.hud-abilities .ico.art-on').count()).toBeGreaterThanOrEqual(2);
+  await expect(pg.locator('.hud-abilities .item .card.art-on')).toHaveCount(3);
+  await expect(pg.locator('.v-gear .gchip.art-on')).toHaveCount(2);
+  await expect(pg.locator('.role-chip .sg-rcard img')).toBeVisible();
+  // the weapon render: black cut out on a canvas (a blob URL)
+  await expect(pg.locator('.w-main.art-on .w-art img')).toHaveAttribute('src', /^blob:/, { timeout: 30_000 });
+  await expect(pg.locator('.w-slots .wslot.art-on')).toHaveCount(2);
+  // the seeded kill: its weapon glyph in the feed
+  await expect(pg.locator('.hud-feed .kf .kf-how').first()).toBeVisible();
+  // every round emblem / card decoded (no broken image)
+  await expect.poll(() => pg.evaluate(() => [...document.querySelectorAll<HTMLImageElement>('.sg-art.disc img, .sg-rcard img')].every((i) => i.complete && i.naturalWidth > 0))).toBe(true);
+  // pause: your identity card and goal
+  await pg.evaluate(() => (window as unknown as ArtHarness).__ui.deps.lastGame.emitUiKey('menu', true));
+  await expect(pg.locator('.pm-role .sg-rcard img')).toBeVisible();
+  expect(a.http, 'http errors').toEqual([]);
+  expect(a.errors).toEqual([]);
+  await a.ctx.close();
+
+  const r = await openArt('screen=roles&role=rebel');
+  await expect(r.page.locator('.flip-card.flipped .front.art .sg-art img')).toBeVisible({ timeout: 15_000 });
+  await expect(r.page.locator('.flip-card .front.art .rname')).toHaveText('反贼');
+  expect(r.http).toEqual([]);
+  expect(r.errors).toEqual([]);
+  await r.ctx.close();
+
+  const hp = await openArt('screen=help');
+  await expect(hp.page.locator('.role-row .sg-rcard')).toHaveCount(7);
+  await hp.page.locator('.sg-tab[data-tab="items"]').click();
+  await expect(hp.page.locator('.sg-table.items .item-glyph.art-on')).toHaveCount(20);
+  await hp.page.locator('.sg-tab[data-tab="gear"]').click();
+  await expect(hp.page.locator('.item-glyph.art-on')).toHaveCount(10);
+  await hp.page.locator('.sg-tab[data-tab="weapons"]').click();
+  await expect(hp.page.locator('.sg-table.weapons .wt-art')).toHaveCount(27);
+  await expect(hp.page.locator('.sg-table.weapons .wt-art img').first()).toHaveAttribute('src', /^blob:/, { timeout: 30_000 });
+  expect(hp.http).toEqual([]);
+  expect(hp.errors).toEqual([]);
+  await hp.ctx.close();
+
+  // without the art (single-file build): the procedural look — no art element, no art request
+  for (const [q, ready] of [
+    ['screen=hud&art=0', '.sg-hud .hud-weapon .w-main'],
+    ['screen=roles&role=rebel&art=0', '.flip-card.flipped .front'],
+    ['screen=gameOver&art=0', '[data-screen="gameOver"] .over-table .role-cell'],
+    ['screen=scoreboard&art=0', '.sg-hud.show-score .hud-scoreboard .role-cell'],
+  ]) {
+    const n = await openArt(q);
+    await expect(n.page.locator(ready).first(), q).toBeVisible({ timeout: 15_000 });
+    await n.page.waitForTimeout(1500);
+    expect(await artCount(n.page), q).toBe(0);
+    expect(n.art, q).toEqual([]);
+    expect(n.http, q).toEqual([]);
+    expect(n.errors, q).toEqual([]);
+    await n.ctx.close();
+  }
+  const nh = await openArt('screen=help&art=0');
+  await expect(nh.page.locator('.help-body .role-row').first()).toBeVisible({ timeout: 15_000 });
+  for (const tab of ['roles', 'items', 'gear', 'weapons']) {
+    await nh.page.locator(`.sg-tab[data-tab="${tab}"]`).click();
+    await nh.page.waitForTimeout(300);
+    expect(await artCount(nh.page), tab).toBe(0);
+  }
+  expect(nh.art).toEqual([]);
+  expect(nh.errors).toEqual([]);
+  await nh.ctx.close();
+});
+
+test('hero select: the "♛ Lord chose X" toast never covers a hero card (1280×720, 1600×900, phones)', async () => {
+  for (const [w, hgt] of [[1280, 720], [1600, 900], [390, 844], [844, 390]]) {
+    const { ctx, page, errors } = await open('screen=heroSelect&lordPhase=1', w, hgt);
+    // the lord phase: you wait (no cards yet) while the crown picks
+    await expect(page.locator('[data-screen="heroSelect"] .picks-strip .pick').first()).toBeVisible({ timeout: 15_000 });
+    // the lord picks, then the other seats get their options while the toast is still up
+    await page.evaluate(() => {
+      const s = (window as unknown as ArtHarness).__ui.deps.lastSession;
+      s.heroSelect = { ...s.heroSelect, options: [], picks: { 0: 'liubei' } };
+      s.emit('heroSelect', s.heroSelect);
+      s.othersPhase();
+    });
+    await expect(page.locator('.lord-flash.show')).toHaveCount(1);
+    await expect(page.locator('.grid .sg-hcard')).toHaveCount(3);
+    const hits = await page.evaluate(() => {
+      const band = document.querySelector('.lord-flash .lf-band')!.getBoundingClientRect();
+      const over = (r: DOMRect): boolean => r.left < band.right && band.left < r.right && r.top < band.bottom && band.top < r.bottom;
+      return {
+        cards: [...document.querySelectorAll('.grid .sg-hcard')].filter((c) => over(c.getBoundingClientRect())).length,
+        inside: band.left >= -1 && band.right <= window.innerWidth + 1 && band.height > 0,
+      };
+    });
+    expect(hits, `${w}×${hgt}`).toEqual({ cards: 0, inside: true });
+    expect(errors).toEqual([]);
+    await ctx.close();
+  }
+});
+
+test('online HUD: a host freeze is one live chip (replaced in place, green, gone) and one chat line per change', async () => {
+  const { ctx, page, errors } = await open('screen=hud&kind=online', 1280, 720);
+  await expect(page.locator('.sg-hud .hud-vitals')).toBeVisible({ timeout: 15_000 });
+  const status = (zh: string, en: string, extra: { key?: string; clear?: boolean } = {}): Promise<void> =>
+    page.evaluate(([a, b, c]) => (window as unknown as ArtHarness).__ui.deps.lastSession.status(a, b, c), [zh, en, extra] as const);
+  const sysLines = (): Promise<number> => page.locator('.hud-chat .line.k-system').count();
+  const before = await sysLines();
+  for (let i = 0; i < 3; i++) await status('等待主机响应…', 'Waiting for host…', { key: 'waitingHost' });
+  await expect(page.locator('.link-chip')).toHaveText('⚠ 等待主机响应…');
+  await expect(page.locator('.link-chip')).toHaveAttribute('data-tone', 'warn');
+  await expect(page.locator('.hud-top .match-info')).toBeHidden();
+  expect(await sysLines()).toBe(before + 1);
+  await status('主机已恢复响应', 'Host is responding again', { key: 'waitingHost', clear: true });
+  await expect(page.locator('.link-chip')).toHaveText('✓ 主机已恢复响应');
+  expect(await sysLines()).toBe(before + 2);
+  // no announcement for the link, and the chip clears itself
+  await expect(page.locator('.hud-announce')).not.toContainText('主机');
+  await expect(page.locator('.link-chip')).toBeHidden({ timeout: 10_000 });
+  await expect(page.locator('.hud-top .match-info')).toBeVisible();
+  // a host notice still reads as a chat line + an announcement
+  await status('玩家离开了', 'A player left');
+  await expect(page.locator('.hud-announce .ann-info')).toContainText('玩家离开了');
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
