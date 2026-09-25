@@ -1,9 +1,16 @@
-// Loading: shown between hero select and the first playable frame.
+// Loading: shown between hero select and the first playable frame. With the
+// painted art: a full-bleed battle scene of your hero's kingdom behind the
+// portrait card, your role, the progress bar and a tip.
+import type { Kingdom } from '../../core/types';
+import { HERO_BY_ID, ROLE_BY_ID } from '../../data';
 import type { GameSession } from '../../game/session';
+import { assetListSync } from '../../game/assets';
+import { firstShipped, loadingArtCandidates } from '../art';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
-import { heroName, heroTitle, t, tx } from '../i18n';
-import { heroCard } from '../widgets';
+import { heroName, heroTitle, roleName, t, tx } from '../i18n';
+import { artBackdrop, type ArtBackdrop } from '../keyart';
+import { heroCard, roleSeal } from '../widgets';
 import { mySeat } from './roles';
 
 export const LOADING_TIPS: readonly [string, string][] = [
@@ -51,14 +58,49 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
     tipEl.textContent = tx(zh, en);
   };
 
+  // Painted battle scene of your hero's kingdom (none shipped: the plain screen, unchanged).
+  // When the art listing already names the file, the art layout is used from the first
+  // frame and the image fades in once decoded, so nothing jumps.
+  let art: ArtBackdrop | null = null;
+  let artKingdom: Kingdom | null | undefined;
+  const syncArt = (hero: string | null): void => {
+    const k = (hero && HERO_BY_ID[hero]?.kingdom) || null;
+    if (art && k === artKingdom) return;
+    artKingdom = k;
+    art?.dispose();
+    const candidates = loadingArtCandidates(k);
+    const next = artBackdrop(candidates, {
+      drift: true,
+      cls: 'loading',
+      onResolve: (url) => {
+        if (art !== next || (url !== null) === el.classList.contains('art')) return;
+        el.classList.toggle('art', url !== null);
+        render();
+      },
+    });
+    art = next;
+    if (firstShipped(assetListSync(), candidates)) el.classList.add('art');
+  };
+  bag.add(() => art?.dispose());
+
+  const roleLine = (): HTMLElement | null => {
+    const role = session.roles?.yourRole;
+    const def = role ? ROLE_BY_ID[role] : undefined;
+    if (!role || !el.classList.contains('art')) return null;
+    return h('div', { class: 'load-role' }, roleSeal(role, '1.7em'), h('b', null, roleName(role)), def ? h('span', null, tx(def.goalZh, def.goalEn)) : null);
+  };
+
   const render = (): void => {
     const hero = session.heroSelect?.picks[mySeat(session)] ?? ctx.myHero();
+    syncArt(hero);
     showTip();
     el.replaceChildren(
+      ...(art && el.classList.contains('art') ? [art.el] : []),
       h('div', { class: 'load-inner' },
         hero ? h('div', { class: 'load-card' }, heroCard(ctx.portraits, hero)) : null,
         h('div', { class: 'load-text' },
           hero ? h('div', { class: 'load-hero' }, h('span', { class: 'nm' }, heroName(hero)), h('span', { class: 'ttl' }, heroTitle(hero))) : null,
+          roleLine(),
           h('h1', { class: 'sg-h1' }, t('loading.title')),
           bar,
           stageEl,

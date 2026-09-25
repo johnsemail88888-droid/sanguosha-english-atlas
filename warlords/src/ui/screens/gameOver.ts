@@ -9,7 +9,7 @@ import { Bag, h } from '../dom';
 import { fmtTime, getLang, heroName, roleName, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
 import { roleInk } from '../theme';
-import { kingdomBadge, roleSeal, seal } from '../widgets';
+import { heroIcon, roleSeal, seal } from '../widgets';
 
 export interface OverRow {
   entityId: EntityId;
@@ -104,7 +104,7 @@ export function createGameOverScreen(ctx: UiCtx, session: GameSession, view: Vie
         const def = HERO_BY_ID[r.heroId];
         const tr = h('tr', { class: `${r.isMe ? 'me' : ''}${r.won ? ' won' : ''}` },
           h('td', { class: 'num' }, String(r.seat + 1)),
-          h('td', null, h('span', { class: 'hero-cell' }, kingdomBadge(def?.kingdom, '1.5em'), h('span', null, heroName(r.heroId) || '—'))),
+          h('td', null, h('span', { class: 'hero-cell' }, heroIcon(ctx.portraits, r.heroId || undefined, def?.kingdom, '1.5em'), h('span', null, heroName(r.heroId) || '—'))),
           h('td', null, r.name, r.isBot ? h('span', { class: 'sg-chip bot' }, t('common.bot')) : null, r.isMe ? h('span', { class: 'you' }, tx(`（${t('common.you')}）`, ` (${t('common.you')})`)) : null),
           h('td', null, r.role ? h('span', { class: 'role-cell', style: `color:${roleInk(r.role)}` }, roleSeal(r.role, '1.6em'), h('span', null, roleName(r.role))) : '—'),
           h('td', { class: 'num' }, String(r.kills)),
@@ -159,6 +159,8 @@ export function createGameOverScreen(ctx: UiCtx, session: GameSession, view: Vie
 
   bag.add(session.on('gameOver', () => render()));
   render();
+  // painted faces once the art listing is known (only matters when this is the first screen shown)
+  if (!ctx.portraits.known()) void ctx.portraits.whenKnown().then(() => !bag.isDisposed && render());
   return { el, relabel: render, dispose: () => bag.dispose() };
 }
 

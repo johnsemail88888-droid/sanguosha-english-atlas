@@ -92,7 +92,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
     detailBox.replaceChildren();
     if (!heroId) return;
     // crowns get the +1 勾玉; only the real Lord gets the lord skill
-    detail = heroDetail(ctx, heroId, { asLord: turn.iAmCrown, dimLord: !turn.iAmRealLord });
+    detail = heroDetail(ctx, heroId, { asLord: turn.iAmCrown, dimLord: !turn.iAmRealLord, splash: true });
     detailBox.appendChild(detail.el);
   };
 
@@ -128,7 +128,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
       flashed.set(seat, hero);
       if (seat === me) continue;
       const who = crowns.length > 1 ? `${seatName(session, seat)} · ` : '';
-      flash.replaceChildren(h('span', { class: 'crown' }, '♛'), who, t('select.lordPicked', { hero: heroName(hero) }));
+      flash.replaceChildren(...(ctx.portraits.hasArt(hero) ? [ctx.portraits.avatar(hero, 'flash-ava')] : []), h('span', { class: 'crown' }, '♛'), who, t('select.lordPicked', { hero: heroName(hero) }));
       flash.classList.add('show');
       bag.timeout(() => flash.classList.remove('show'), 2400);
       ctx.sfx('reveal');
@@ -144,7 +144,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
         // only the real Lord is told which crown is the decoy
         const decoy = crowned && !!deal && shownSeatRole(deal, st.seat, me) === 'double';
         const chip = h('div', { class: `pick${st.seat === me ? ' me' : ''}${crowned ? ' lord' : ''}${decoy ? ' decoy' : ''}${hero ? ' done' : ''}` },
-          h('div', { class: 'thumb' }, hero ? heroCard(ctx.portraits, hero, { compact: true, size: 128 }) : h('span', { class: 'q' }, '?')),
+          h('div', { class: 'thumb' }, hero ? heroCard(ctx.portraits, hero, { compact: true, size: 128, crop: 'thumb' }) : h('span', { class: 'q' }, '?')),
           h('div', { class: 'who' }, crowned ? h('span', { class: `crown${decoy ? ' decoy' : ''}`, title: decoy ? t('score.decoy') : undefined }, '♛') : null, h('span', { class: 'nm' }, displayName(st.name, getLang()))),
           h('div', { class: 'what' }, hero ? heroName(hero) : t('select.picking')),
         );

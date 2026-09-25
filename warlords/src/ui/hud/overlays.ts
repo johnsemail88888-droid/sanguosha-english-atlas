@@ -6,7 +6,7 @@ import { h, setText } from '../dom';
 import { getLang, heroName, roleName, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
 import { CLAIMABLE_ROLES, CLAIM_TEXT, QUICKCHAT, ROLE_GLYPH, roleColor, roleInk } from '../theme';
-import { button, kingdomBadge, roleSeal } from '../widgets';
+import { button, heroIcon, kingdomBadge, roleSeal, type PortraitCache } from '../widgets';
 import { drawBigMap, type MarkerInput } from './minimap';
 
 // ── Scoreboard ───────────────────────────────────────────────────────────────
@@ -17,8 +17,10 @@ export class Scoreboard {
   private readonly statsEl: HTMLElement;
   private readonly titleEl: HTMLElement;
   private lastKey = '';
+  /** hero icons per player + hero, reused across rebuilds so avatars never re-decode / flicker */
+  private readonly icons = new Map<string, HTMLElement>();
 
-  constructor() {
+  constructor(private readonly portraits: PortraitCache | null = null) {
     this.body = h('tbody');
     this.statsEl = h('div', { class: 'sb-stats' });
     this.titleEl = h('h2', { class: 'sg-h2' }, t('score.title'));
@@ -60,7 +62,7 @@ export class Scoreboard {
         const status = !p.alive ? 'dead' : p.downed ? 'downed' : 'alive';
         return h('tr', { class: `${isMe ? 'me' : ''} ${status}` },
           h('td', { class: 'num' }, String(p.seat + 1)),
-          h('td', null, h('span', { class: 'hero-cell' }, kingdomBadge(p.kingdom, '1.5em'), heroName(p.heroId))),
+          h('td', null, h('span', { class: 'hero-cell' }, this.heroIcon(p), heroName(p.heroId))),
           h('td', null, displayName(p.name, getLang()), p.isBot ? h('span', { class: 'sg-chip bot' }, t('common.bot')) : null, allyChip(p)),
           h('td', null, role ? h('span', { class: 'role-cell', style: `color:${roleInk(role)}` }, roleSeal(role, '1.5em'), roleName(role)) : h('span', { class: 'sg-mute' }, t('score.hidden'))),
           h('td', null, p.claim ? h('span', { class: 'role-cell claim', style: `color:${roleInk(p.claim)}` }, roleSeal(p.claim, '1.4em', true), roleName(p.claim)) : '—'),
@@ -82,6 +84,16 @@ export class Scoreboard {
           ]
         : []),
     );
+  }
+
+  private heroIcon(p: PublicPlayerView): HTMLElement {
+    const key = `${p.entityId}|${p.heroId}|${p.kingdom ?? ''}`;
+    let el = this.icons.get(key);
+    if (!el) {
+      el = this.portraits ? heroIcon(this.portraits, p.heroId, p.kingdom, '1.5em') : kingdomBadge(p.kingdom, '1.5em');
+      this.icons.set(key, el);
+    }
+    return el;
   }
 
   relabel(): void {

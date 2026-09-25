@@ -34,6 +34,11 @@ export interface QualityPreset {
   particles: number;
   /** decorative grass tufts around the camera */
   grass: number;
+  /**
+   * AI-art (GLB) character bodies when the deploy ships them: every character,
+   * heroes only (troops / NPCs keep the cheaper procedural bodies) or none.
+   */
+  glbCharacters: 'all' | 'heroes' | 'none';
 }
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
@@ -52,6 +57,8 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     vfxLights: 1,
     particles: 0.5,
     grass: 0,
+    // weak devices (phones): AI-art heroes, the cheaper procedural troops / NPCs
+    glbCharacters: 'heroes',
   },
   medium: {
     pixelRatioScale: 1,
@@ -68,6 +75,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     vfxLights: 2,
     particles: 0.8,
     grass: 0.6,
+    glbCharacters: 'all',
   },
   high: {
     pixelRatioScale: 1,
@@ -84,6 +92,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     vfxLights: 3,
     particles: 1,
     grass: 1,
+    glbCharacters: 'all',
   },
 };
 

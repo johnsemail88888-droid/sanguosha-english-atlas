@@ -1,5 +1,7 @@
-// Hero portraits: offscreen three.js render of the procedural hero bust with
-// dramatic lighting on a kingdom-coloured ink-wash backdrop → PNG data URL.
+// Hero portraits: offscreen three.js render of the hero bust (the AI-art GLB
+// body when the deploy ships it, else the procedural one) with dramatic lighting
+// on a kingdom-coloured ink-wash backdrop → PNG data URL. The UI prefers the
+// painted portraits (assets/portraits/*.webp); this is their fallback.
 // One shared offscreen WebGLRenderer; renders are serialised and cached per
 // heroId+size. Falls back to a 2D-canvas calligraphy card without WebGL.
 import * as THREE from 'three';
@@ -7,6 +9,8 @@ import type { Kingdom } from '../core/types';
 import { HERO_BY_ID } from '../data';
 import { CharacterRig } from './models/character';
 import { heroSpec } from './models';
+import { heroModelPath, loadCharTemplate, modelUrl } from './models/glb';
+import { loadAllClips } from './anim/glbClips';
 import { CALLIGRAPHY_FONT, inkBackdropCanvas, makeCanvas } from './core/textures';
 import { KINGDOM_COLORS } from './palette';
 
@@ -45,7 +49,10 @@ export async function renderHeroPortrait(heroId: string, size = 256): Promise<st
   const key = `${heroId}|${px}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const job = queue.then(() => renderNow(heroId, px));
+  const job = queue.then(async () => {
+    await prepareGlb(heroId);
+    return renderNow(heroId, px);
+  });
   queue = job.catch(() => undefined);
   const p = job.catch(() => fallbackPortrait(heroId, px));
   cache.set(key, p);
@@ -55,6 +62,16 @@ export async function renderHeroPortrait(heroId: string, size = 256): Promise<st
 /** Forget cached portraits (e.g. after hero data hot-reload). */
 export function clearPortraitCache(): void {
   cache.clear();
+}
+
+/** Load the hero's GLB body + clips first when the deploy ships them (so renderNow can pose it synchronously). */
+async function prepareGlb(heroId: string): Promise<void> {
+  try {
+    if (!(await modelUrl(heroModelPath(heroId)))) return;
+    await Promise.all([loadCharTemplate(heroModelPath(heroId)), loadAllClips()]);
+  } catch {
+    /* procedural portrait */
+  }
 }
 
 function renderNow(heroId: string, size: number): string {
@@ -75,11 +92,12 @@ function renderNow(heroId: string, size: number): string {
   // hero
   const rig = new CharacterRig(heroSpec(heroId, kingdom));
   rig.setWeapon(def?.signatureWeapon ?? null);
+  rig.tryGlbOverride(heroId); // synchronous when prepareGlb loaded it
   rig.root.rotation.y = Math.PI + 0.42;
   const t0 = 0.8;
-  for (let i = 0; i < 30; i++) rig.update(1 / 30, t0 + i / 30, { speed: 0, moveX: 0, moveZ: 0, pitch: 0.05, flags: 0 });
+  for (let i = 0; i < 30; i++) rig.update(1 / 30, t0 + i / 30, { speed: 0, moveX: 0, moveZ: 0, pitch: 0.05, flags: 0, lowReady: true });
   scene.add(rig.root);
-  const h = rig.spec.body === 'huge' ? 1.1 : rig.spec.body === 'heavy' ? 1.02 : 1;
+  const h = rig.usesGlb ? rig.headHeight() / 1.835 : rig.spec.body === 'huge' ? 1.1 : rig.spec.body === 'heavy' ? 1.02 : 1;
   // lights: warm key from front-left-above, cool rim from behind-right, dim fill
   const key = new THREE.DirectionalLight('#ffe0b0', 3.4);
   key.position.set(-1.6, 3.2, 2.4);
@@ -90,8 +108,10 @@ function renderNow(heroId: string, size: number): string {
   scene.add(key, rim, rim2, new THREE.HemisphereLight('#c8d4e0', '#3a2a1a', 0.7));
   const cam = new THREE.PerspectiveCamera(28, 1, 0.1, 20);
   const headY = 1.6 * h;
-  cam.position.set(0.3, headY + 0.08, 1.75);
-  cam.lookAt(0.02, headY - 0.06, 0);
+  // GLB bodies: a touch wider (hair buns, helmets and plumes are modelled, not stylised)
+  const back = rig.usesGlb ? 1.95 : 1.75;
+  cam.position.set(0.3, headY + (rig.usesGlb ? 0.02 : 0.08), back);
+  cam.lookAt(0.02, headY - (rig.usesGlb ? 0.1 : 0.06), 0);
   renderer.setClearColor('#1a1410', 1);
   renderer.render(scene, cam);
   const url = off.canvas.toDataURL('image/png');

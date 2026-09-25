@@ -7,7 +7,8 @@ import { terrainHeight } from '../../core/map';
 import { addWindSway } from '../core/materials';
 import { hash2 } from '../core/noise';
 import type { PickWorld } from '../camera/pick';
-import { terrainColor } from './terrain';
+import { currentGroundArt, onGroundArt, terrainColor } from './terrain';
+import { splatAt } from './terrainSplat';
 
 const CELL = 1.6;
 const RADIUS = 34;
@@ -60,6 +61,8 @@ export class GrassField {
   private lastKey = '';
   private readonly geo: THREE.BufferGeometry;
   private readonly mat: THREE.MeshStandardMaterial;
+  private readonly unsubArt: () => void;
+  private readonly splatTmp = new Float32Array(4);
 
   constructor(map: MapData, pick: PickWorld, capacity = 4200) {
     this.map = map;
@@ -75,6 +78,10 @@ export class GrassField {
     this.mesh.castShadow = false;
     this.mesh.receiveShadow = true;
     this.mesh.frustumCulled = false;
+    // textured ground: tufts avoid roads / plazas / mud and take the grass texture's colour
+    this.unsubArt = onGroundArt(() => {
+      this.lastKey = '';
+    });
   }
 
   setDensity(d: number): void {
@@ -108,6 +115,7 @@ export class GrassField {
     const j0 = Math.floor((cam.z - RADIUS) / CELL);
     const j1 = Math.floor((cam.z + RADIUS) / CELL);
     const keep = 0.72 * this.density;
+    const art = currentGroundArt();
     for (let j = j0; j <= j1 && n < this.capacity; j++) {
       for (let i = i0; i <= i1 && n < this.capacity; i++) {
         const h0 = hash2(i, j);
@@ -125,9 +133,20 @@ export class GrassField {
         const slope = Math.hypot(gx, gz) / 2;
         if (slope > 0.45) continue;
         if (this.pick.pointInCollider(x, y + 0.2, z)) continue;
-        terrainColor(y, slope * 2.2, x, z, wl, c);
-        // skip dirt / rock coloured ground (greenness test)
-        if (c.g < c.r * 0.95) continue;
+        if (art) {
+          const sp = this.splatTmp;
+          splatAt(art.splat, x, z, sp);
+          if (sp[0] + sp[1] + sp[2] > 0.25 || slope > 0.36) continue;
+          // grass texture average, pushed lush / dry like the ground shader
+          const dry = sp[3];
+          c.copy(art.grassAvg).multiplyScalar(1.15);
+          c.r *= 0.86 + 0.3 * dry;
+          c.b *= 0.82 - 0.16 * dry;
+        } else {
+          terrainColor(y, slope * 2.2, x, z, wl, c);
+          // skip dirt / rock coloured ground (greenness test)
+          if (c.g < c.r * 0.95) continue;
+        }
         const sc = 0.3 + hash2(i + 7, j + 3) * 0.35;
         e.set(0, hash2(i + 1, j + 1) * Math.PI * 2, 0);
         q.setFromEuler(e);
@@ -146,6 +165,7 @@ export class GrassField {
   }
 
   dispose(): void {
+    this.unsubArt();
     this.geo.dispose();
     this.mat.dispose();
     this.mesh.dispose();

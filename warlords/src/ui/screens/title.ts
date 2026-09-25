@@ -1,8 +1,12 @@
-// Title screen: animated ink-wash / gold backdrop, logo, name input, main menu.
+// Title screen: painted key art (slow ken-burns drift) or, without art, the
+// animated ink-wash / gold backdrop; logo, name input, main menu.
+import { assetListSync } from '../../game/assets';
 import { settings } from '../../game/settings';
+import { TITLE_ART } from '../art';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, s } from '../dom';
 import { getLang, t, tx } from '../i18n';
+import { artBackdrop } from '../keyart';
 import { button, seal } from '../widgets';
 
 /** Periodic ridge line (period = width/2) so the layer can scroll seamlessly. */
@@ -35,7 +39,7 @@ function mountainLayer(cls: string, fillTop: string, fillBottom: string, base: n
   );
 }
 
-function backdrop(): HTMLElement {
+function embersLayer(): HTMLElement {
   const embers = h('div', { class: 'embers' });
   let seed = 7;
   const rnd = (): number => {
@@ -51,6 +55,11 @@ function backdrop(): HTMLElement {
     e.style.setProperty('--drift', `${((rnd() - 0.5) * 120).toFixed(0)}px`);
     embers.appendChild(e);
   }
+  return embers;
+}
+
+/** The procedural backdrop (the look without painted art). */
+function backdrop(): HTMLElement {
   return h('div', { class: 'sg-title-bg', aria: { hidden: 'true' } },
     h('div', { class: 'sky' }),
     h('div', { class: 'sun' }),
@@ -61,15 +70,54 @@ function backdrop(): HTMLElement {
     h('div', { class: 'mist' }),
     h('div', { class: 'drift near' }, mountainLayer('near', '#1a120c', '#0c0806', 350, [[35, 2, 0.8], [18, 6, 0.1], [6, 14, 0.3]], 0.91)),
     h('div', { class: 'flags' }, h('i', { class: 'f1' }), h('i', { class: 'f2' })),
-    embers,
+    embersLayer(),
     h('div', { class: 'vignette' }),
   );
+}
+
+/**
+ * Backdrop host: the key art when the deploy ships it (the procedural scene if
+ * not, or if the listing is slow — the art then fades in over it).
+ */
+function titleBackdrop(bag: Bag, onArt: () => void): HTMLElement {
+  const host = h('div', { class: 'sg-title-bghost' });
+  const known = assetListSync();
+  if (known && !known.has(TITLE_ART)) {
+    host.appendChild(backdrop());
+    return host;
+  }
+  let fallback: HTMLElement | null = null;
+  const useFallback = (): void => {
+    if (fallback) return;
+    fallback = backdrop();
+    host.prepend(fallback);
+  };
+  const art = artBackdrop([TITLE_ART], {
+    drift: true,
+    cls: 'title',
+    onResolve: (url) => {
+      if (!url) {
+        useFallback();
+        return;
+      }
+      host.appendChild(h('div', { class: 'sg-title-bg sg-title-art', aria: { hidden: 'true' } }, art.el, h('div', { class: 'shade' }), embersLayer(), h('div', { class: 'vignette' })));
+      onArt();
+      // the art arrived after the procedural scene was put up: drop it (and its animations) once faded over
+      const covered = fallback;
+      if (covered) bag.timeout(() => covered.remove(), 900);
+    },
+  });
+  bag.add(art);
+  bag.timeout(() => {
+    if (art.url === undefined) useFallback();
+  }, 2500);
+  return host;
 }
 
 export function createTitleScreen(ctx: UiCtx, version: string): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-title', data: { screen: 'title' } });
-  const bg = backdrop();
+  const bg = titleBackdrop(bag, () => el.classList.add('has-art'));
 
   const render = (): void => {
     el.replaceChildren(bg);

@@ -3,6 +3,7 @@
 // ornaments. Built into a GeoBuilder in the current local frame.
 import * as THREE from 'three';
 import { GeoBuilder, PRIM, col, shade, trs, type ColorLike } from '../core/geo';
+import { SURF, packSurf, type SurfId } from '../core/structureMaterial';
 
 const _n = new THREE.Vector3();
 const _ab = new THREE.Vector3();
@@ -56,6 +57,8 @@ export interface RoofOptions {
   plain?: boolean;
   nu?: number;
   nv?: number;
+  /** texture layer of the roof surface in AI-art mode (default roof tiles; thatch / cloth: plain) */
+  surface?: SurfId;
 }
 
 /**
@@ -63,6 +66,16 @@ export interface RoofOptions {
  * The ridge runs along X (the longer side should be w).
  */
 export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: number, d: number, h: number, o: RoofOptions): void {
+  const prev = b.extra;
+  try {
+    hipRoofRaw(b, cx, y0, cz, w, d, h, o);
+  } finally {
+    b.extra = prev;
+  }
+}
+
+function hipRoofRaw(b: GeoBuilder, cx: number, y0: number, cz: number, w: number, d: number, h: number, o: RoofOptions): void {
+  const tileSurf = packSurf(o.surface ?? SURF.roof);
   const oh = o.overhang ?? 0.6;
   const W = w + oh * 2;
   const D = d + oh * 2;
@@ -100,6 +113,7 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
   for (let side = 0; side < 4; side++) {
     const out = outward[side];
     const down = out.clone().setY(-1);
+    b.extra = tileSurf;
     for (let i = 0; i < nu; i++) {
       const u0 = i / nu;
       const u1 = (i + 1) / nu;
@@ -113,6 +127,7 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
       face(b, pt(side, u0, 0, 0), pt(side, u1, 0, 0), pt(side, u1, 0, -th), pt(side, u0, 0, -th), shade(o.color, 0.6), out.clone().setY(0));
     }
     // underside follows the same curved grid (coarser across) so it never pokes through the top
+    b.extra = SURF.plain;
     for (let i = 0; i < underNu; i++) {
       const u0 = i / underNu;
       const u1 = (i + 1) / underNu;
@@ -123,6 +138,7 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
       }
     }
   }
+  b.extra = SURF.plain;
   if (o.plain) return;
   // ridge beam + corner ridges
   const rc = o.ridgeColor ?? shade(o.color, 0.7);
@@ -165,10 +181,14 @@ export function copingRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w:
   const hw = w / 2;
   const hd = d / 2;
   const v = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(cx + x, y, cz + z);
+  const prev = b.extra;
+  b.extra = packSurf(SURF.roof);
   face(b, v(-hw, y0, -hd), v(hw, y0, -hd), v(hw, y0 + h, 0), v(-hw, y0 + h, 0), color, new THREE.Vector3(0, 1, -1));
   face(b, v(-hw, y0, hd), v(hw, y0, hd), v(hw, y0 + h, 0), v(-hw, y0 + h, 0), shade(color, 0.9), new THREE.Vector3(0, 1, 1));
   tri(b, v(-hw, y0, -hd), v(-hw, y0, hd), v(-hw, y0 + h, 0), shade(color, 0.8), new THREE.Vector3(-1, 0, 0));
   tri(b, v(hw, y0, -hd), v(hw, y0, hd), v(hw, y0 + h, 0), shade(color, 0.8), new THREE.Vector3(1, 0, 0));
+  b.extra = SURF.plain;
   face(b, v(-hw, y0, -hd), v(hw, y0, -hd), v(hw, y0, hd), v(-hw, y0, hd), shade(color, 0.5), new THREE.Vector3(0, -1, 0));
   b.boxAt(cx, y0 + h, cz, w, 0.08, 0.1, shade(color, 0.75));
+  b.extra = prev;
 }

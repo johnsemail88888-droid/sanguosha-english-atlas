@@ -45,7 +45,7 @@ export class Hud {
   private readonly squad: SquadPanel;
   private readonly top: TopBar;
   private readonly crosshair: Crosshair;
-  private readonly killStamp = new KillStamp();
+  private readonly killStamp: KillStamp;
   private readonly dmg: DamageNumbers;
   private readonly dmgDir = new DamageDirection();
   private readonly scope = new Scope();
@@ -54,10 +54,10 @@ export class Hud {
   private readonly downed = new DownedOverlay();
   private readonly spectate: SpectateBar;
   private readonly zoneWarn = new ZoneWarning();
-  private readonly feed = new KillFeed();
+  private readonly feed: KillFeed;
   private readonly announcer = new Announcer();
   private readonly chat: ChatBox;
-  private readonly scoreboard = new Scoreboard();
+  private readonly scoreboard: Scoreboard;
   private readonly bigmap: BigMap;
   private readonly wheel: Wheel;
   private readonly pause: PauseMenu;
@@ -103,6 +103,9 @@ export class Hud {
     trackViewport();
 
     this.vitals = new VitalsPanel(ctx.portraits, playerName);
+    this.killStamp = new KillStamp(ctx.portraits);
+    this.feed = new KillFeed(ctx.portraits);
+    this.scoreboard = new Scoreboard(ctx.portraits);
     this.weapon = new WeaponPanel();
     this.abilities = new AbilityBar((slot, index) => {
       if (slot === 'item') this.handle.input.pushAction({ a: 'item', slot: index ?? 0 });
@@ -113,7 +116,7 @@ export class Hud {
     this.crosshair = new Crosshair(() => settings.get().fov);
     this.dmg = new DamageNumbers(this.handle.worldToScreen ? (p) => this.handle.worldToScreen?.(p) ?? null : undefined);
     this.interact = new InteractPromptView(() => this.handle.input.pushAction({ a: 'interact' }));
-    this.spectate = new SpectateBar((dir) => this.cycleSpectate(dir));
+    this.spectate = new SpectateBar((dir) => this.cycleSpectate(dir), ctx.portraits);
     this.chat = new ChatBox(
       (text) => this.session.sendChat(text),
       () => this.closeOverlay('chat'),
@@ -497,11 +500,12 @@ export class Hud {
     const aboutMe = ev.target === myId;
     this.feed.push(killer, victim, { mine, aboutMe, now });
     if (mine && !aboutMe) {
-      this.killStamp.show(`${heroName(victim.heroId)}${victim.role ? `（${roleName(victim.role)}）` : ''}`);
+      this.killStamp.show(`${heroName(victim.heroId)}${victim.role ? `（${roleName(victim.role)}）` : ''}`, victim.heroId);
       this.crosshair.hit('kill');
     }
     if (aboutMe) {
       this.spectate.killer = killer ? `${killer.heroId ? `${heroName(killer.heroId)}·` : ''}${killer.name}` : t('hud.zoneDeath');
+      this.spectate.killerHero = killer?.heroId ?? null;
       const killerId = ev.killer !== undefined && this.view.players().some((p) => p.entityId === ev.killer && p.alive) ? ev.killer : null;
       this.setSpectate(killerId ?? cycleSpectate(this.view.players(), null, 1, myId));
     } else if (this.spectateId === ev.target) {

@@ -83,3 +83,47 @@ export function solveTwoBone(
 export function localFromDesired(chain: THREE.Quaternion, desired: THREE.Quaternion, out: THREE.Quaternion): THREE.Quaternion {
   return out.copy(chain).invert().multiply(desired);
 }
+
+const _ab = new THREE.Vector3();
+const _cb = new THREE.Vector3();
+const _ca = new THREE.Vector3();
+const _ta = new THREE.Vector3();
+const _hinge = new THREE.Vector3();
+const _c2 = new THREE.Vector3();
+
+/**
+ * Two-bone reach for rigs with arbitrary bone axes (the GLB characters): from
+ * the joint positions `a` (root, e.g. shoulder), `b` (mid, elbow), `c` (end,
+ * wrist) and a target `t`, all in one space, returns the rotations IN THAT
+ * SPACE to pre-multiply onto the mid bone (`outMid`, about b, applied first)
+ * and onto the root bone (`outRoot`, about a) so the end reaches the target —
+ * clamped to the chain's reach, bending in the current elbow plane. Returns
+ * false when the target is out of reach (the arm points at it, extended).
+ */
+export function twoBoneReach(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, t: THREE.Vector3, outRoot: THREE.Quaternion, outMid: THREE.Quaternion): boolean {
+  _ab.subVectors(a, b);
+  _cb.subVectors(c, b);
+  const l1 = _ab.length();
+  const l2 = _cb.length();
+  _ta.subVectors(t, a);
+  const dRaw = _ta.length();
+  outRoot.identity();
+  outMid.identity();
+  if (l1 < 1e-6 || l2 < 1e-6 || dRaw < 1e-6) return false;
+  const d = Math.min(l1 + l2 - 1e-4, Math.max(Math.abs(l1 - l2) + 1e-4, dRaw));
+  const cosB0 = Math.max(-1, Math.min(1, _ab.dot(_cb) / (l1 * l2)));
+  const cosB1 = Math.max(-1, Math.min(1, (l1 * l1 + l2 * l2 - d * d) / (2 * l1 * l2)));
+  _hinge.crossVectors(_cb, _ab);
+  if (_hinge.lengthSq() < 1e-10) {
+    // straight chain: bend about any axis perpendicular to it and to the target
+    _hinge.crossVectors(_ab, _ta);
+    if (_hinge.lengthSq() < 1e-10) _hinge.set(1, 0, 0).cross(_ab);
+    if (_hinge.lengthSq() < 1e-10) _hinge.set(0, 0, 1);
+  }
+  _hinge.normalize();
+  outMid.setFromAxisAngle(_hinge, Math.acos(cosB0) - Math.acos(cosB1));
+  _c2.copy(_cb).applyQuaternion(outMid).add(b);
+  _ca.subVectors(_c2, a).normalize();
+  outRoot.setFromUnitVectors(_ca, _ta.normalize());
+  return dRaw <= l1 + l2;
+}

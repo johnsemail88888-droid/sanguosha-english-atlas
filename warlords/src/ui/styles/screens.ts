@@ -82,6 +82,18 @@ export const SCREENS_CSS = /* css */ `
   .sg-title.no-gl .sg-title-main { gap: 0.6em; padding-top: 0.8em; }
   .sg-webgl-warn { font-size: 0.78em; padding: 0.5em 0.8em 0.6em; }
 }
+/* short landscape screens (phones): keep the whole logo + menu on screen */
+@media (max-height: 480px) {
+  .sg-title:not(.no-gl) .sg-title-main { gap: 0.45em; padding: 0.4em 1em 1.7em; }
+  .sg-title:not(.no-gl) .sg-tagline { display: none; }
+  .sg-title:not(.no-gl) .sg-logo .l1 { font-size: clamp(2.4em, 11vh, 8.4em); }
+  .sg-title:not(.no-gl) .sg-logo .l2 { font-size: clamp(1.4em, 6.4vh, 3.9em); }
+  .sg-title:not(.no-gl) .sg-logo .en { margin-top: 0.6em; }
+  .sg-title:not(.no-gl) .sg-title-menu { gap: 0.42em; margin-top: 0.1em; }
+  .sg-title:not(.no-gl) .sg-menu-btn { min-height: 2.2em; padding-top: 0.25em; padding-bottom: 0.25em; }
+  .sg-title:not(.no-gl) .sg-menu-btn.primary { min-height: 2.4em; font-size: 1.1em; }
+  .sg-title:not(.no-gl) .sg-title-foot { bottom: 0.35em; font-size: 0.7em; }
+}
 .sg-view-failed .sg-fail-detail { font: 0.82em/1.4 ui-monospace, Menlo, Consolas, monospace; opacity: 0.7; word-break: break-word; }
 .sg-title-foot { position: absolute; left: 0; right: 0; bottom: 0.7em; z-index: 2; display: flex; justify-content: center; gap: 1.2em; flex-wrap: wrap; font-size: 0.78em; color: rgba(240, 220, 180, 0.55); text-shadow: 0 1px 2px #000; padding: 0 1em; text-align: center; }
 

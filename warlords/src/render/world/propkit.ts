@@ -5,6 +5,7 @@ import { terrainHeight } from '../../core/map';
 import { GeoBuilder, PRIM, col, mixCol, shade, trs, type ColorLike } from '../core/geo';
 import { hashString, makeRand } from '../core/noise';
 import { ARCH } from '../palette';
+import { SURF, packSurf, type SurfId } from '../core/structureMaterial';
 
 export interface PropCtx {
   /** opaque builder, already pushed into the prop's local frame (origin at x, y, z; rotated by rot) */
@@ -52,6 +53,29 @@ export function makePropCtx(
 
 export const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
 
+/**
+ * Surface (texture layer) of the geometry added to the opaque builder from now
+ * on — AI-art mode projects that structure texture onto it; the procedural
+ * look ignores it. `yawOffset` turns horizontal-face mapping (deck planks,
+ * paving courses) relative to the prop's local X axis.
+ */
+export function surf(c: PropCtx, id: SurfId, yawOffset = 0): void {
+  c.b.extra = packSurf(id, c.p.rot + yawOffset);
+}
+
+/** Run `fn` with plain (untextured) surfaces on `b`, then restore the previous surface. */
+export function plain<T>(b: GeoBuilder, fn: () => T): T {
+  const prev = b.extra;
+  b.extra = SURF.plain;
+  try {
+    return fn();
+  } finally {
+    b.extra = prev;
+  }
+}
+
+export { SURF };
+
 /** Axis-aligned local box given min/max corners. */
 export function boxMM(b: GeoBuilder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: ColorLike): void {
   b.boxAt((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, Math.abs(x1 - x0), Math.abs(y1 - y0), Math.abs(z1 - z0), color);
@@ -59,6 +83,10 @@ export function boxMM(b: GeoBuilder, x0: number, y0: number, z0: number, x1: num
 
 /** Red lacquered pillar with a stone base and a small bracket (斗拱) cap. */
 export function pillar(b: GeoBuilder, x: number, y0: number, z: number, r: number, h: number, color: ColorLike = ARCH.pillarRed): void {
+  plain(b, () => pillarRaw(b, x, y0, z, r, h, color));
+}
+
+function pillarRaw(b: GeoBuilder, x: number, y0: number, z: number, r: number, h: number, color: ColorLike): void {
   b.cylAt(x, y0, z, r * 1.45, 0.22, ARCH.stoneLight, 8);
   b.cylAt(x, y0 + 0.2, z, r, h - 0.2, color, 8);
   b.boxAt(x, y0 + h - 0.12, z, r * 2.6, 0.24, r * 2.6, shade(ARCH.wood, 1.1));
@@ -70,6 +98,10 @@ export function pillar(b: GeoBuilder, x: number, y0: number, z: number, r: numbe
  * front plane at z. Positive `facing` flips it to face +Z.
  */
 export function lattice(b: GeoBuilder, x: number, y: number, z: number, w: number, h: number, frame: ColorLike, facing = -1, paper: ColorLike = ARCH.paper): void {
+  plain(b, () => latticeRaw(b, x, y, z, w, h, frame, facing, paper));
+}
+
+function latticeRaw(b: GeoBuilder, x: number, y: number, z: number, w: number, h: number, frame: ColorLike, facing: number, paper: ColorLike): void {
   const zf = z + facing * 0.03;
   b.boxAt(x, y, z + facing * 0.01, w, h, 0.04, paper);
   const t = 0.06;
@@ -85,6 +117,10 @@ export function lattice(b: GeoBuilder, x: number, y: number, z: number, w: numbe
 
 /** Double door (front plane at z facing −Z) with gold studs; `open` swings the leaves inward (visual). */
 export function door(b: GeoBuilder, x: number, y0: number, z: number, w: number, h: number, color: ColorLike, open = false, facing = -1): void {
+  plain(b, () => doorRaw(b, x, y0, z, w, h, color, open, facing));
+}
+
+function doorRaw(b: GeoBuilder, x: number, y0: number, z: number, w: number, h: number, color: ColorLike, open: boolean, facing: number): void {
   const fz = z + facing * 0.02;
   // frame
   b.boxAt(x, y0 + h + 0.12, fz, w + 0.4, 0.24, 0.12, ARCH.woodDark);
@@ -107,6 +143,10 @@ export function door(b: GeoBuilder, x: number, y0: number, z: number, w: number,
 
 /** Hanging red lantern (glow body into ctx.glow, caps into b). */
 export function lantern(c: PropCtx, x: number, y: number, z: number, r = 0.22): void {
+  plain(c.b, () => lanternRaw(c, x, y, z, r));
+}
+
+function lanternRaw(c: PropCtx, x: number, y: number, z: number, r: number): void {
   c.glow.add(PRIM.sphere(8, 6), trs(x, y, z, 0, 0, 0, r, r * 1.15, r), '#ff5a2a');
   c.b.cylAt(x, y + r * 0.95, z, r * 0.5, 0.08, ARCH.gold, 6);
   c.b.cylAt(x, y - r * 1.15, z, r * 0.5, 0.08, ARCH.gold, 6);

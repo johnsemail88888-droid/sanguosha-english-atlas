@@ -76,7 +76,7 @@ export class VitalsPanel {
     if (me.heroId !== this.heroId) {
       this.heroId = me.heroId;
       const def = HERO_BY_ID[me.heroId];
-      this.portrait.replaceChildren(this.portraits.layer(me.heroId, 128));
+      this.portrait.replaceChildren(this.portraits.layer(me.heroId, 128, 'face'));
       this.portrait.style.setProperty('--kc', kingdomColor(def?.kingdom));
       setText(this.heroEl, heroName(me.heroId));
       this.dodgeBase = maxDodgeCharges(me.heroId);

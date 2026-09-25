@@ -6,7 +6,7 @@ import type { ColorLike } from '../core/geo';
 import { buildCharacter } from '../models/humanoid';
 import { hipRoof } from './roof';
 import { face, tri } from './roof';
-import { PropCtx, boxMM, jitter, lantern, lattice, pillar, shade, mixCol, trs, PRIM, V, col } from './propkit';
+import { PropCtx, SURF, boxMM, jitter, lantern, lattice, pillar, shade, mixCol, surf, trs, PRIM, V, col } from './propkit';
 import {
   BRIDGE_DECK_T,
   BRIDGE_RAIL_H,
@@ -20,6 +20,14 @@ import {
 } from '../../sim/map/props';
 
 const cloth = (c: PropCtx, fallback: string): string => c.p.color ?? fallback;
+
+/** Draw with plain (untextured) surfaces, restoring the current one. */
+function plainBox(c: PropCtx, fn: () => void): void {
+  const prev = c.b.extra;
+  c.b.extra = SURF.plain;
+  fn();
+  c.b.extra = prev;
+}
 
 export function buildTent(c: PropCtx): void {
   const { p, b } = c;
@@ -36,7 +44,8 @@ export function buildTent(c: PropCtx): void {
       boxMM(b, -hx - 0.05, wallH - 0.35, -hz - 0.05, hx + 0.05, wallH, hz + 0.05, mixCol(cc, '#c0392b', 0.6));
       for (let x = -hx + 0.4; x < hx; x += 0.8) b.add(PRIM.cone(3), trs(x, wallH - 0.45, -hz - 0.06, Math.PI, 0, 0, 0.18, 0.2, 0.03), trim);
       boxMM(b, -0.9, 0, -hz - 0.03, 0.9, wallH * 0.95, -hz - 0.01, '#2a1d14');
-      hipRoof(b, 0, wallH, 0, sx, sz, sy - wallH, { color: cc, overhang: 0.35, ridge: 0.5, upturn: 0.1, curve: 1.15, stripes: false, plain: true, underside: shade(cc, 0.6) });
+      hipRoof(b, 0, wallH, 0, sx, sz, sy - wallH, { color: cc, overhang: 0.35, ridge: 0.5, upturn: 0.1, curve: 1.15, stripes: false, plain: true, underside: shade(cc, 0.6), surface: SURF.plain });
+      surf(c, SURF.woodV);
       b.rod(V(0, sy - 0.2, 0), V(0, sy + 2.6, 0), 0.05, ARCH.woodDark, 5);
       b.add(PRIM.cone(4), trs(0, sy + 2.75, 0, 0, 0, 0, 0.07, 0.3, 0.07), ARCH.gold);
       break;
@@ -91,7 +100,9 @@ export function buildBarricade(c: PropCtx): void {
     case 1: {
       // 拒马 cheval-de-frise: a log with crossed sharpened stakes
       const logY = sy * 0.5;
+      surf(c, SURF.planks);
       b.add(PRIM.cyl(8), trs(0, logY, 0, 0, 0, Math.PI / 2, 0.16, sx, 0.16), ARCH.wood);
+      surf(c, SURF.woodV);
       const n = Math.max(2, Math.round(sx / 0.9));
       for (let i = 0; i < n; i++) {
         const x = -hx + ((i + 0.5) * sx) / n;
@@ -107,13 +118,16 @@ export function buildBarricade(c: PropCtx): void {
     }
     case 2: {
       // plank wall with struts
+      surf(c, SURF.woodV);
       const n = Math.max(2, Math.round(sx / 0.3));
       for (let i = 0; i < n; i++) {
         const x = -hx + ((i + 0.5) * sx) / n;
         b.boxAt(x, sy / 2 - 0.15, 0, sx / n - 0.03, sy + 0.3 - c.rand() * 0.2, Math.min(0.12, sz), jitter(c, ARCH.woodLight, 0.15));
       }
+      surf(c, SURF.planks);
       b.boxAt(0, sy * 0.3, -Math.min(0.12, sz) / 2 - 0.05, sx, 0.15, 0.08, ARCH.woodDark);
       b.boxAt(0, sy * 0.75, -Math.min(0.12, sz) / 2 - 0.05, sx, 0.15, 0.08, ARCH.woodDark);
+      surf(c, SURF.woodV);
       for (let x = -hx + 0.5; x < hx; x += 2) b.add(PRIM.box(), trs(x, sy * 0.4, sz / 2 * 0.6, -0.6, 0, 0, 0.1, sy * 1.1, 0.1), ARCH.woodDark);
       break;
     }
@@ -144,6 +158,7 @@ export function buildBarricade(c: PropCtx): void {
 
 function crate(c: PropCtx, x: number, y0: number, z: number, w: number, h: number, d: number): void {
   const { b } = c;
+  surf(c, SURF.planks);
   const wood = jitter(c, '#a07a48', 0.12);
   const dark = shade(wood, 0.6);
   b.boxAt(x, y0 + h / 2, z, w - 0.04, h - 0.04, d - 0.04, wood);
@@ -185,16 +200,21 @@ export function buildBridge(c: PropCtx): void {
   const deckCol = v === 0 ? ARCH.stoneLight : ARCH.woodLight;
   // deck
   if (v === 0) {
+    surf(c, SURF.paving);
     boxMM(b, -hx, -BRIDGE_DECK_T, -hz, hx, 0, hz, deckCol);
     for (let x = -hx + 1; x < hx; x += 2) b.boxAt(x, 0.005, 0, 0.05, 0.02, sz - 0.5, shade(deckCol, 0.85));
   } else {
+    // boards run across the deck (local Z)
+    surf(c, SURF.planks, Math.PI / 2);
     const n = Math.max(2, Math.round(sx / 0.35));
     for (let i = 0; i < n; i++) {
       const x = -hx + ((i + 0.5) * sx) / n;
       b.boxAt(x, -0.1, 0, sx / n - 0.03, 0.2, sz, jitter(c, deckCol, 0.12));
     }
+    surf(c, SURF.planks);
     boxMM(b, -hx, -BRIDGE_DECK_T, -hz + 0.3, hx, -0.2, hz - 0.3, ARCH.woodDark);
   }
+  surf(c, v === 0 ? SURF.plain : SURF.planks);
   // rails: rz = sz/2 - 0.1, length sx - 2
   const rz = hz - BRIDGE_RAIL_T / 2;
   for (const sgn of [-1, 1]) {
@@ -207,7 +227,9 @@ export function buildBridge(c: PropCtx): void {
         b.add(PRIM.sphere(6, 4), trs(x, BRIDGE_RAIL_H + 0.18, z, 0, 0, 0, 0.13), '#ece6d8');
       }
     } else {
+      surf(c, SURF.woodV);
       for (let x = -hx + 1; x <= hx - 1 + 1e-3; x += 1.6) b.boxAt(x, BRIDGE_RAIL_H / 2, z, 0.14, BRIDGE_RAIL_H, 0.14, ARCH.woodDark);
+      surf(c, SURF.planks);
       boxMM(b, -hx + 1, BRIDGE_RAIL_H - 0.12, z - 0.07, hx - 1, BRIDGE_RAIL_H, z + 0.07, ARCH.wood);
       boxMM(b, -hx + 1, BRIDGE_RAIL_H * 0.5 - 0.05, z - 0.05, hx - 1, BRIDGE_RAIL_H * 0.5 + 0.05, z + 0.05, ARCH.wood);
     }
@@ -220,15 +242,18 @@ export function buildBridge(c: PropCtx): void {
       boat(c, lx, waterY, 0, 1.6, sz + 0.8);
       b.boxAt(lx, (waterY - BRIDGE_DECK_T) / 2, 0, 0.3, Math.max(0.1, -waterY - BRIDGE_DECK_T), sz - 1, ARCH.woodDark);
     } else if (v === 1) {
+      surf(c, SURF.woodV);
       for (const pz of [-hz + 0.5, 0, hz - 0.5]) b.cylAt(lx, -sy, pz, 0.18, sy - BRIDGE_DECK_T, ARCH.woodDark, 6);
       b.boxAt(lx, -BRIDGE_DECK_T - 0.15, 0, 0.3, 0.3, sz, ARCH.woodDark);
     } else {
+      surf(c, SURF.paving);
       boxMM(b, lx - 0.6, -sy, -(sz - 0.4) / 2, lx + 0.6, -BRIDGE_DECK_T, (sz - 0.4) / 2, ARCH.stone);
       // cutwaters
       b.add(PRIM.prism(), trs(lx, -sy / 2 - BRIDGE_DECK_T / 2, -(sz - 0.4) / 2 - 0.5, Math.PI / 2, 0, 0, 1.2, 1.0, sy - BRIDGE_DECK_T), ARCH.stone);
     }
   }
   if (v === 2) {
+    surf(c, SURF.plain);
     for (const sgn of [-1, 1]) b.rod(V(-hx, 0.05, sgn * (hz + 0.05)), V(hx, 0.05, sgn * (hz + 0.05)), 0.04, '#3a3a3a', 4);
   }
 }
@@ -236,6 +261,7 @@ export function buildBridge(c: PropCtx): void {
 /** Small hull (for boat bridges / docks). Length along Z. */
 function boat(c: PropCtx, x: number, waterY: number, z: number, beam: number, length: number): void {
   const { b } = c;
+  surf(c, SURF.planks);
   const hull = jitter(c, '#5a3f28', 0.1);
   b.add(PRIM.sphere(8, 5), trs(x, waterY + 0.05, z, 0, 0, 0, beam / 2, 0.55, length / 2), hull);
   b.boxAt(x, waterY + 0.35, z, beam * 0.9, 0.12, length * 0.85, shade(hull, 1.2));
@@ -247,17 +273,21 @@ export function buildDock(c: PropCtx): void {
   const hx = sx / 2;
   const hz = sz / 2;
   const n = Math.max(2, Math.round(sz / 0.4));
+  surf(c, SURF.planks);
   for (let i = 0; i < n; i++) {
     const z = -hz + ((i + 0.5) * sz) / n;
     b.boxAt(0, -0.09, z, sx, 0.18, sz / n - 0.03, jitter(c, ARCH.woodLight, 0.12));
   }
   boxMM(b, -hx, -DOCK_DECK_T, -hz, hx, -0.18, hz, ARCH.woodDark);
+  surf(c, SURF.woodV);
   for (let x = -hx + 0.3; x <= hx - 0.3 + 1e-3; x += Math.max(2, (sx - 0.6) / Math.max(1, Math.round((sx - 0.6) / 2.5)))) {
     for (const z of [-hz + 0.3, hz - 0.3]) b.cylAt(x, -sy, z, 0.16, sy + 0.1, ARCH.woodDark, 6);
   }
   for (const x of [-hx + 1, hx - 1]) {
     b.cylAt(x, 0, -hz + 0.4, 0.14, 0.5, ARCH.woodDark, 6);
+    surf(c, SURF.plain);
     b.add(PRIM.torus(0.3, 3, 8), trs(x, 0.35, -hz + 0.4, Math.PI / 2, 0, 0, 0.15), ARCH.rope);
+    surf(c, SURF.woodV);
   }
   b.rod(V(hx - 0.5, 0, hz - 0.5), V(hx - 0.5, 3, hz - 0.5), 0.06, ARCH.woodDark, 5);
   lantern(c, hx - 0.5, 2.6, hz - 0.9, 0.25);
@@ -285,6 +315,7 @@ export function buildShip(c: PropCtx): void {
   for (let i = 0; i < N; i++) {
     const a = sec(i);
     const e = sec(i + 1);
+    surf(c, SURF.planks);
     for (const sgn of [-1, 1]) {
       const out = V(0, 0, sgn);
       // upper strake (painted band) and lower hull
@@ -293,7 +324,9 @@ export function buildShip(c: PropCtx): void {
       // inner bulwark face
       face(b, V(a.x, a.top + SHIP_BULWARK_H, sgn * (a.w - SHIP_BULWARK_T)), V(e.x, e.top + SHIP_BULWARK_H, sgn * (e.w - SHIP_BULWARK_T)), V(e.x, 0, sgn * (e.w - SHIP_BULWARK_T)), V(a.x, 0, sgn * (a.w - SHIP_BULWARK_T)), shade(hullCol, 1.3), out.clone().negate());
       // gunwale cap
+      surf(c, SURF.plain);
       face(b, V(a.x, a.top + SHIP_BULWARK_H, sgn * a.w), V(e.x, e.top + SHIP_BULWARK_H, sgn * e.w), V(e.x, e.top + SHIP_BULWARK_H, sgn * (e.w - SHIP_BULWARK_T)), V(a.x, a.top + SHIP_BULWARK_H, sgn * (a.w - SHIP_BULWARK_T)), ARCH.gold, V(0, 1, 0));
+      surf(c, SURF.planks);
     }
     // keel bottom + deck
     face(b, V(a.x, -sy, -a.w * 0.35), V(e.x, -sy, -e.w * 0.35), V(e.x, -sy, e.w * 0.35), V(a.x, -sy, a.w * 0.35), hullCol, V(0, -1, 0));
@@ -308,10 +341,12 @@ export function buildShip(c: PropCtx): void {
     face(b, V(s.x, s.top + SHIP_BULWARK_H, -s.w), V(s.x, s.top + SHIP_BULWARK_H, s.w), V(s.x, -sy, s.w * 0.35), V(s.x, -sy, -s.w * 0.35), sgn < 0 ? paint : hullCol, V(sgn, 0, 0));
   }
   // bow dragon head / ram
+  surf(c, SURF.plain);
   b.add(PRIM.cone(6), trs(-hx - 0.8, 0.6, 0, 0, 0, Math.PI / 2, 0.35, 1.8, 0.35), v === 1 ? '#6a6a6a' : ARCH.gold);
   // eyes on the bow
   for (const sgn of [-1, 1]) b.add(PRIM.cyl(10), trs(-hx + 0.8, 0.2, sgn * (halfW(0.06) + 0.02), Math.PI / 2, 0, 0, 0.3, 0.04, 0.3), '#f0e8d0');
   // oars
+  surf(c, SURF.woodV);
   for (let x = -hx * 0.6; x < hx * 0.7; x += 1.6) {
     for (const sgn of [-1, 1]) {
       const w = halfW((x + hx) / sx);
@@ -321,6 +356,7 @@ export function buildShip(c: PropCtx): void {
   const cabinX0 = 0.18 * sx;
   const cabinX1 = 0.44 * sx;
   const cz = sz / 2 - 1.2;
+  surf(c, SURF.plain);
   if (v === 2) {
     // fire ship: straw bundles
     for (let x = -hx * 0.6; x < hx * 0.8; x += 1.4) {
@@ -328,14 +364,16 @@ export function buildShip(c: PropCtx): void {
     }
   } else if (v === 1) {
     // 艨艟: hide-covered armoured deck
-    hipRoof(b, 0, 0.2, 0, sx * 0.8, sz - 1, 2.2, { color: '#5a4030', overhang: 0.1, ridge: 0.9, curve: 0.8, upturn: 0, stripes: false, plain: true });
+    hipRoof(b, 0, 0.2, 0, sx * 0.8, sz - 1, 2.2, { color: '#5a4030', overhang: 0.1, ridge: 0.9, curve: 0.8, upturn: 0, stripes: false, plain: true, surface: SURF.plain });
   } else {
     // 楼船 deck house (+ second tier)
+    surf(c, SURF.planks);
     boxMM(b, cabinX0, 0, -cz, cabinX1, SHIP_CABIN_H, cz, ARCH.pillarRed);
     for (let x = cabinX0 + 0.8; x < cabinX1 - 0.4; x += 1.4) lattice(b, x, SHIP_CABIN_H * 0.55, -cz - 0.02, 0.9, 1.2, ARCH.gold);
     hipRoof(b, (cabinX0 + cabinX1) / 2, SHIP_CABIN_H, 0, cabinX1 - cabinX0, cz * 2, 1.0, { color: ARCH.roofTile, overhang: 0.5, ridge: 0.8, upturn: 0.35, plain: true });
     const w2 = (cabinX1 - cabinX0) * 0.6;
     const mx = (cabinX0 + cabinX1) / 2;
+    surf(c, SURF.planks);
     boxMM(b, mx - w2 / 2, SHIP_CABIN_H + 0.8, -cz * 0.6, mx + w2 / 2, SHIP_CABIN_H + 2.6, cz * 0.6, ARCH.pillarRed);
     hipRoof(b, mx, SHIP_CABIN_H + 2.6, 0, w2, cz * 1.2, 1.3, { color: ARCH.roofTile, overhang: 0.5, ridge: 0.6, upturn: 0.45, ornate: true });
     for (const z of [-cz, cz]) lantern(c, cabinX0 - 0.3, SHIP_CABIN_H - 0.5, z, 0.25);
@@ -343,7 +381,9 @@ export function buildShip(c: PropCtx): void {
   // mast + battened junk sail
   const mx = -0.1 * sx;
   const mh = 0.55 * sx;
+  surf(c, SURF.woodV);
   b.cylAt(mx, 0, 0, 0.28, mh, ARCH.woodDark, 8);
+  surf(c, SURF.plain);
   if (v !== 1) {
     const sw = sx * (v === 2 ? 0.22 : 0.34);
     const sh = mh * 0.62;
@@ -365,8 +405,10 @@ export function buildStatue(c: PropCtx): void {
   const { sx, sy, sz } = p;
   const plinth = 0.22 * sy;
   const stone = jitter(c, p.variant === 2 ? ARCH.bronzeGreen : ARCH.stone, 0.05);
+  surf(c, SURF.paving);
   boxMM(b, -sx / 2, -0.3, -sz / 2, sx / 2, plinth, sz / 2, shade(ARCH.stoneDark, 1.05));
   boxMM(b, -sx / 2 - 0.1, plinth - 0.12, -sz / 2 - 0.1, sx / 2 + 0.1, plinth, sz / 2 + 0.1, ARCH.stone);
+  surf(c, p.variant === 0 || p.variant === 1 ? SURF.stone : SURF.plain);
   const figH = sy - plinth;
   const r = 0.3 * Math.min(sx, sz);
   switch (p.variant) {
@@ -444,6 +486,7 @@ export function buildRuin(c: PropCtx): void {
   const { p, b } = c;
   const { sx, sy, sz } = p;
   const stone = jitter(c, ARCH.stone, 0.06);
+  surf(c, SURF.brick);
   const jag = (x0: number, x1: number, h: number): void => {
     const n = Math.max(2, Math.round((x1 - x0) / 0.7));
     for (let i = 0; i < n; i++) {
@@ -451,7 +494,7 @@ export function buildRuin(c: PropCtx): void {
       const xb = x0 + ((i + 1) * (x1 - x0)) / n;
       const hh = h * (0.75 + c.rand() * 0.25);
       boxMM(b, xa, -0.4, -sz / 2, xb, hh, sz / 2, i % 2 ? stone : shade(stone, 0.93));
-      if (c.rand() < 0.35) b.boxAt((xa + xb) / 2, hh * c.rand(), -sz / 2 - 0.01, xb - xa, 0.4, 0.02, mixCol(stone, NATURE.grassLush, 0.5));
+      if (c.rand() < 0.35) plainBox(c, () => b.boxAt((xa + xb) / 2, hh * c.rand(), -sz / 2 - 0.01, xb - xa, 0.4, 0.02, mixCol(stone, NATURE.grassLush, 0.5)));
     }
   };
   if (p.variant === 2) {
@@ -512,6 +555,7 @@ export function buildStairs(c: PropCtx): void {
   const { p, b } = c;
   const timber = p.variant === 1;
   const steps = stairSteps(p);
+  surf(c, timber ? SURF.planks : SURF.paving);
   steps.forEach((st, i) => {
     const colr: ColorLike = timber ? jitter(c, ARCH.woodLight, 0.08) : i % 2 ? ARCH.stoneLight : shade(ARCH.stoneLight, 0.94);
     boxMM(b, -p.sx / 2, i === 0 ? -0.3 : 0, st.z0, p.sx / 2, st.top, st.z1, colr);
@@ -540,7 +584,9 @@ export function buildBrazierStand(c: PropCtx): void {
 
 export function buildBannerPole(c: PropCtx): void {
   const { p, b } = c;
+  surf(c, SURF.woodV);
   b.cylAt(0, -0.3, 0, 0.09, p.sy + 0.3, ARCH.woodDark, 6);
+  surf(c, SURF.plain);
   b.add(PRIM.cone(4), trs(0, p.sy + 0.25, 0, 0, 0, 0, 0.08, 0.5, 0.08), ARCH.gold);
   b.add(PRIM.cyl(5), trs(p.sx / 2, p.sy - 0.1, 0, 0, 0, Math.PI / 2, 0.035, p.sx + 0.2, 0.035), ARCH.woodDark);
   b.add(PRIM.cone(6), trs(0, p.sy - 0.35, 0, Math.PI, 0, 0, 0.16, 0.35, 0.16), '#c8322a'); // red tassel

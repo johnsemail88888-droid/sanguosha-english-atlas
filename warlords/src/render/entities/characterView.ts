@@ -25,6 +25,9 @@ import {
 import { HERO_BY_ID, ROLE_BY_ID, TROOP_BY_ID } from '../../data';
 import { CharacterRig, type RigUpdate } from '../models/character';
 import { heroMountCoat, heroSpec, troopLook, troopMountCoat } from '../models';
+import { GLB_HERO_HEIGHT, heroModelPath, troopModelPath } from '../models/glb';
+import { qualityPreset } from '../quality';
+import { settings } from '../../game/settings';
 import { kingdomColor } from '../palette';
 import { AuraSet } from './auras';
 import { Nameplate, type PlateData } from './nameplate';
@@ -48,6 +51,12 @@ const ICE = new THREE.Color(0.72, 0.88, 1.25);
 
 /** Beyond this distance (m) a non-local hero animates at a third of the frame rate. */
 export const HERO_ANIM_LOD_DIST = 120;
+/** GLB bodies switch to their far LOD beyond these distances (m; 10 % hysteresis). */
+export const HERO_LOD_DIST = 45;
+export const TROOP_LOD_DIST = 28;
+/** Troops / NPCs beyond these distances (m) animate every 2nd / 3rd frame (accumulated dt). */
+export const TROOP_ANIM_LOD_NEAR = 35;
+export const TROOP_ANIM_LOD_FAR = 70;
 /** Heroes cast shadows within this distance (m) of the camera. */
 export const HERO_SHADOW_DIST = 60;
 /** Troops / NPCs cast shadows within this distance (m) of the camera. */
@@ -90,6 +99,7 @@ export class CharacterView {
   private readonly fadeOpts: CamFadeOptions = { squad: false, camDir: null, fovDeg: 60 };
   /** dt accumulated while a far hero skips animation frames */
   private animDt = 0;
+  private farLod = false;
   // per-frame scratch (no allocations in update)
   private readonly rigIn: RigUpdate = { speed: 0, moveX: 0, moveZ: 0, pitch: 0, flags: 0 };
   private readonly plateData: PlateData = {
@@ -118,9 +128,11 @@ export class CharacterView {
     this.kind = e.kind;
     this.sub = e.sub;
     this.last = e;
+    // AI-art bodies (GLB) when the deploy ships them; the procedural rig until they load / without them
+    const glb = qualityPreset(settings.get().quality).glbCharacters;
     if (e.kind === 'hero') {
       this.rig = new CharacterRig(heroSpec(e.sub, e.kingdom));
-      this.rig.tryGlbOverride(e.sub);
+      if (glb !== 'none') this.rig.useGlb(heroModelPath(e.sub), GLB_HERO_HEIGHT);
       this.defaultWeapon = HERO_BY_ID[e.sub]?.signatureWeapon ?? null;
     } else {
       const look = troopLook(e.sub, e.kingdom);
@@ -129,6 +141,10 @@ export class CharacterView {
       this.rig = new CharacterRig(look.spec);
       this.rig.root.scale.setScalar(look.rootScale);
       if (look.mount) this.rig.setMount(look.mount, troopMountCoat(look.mount), look.spec.kingdom, '#d8ac4c');
+      if (glb === 'all') {
+        const kingdom = tdef ? (tdef.kingdom === 'neutral' ? undefined : tdef.kingdom) : e.kingdom;
+        this.rig.useGlb(troopModelPath({ headgear: tdef?.visual.headgear, kingdom, id: e.sub }), this.rig.standHeight());
+      }
     }
     this.root.add(this.rig.root);
     this.root.add(this.auras.group);
@@ -142,16 +158,16 @@ export class CharacterView {
   }
 
   onShot(): void {
-    this.rig.animator.fire(1);
+    this.rig.fire(1);
   }
   onMelee(): void {
-    this.rig.animator.melee();
+    this.rig.melee();
   }
   onCast(): void {
-    this.rig.animator.cast();
+    this.rig.cast();
   }
   onHit(): void {
-    this.rig.animator.hit();
+    this.rig.hit();
     this.hitFlash = 0.14;
   }
   say(text: string, until: number): void {
@@ -204,9 +220,9 @@ export class CharacterView {
     }
     this.rig.setWeapon(e.weapon ?? this.defaultWeapon);
 
-    // animation (far heroes: every third frame with the accumulated dt)
+    // animation (far heroes: every third frame; troops thin out with distance) with the accumulated dt
     this.animDt += dt;
-    const animNow = isLocal || dist < HERO_ANIM_LOD_DIST || (ctx.frame + this.id) % 3 === 0;
+    const animNow = isLocal || (isHero ? dist < HERO_ANIM_LOD_DIST || (ctx.frame + this.id) % 3 === 0 : dist < TROOP_ANIM_LOD_NEAR || (ctx.frame + this.id) % (dist < TROOP_ANIM_LOD_FAR ? 2 : 3) === 0);
     if (animNow) {
       // movement direction in the character frame
       const sp = Math.hypot(this.vel.x, this.vel.z);
@@ -232,6 +248,12 @@ export class CharacterView {
     // revealed (观星 / 狼顾 / 鬼谋): red silhouette through walls
     this.rig.setXray((e.flags & VF_EXPOSED) !== 0 && !isLocal && (e.flags & VF_DEAD) === 0);
     this.rig.setShadows(ctx.shadows && dist < (isHero ? HERO_SHADOW_DIST : TROOP_SHADOW_DIST));
+    // far LOD (the local hero never; hysteresis so it does not flicker at the threshold)
+    const lodDist = isHero ? HERO_LOD_DIST : TROOP_LOD_DIST;
+    if (isLocal) this.farLod = false;
+    else if (dist > lodDist * 1.05) this.farLod = true;
+    else if (dist < lodDist * 0.95) this.farLod = false;
+    this.rig.setLod(this.farLod);
     this.applyTint(e.flags, dt, ctx.time, isLocal);
     const inSquad = ctx.squad.has(e.id);
     // characters hugging the camera, your own soldiers filling the view, and anyone

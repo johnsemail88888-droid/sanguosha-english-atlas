@@ -1,6 +1,8 @@
 // Shared materials. Static world geometry uses ONE vertex-coloured standard
 // material (so merged chunks batch well); vegetation adds a cheap wind sway.
 import * as THREE from 'three';
+import { disposeWorldArt } from './worldArt';
+import { disposeStructureMaterial } from './structureMaterial';
 
 /** Uniforms shared by every animated shader (updated once per frame by the renderer). */
 export const sharedUniforms = {
@@ -120,4 +122,6 @@ export function disposeSharedMaterials(): void {
   foliageMat?.dispose();
   worldMat = worldMatDouble = foliageMat = null;
   glowMat = null;
+  disposeStructureMaterial();
+  disposeWorldArt();
 }
