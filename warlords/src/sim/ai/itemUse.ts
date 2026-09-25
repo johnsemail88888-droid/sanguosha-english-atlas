@@ -88,7 +88,7 @@ export class ItemUser {
         if (opts.reserveTao && count <= 1 && hpFrac > 0.3) return null;
         // channel 1.2 s: prefer a lull, unless desperate
         const lull = v.now - v.lastHurtAt > 1.2;
-        return lull || hpFrac < 0.25 ? this.selfUse(v, base) : null;
+        return lull || hpFrac < 0.25 ? this.selfUse(base) : null;
       }
       case 'jiu':
         return fighting && d <= (v.weapon?.falloffStart ?? 20) * 1.5 && !sim.hasStatus(self.id, 'drunk') ? base : null;
@@ -114,14 +114,16 @@ export class ItemUser {
       case 'wugu':
         return !fighting && h.items.some((s) => !s) ? base : null;
       case 'zhengbing':
-        return h.squad.length < 4 || fighting ? base : null;
+        // the card's own hint knows the squad cap / over-cap allowance
+        return gate === true || (gate === undefined && (h.squad.length < 4 || fighting)) ? base : null;
       default:
         break;
     }
     switch (def.targeting) {
       case 'enemy': {
         if (!t || !v.targetLos || d > def.range) return null;
-        if (id === 'juedou' && hpFrac < (t.hp / Math.max(1, t.maxHp)) + 0.1) return null; // only duel when winning
+        // only duel when winning (unless the card's own hint already judged the fight fair)
+        if (id === 'juedou' && gate !== true && hpFrac < t.hp / Math.max(1, t.maxHp) + 0.1) return null;
         if (id === 'jiedao' && (t.kind !== 'hero' || (t.hero?.squad.length ?? 0) < 2)) return null;
         return this.aimAt(v, base, t);
       }
@@ -176,7 +178,7 @@ export class ItemUser {
     return w.inst.reserve < w.def.magSize * 1.2;
   }
 
-  private selfUse(v: BotView, base: ItemPlan): ItemPlan {
+  private selfUse(base: ItemPlan): ItemPlan {
     // make sure no downed hero is under the crosshair (a 桃 would revive them)
     return { ...base, aimTargetId: undefined };
   }

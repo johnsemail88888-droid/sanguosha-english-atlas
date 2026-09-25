@@ -33,7 +33,6 @@ import { registerMind } from './registry';
 import type { WorldObserver } from './observer';
 import { UNIT_KINDS, aimPointOf, dist2d, hasLineOfSight, hazardEscape, isTargetable } from './perception';
 import { RoleStrategy, clampIntoZone, pressure } from './strategy';
-import type { Objective } from './strategy';
 
 const DECIDE_EVERY = 0.25;
 const LOS_EVERY = 0.12;
@@ -44,6 +43,8 @@ const COMMAND_GAP = 1.5;
 const SEEN_MEMORY = 6;
 const INTERACT_RANGE = 2.2;
 const DEG = Math.PI / 180;
+/** seconds of hiding (with nothing to heal and nobody hitting us) before re-engaging */
+const RETREAT_MAX = 10;
 /** how far the lord strays from his anchor (loyalists / squad) in a fight */
 const LORD_LEASH = 12;
 
@@ -99,7 +100,6 @@ export class HeroBot implements BotBrain, BotView {
   private targetSince = 0;
   private readonly seen = new Map<EntityId, Seen>();
   private nextDecide = 0;
-  private objective: Objective | null = null;
   private goal: Vec3 | null = null;
   private arrive = 1;
   private sprintOk = false;
@@ -128,11 +128,15 @@ export class HeroBot implements BotBrain, BotView {
   private interactAt = 0;
   private wasDowned = false;
   private retreatUntil = 0;
+  private retreatSince = 0;
+  private noRetreatUntil = 0;
   private downedAt = 0;
   private lastStuck = 0;
   private swappedForRange = false;
   private splashBlockedUntil = 0;
   private hazardAt = 0;
+  private attackersTick = -1;
+  private readonly attackersCache = new Set<EntityId>();
   private hazardDir: { x: number; z: number } | null = null;
   readonly stats: BotStats = { abilities: 0, items: 0, shotsFired: 0, revivesStarted: 0, cratesOpened: 0, claims: 0, quickchats: 0, stuckEvents: 0 };
 
@@ -244,6 +248,8 @@ export class HeroBot implements BotBrain, BotView {
     if (z.radius <= 1) return { x: z.center.x, y: p.y, z: z.center.z };
     if (z.targetRadius < z.radius - 0.5) {
       const dt = dist2d(p, z.targetCenter);
+      // the last circle closes to a point: be near it, then keep fighting / moving around it
+      if (z.targetRadius < 5) return dt > 7 ? { x: z.targetCenter.x, y: p.y, z: z.targetCenter.z } : null;
       const need = Math.max(0, dt - z.targetRadius * 0.7) / 5.2;
       const soon = z.shrinkStart - now < need + 28 || now >= z.shrinkStart;
       if (soon && dt > z.targetRadius * (z.targetRadius < 40 ? 0.7 : 0.85)) return this.inside(z.targetCenter, z.targetRadius, z.targetRadius < 40 ? 0.35 : 0.55);
@@ -284,7 +290,7 @@ export class HeroBot implements BotBrain, BotView {
   private unitHostility(c: Entity): number {
     const { sim, x, self } = this;
     const d = dist2d(self.pos, c.pos);
-    const attackedMe = x.recentAttackers(self.id, 4).includes(c.id);
+    const attackedMe = this.recentAttackerIds().has(c.id);
     if (c.kind === 'npc') {
       const npc = c.npc!;
       if (attackedMe) return 0.95;
@@ -304,6 +310,16 @@ export class HeroBot implements BotBrain, BotView {
     const engagedCredit = engaged !== undefined ? x.creditOf(engaged) : undefined;
     const engagingUs = engagedCredit !== undefined && (engagedCredit === self.id || (sim.get(engagedCredit) && this.allyScore(sim.get(engagedCredit)!) > 0.5));
     return engagingUs ? Math.max(0.75, hc * 0.9) : hc * 0.55;
+  }
+
+  /** Ids (sources and credited heroes) that hurt this bot in the last 4 s — cached per tick. */
+  private recentAttackerIds(): Set<EntityId> {
+    if (this.attackersTick !== this.sim.tick) {
+      this.attackersTick = this.sim.tick;
+      this.attackersCache.clear();
+      for (const a of this.x.recentAttackers(this.self.id, 4)) this.attackersCache.add(a);
+    }
+    return this.attackersCache;
   }
 
   private engageAt(e: Entity): number {
@@ -349,6 +365,7 @@ export class HeroBot implements BotBrain, BotView {
     const cands = sim.queryRadius(self.pos, range, { kinds: UNIT_KINDS, exclude: [self.id] });
     const list: Threat[] = [];
     const wRange = this.weapon ? this.weapon.maxRange : 60;
+    const crownInReach = this.role === 'rebel' && aliveCrownsNear(sim, self, 50).length > 0;
     for (const c of cands) {
       if (!c.alive || c.hero?.dead) continue;
       if (sim.isOwnSide(self, c)) continue;
@@ -363,8 +380,11 @@ export class HeroBot implements BotBrain, BotView {
       if (c.hero?.downed) s *= hst >= 0.7 ? 1.25 : 0.2;
       if (c === this.target) s *= 1.3;
       if (bounty !== undefined && c.id === bounty) s *= 1.4;
-      // the rebels' push focuses the crown
-      if (this.role === 'rebel' && c.kind === 'hero' && wearsCrown(sim, c) && this.strategy!.pushing(this)) s *= 1.6;
+      // the rebels' push focuses the crown and ignores his soldiers when he is in reach
+      if (this.role === 'rebel' && this.strategy!.pushing(this)) {
+        if (c.kind === 'hero' && wearsCrown(sim, c)) s *= 2.2;
+        else if (c.kind !== 'hero' && crownInReach) s *= 0.35;
+      }
       if (lordSide && c.kind === 'hero') {
         for (const cr of sim.heroes()) {
           if (cr !== c && cr.hero && !cr.hero.dead && wearsCrown(sim, cr) && this.obs.sinceAttack(sim, c.id, cr.id) < 6) {
@@ -425,12 +445,21 @@ export class HeroBot implements BotBrain, BotView {
     // a close duel may finish at the edge of a weak circle — never for the lord
     const fightingClose = this.role !== 'lord' && !!t && this.targetLos && this.targetDist < 15 && hpFrac > 0.6 && this.x.zoneView().dps <= 4;
     if (zg && out && !fightingClose) return this.setMode('zone', zg, 3, true);
-    // disengage when hurt
-    if ((hpFrac < retreatHp && closeThreat) || now < this.retreatUntil) {
+    // disengage when hurt — but hiding forever at low HP with nothing to heal is a stalemate:
+    // after a while without being hit, get back into it
+    const canRetreat = now >= this.noRetreatUntil;
+    if (canRetreat && ((hpFrac < retreatHp && closeThreat) || now < this.retreatUntil)) {
+      if (this.mode !== 'retreat') this.retreatSince = now;
       if (hpFrac < retreatHp && closeThreat) this.retreatUntil = now + 3;
       if (hpFrac >= retreatHp + 0.18 || !closeThreat) this.retreatUntil = 0;
-      const g = this.retreatGoal(closeThreat?.e ?? t);
-      if (g) return this.setMode('retreat', g, 1.2, false);
+      const healing = h.channel !== null || this.hasTao();
+      if (!healing && now - this.retreatSince > RETREAT_MAX && now - this.lastHurtAt > 3) {
+        this.noRetreatUntil = now + 15;
+        this.retreatUntil = 0;
+      } else {
+        const g = this.retreatGoal(closeThreat?.e ?? t);
+        if (g) return this.setMode('retreat', g, 1.2, false);
+      }
     }
     // revive a believed ally
     const rv = this.reviveCandidate();
@@ -453,7 +482,6 @@ export class HeroBot implements BotBrain, BotView {
     }
     // role objective
     const obj = strat.objective(this);
-    this.objective = obj;
     if (obj.goal) return this.setMode(obj.mode, obj.goal, obj.arrive, obj.sprint);
     this.mode = obj.mode;
     this.goal = null;
@@ -503,9 +531,21 @@ export class HeroBot implements BotBrain, BotView {
     return this.self.hero!.items.some((s) => s?.id === 'tao');
   }
 
+  /** A free revive (华佗 急救) that is ready right now — asks the ability's own hook. */
   private canReviveFree(): boolean {
-    const def = this.sim.heroDef(this.self);
-    return !!def && def.abilities.some((a) => a.slot === 'passive' && !!getAbility(a.id)?.canReviveFree);
+    const { sim, self } = this;
+    const hero = sim.heroDef(self);
+    if (!hero) return false;
+    for (const a of hero.abilities) {
+      const impl = getAbility(a.id);
+      if (a.slot !== 'passive' || !impl?.canReviveFree) continue;
+      try {
+        if (impl.canReviveFree({ sim, self, def: a, hero, input: sim.inputOf(self) }) === true) return true;
+      } catch {
+        // a throwing hook counts as "not ready"
+      }
+    }
+    return false;
   }
 
   private reviveCandidate(): Entity | undefined {
@@ -602,7 +642,7 @@ export class HeroBot implements BotBrain, BotView {
     switch (this.mode) {
       case 'fight': {
         if (t) {
-          const r = this.fightMove(dt);
+          const r = this.fightMove();
           mv = r;
           jump = r.jump;
           sprint = r.sprint;
@@ -716,7 +756,7 @@ export class HeroBot implements BotBrain, BotView {
   }
 
   /** Combat movement: range keeping, strafing, dodging, cover to reload. */
-  private fightMove(dt: number): { x: number; z: number; jump: boolean; sprint: boolean } {
+  private fightMove(): { x: number; z: number; jump: boolean; sprint: boolean } {
     const { sim, self, now, prof } = this;
     const h = self.hero!;
     const t = this.target!;
@@ -768,7 +808,7 @@ export class HeroBot implements BotBrain, BotView {
       }
     }
     // strafe
-    if (prof.strafe > 0) {
+    if (prof.strafe > 0 || now < this.ffBlockedUntil) {
       if (now >= this.strafeUntil) {
         this.strafeSign = this.rng.next() < 0.5 ? -1 : 1;
         this.strafeUntil = now + 0.45 + this.rng.next() * (1.3 - prof.strafe * 0.5);
@@ -780,7 +820,8 @@ export class HeroBot implements BotBrain, BotView {
         this.strafeSign = -this.strafeSign;
         this.strafeUntil = now + 0.6;
       }
-      const amp = prof.strafe * (h.ads ? 0.7 : 1);
+      // a friend in the line of fire: side-step decisively to open a new angle
+      const amp = now < this.ffBlockedUntil ? 1 : prof.strafe * (h.ads ? 0.7 : 1);
       mx += -dz * this.strafeSign * amp;
       mz += dx * this.strafeSign * amp;
     }
@@ -1029,7 +1070,8 @@ export class HeroBot implements BotBrain, BotView {
     }
     if (blocked) {
       this.ffBlockedUntil = now + 0.35;
-      this.strafeUntil = 0; // change the angle
+      // commit to the current side-step for a moment to open a new angle
+      this.strafeUntil = Math.max(this.strafeUntil, now + 0.8);
     }
     return blocked;
   }

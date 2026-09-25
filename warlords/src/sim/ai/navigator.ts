@@ -8,7 +8,7 @@ import type { Rng } from '../../core/rng';
 import type { Entity } from '../../core/types';
 import type { SimApi } from '../api';
 import { ext } from '../ext';
-import { buildNavGrid, nearestWalkable, navWalkSegment } from '../map/nav';
+import { buildNavGrid, locateNode, nearestWalkable, navWalkSegment } from '../map/nav';
 import type { NavGrid } from '../map/nav';
 
 const DIRECT_CHECK_EVERY = 0.5;
@@ -67,7 +67,6 @@ export class Navigator {
   private unstickX = 0;
   private unstickZ = 0;
   private jumpAt = 0;
-  private wanted = 0;
   /** set when the current goal could not be reached (stuck repeatedly / no path) */
   unreachable = false;
   private readonly out: NavOut = { x: 0, z: 0, jump: false, dist: 0, straight: false };
@@ -113,12 +112,10 @@ export class Navigator {
     if (dist <= arrive && Math.abs(goal.y - self.pos.y) < 2) {
       o.x = 0;
       o.z = 0;
-      this.wanted = 0;
       this.samples.length = 0;
       this.stuckLevel = 0;
       return o;
     }
-    this.wanted = now;
     const nav = navOf(sim);
     // unstick manoeuvre in progress
     if (now < this.unstickUntil) {
@@ -245,14 +242,20 @@ export class Navigator {
       this.directAt = -99;
     }
     if (this.stuckLevel >= 3) {
-      // sidestep in a random direction (or back toward walkable ground)
+      // sidestep in a random direction, back toward walkable ground we can actually reach, or —
+      // stranded on a slope too steep to climb, off the nav grid — downhill
       const nav = navOf(sim);
       let ux = 0;
       let uz = 0;
       const w = nav ? nearestWalkable(nav, self.pos) : null;
-      if (w && Math.hypot(w.x - self.pos.x, w.z - self.pos.z) > 0.8) {
+      const climbable = !!w && w.y - self.pos.y < 0.8;
+      if (w && climbable && Math.hypot(w.x - self.pos.x, w.z - self.pos.z) > 0.8) {
         ux = w.x - self.pos.x;
         uz = w.z - self.pos.z;
+      } else if (nav && w && !climbable) {
+        const esc = this.escapeDownhill(sim, self, nav);
+        ux = esc.x;
+        uz = esc.z;
       } else {
         const gx = goal.x - self.pos.x;
         const gz = goal.z - self.pos.z;
@@ -266,9 +269,35 @@ export class Navigator {
       const l = Math.hypot(ux, uz) || 1;
       this.unstickX = ux / l;
       this.unstickZ = uz / l;
-      this.unstickUntil = now + 0.6 + this.rng.next() * 0.5;
+      this.unstickUntil = Math.max(this.unstickUntil, now + 0.6 + this.rng.next() * 0.5);
     }
     if (this.stuckLevel >= 5) this.unreachable = true;
+  }
+
+  /**
+   * Best of 12 directions 5 m out: prefer walkable ground at or below our feet,
+   * else simply the lowest terrain (the way off a steep slope).
+   */
+  private escapeDownhill(sim: SimApi, self: Entity, nav: NavGrid): { x: number; z: number } {
+    let best = { x: 0, z: 0 };
+    let bs = Infinity;
+    const off = this.rng.next() * Math.PI * 2;
+    for (let i = 0; i < 12; i++) {
+      const a = off + (i / 12) * Math.PI * 2;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      const x = self.pos.x + dx * 5;
+      const z = self.pos.z + dz * 5;
+      const h = sim.groundHeight(x, z);
+      const walk = locateNode(nav, { x, y: h, z }) >= 0;
+      const s = h - self.pos.y - (walk ? 3 : 0);
+      if (s < bs) {
+        bs = s;
+        best = { x: dx, z: dz };
+      }
+    }
+    this.unstickUntil = sim.time + 1.2;
+    return best;
   }
 }
 

@@ -411,10 +411,15 @@ export class InputController implements InputSink {
     return this.state.pitch;
   }
 
-  /** Force the look angles (spawn / respawn / spectate handover). */
+  /**
+   * Force the look angles (spawn / respawn / spectate handover). An explicit
+   * look also wins over the automatic "adopt the hero's facing on first
+   * sight" seeding in sample().
+   */
   setLook(yaw: number, pitch: number): void {
     this.state.yaw = wrapAngle(yaw);
     this.state.pitch = clamp(pitch, -PITCH_CLAMP, PITCH_CLAMP);
+    this.seededFromView = true;
   }
 
   /** Build this frame's InputFrame. Call exactly once per rendered frame. */

@@ -38,6 +38,8 @@ interface Deed {
 }
 
 const RECOMPUTE_EVERY = 0.5;
+/** fresh evidence triggers a recompute, but at most this often (fights produce evidence every tick) */
+const MIN_RECOMPUTE_GAP = 0.2;
 const PROXIMITY_EVERY = 2;
 const DEED_MEMORY = 90;
 const SINKHORN_ITERS = 10;
@@ -54,6 +56,7 @@ export class Beliefs {
   private cursor = 0;
   private lastDecay = -1;
   private nextRecompute = 0;
+  private lastRecompute = -99;
   private nextProximity = 0;
   private dirty = true;
   table: TableKnowledge | null = null;
@@ -87,8 +90,9 @@ export class Beliefs {
       this.nextProximity = now + PROXIMITY_EVERY;
       this.proximityReads(sim, self, obs);
     }
-    if (this.dirty || now >= this.nextRecompute) {
+    if ((this.dirty && now - this.lastRecompute >= MIN_RECOMPUTE_GAP) || now >= this.nextRecompute) {
       this.nextRecompute = now + RECOMPUTE_EVERY;
+      this.lastRecompute = now;
       this.dirty = false;
       this.recompute(sim, self);
     }

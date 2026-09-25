@@ -232,7 +232,7 @@ export class GameRenderer {
         if (this.rig.mode === 'follow') {
           const d = this.camera.position.distanceTo(_v.set(localEnt.x, localEnt.y + 1.5, localEnt.z));
           const near = Math.min(1, Math.max(0, (d - 0.55) / 0.9));
-          const ads = 1 - 0.6 * Math.min(1, Math.max(0, (adsPull(this.zoomNow) - 0.5) / 0.5)) * this.rig.adsBlend;
+          const ads = 1 - 0.7 * Math.min(1, Math.max(0, (adsPull(this.zoomNow) - 0.5) / 0.5)) * this.rig.adsBlend;
           fade = Math.min(near, ads);
         }
         lv.rig.setFade(fade);
@@ -519,7 +519,7 @@ export class GameRenderer {
       if (d > need - 12 && d <= HERO_VIEW_RANGE) need = d + 12;
     }
     // quantise so the projection is not rebuilt every frame while someone walks
-    const far = Math.max(base, Math.ceil(need / 20) * 20);
+    const far = need > base ? Math.ceil(need / 20) * 20 : base;
     if (far !== this.farNow) {
       this.farNow = far;
       this.camera.far = far;

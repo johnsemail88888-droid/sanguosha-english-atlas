@@ -88,8 +88,10 @@ export class BasicTroopBrain implements TroopBrain {
     }
     const order = cmd!.hero!.order;
 
-    // ── target selection ──
-    if (now >= (ai.nextScan ?? 0)) {
+    // ── target selection ── (a calm / taunt-off effect holds acquisition: ai.aggroHoldUntil, see SHU-4)
+    if ((ai.aggroHoldUntil ?? 0) > now) {
+      tr.targetId = undefined;
+    } else if (now >= (ai.nextScan ?? 0)) {
       ai.nextScan = now + SCAN_EVERY * scanJitter(self.id, sim.tick);
       tr.targetId = this.chooseTarget(sim, self, cmd!, def.aggroRange, def.attackRange)?.id;
     } else if (tr.targetId !== undefined && !this.validTarget(sim, self, tr.targetId, Math.max(def.aggroRange, CHARGE_RANGE) + 10)) {

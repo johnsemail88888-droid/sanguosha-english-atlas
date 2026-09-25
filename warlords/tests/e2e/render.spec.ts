@@ -78,7 +78,8 @@ test('renders the generated battlefield without console errors', async ({ page }
   const info = await page.evaluate(() => (window as unknown as { __info: { drawCalls: number; triangles: number; entities: number } }).__info);
   expect(info.entities).toBeGreaterThan(30);
   expect(info.drawCalls).toBeGreaterThan(10);
-  expect(info.drawCalls).toBeLessThan(450);
+  // budget: < 300 draw calls in the default TPS view (30+ heroes, troops, loot, hazards on screen)
+  expect(info.drawCalls).toBeLessThan(300);
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
@@ -101,5 +102,124 @@ test('hero portraits render to PNG data URLs', async ({ page }) => {
     expect(s.startsWith('data:image/png')).toBe(true);
     expect(s.length).toBeGreaterThan(2000);
   }
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+/** Minimal binary glTF: one box `h` metres tall standing `lift` metres above its origin. */
+function boxGlb(h: number, lift: number): string {
+  const w = 0.25;
+  const pos = new Float32Array([
+    -w, lift, -w, w, lift, -w, w, lift, w, -w, lift, w,
+    -w, lift + h, -w, w, lift + h, -w, w, lift + h, w, -w, lift + h, w,
+  ]);
+  const idx = new Uint16Array([0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7]);
+  const bin = Buffer.concat([Buffer.from(pos.buffer), Buffer.from(idx.buffer)]);
+  const json = {
+    asset: { version: '2.0' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
+    buffers: [{ byteLength: bin.length }],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: pos.byteLength, target: 34962 },
+      { buffer: 0, byteOffset: pos.byteLength, byteLength: idx.byteLength, target: 34963 },
+    ],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 8, type: 'VEC3', min: [-w, lift, -w], max: [w, lift + h, w] },
+      { bufferView: 1, componentType: 5123, count: idx.length, type: 'SCALAR' },
+    ],
+  };
+  let jsonBuf = Buffer.from(JSON.stringify(json));
+  if (jsonBuf.length % 4) jsonBuf = Buffer.concat([jsonBuf, Buffer.alloc(4 - (jsonBuf.length % 4), 0x20)]);
+  const binBuf = bin.length % 4 ? Buffer.concat([bin, Buffer.alloc(4 - (bin.length % 4))]) : bin;
+  const header = Buffer.alloc(12);
+  header.writeUInt32LE(0x46546c67, 0);
+  header.writeUInt32LE(2, 4);
+  header.writeUInt32LE(12 + 8 + jsonBuf.length + 8 + binBuf.length, 8);
+  const chunk = (buf: Buffer, type: number): Buffer => {
+    const h2 = Buffer.alloc(8);
+    h2.writeUInt32LE(buf.length, 0);
+    h2.writeUInt32LE(type, 4);
+    return Buffer.concat([h2, buf]);
+  };
+  return Buffer.concat([header, chunk(jsonBuf, 0x4e4f534a), chunk(binBuf, 0x004e4942)]).toString('base64');
+}
+
+test('GLB hero override: a registered GLB replaces the procedural body, normalised to 1.8 m', async ({ page }) => {
+  test.setTimeout(240_000);
+  const errors = collectErrors(page);
+  await openHarness(page, '?quality=low&look=0,-0.08');
+  const r = await page.evaluate(async (b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' }));
+    const models = await import(/* @vite-ignore */ `${location.origin}/src/render/models/index.ts`);
+    models.registerHeroGlb('guanyu', url);
+    const withGlb = models.createHeroModel('guanyu');
+    const without = models.createHeroModel('zhaoyun');
+    type Rig = { usesGlb: boolean; mesh: { visible: boolean }; glbObject: { scale: { x: number }; children: { position: { y: number } }[] } };
+    const rig = withGlb.userData.rig as Rig;
+    for (let i = 0; i < 100 && !rig.usesGlb; i++) await new Promise((res) => setTimeout(res, 100));
+    await new Promise((res) => setTimeout(res, 300));
+    const plain = without.userData.rig as Rig;
+    return {
+      usesGlb: rig.usesGlb,
+      bodyHidden: !rig.mesh.visible,
+      scale: rig.glbObject?.scale.x ?? 0,
+      feetOffset: rig.glbObject?.children[0]?.position.y ?? 0,
+      plainUsesGlb: plain.usesGlb,
+    };
+  }, boxGlb(3.6, 1));
+  expect(r.usesGlb).toBe(true);
+  expect(r.bodyHidden).toBe(true);
+  expect(r.scale).toBeCloseTo(0.5, 3); // 3.6 m box → 1.8 m hero
+  expect(r.feetOffset).toBeCloseTo(-1, 3); // feet moved onto the ground
+  expect(r.plainUsesGlb).toBe(false); // no GLB → procedural, and no 404 probes in dev
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('heroes are never distance-culled: a 300 m hero renders on low quality', async ({ page }) => {
+  test.setTimeout(240_000);
+  const errors = collectErrors(page);
+  await openHarness(page, '?quality=low&at=0,100&far=300');
+  const r = await page.evaluate(() => {
+    // private internals are fine here: this test is about the renderer itself
+    const R = (window as unknown as { __renderer: any }).__renderer;
+    const dev = (window as unknown as { __dev: any }).__dev;
+    const far = dev.entities().find((e: { name?: string }) => e.name === 'Sniper');
+    const loc = dev.get(dev.localId());
+    // isolate the hero from occluders (terrain / buildings) and look at it through a narrow "scope"
+    for (const c of R.scene.children) if (!c.isLight && c.name !== 'entities') c.visible = false;
+    const cam = { x: loc.x, y: far.y + 1, z: loc.z };
+    const yaw = Math.atan2(-(far.x - loc.x), -(far.z - loc.z));
+    R.setFreeCamera({ pos: cam, yaw: yaw + 0.02, pitch: 0.01 });
+    R.rig.baseFov = 12;
+    for (let i = 0; i < 30; i++) R.frame(1 / 30);
+    const canvas = R.renderer.domElement as HTMLCanvasElement;
+    const p = R.worldToScreen({ x: far.x, y: far.y + 0.9, z: far.z });
+    const grab = (): Uint8ClampedArray => {
+      R.frame(1 / 60);
+      const s = canvas.width / canvas.clientWidth;
+      const c2 = document.createElement('canvas');
+      c2.width = 16;
+      c2.height = 24;
+      const g = c2.getContext('2d')!;
+      g.drawImage(canvas, p.x * s - 8, p.y * s - 12, 16, 24, 0, 0, 16, 24);
+      return g.getImageData(0, 0, 16, 24).data;
+    };
+    const a = grab();
+    const cameraFar = R.camera.far;
+    const y0 = far.y;
+    far.y = y0 - 900;
+    const b = grab();
+    far.y = y0;
+    let changed = 0;
+    for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) changed++;
+    return { dist: Math.hypot(far.x - loc.x, far.z - loc.z), cameraFar, changed, visible: R.entities.character(far.id).root.visible };
+  });
+  expect(r.dist).toBeGreaterThan(290);
+  expect(r.visible).toBe(true);
+  expect(r.cameraFar).toBeGreaterThan(r.dist); // far plane stretched past the low preset's 230 m
+  expect(r.changed).toBeGreaterThan(10); // the silhouette is actually on screen
   expect(errors, errors.join('\n')).toEqual([]);
 });

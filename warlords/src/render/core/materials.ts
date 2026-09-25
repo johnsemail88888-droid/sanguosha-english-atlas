@@ -96,7 +96,7 @@ export function foliageMaterial(): THREE.MeshStandardMaterial {
 
 /** A per-character material (tintable: freeze, glow, stealth) sharing the same shader program. */
 /** Maximum fog factor applied to characters (0 = no fog, 1 = full fog). */
-export const CHARACTER_FOG_MAX = 0.6;
+export const CHARACTER_FOG_MAX = 0.45;
 
 export function characterMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({

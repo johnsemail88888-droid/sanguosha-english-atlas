@@ -61,14 +61,18 @@ function bolt(sim: SimApi, casterId: EntityId, at: Vec3, o: BoltSpec): void {
   for (const t of inside) if (t.alive && !chained.includes(t)) strike(t);
   if (chained.length === 0) return;
   const before = new Map(chained.map((t) => [t.id, hurtMark(t)]));
+  const struck = new Set<EntityId>();
   let spread = false;
   for (const t of chained) {
-    if (!spread) {
-      if (t.alive && !t.hero?.dead && passedThrough(strike(t))) spread = true;
-    } else if (hurtMark(t) !== before.get(t.id)) {
-      stun(t); // reached by the spread of this very bolt
+    if (!t.alive || t.hero?.dead) continue;
+    struck.add(t.id);
+    if (passedThrough(strike(t))) {
+      spread = true;
+      break;
     }
   }
+  // the other links inside the circle were reached by this very bolt's spread: stun them too
+  if (spread) for (const t of chained) if (!struck.has(t.id) && hurtMark(t) !== before.get(t.id)) stun(t);
 }
 
 // 鬼道 (passive): thunder damage you deal (tesla staff arcs, 雷击, the storm cloud) +30 %.

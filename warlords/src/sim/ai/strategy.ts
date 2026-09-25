@@ -36,6 +36,14 @@ const LORD_SIDE: ReadonlySet<RoleId> = new Set<RoleId>(['lord', 'loyalist', 'dou
 const RETALIATE = 0.93;
 /** hostility (lord side) toward whoever just shot a crown */
 const DEFEND = 0.97;
+/** rebels move to the staging ring this long before the push */
+const STAGE_TIME = 25;
+/**
+ * staging ring radius around the lord (m). Roles are hidden: nobody shoots a hero who has done
+ * nothing, and a bot rebel's own soldiers hold fire until he opens up (troopBrain follows the
+ * commander), so rebels can walk right up to the lord's escort and strike together.
+ */
+const STAGE_RADIUS = 24;
 /** recent damage (decaying ~4 s) that counts as being attacked, not a stray bullet */
 const PROVOKE_DMG = 22;
 /** recent damage to a crown that makes the lord side retaliate */
@@ -150,7 +158,35 @@ export class RoleStrategy {
     if (v.role !== 'rebel') return false;
     if (v.now >= this.pushAt) return true;
     const lord = this.crownRef(v);
-    return !!lord && lord.hp < lord.maxHp * 0.6 && v.now > this.prof.lootPhase * 0.5;
+    if (!lord || v.now < this.prof.lootPhase * 0.5) return false;
+    // the lord is weak, or someone is already hitting him: everybody in
+    if (lord.hp < lord.maxHp * 0.6) return true;
+    // staging and the fight has started anyway (the lord is hit, or his side is shooting at
+    // someone): no point waiting for the clock
+    return v.now >= this.pushAt - STAGE_TIME && (this.lordUnderAttack(v, lord) || this.lordSideFiring(v, lord));
+  }
+
+  /** The crown (or its squad, credited to him) is shooting at a non-crown hero right now. */
+  private lordSideFiring(v: BotView, lord: Entity): boolean {
+    for (const o of v.sim.heroes()) {
+      if (o === lord || !o.hero || o.hero.dead || wearsCrown(v.sim, o)) continue;
+      if (v.obs.recentDamage(v.sim, lord.id, o.id) >= 10) return true;
+    }
+    return false;
+  }
+
+  /** Rebels close in on a staging ring shortly before the push, so they arrive together. */
+  staging(v: BotView): boolean {
+    return v.role === 'rebel' && v.now >= this.pushAt - STAGE_TIME && v.now < this.pushAt;
+  }
+
+  /** Is anyone else (not a crown) hurting the lord right now? Public: hit markers / tracers. */
+  private lordUnderAttack(v: BotView, lord: Entity): boolean {
+    for (const o of v.sim.heroes()) {
+      if (o === v.self || o === lord || !o.hero || o.hero.dead || wearsCrown(v.sim, o)) continue;
+      if (v.obs.recentDamage(v.sim, o.id, lord.id) >= 10) return true;
+    }
+    return false;
   }
 
   /** Traitor: only crowns (and neutrals) are left besides me. */
@@ -233,13 +269,32 @@ export class RoleStrategy {
         if (crownX) {
           // the lord must not fall while rebels live (they would win); at the end, duel him —
           // from strength (healed up), or when he is already on his knees
-          hst = endgame ? (ready || x.hp < x.maxHp * 0.3 ? 1 : 0.5) : 0;
+          if (!endgame) {
+            hst = 0;
+          } else if (aliveCrowns(sim, self).length >= 2) {
+            // two crowns: the 影武者 must die first (killing the real lord while the decoy lives
+            // hands the win to the rebels) — go for the crown that looks less like the lord
+            hst = x === this.crownRef(v) ? 0.3 : ready ? 1 : 0.5;
+          } else {
+            hst = ready || x.hp < x.maxHp * 0.3 ? 1 : 0.5;
+          }
           break;
         }
         if (rebelsLeft > 0.5) {
           const bal = this.balance(v);
-          // keep the balance: rebels strong → side with the lord; lord side strong → thin the loyalists
-          hst = Math.min(cap, rb * clamp(bal, 0.45, 1) + ls * clamp(1 - bal, 0, 0.55));
+          // keep the balance, third-party style: while the lord side is ahead, pick off loyalists
+          // that are busy with (or weakened by) the rebels; while the rebels are ahead, hit rebels
+          let busyWithRebels = false;
+          for (const o of sim.heroes()) {
+            if (o === x || o === self || !o.hero || o.hero.dead) continue;
+            if (beliefs.rebelness(sim, self, o) > 0.6 && obs.recentDamage(sim, o.id, x.id) >= 10) {
+              busyWithRebels = true;
+              break;
+            }
+          }
+          const hitLoyal = bal < 0.85 ? (busyWithRebels || x.hp < x.maxHp * 0.5 ? 1 : 0.6) : bal < 1.1 ? 0.3 : 0;
+          const hitRebels = bal > 1.2 ? 1 : bal > 0.85 ? 0.5 : 0.3;
+          hst = Math.min(cap, Math.max(ls * hitLoyal, rb * hitRebels));
           // the lord is going down: save him from whoever is hitting him (rebels would win)
           for (const c of aliveCrowns(sim, self)) {
             if (c.hp < c.maxHp * 0.35 && obs.recentDamage(sim, x.id, c.id) >= 10) hst = Math.max(hst, DEFEND);
@@ -253,7 +308,7 @@ export class RoleStrategy {
         break;
       }
       case 'opportunist':
-        hst = provoked ? RETALIATE : 0;
+        hst = provoked ? RETALIATE : this.safeKill(v, x) ? 0.95 : 0;
         break;
       case 'bounty': {
         const tgt = ownBountyTarget(self);
@@ -266,6 +321,22 @@ export class RoleStrategy {
         hst = provoked ? RETALIATE : 0;
     }
     return clamp(hst, 0, 1);
+  }
+
+  /**
+   * Neutral third-party: a hero that is down (or nearly) close by, with nobody
+   * else around who could punish us for finishing it.
+   */
+  safeKill(v: BotView, x: Entity): boolean {
+    const { sim, self } = v;
+    if (wearsCrown(sim, x)) return false;
+    if (!x.hero?.downed && x.hp > x.maxHp * 0.15) return false;
+    if (Math.hypot(x.pos.x - self.pos.x, x.pos.z - self.pos.z) > 22 || self.hp < self.maxHp * 0.5) return false;
+    for (const o of sim.heroes()) {
+      if (o === x || o === self || !o.hero || o.hero.dead || o.hero.downed) continue;
+      if (Math.hypot(o.pos.x - x.pos.x, o.pos.z - x.pos.z) < 25) return false;
+    }
+    return true;
   }
 
   /** Traitor: healthy enough to take on the lord side (or out of 桃 to heal with). */
@@ -383,6 +454,14 @@ export class RoleStrategy {
         if (lord) {
           const d = Math.hypot(lord.pos.x - self.pos.x, lord.pos.z - self.pos.z);
           if (this.pushing(v)) return { mode: 'hunt', goal: { ...lord.pos }, arrive: 6, sprint: d > 35 };
+          if (this.staging(v)) {
+            // staging ring: close enough to arrive together, beyond the lord's soldiers' reach
+            const ax = self.pos.x - lord.pos.x;
+            const az = self.pos.z - lord.pos.z;
+            const l = Math.hypot(ax, az) || 1;
+            const g = clampZone({ x: lord.pos.x + (ax / l) * STAGE_RADIUS, y: lord.pos.y, z: lord.pos.z + (az / l) * STAGE_RADIUS });
+            return { mode: 'regroup', goal: g, arrive: 5, sprint: d > STAGE_RADIUS + 25 };
+          }
           if (now >= this.prof.lootPhase) {
             const rally = this.rallyPoint(v, lord);
             const far = Math.hypot(rally.x - self.pos.x, rally.z - self.pos.z);

@@ -283,7 +283,7 @@ file · function · exact proposed change · why · which ability needs it. The 
   the implementation are an 8 s duel (each side's soldiers focus the other; the one who lost more HP + shield takes 80,
   ends early at 35 m or when someone falls). Please align the spec text with data/items.ts.
 
-## ABILITIES-WU (吴) — 9 requests
+## ABILITIES-WU (吴) — 10 requests
 
 Wu lives in `src/sim/abilities/wu/*.ts` (entry `wu.ts`); every workaround below sits in `wu/util.ts` and becomes
 redundant (not wrong) once the request lands.
@@ -321,16 +321,18 @@ redundant (not wrong) once the request lands.
   (weapon hits never touch nullify), so make it explicit:
   `dismount(heroId, opts?: { sourceId?: EntityId })` / `stripArmor(heroId, drop = true, opts?: { sourceId?: EntityId })` →
   `if (opts?.sourceId !== undefined && this.nullifies(e, opts.sourceId)) return;` (additive optional arg).
-- **Workaround:** 奇袭 applies its silence first and treats a nullified silence as the whole bolt being cancelled
-  (`ganning.ts`); the echo rule then keeps the rest of the cast consistent.
+- **Workaround:** 奇袭 asks `World.nullifies(target, casterId)` first (structural cast, `wu/util.ts nullifiedBy`, same as
+  `items/util.ts nullified`): a charge — or the same-tick echo of one — cancels the whole bolt (spent), before any gear is
+  touched. Once the opt-in `sourceId` lands, pass it to `dismount` / `stripArmor` and drop the pre-check.
 
 ### WU-5 · let abilities ask "can this status land?" before committing — 谦逊 / 无懈可击 outcomes
 - **File / function:** `src/sim/ext.ts` (SimExt) + `src/sim/world.ts`: `canBeAffected(targetId: EntityId, what: StatusId | 'steal', sourceId?: EntityId): boolean`
   → `this.hooks.canBeAffected(e, what, sourceId)` (the method exists on World, just not on the interface).
 - **Why:** in 三国杀 a card cannot be aimed at an immune hero (乐不思蜀 / 反间 on 陆逊), while 无懈可击 cancels a card that
-  was played. Wu keeps the cooldown when the target is immune and spends it when nullified; today it infers which one
-  happened from the target's nullify charges before/after `applyStatus` (`wu/util.ts applyDebuff`). With the query the
-  immune case is decided up front and no status is ever attempted.
+  was played. Wu keeps the cooldown when the target is immune and spends it when nullified. `wu/util.ts applyDebuff`
+  now asks `World.canBeAffected` through a structural cast (as `items/util.ts vetoes` does) before applying, so any
+  other refusal of a live target is 无懈可击 — a charge or its same-tick echo (the old charge-count comparison misread
+  the echo as immunity: 奇袭 stripped gear through it). Putting the method on SimExt makes the cast unnecessary.
 
 ### WU-6 · squad cap query — needed by 孙权 坐断东南 (and 征兵令)
 - **File / function:** `src/sim/ext.ts` + `src/sim/world.ts`: `squadCap(heroId: EntityId): number` =
@@ -365,9 +367,38 @@ redundant (not wrong) once the request lands.
 - **Proposed change:** data now carries `params.maleOnly = 1` on `sunshangxiang_jieyin`; in `allyInNeed` (heal/ally plans) skip
   candidates with `def.params.maleOnly && sim.heroDef(a)?.gender !== 'male'`.
 
+### WU-10 · `redirectDamage(req, newTargetId)` — 大乔 流离 (conflicts with WEI-1 as written)
+- **File / function:** `src/sim/combat.ts` `dealDamage` + `src/sim/ext.ts` (SimExt) / `src/sim/world.ts`; `src/sim/api.ts`
+  `DamageResult.blocked` gains `'redirect'` (additive).
+- **Problem:** a victim-side hook that hands a hit to someone else only sees `req.amount` (raw) and the amount after the
+  attacker's outgoing step *and its own* armor / dmgTaken / mount. 流离 re-deals `{ ...req, targetId }` with the raw amount
+  and lets the pipeline run the attacker's outgoing step again against the new victim. That is correct today, but:
+  (1) 酒 was already consumed (step 3) by the hit on Da Qiao that she zeroes; (2) weapon on-hit specials (寒冰, 朱雀, 麒麟,
+  太平) are applied by the *callers* (`fireOne` / `meleeSwing` / projectiles) only to the original target, whose result is
+  blocked; (3) the shooter gets an `'invuln'` hit marker; (4) `beforeDamageDealt` flags set for Da Qiao (烈弓 canDodge=false
+  when *she* was > 30 m) ride along on the copied request.
+- **Conflict with WEI-1:** WEI-1 skips `beforeDamageDealt` + the whole outgoing step for `req.redirected`. Correct for 护驾
+  (it passes an already-multiplied amount), wrong for any redirect that passes the raw amount. 流离 therefore **no longer
+  sets `redirected`** (it guards against bouncing with its own per-world flag), so WEI-1 can land as written without
+  touching 流离.
+- **Proposed change:** in `dealDamage`, remember the post-outgoing / pre-incoming amount of the hit being resolved
+  (`w.dmgStack.push({ req, outgoing: amount })` right after step 3, popped on return) and add
+  `SimExt.redirectDamage(req: DamageRequest, newTargetId: EntityId): DamageResult`, valid inside a `modifyIncoming` hook for
+  that `req`: deals `{ ...reqIn, targetId: newTargetId, amount: outgoing, redirected: true, pos: undefined, head: false }`
+  (the request as it came *in*, so pre-hook flags don't leak; WEI-1 semantics skip the outgoing step), then — when not
+  blocked and `req.weaponId` is set — `applyWeaponSpecialOnHit(w, src, weaponDef(req.weaponId), newTarget, dealt + absorbed)`;
+  and marks the frame so the original hit reports `blocked: 'redirect'` (hit event "deflected", `onShotBlocked` ignores it).
+- **Then in Wu:** `daqiao.ts redirectBullet()` becomes `ext(sim).redirectDamage(req, other.id)`; delete the 酒 carry-over
+  (`noteDrunk` / `jiuSpentHere`, the Da Qiao `tick`) and `wu/util.ts weaponOnHit` (the one import of `combat.ts` in Wu).
+- **Workaround today (documented in `daqiao.ts`):** before re-dealing, 流离 gives the attacker back the 酒 this very hit
+  consumed (drunk instances seen on it at the last Da Qiao tick / hit, gone now, and no other hit of that attacker landed
+  this tick), and applies the weapon's on-hit special to the new victim itself via `combat.applyWeaponSpecialOnHit`.
+  Known gaps: 酒 drunk in the same tick as the shot is not seen (lost, as before); the shooter still sees 'invuln'.
+
 ### Data note (integrator)
 - `src/data/heroes-wu.ts`: 百骑劫营 text/params now describe the implemented "first attack" = one trigger pull, ≤ `burst` 1 s
-  (+`burst: 1`), and 结姻 gained the `maleOnly: 1` hint → `docs/HEROES.md` must be regenerated
+  (+`burst: 1`), 结姻 gained the `maleOnly: 1` hint, and the 流离 / 反间 texts now say "a unit in sight … enemies first,
+  your soldiers last" / "the nearest other hero it can see" → `docs/HEROES.md` must be regenerated
   (`UPDATE_DOCS=1 npx vitest run tests/unit/data`; it is also stale from item-text edits by others).
 
 ## ABILITIES-WEI (魏) — 11 requests + a data note
@@ -384,6 +415,9 @@ redundant (not wrong) once the request lands.
 - **Who needs it:** 护驾 (`sim/abilities/wei/caocao.ts`) currently deals the redirected half *source-less* (correct
   amount, no kill credit / attack memory). Once this lands, add `sourceId: req.sourceId` to that `dealDamage` call
   (one line). 流离 has the same double-multiplier problem today.
+- **Note from Wu (see WU-10):** 流离 re-deals the *raw* amount and relies on the outgoing step running for the new victim,
+  so it no longer sets `redirected` — WEI-1 can land as written without affecting it; WU-10's `redirectDamage` is the
+  follow-up that lets 流离 use the flag too.
 
 ### WEI-2 · `fireHitscan` with a `weaponId` should apply the weapon's on-hit special — correctness (夏侯渊 神速)
 - **File / function:** `src/sim/combat.ts` `fireHitscanShot` (+ optional additive `HitscanOptions.weaponSpecials?: boolean`
@@ -542,3 +576,10 @@ redundant (not wrong) once the request lands.
 - **Why:** bots, soldiers and NPCs step out of harmful fields (`sim/ai/perception.ts` `harmfulHazard`), which today guesses
   from `params.damage / strike / slow / dps`. Status-only fields (麻沸散 gas, traps) and custom `registerHazardKind` kinds that
   deal damage in their own tick are invisible to that guess.
+
+### AI · status of requests addressed to `src/sim/ai` (applied on the AI side, nothing for the integrator)
+- **SHU-4:** `troopBrain.ts` / `npcBrain.ts` now also honour `ai.aggroHoldUntil` (no target acquisition while it is in the
+  future; an NPC that is being shot breaks the hold) — the 空城 workaround via `ai.nextScan` keeps working too, so
+  `SimExt.dropAggro` can simply write that field.
+- **QUN-4:** `HeroBot.canReviveFree()` asks the passive's own `canReviveFree(ctx)` hook (cooldown-aware).
+- **ITEMS-11:** `itemUse.ts` no longer second-guesses 决斗 when the card's `botShouldUse` said yes, and 征兵令 follows the hook.

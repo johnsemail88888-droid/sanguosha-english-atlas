@@ -26,6 +26,7 @@ it('debug idle', () => {
       const a = anchor.get(h.id);
       if (!a || Math.hypot(h.pos.x - a.x, h.pos.z - a.z) > 1.5) { anchor.set(h.id, { x: h.pos.x, z: h.pos.z, t: w.time, modes: new Set([b.mode]) }); continue; }
       a.modes.add(b.mode + (b.target ? '>' + (b.target.hero ? b.target.hero.role : b.target.kind) : ''));
+      if (w.time > Number(process.env.AI_T0 ?? 380) && w.time < Number(process.env.AI_T1 ?? 440) && w.tick % 150 === 0) out.push(`${w.time.toFixed(0)} ${st.role}#${st.seat} ${b.mode} pos ${h.pos.x.toFixed(0)},${h.pos.z.toFixed(0)} goal ${JSON.stringify((b as any).goal ? { x: Math.round((b as any).goal.x), z: Math.round((b as any).goal.z) } : null)} hp ${h.hp.toFixed(0)}`);
       const dur = w.time - a.t;
       const wv = worst.get(h.id);
       if (!wv || dur > wv.dur) worst.set(h.id, { dur, at: a.t, modes: [...a.modes].join(','), pos: `${Math.round(h.pos.x)},${Math.round(h.pos.y)},${Math.round(h.pos.z)}`, goal: JSON.stringify((b as any).goal ? { x: Math.round((b as any).goal.x), z: Math.round((b as any).goal.z) } : null) + ' stuck=' + (b as any).nav.stuck + ' unreach=' + (b as any).nav.unreachable });

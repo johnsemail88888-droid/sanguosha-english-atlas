@@ -9,6 +9,7 @@
 // announce themselves with an 'ability' event (流离, 连营, 枭姬, 克己) get one too.
 import * as THREE from 'three';
 import { ABILITY_BY_ID } from '../../data';
+import { MAP_RES, MAP_SIZE } from '../../sim/map/terrain';
 import { PT, type ParticleTex } from '../core/textures';
 import { registerAbilityVfx, type AbilityVfxContext, type AbilityVfxFn } from './abilities';
 import { FX_COLORS } from './effects';
@@ -194,40 +195,208 @@ const fanjian: AbilityVfxFn = (ctx) => {
   ctx.fx.burst(t, { count: 10, tex: PT.heart, color: C(2.6, 0.35, 0.3), speed: [1.2, 2], life: [1.2, 1.8], size: [0.14, 0.08], gravity: -0.3, drag: 1.5, spin: 6, radius: 0.7, flat: true });
 };
 
+// ── 火烧赤壁 warning decal ──────────────────────────────────────────────────
+// A terrain-conforming ground mesh (the flat pooled fx discs sink into sloped or faceted
+// ground) drawn with normal blending: additive red washes out on bright sand and stone.
+const CHIBI_VERT = /* glsl */ `
+attribute vec2 aLocal; // (along the line, across it) in metres
+varying vec2 vLocal;
+void main() {
+  vLocal = aLocal;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const CHIBI_FRAG = /* glsl */ `
+uniform float uT;    // 0 → 1 over the warning
+uniform float uFade; // 1 → 0 after the bombs land
+uniform float uR;    // blast radius
+uniform float uLen;  // line length
+uniform float uN;    // bombs
+varying vec2 vLocal;
+void main() {
+  float gap = uN > 1.0 ? uLen / (uN - 1.0) : 0.0;
+  float dmin = 1e5;
+  for (int i = 0; i < 8; i++) {
+    if (float(i) >= uN) break;
+    float c = uN > 1.0 ? float(i) * gap : uLen * 0.5;
+    dmin = min(dmin, length(vLocal - vec2(c, 0.0)));
+  }
+  float r = dmin / uR; // 0 at the nearest bomb, 1 at its blast edge
+  if (r > 1.08) discard;
+  float inside = 1.0 - smoothstep(0.95, 1.0, r);
+  // scorch that deepens as the bombs fall
+  float dark = inside * mix(0.42, 0.68, uT);
+  // painted rim on the blast edge
+  float rim = smoothstep(0.85, 0.91, r) * (1.0 - smoothstep(1.0, 1.07, r));
+  // countdown ring closing in on each impact point
+  float cr = mix(0.92, 0.1, uT);
+  float cd = smoothstep(cr - 0.08, cr, r) * (1.0 - smoothstep(cr, cr + 0.08, r));
+  // dashed centre line down the corridor
+  float dash = (1.0 - smoothstep(0.16, 0.26, abs(vLocal.y))) * step(0.45, fract(vLocal.x / 1.6)) * inside;
+  float red = max(rim, max(cd * 0.9, dash * 0.85));
+  float pulse = 0.85 + 0.15 * sin(uT * 30.0);
+  vec3 col = mix(vec3(0.05, 0.008, 0.0), vec3(0.95, 0.08, 0.025) * pulse, red);
+  float a = max(dark, red * 0.95) * uFade;
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(col, a);
+}`;
+
+interface LiveDecal {
+  mesh: THREE.Mesh;
+  /** the Effects it lives in (its clock decides expiry) */
+  fx: AbilityVfxContext['fx'];
+  until: number;
+}
+const liveDecals: LiveDecal[] = [];
+
+function disposeDecal(d: LiveDecal): void {
+  d.mesh.removeFromParent();
+  d.mesh.geometry.dispose();
+  (d.mesh.material as THREE.Material).dispose();
+}
+
+/** Drop decals that have run out (on the next cast, or right after the frame they expired in). */
+function sweepDecals(): void {
+  for (let i = liveDecals.length - 1; i >= 0; i--) {
+    if (liveDecals[i].until > liveDecals[i].fx.time) continue;
+    disposeDecal(liveDecals[i]);
+    liveDecals.splice(i, 1);
+  }
+}
+
+/** Terrain triangulation the decal must hug (render/scene/terrain.ts: one quad per heightfield cell). */
+const TERRAIN_CELL = MAP_SIZE / MAP_RES;
+const TERRAIN_ORIGIN = -MAP_SIZE / 2;
+
 /**
- * 火烧赤壁: the 1.5 s warning — the only counterplay to a 100-damage strike, so it must read on
- * bright sand and on stone alike. Each of the five bomb marks is a dark scorch decal (normal
- * blending: additive red washes out on bright ground) under a painted red rim, a red countdown
- * ring closing in and a flare pillar; a dashed red centre line runs down the 25 m corridor
- * (the overlapping marks already cover its full width). The sim's 'fire' explosions land on them.
+ * Ground mesh along the strike line (length `len`, blast radius `r`) that never dips under the
+ * terrain: its vertices sit on the heightfield grid nodes (exact), cell edge midpoints (exact:
+ * heights are linear along an edge) and cell centres (the higher of the two diagonals, so
+ * whichever way the renderer split the quad, the decal is on or just above it). Each cell is
+ * fanned into 8 triangles around its centre, every one inside a single terrain triangle.
+ */
+function chibiDecal(ctx: AbilityVfxContext, from: THREE.Vector3, d: THREE.Vector3, n: number, len: number, r: number, delay: number): void {
+  const fx = ctx.fx;
+  sweepDecals();
+  const g = (x: number, z: number): number => fx.groundY(x, z);
+  const side = new THREE.Vector3(-d.z, 0, d.x);
+  const pad = r + 0.6;
+  const C = TERRAIN_CELL;
+  const half = C / 2;
+  // cells (by index) whose centre lies within reach of the strike segment
+  const ex = Math.abs(d.x) * (len / 2) + pad + C;
+  const ez = Math.abs(d.z) * (len / 2) + pad + C;
+  const mx = from.x + d.x * (len / 2);
+  const mz = from.z + d.z * (len / 2);
+  const i0 = Math.floor((mx - ex - TERRAIN_ORIGIN) / C);
+  const i1 = Math.ceil((mx + ex - TERRAIN_ORIGIN) / C);
+  const k0 = Math.floor((mz - ez - TERRAIN_ORIGIN) / C);
+  const k1 = Math.ceil((mz + ez - TERRAIN_ORIGIN) / C);
+  const reach = pad + C * 0.75;
+  const pos: number[] = [];
+  const loc: number[] = [];
+  const idx: number[] = [];
+  const vid = new Map<number, number>();
+  const W = (i1 - i0) * 2 + 3;
+  // vertex on the half-cell lattice (a, b) = (2·cell + 0|1|2 …), created once
+  const vert = (a: number, b: number, centre: boolean): number => {
+    const key = (b - k0 * 2) * W + (a - i0 * 2);
+    const hit = vid.get(key);
+    if (hit !== undefined) return hit;
+    const x = TERRAIN_ORIGIN + a * half;
+    const z = TERRAIN_ORIGIN + b * half;
+    let y = g(x, z);
+    if (centre) {
+      const h00 = g(x - half, z - half);
+      const h11 = g(x + half, z + half);
+      const h10 = g(x + half, z - half);
+      const h01 = g(x - half, z + half);
+      y = Math.max(y, (h00 + h11) / 2, (h10 + h01) / 2);
+    }
+    const k = pos.length / 3;
+    pos.push(x, y + 0.06, z);
+    loc.push((x - from.x) * d.x + (z - from.z) * d.z, (x - from.x) * side.x + (z - from.z) * side.z);
+    vid.set(key, k);
+    return k;
+  };
+  for (let i = i0; i < i1; i++) {
+    for (let k = k0; k < k1; k++) {
+      const cxw = TERRAIN_ORIGIN + (i + 0.5) * C;
+      const czw = TERRAIN_ORIGIN + (k + 0.5) * C;
+      const u = Math.min(len, Math.max(0, (cxw - from.x) * d.x + (czw - from.z) * d.z));
+      if (Math.hypot(cxw - (from.x + d.x * u), czw - (from.z + d.z * u)) > reach) continue;
+      const a = i * 2;
+      const b = k * 2;
+      const ctr = vert(a + 1, b + 1, true);
+      // ring of corners / edge midpoints around the centre
+      const ring = [vert(a, b, false), vert(a + 1, b, false), vert(a + 2, b, false), vert(a + 2, b + 1, false), vert(a + 2, b + 2, false), vert(a + 1, b + 2, false), vert(a, b + 2, false), vert(a, b + 1, false)];
+      for (let t = 0; t < 8; t++) idx.push(ring[t], ring[(t + 1) % 8], ctr);
+    }
+  }
+  if (idx.length === 0) return;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('aLocal', new THREE.BufferAttribute(new Float32Array(loc), 2));
+  geo.setIndex(idx);
+  geo.computeBoundingSphere();
+  const uniforms = { uT: { value: 0 }, uFade: { value: 1 }, uR: { value: r }, uLen: { value: len }, uN: { value: n } };
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: CHIBI_VERT,
+    fragmentShader: CHIBI_FRAG,
+    uniforms,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'vfx_chibi_warning';
+  mesh.renderOrder = 17; // under the pooled fx (pillars, embers) and particles
+  mesh.frustumCulled = false; // animates in onBeforeRender, so it must be visited every frame
+  const born = fx.time;
+  const fade = 0.3;
+  const live: LiveDecal = { mesh, fx, until: born + delay + fade };
+  mesh.onBeforeRender = () => {
+    const age = fx.time - born;
+    uniforms.uT.value = Math.min(1, age / delay);
+    uniforms.uFade.value = age <= delay ? 1 : Math.max(0, 1 - (age - delay) / fade);
+    if (age >= delay + fade && mesh.visible) {
+      mesh.visible = false;
+      queueMicrotask(sweepDecals);
+    }
+  };
+  fx.group.add(mesh);
+  liveDecals.push(live);
+}
+
+/**
+ * 火烧赤壁: the 1.5 s warning — the only counterplay to a 100-damage strike, so it must read
+ * on bright sand and on stone alike: a scorch decal hugging the ground under all five blast
+ * circles, with painted red rims, a red countdown ring closing in on each impact point and a
+ * dashed red centre line; plus a flare pillar and embers on every bomb. The sim's 'fire'
+ * explosions land on the marks.
  */
 const chibi: AbilityVfxFn = (ctx) => {
   const f = feet(ctx);
   if (!f) return;
   const d = flatDir(ctx);
-  const n = Math.max(1, Math.round(p('zhouyu_chibi', 'blasts', 5)));
+  const n = Math.min(8, Math.max(1, Math.round(p('zhouyu_chibi', 'blasts', 5))));
   const len = p('zhouyu_chibi', 'length', 25);
   const r = p('zhouyu_chibi', 'radius', 3.5);
   const delay = Math.max(0.3, p('zhouyu_chibi', 'delay', 1.5));
-  // corridor centre line: painted dashes every 1.6 m (starts past his feet)
-  for (let t = 1.6; t <= len + 1e-3; t += 1.6) {
-    const at = ground(ctx, f.clone().addScaledVector(d, t), 0.11);
-    ctx.fx.fx.ring(at, { color: C(1.6, 0.12, 0.05), radius0: 0.32, radius1: 0.32, life: delay, inner: 0, soft: 0.35, alpha: 0.85, alphaEnd: 0.95, additive: false });
-  }
+  chibiDecal(ctx, f, d, n, len, r, delay);
+  // his own view: no flare through his own body (the first bomb lands at his feet)
+  const own = ctx.localId !== null && ctx.src?.id === ctx.localId;
   for (let i = 0; i < n; i++) {
     const at = f.clone().addScaledVector(d, n > 1 ? (i * len) / (n - 1) : len / 2);
     const g = ground(ctx, at, 0.1);
-    // scorch decal: darkens whatever it lies on
-    ctx.fx.fx.ring(g, { color: C(0.05, 0.008, 0), radius0: r * 0.92, radius1: r, life: delay, inner: 0, soft: 0.3, alpha: 0.5, alphaEnd: 0.72, additive: false });
-    // painted rim + glow above it (lifted so it sorts after the decal)
-    const rim = g.clone().setY(g.y + 0.03);
-    ctx.fx.fx.ring(rim, { color: C(2.2, 0.16, 0.06), radius0: r, radius1: r, life: delay, inner: 0.88, soft: 0.05, alpha: 0.9, alphaEnd: 1, additive: false });
-    ctx.fx.fx.ring(rim, { color: WARN_RED, radius0: r, radius1: r, life: delay, inner: 0.84, soft: 0.1, alpha: 0.8, alphaEnd: 1.3 });
-    // countdown: a ring closing in on the impact point as the bombs fall
-    ctx.fx.fx.ring(rim, { color: C(2.4, 0.5, 0.1), radius0: r * 0.95, radius1: r * 0.15, life: delay, inner: 0.8, innerEnd: 0.45, soft: 0.08, alpha: 0.8, alphaEnd: 1, additive: false });
-    // flare pillar: readable from any angle, over walls and through smoke
-    ctx.fx.fx.pillar(g, WARN_RED, 0.3, 7, delay, 1.4);
-    ctx.fx.fx.pillar(g, NAPALM, 0.9, 3, delay, 0.5);
+    if (!(own && i === 0)) {
+      // pooled pillars fade out over their life: start hot so they still burn when the bombs land
+      ctx.fx.fx.pillar(g, WARN_RED, 0.28, 6, delay, 2);
+      ctx.fx.fx.pillar(g, NAPALM, 0.8, 2.5, delay, 0.7);
+    }
     ctx.fx.burst(g, { count: 5, tex: PT.flame, color: EMBER, speed: [0.2, 0.8], up: 1, life: [0.6, 1.2], size: [0.15, 0.3], gravity: -1.2, radius: r * 0.6, flat: true });
   }
   ctx.fx.slash(ground(ctx, f, 0.1), yawOf(d), 3, 40, NAPALM);

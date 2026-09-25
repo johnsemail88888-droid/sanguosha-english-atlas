@@ -24,7 +24,7 @@ it('debug', () => {
       if (ev.t === 'itemUse' && w.time > 120 && w.time < 140) out.push(`${w.time.toFixed(1)} ITEM ${role(ev.who)} ${ev.item}`);
       if (ev.t === 'claim') out.push(`${w.time.toFixed(1)} CLAIM ${role(ev.who)} says ${ev.role}`);
     }
-    if (w.tick % 150 === 0 && w.time > 200) {
+    if (w.tick % 90 === 0 && w.time > Number(process.env.AI_T0 ?? 225) && w.time < Number(process.env.AI_T1 ?? 290)) {
       out.push(`${w.time.toFixed(0)} modes: ` + w.heroList().map((h) => { const b = bots[h.hero!.seat]; return `${h.hero!.role}#${h.hero!.seat}:${h.hero!.dead ? 'DEAD' : b?.mode}${b?.target ? '->' + role(b.target.id) : ''}@${Math.round(h.pos.x)},${Math.round(h.pos.z)} hp${Math.round(h.hp)}`; }).join('  '));
     }
   }

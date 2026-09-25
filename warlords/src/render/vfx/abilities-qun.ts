@@ -16,7 +16,6 @@ const C = (r: number, g: number, b: number): THREE.Color => new THREE.Color(r, g
 
 const PINK = C(2.4, 0.55, 1.2);
 const VIOLET = C(1.3, 0.7, 2.4);
-const IRON = C(0.9, 0.9, 1.1);
 const HALBERD_RED = C(2.6, 0.35, 0.2);
 const GOLD = C(2.2, 1.6, 0.45);
 const YELLOW_TURBAN = C(2.4, 1.9, 0.3);
@@ -24,6 +23,13 @@ const HERB = C(0.45, 1.9, 0.8);
 const GAS = C(0.55, 1.0, 0.35);
 const EARTH = C(1.6, 0.8, 0.35);
 const EMBER = C(2.6, 0.9, 0.2);
+// solid (alpha-blended, LDR) marker colours: additive HDR colours wash out to white on a
+// bright daytime background, these stay readable as a coloured ring / glyph at 10–40 m
+const PINK_SOLID = C(1, 0.3, 0.62);
+const HERB_SOLID = C(0.3, 0.9, 0.42);
+const VIOLET_SOLID = C(0.58, 0.32, 1);
+const IRON_SOLID = C(0.26, 0.24, 0.32);
+const THUNDER_SOLID = C(0.35, 0.55, 1);
 
 /** Ground-level copy of a point (+ lift). */
 function ground(ctx: AbilityVfxContext, p: THREE.Vector3, lift = 0.08): THREE.Vector3 {
@@ -85,8 +91,9 @@ const qingnang: AbilityVfxFn = (ctx) => {
   const p = ctx.targetPos ?? ctx.srcPos;
   if (!p) return;
   if (ctx.srcPos && ctx.srcPos.distanceTo(p) > 1) tether(ctx, ctx.srcPos, p, HERB, 0.24, 0.6, 0.9);
-  ctx.fx.fx.ring(ground(ctx, p), { color: HERB, radius0: 0.4, radius1: 1.8, life: 1.2, inner: 0.68, alpha: 1.1 });
-  ctx.fx.burst(p.clone().setY(p.y + 1.3), { count: 1, tex: PT.glow, color: HERB, speed: [0, 0], life: [0.9, 1.1], size: [1, 0.5] });
+  ctx.fx.fx.ring(ground(ctx, p), { color: HERB_SOLID, radius0: 0.6, radius1: 2, life: 1.8, inner: 0.62, alpha: 0.9, additive: false });
+  ctx.fx.burst(p.clone().setY(p.y + 0.6), { count: 1, tex: PT.glow, color: HERB, speed: [0, 0], life: [0.9, 1.1], size: [1, 0.5] });
+  ctx.fx.burst(p.clone().setY(p.y + 0.6), { count: 3, tex: PT.petal, color: HERB_SOLID, speed: [0.2, 0.6], up: 1, life: [1.2, 1.6], size: [0.5, 0.3], spin: 3, additive: false, gravity: -0.4 });
   ctx.fx.heal(p, 150);
   ctx.fx.burst(p, { count: 16, tex: PT.petal, color: HERB, color1: C(0.9, 1.6, 0.5), speed: [0.8, 2.4], up: 1, life: [1.2, 2.2], size: [0.32, 0.16], gravity: -0.6, spin: 5, radius: 0.7 });
   ctx.fx.burst(p, { count: 10, tex: PT.star, color: C(2.2, 2.2, 2), speed: [2, 5], life: [0.3, 0.5], size: [0.2, 0.04] });
@@ -151,8 +158,9 @@ const lijian: AbilityVfxFn = (ctx) => {
   if (!a) return;
   if (ctx.srcPos && ctx.srcPos.distanceTo(a) > 1) tether(ctx, ctx.srcPos, a, PINK, 0.22, 0.6, 0.8);
   const mark = (p: THREE.Vector3): void => {
-    ctx.fx.fx.ring(ground(ctx, p), { color: PINK, radius0: 0.4, radius1: 1.6, life: 1.6, inner: 0.72, alpha: 1.1 });
-    ctx.fx.burst(p.clone().setY(p.y + 1.4), { count: 1, tex: PT.heart, color: PINK, speed: [0, 0], life: [1.4, 1.6], size: [1.1, 0.7], gravity: -0.3 });
+    ctx.fx.fx.ring(ground(ctx, p), { color: PINK_SOLID, radius0: 0.6, radius1: 2, life: 2, inner: 0.62, alpha: 0.9, additive: false });
+    // the heart sits at head height (above it the nameplates would hide it)
+    ctx.fx.burst(p.clone().setY(p.y + 0.55), { count: 1, tex: PT.heart, color: PINK_SOLID, speed: [0, 0], life: [1.6, 1.8], size: [0.55, 0.45], gravity: -0.15, additive: false });
     ctx.fx.burst(p, { count: 10, tex: PT.heart, color: PINK, speed: [0.5, 2], up: 0.8, life: [0.9, 1.4], size: [0.36, 0.18], gravity: -1 });
   };
   mark(a);
@@ -173,14 +181,14 @@ const lianhuan: AbilityVfxFn = (ctx) => {
     const n = Math.max(4, Math.min(14, Math.round(d.length() / 2)));
     for (let i = 0; i < n; i++) {
       const p = ctx.srcPos.clone().addScaledVector(d, (i + 0.5) / n);
-      ctx.fx.burst(p, { count: 1, tex: PT.ring, color: i % 2 ? VIOLET : IRON, speed: [0, 0.2], life: [0.7, 0.9], size: [0.5, 0.36], spin: 2 });
+      ctx.fx.burst(p, { count: 1, tex: PT.ring, color: i % 2 ? VIOLET_SOLID : IRON_SOLID, speed: [0, 0.2], life: [0.8, 1], size: [0.45, 0.35], spin: 2, additive: false });
     }
   }
   const radius = ABILITY_BY_ID.diaochan_lianhuan?.params.radius ?? 8;
   const g = ground(ctx, t);
-  ctx.fx.fx.ring(g, { color: VIOLET, radius0: 0.4, radius1: 1.4, life: 1.2, inner: 0.6, alpha: 1.2 });
+  ctx.fx.fx.ring(g, { color: VIOLET_SOLID, radius0: 0.5, radius1: 1.5, life: 1.6, inner: 0.6, alpha: 0.9, additive: false });
   ctx.fx.fx.ring(g, { color: VIOLET, radius0: 0.5, radius1: radius, life: 0.7, inner: 0.93, alpha: 1 });
-  ctx.fx.burst(t, { count: 12, tex: PT.chevron, color: VIOLET, speed: [1, 3], life: [0.5, 0.9], size: [0.36, 0.2], spin: 4 });
+  ctx.fx.burst(t, { count: 10, tex: PT.ring, color: IRON_SOLID, color1: VIOLET_SOLID, speed: [1, 2.5], up: 0.5, life: [0.8, 1.2], size: [0.3, 0.2], spin: 4, additive: false, gravity: 2 });
 };
 
 // ── 张角 ────────────────────────────────────────────────────────────────────
@@ -217,7 +225,7 @@ const taiping: AbilityVfxFn = (ctx) => {
     }
   }
   const radius = ABILITY_BY_ID.zhangjiao_taiping?.params.radius ?? 2.5;
-  ctx.fx.fx.ring(ground(ctx, t), { color: FX_COLORS.thunder, radius0: radius * 0.4, radius1: radius, life: 1, inner: 0.8, alpha: 1.1 });
+  ctx.fx.fx.ring(ground(ctx, t), { color: THUNDER_SOLID, radius0: radius * 0.4, radius1: radius, life: 1.5, inner: 0.7, alpha: 0.85, additive: false });
   const sky = t.clone().setY(t.y + 5);
   ctx.fx.burst(sky, { count: 12, tex: PT.smoke, color: C(0.18, 0.2, 0.28), speed: [0.5, 1.5], life: [1.2, 2], size: [1.2, 3], additive: false, alpha: 0.7, radius: 1.5, drag: 1 });
   ctx.fx.burst(t, { count: 14, tex: PT.spark, color: FX_COLORS.thunder, speed: [2, 6], life: [0.2, 0.4], size: [0.1, 0.03], stretch: 0.05 });

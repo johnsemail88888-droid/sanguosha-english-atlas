@@ -59,10 +59,13 @@ export class BasicNpcBrain implements NpcBrain {
       return out;
     }
 
-    // ── target acquisition ──
+    // ── target acquisition ── (ai.aggroHoldUntil: calm / taunt-off effects, SHU-4; being shot breaks it)
     const summoned = npc.summonerId !== undefined;
     const aggro = summoned ? Math.max(def.aggroRange, 35) : def.aggroRange;
-    if (now >= (ai.nextScan ?? 0)) {
+    const held = (ai.aggroHoldUntil ?? 0) > now && x.recentAttackers(self.id, 1).length === 0;
+    if (held) {
+      npc.targetId = undefined;
+    } else if (now >= (ai.nextScan ?? 0)) {
       ai.nextScan = now + SCAN_EVERY * scanJitter(self.id, sim.tick);
       const cur = npc.targetId !== undefined ? sim.get(npc.targetId) : undefined;
       const hurtBy = cur ? x.recentAttackers(self.id, 3).some((a) => a === cur.id || x.creditOf(a) === cur.id) : false;

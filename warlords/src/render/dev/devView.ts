@@ -84,6 +84,9 @@ const DEMO_FLAGS = [
   VF_STEALTH,
 ];
 
+/** Direction (yaw from the local hero) of the optional far hero (?far=). */
+export const FAR_HERO_YAW = 0.6;
+
 export interface DevViewOptions {
   heroId: string;
   map: MapData;
@@ -153,13 +156,16 @@ export class DevView implements ViewSource {
     rider.flags |= VF_MOUNTED;
     rider.mount = MOUNTS[0]?.id;
     this.actors.push({ e: rider, home: { x: ox + 18, y: rider.y, z: oz + 4 }, mode: 'circle', stateFlags: VF_MOUNTED, phase: 0 });
-    // far sniper straight ahead (−Z) of the local hero: heroes are never distance-culled
+    // far sniper at yaw FAR_HERO_YAW from the local hero (clear of the lineup):
+    // heroes are never distance-culled, on any quality preset
     if (opts.farHeroDist && opts.farHeroDist > 0) {
-      const fz = oz + 14 - opts.farHeroDist;
-      const far = this.makeHero(HERO_BY_ID.huangzhong ? 'huangzhong' : lh, ox, fz, Math.PI);
+      const dir = forwardFromYaw(FAR_HERO_YAW);
+      const fx = ox + dir.x * opts.farHeroDist;
+      const fz = oz + 14 + dir.z * opts.farHeroDist;
+      const far = this.makeHero(HERO_BY_ID.huangzhong ? 'huangzhong' : lh, fx, fz, FAR_HERO_YAW + Math.PI);
       far.name = 'Sniper';
       far.flags |= VF_ADS;
-      this.actors.push({ e: far, home: { x: ox, y: far.y, z: fz }, mode: 'idle', stateFlags: VF_ADS, phase: 0 });
+      this.actors.push({ e: far, home: { x: fx, y: far.y, z: fz }, mode: 'idle', stateFlags: VF_ADS, phase: 0 });
     }
     // troops lineup (left side)
     TROOPS.forEach((t, i) => {
