@@ -59,7 +59,8 @@ async function processGlb(buf, e) {
     for (const mesh of doc.getRoot().listMeshes()) mesh.dispose();
     for (const mat of doc.getRoot().listMaterials()) mat.dispose();
     for (const tex of doc.getRoot().listTextures()) tex.dispose();
-    await doc.transform(prune(), resample());
+    // keepLeaves: end bones (HeadTop_End, toe tips) are skeleton leaves with no mesh
+    await doc.transform(prune({ keepLeaves: true }), resample());
   } else {
     await doc.transform(
       dedup(),

@@ -465,28 +465,28 @@
   },
   {
    "kind": "image",
-   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051821_047fe63e-915c-498f-9fba-0beba13f476b.png",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_ab6f9234-5670-492b-8d3a-a3f7040c359f.png",
    "out": "public/assets/ui/loading_shu.webp",
    "maxSize": 1600,
    "quality": 78
   },
   {
    "kind": "image",
-   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051821_3e1d9a21-8c8c-4dd5-9f0d-1b9c738ec6fc.png",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_b1f28753-6711-4da6-9a2c-3af12c2817c4.png",
    "out": "public/assets/ui/loading_wei.webp",
    "maxSize": 1600,
    "quality": 78
   },
   {
    "kind": "image",
-   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_a1d22e82-3e33-448b-a1a5-aa48e5260563.png",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_8efd41d4-80a4-4c25-b3d9-6943c4df9e9c.png",
    "out": "public/assets/ui/loading_wu.webp",
    "maxSize": 1600,
    "quality": 78
   },
   {
    "kind": "image",
-   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_095b0b1b-daa4-4c88-ad66-6a6d3c0560de.png",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_0b029b47-65b3-45a4-a532-bdf62ba35c3c.png",
    "out": "public/assets/ui/loading_qun.webp",
    "maxSize": 1600,
    "quality": 78
@@ -660,6 +660,61 @@
    "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052406_7cb3cb67-e612-45ba-b28b-8bb147dfc5f7.glb",
    "out": "public/assets/models/troops/npc_barbarian.glb",
    "texSize": 512
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052658_3cd7b30d-fe8c-4e44-b2d2-15cd7eeb9796.glb",
+   "out": "public/assets/anim/idle.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052700_f030640f-b55f-455e-8092-780f307e2e38.glb",
+   "out": "public/assets/anim/walk_gun_fwd.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052701_60bdd2d8-5188-47a3-8d40-2b613323a833.glb",
+   "out": "public/assets/anim/walk_gun_back.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052703_be2cebfd-abc9-4037-a146-cf36c237ac8c.glb",
+   "out": "public/assets/anim/walk_gun_left.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052707_366fb6e7-adfd-483c-9800-842345c99aaa.glb",
+   "out": "public/assets/anim/sprint.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052709_8815e871-0563-4ec2-8b7a-a40cbb74b614.glb",
+   "out": "public/assets/anim/jump.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052720_985cb411-78ee-4908-a517-35d67d985552.glb",
+   "out": "public/assets/anim/roll.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052733_cac559d8-3116-4428-a221-58ffed2261df.glb",
+   "out": "public/assets/anim/dance.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052740_68c8cab9-e207-4499-b482-0f89f6758a1f.glb",
+   "out": "public/assets/anim/cast.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052742_bab91b6e-3376-4adb-bcfc-97d07d8bccb1.glb",
+   "out": "public/assets/anim/sit.glb"
+  },
+  {
+   "kind": "anim",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052747_1d421bba-75be-4091-8f9f-0ee996fd746f.glb",
+   "out": "public/assets/anim/bow_walk.glb"
   }
  ]
 }
