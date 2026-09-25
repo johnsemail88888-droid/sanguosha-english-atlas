@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RoleId, ViewEntity } from '../../../src/core/types';
-import { VF_DEAD, VF_DOWNED, VF_LORD, VF_REVEALED, VF_STEALTH, emptyInput } from '../../../src/core/types';
+import { SIM_DT, VF_DEAD, VF_DOWNED, VF_LORD, VF_REVEALED, VF_STEALTH, emptyInput } from '../../../src/core/types';
 import { VF_EXPOSED } from '../../../src/sim/snapshot';
 import type { World } from '../../../src/sim/world';
 import { hero, makeWorld, place, stepN } from './helpers';
@@ -104,9 +104,16 @@ describe('snapshots hide private information', () => {
     const e = hero(w, 2);
     w.dash(e.id, { x: 1, y: 0, z: 0 }, 6, 0.3);
     const you = w.snapshotFor('p2').you!;
-    expect(you.forced?.vel.x).toBeCloseTo(20, 5);
-    expect(you.forced?.remaining).toBeCloseTo(0.3, 3);
-    stepN(w, 12);
+    // 0.3 s = 9 ticks, covering exactly 6 m; the hero already moved this tick, so all 9 are
+    // still ahead: remaining = (9 − ½) ticks (the client replays a tick while remaining > 0)
+    expect(you.forced?.vel.x).toBeCloseTo(6 / (9 * SIM_DT), 5);
+    expect(you.forced?.remaining).toBeCloseTo(8.5 * SIM_DT, 3);
+    stepN(w, 8);
+    expect(w.snapshotFor('p2').you!.forced?.remaining).toBeCloseTo(0.5 * SIM_DT, 3);
+    stepN(w, 1);
+    // no forced tick left, but the end-of-dash brake is still pending: remaining 0
+    expect(w.snapshotFor('p2').you!.forced?.remaining).toBe(0);
+    stepN(w, 1);
     expect(w.snapshotFor('p2').you!.forced).toBeUndefined();
   });
 

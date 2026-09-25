@@ -1,5 +1,13 @@
-// 带兵: squad spawning, the shared AI-unit driver (movement, separation,
-// facing, firing with accuracy) and turrets.
+// 带兵: squad spawning, the follow-formation layout, the shared AI-unit driver
+// (movement, separation, commander clearance, facing, firing with accuracy)
+// and turrets.
+//
+// Follow formation (followSlot): the third-person camera hangs 2.8 m behind the
+// commander's RIGHT shoulder (sim/aim.ts cameraRig), so soldiers take a wedge
+// behind-LEFT plus the flanks, every slot ≥ 3 m from the commander and clear of
+// the camera boom; deeper ranks stand behind the camera (out of view). Own
+// soldiers never stand closer than COMMANDER_CLEARANCE to their commander and
+// are nudged out of the camera boom (driveUnit), whatever their brain asks.
 import type { Vec3 } from '../core/math';
 import type { Entity, EntityId } from '../core/types';
 import type { TroopTypeDef, WeaponDef } from '../data/types';
@@ -8,7 +16,8 @@ import { newIntent, resetIntent } from './ai/types';
 import type { TroopBrain, UnitIntent } from './ai/types';
 import { unitFire } from './combat';
 import { troopDef, weaponDef } from './defs';
-import { findFreeSpot, forcedMove, steerMove } from './physics';
+import { CAM_DISTANCE, CAM_SHOULDER } from './aim';
+import { brakeForcedEnd, findFreeSpot, forcedMove, moveCharacter, steerMove } from './physics';
 import type { MoveState } from './physics';
 import { controlState, findStatus, statusSpeedMul, statusValue } from './status';
 import type { ControlState } from './status';
@@ -20,6 +29,69 @@ export function unitSize(def: TroopTypeDef): { radius: number; height: number } 
   if (def.visual.mountedOn === 'horse') return { radius: 0.6, height: 2.3 };
   if (def.visual.body === 'heavy') return { radius: 0.45, height: 1.85 };
   return { radius: 0.4, height: 1.8 };
+}
+
+// ── follow formation ────────────────────────────────────────────────────────
+/** Own soldiers never stand closer than this (m, centre to centre) to their commander. */
+export const COMMANDER_CLEARANCE = 1.2;
+/** Follow-formation slots are at least this far from the commander. */
+export const FORMATION_MIN_DIST = 3;
+/**
+ * Camera boom in commander-local coordinates (right, back): from the feet to a
+ * little past the camera (behind the right shoulder); soldiers keep BOOM_CLEAR
+ * away from that segment.
+ */
+const BOOM_END_R = CAM_SHOULDER * 1.12;
+const BOOM_END_B = CAM_DISTANCE + 0.4;
+const BOOM_CLEAR = 1.3;
+
+/**
+ * Follow slots as (right, back) offsets in metres: flanks and a wedge
+ * behind-left first, then ranks behind the camera. Slots past the table extend
+ * the ranks backwards.
+ */
+const FOLLOW_SLOTS: readonly (readonly [number, number])[] = [
+  [-3.0, 1.0], // left flank
+  [-2.4, 3.2], // behind-left
+  [3.2, 0.6], // right flank (clear of the boom)
+  [-0.8, 4.6], // behind, behind the camera
+  [-4.6, 2.6],
+  [2.2, 4.8],
+  [-3.8, 5.4],
+  [5.0, 2.2],
+  [0.6, 6.4],
+  [-6.0, 4.2],
+  [-2.2, 7.4],
+  [3.8, 6.6],
+];
+
+/** Local (right, back) offset of follow slot `slot`. */
+export function followOffset(slot: number): { right: number; back: number } {
+  const i = Math.max(0, Math.floor(slot));
+  if (i < FOLLOW_SLOTS.length) return { right: FOLLOW_SLOTS[i][0], back: FOLLOW_SLOTS[i][1] };
+  const k = i - FOLLOW_SLOTS.length;
+  const rank = Math.floor(k / 3);
+  return { right: [-3, 0, 3][k % 3] - (rank % 2) * 1.2, back: 8.6 + rank * 1.8 };
+}
+
+/**
+ * World position of follow-formation slot `slot` for a commander (yaw 0 faces
+ * −z; right = (cos yaw, −sin yaw)). Troop brains steer to it on 'follow'.
+ */
+export function followSlot(cmd: Entity, slot: number): Vec3 {
+  const o = followOffset(slot);
+  const fx = -Math.sin(cmd.yaw);
+  const fz = -Math.cos(cmd.yaw);
+  const rx = Math.cos(cmd.yaw);
+  const rz = -Math.sin(cmd.yaw);
+  return { x: cmd.pos.x - fx * o.back + rx * o.right, y: cmd.pos.y, z: cmd.pos.z - fz * o.back + rz * o.right };
+}
+
+/** Distance of a commander-local point (right, back) from the camera boom segment. */
+export function boomDistance(right: number, back: number): number {
+  const len2 = BOOM_END_R * BOOM_END_R + BOOM_END_B * BOOM_END_B;
+  const t = Math.max(0, Math.min(1, (right * BOOM_END_R + back * BOOM_END_B) / len2));
+  return Math.hypot(right - BOOM_END_R * t, back - BOOM_END_B * t);
 }
 
 export function spawnSquad(
@@ -36,6 +108,8 @@ export function spawnSquad(
   const size = unitSize(def);
   const hpMul = w.modifiers(commander.id).troopHpMul;
   const center = pos ?? commander.pos;
+  // at (or right next to) the commander: straight into follow formation, out of his camera
+  const atCommander = !pos || Math.hypot(pos.x - commander.pos.x, pos.z - commander.pos.z) < 4;
   const used = new Set<number>();
   for (const id of h.squad) {
     const t = w.get(id);
@@ -46,9 +120,15 @@ export function spawnSquad(
     let slot = 0;
     while (used.has(slot)) slot++;
     used.add(slot);
-    const a = ((out.length + 0.5) / Math.max(1, count)) * Math.PI * 2 + commander.yaw;
-    const r = 2 + (i % 3) * 0.6;
-    const p = findFreeSpot(w.cw, { x: center.x + Math.cos(a) * r, y: center.y, z: center.z + Math.sin(a) * r }, size.radius, size.height, 8);
+    let want: Vec3;
+    if (atCommander) {
+      want = followSlot(commander, slot);
+    } else {
+      const a = ((out.length + 0.5) / Math.max(1, count)) * Math.PI * 2 + commander.yaw;
+      const r = 2 + (i % 3) * 0.6;
+      want = { x: center.x + Math.cos(a) * r, y: center.y, z: center.z + Math.sin(a) * r };
+    }
+    const p = findFreeSpot(w.cw, want, size.radius, size.height, 8);
     const hp = Math.round(def.hp * hpMul);
     const e = w.createEntity('troop', p, {
       radius: size.radius,
@@ -75,6 +155,77 @@ export function spawnSquad(
 }
 
 // ── shared unit driver ──────────────────────────────────────────────────────
+const clearTmp = { x: 0, z: 0 };
+
+/**
+ * Steering that keeps an own soldier out of its commander's personal space
+ * (< COMMANDER_CLEARANCE + 0.8 m) and camera boom; (0, 0) for everything else.
+ */
+function commanderClearance(u: Entity, cmd: Entity | undefined, out: { x: number; z: number }): { x: number; z: number } {
+  out.x = 0;
+  out.z = 0;
+  if (!cmd || !cmd.alive || cmd.hero?.dead || Math.abs(u.pos.y - cmd.pos.y) > 2.5) return out;
+  const dx = u.pos.x - cmd.pos.x;
+  const dz = u.pos.z - cmd.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d > BOOM_END_B + BOOM_CLEAR + 1) return out;
+  // personal space
+  const soft = COMMANDER_CLEARANCE + 0.8;
+  if (d < soft) {
+    const k = (soft - d) / soft;
+    // exactly on top of him: step out to the left (the formation side)
+    const nx = d > 1e-4 ? dx / d : -Math.cos(cmd.yaw);
+    const nz = d > 1e-4 ? dz / d : Math.sin(cmd.yaw);
+    out.x += nx * k * 2;
+    out.z += nz * k * 2;
+  }
+  // camera boom (behind the right shoulder)
+  const rx = Math.cos(cmd.yaw);
+  const rz = -Math.sin(cmd.yaw);
+  const bx = Math.sin(cmd.yaw); // back = −forward
+  const bz = Math.cos(cmd.yaw);
+  const right = dx * rx + dz * rz;
+  const back = dx * bx + dz * bz;
+  const bd = boomDistance(right, back);
+  if (bd < BOOM_CLEAR) {
+    const len2 = BOOM_END_R * BOOM_END_R + BOOM_END_B * BOOM_END_B;
+    const t = Math.max(0, Math.min(1, (right * BOOM_END_R + back * BOOM_END_B) / len2));
+    let pr = right - BOOM_END_R * t;
+    let pb = back - BOOM_END_B * t;
+    const pl = Math.hypot(pr, pb);
+    if (pl > 1e-4) {
+      pr /= pl;
+      pb /= pl;
+    } else {
+      // on the boom line: step out to the left (the formation side)
+      pr = -1;
+      pb = 0;
+    }
+    const k = ((BOOM_CLEAR - bd) / BOOM_CLEAR) * 1.6;
+    out.x += (rx * pr + bx * pb) * k;
+    out.z += (rz * pr + bz * pb) * k;
+  }
+  return out;
+}
+
+/** Hard constraint: an own soldier ends its step at least COMMANDER_CLEARANCE from its commander. */
+function enforceClearance(w: World, u: Entity, cmd: Entity | undefined, st: MoveState): void {
+  if (!cmd || !cmd.alive || cmd.hero?.dead || Math.abs(u.pos.y - cmd.pos.y) > 2.5) return;
+  const dx = u.pos.x - cmd.pos.x;
+  const dz = u.pos.z - cmd.pos.z;
+  const d = Math.hypot(dx, dz);
+  if (d >= COMMANDER_CLEARANCE) return;
+  const nx = d > 1e-4 ? dx / d : -Math.cos(cmd.yaw);
+  const nz = d > 1e-4 ? dz / d : Math.sin(cmd.yaw);
+  const push = COMMANDER_CLEARANCE - d + 1e-3;
+  const vx = u.vel.x;
+  const vz = u.vel.z;
+  moveCharacter(w.cw, st, nx * push, nz * push, 0, u.radius, u.height);
+  // a positional correction, not a velocity change
+  u.vel.x = vx;
+  u.vel.z = vz;
+}
+
 const cs: ControlState = { stunned: false, rooted: false, silenced: false, disarmed: false, dancing: false, frozen: false };
 const intent = newIntent();
 const moveSt: MoveState = { pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, onGround: true };
@@ -109,10 +260,15 @@ export function driveUnit(
   moveSt.vel = u.vel;
   moveSt.onGround = u.onGround;
   moveSt.steep = false;
+  const cmd = u.troop ? w.get(u.troop.commanderId) : undefined;
   if (u.forced && now < u.forced.until) {
     forcedMove(w.cw, moveSt, u.forced.vel.x, u.forced.vel.z, dt, u.radius, u.height);
   } else {
-    if (u.forced) u.forced = undefined;
+    if (u.forced) {
+      // forced movement over: stop at the unit's own speed instead of sliding on (SHU-1)
+      u.forced = undefined;
+      brakeForcedEnd(u.vel, baseSpeed);
+    }
     let mx = cs.stunned || cs.rooted ? 0 : it.moveX;
     let mz = cs.stunned || cs.rooted ? 0 : it.moveZ;
     if (!cs.stunned) {
@@ -132,6 +288,12 @@ export function driveUnit(
           sz += (dz / d) * k;
         }
       });
+      // own soldiers: out of the commander's personal space and third-person camera
+      const c = cmd ? commanderClearance(u, cmd, clearTmp) : undefined;
+      if (c) {
+        sx += c.x;
+        sz += c.z;
+      }
       if (sx !== 0 || sz !== 0) {
         mx += sx * 1.2;
         mz += sz * 1.2;
@@ -145,6 +307,7 @@ export function driveUnit(
     const speed = baseSpeed * it.speedMul * statusSpeedMul(u, now);
     steerMove(w.cw, moveSt, mx, mz, speed, dt, u.radius, u.height, it.jump && !cs.stunned && !cs.rooted && !cs.frozen);
   }
+  if (cmd) enforceClearance(w, u, cmd, moveSt);
   u.onGround = moveSt.onGround;
   // facing
   if (!cs.stunned) {

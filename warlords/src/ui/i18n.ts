@@ -201,6 +201,7 @@ const DICT = {
   'hud.blocked.invuln': ['免疫', 'Immune'],
   'hud.blocked.shield': ['护盾', 'Shield'],
   'hud.blocked.nullify': ['无懈', 'Nullified'],
+  'hud.blocked.redirect': ['流离', 'Deflected'],
   'hud.reward.rebelKill': ['击杀反贼！获得 3 个锦囊', 'Rebel slain! +3 items'],
   'hud.reward.bounty': ['赏金到手！获得 2 个稀有锦囊', 'Bounty claimed! +2 rare items'],
   'hud.reward.lordPenalty': ['主公误杀忠良，弃置所有装备！', 'The Lord slew a loyal subject and drops all gear!'],
