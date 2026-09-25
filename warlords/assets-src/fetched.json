@@ -352,5 +352,7 @@
  "assets-src/previews/mounts/horse.webp": "c856dd4e09cb934de88af94534d1673cc8405e61",
  "assets-src/previews/mounts/elephant.webp": "1f58ebdb58f1452ced5eeb2d2f9779a617b5d62b",
  "assets-src/previews/props/sandbags.webp": "84846155d3a8f82c5a2e44f3dbd638421f80ebab",
- "assets-src/previews/props/nanmanTent.webp": "8c4a205cb1c94b666f0cd68c2d9ddccd717ae04d"
+ "assets-src/previews/props/nanmanTent.webp": "8c4a205cb1c94b666f0cd68c2d9ddccd717ae04d",
+ "public/assets/models/mounts/horse.glb": "9d2045295d4cba930c0c04b9dcf03c3d8800cbee",
+ "public/assets/models/mounts/elephant.glb": "4c3c2315277611d3d8dda88a01e1fab2b93753d3"
 }
