@@ -9,10 +9,14 @@ import { mountGameView, mountHeroTurntable, renderHeroPortrait } from './render'
 import type { ViewSource } from './render/view';
 import { registerAllVfx } from './render/vfx/registerAll';
 import { mountApp, type AppDeps, type GameHandle } from './ui/app';
+import { DebugHooks, debugEnabled } from './game/debug';
 
 registerAllVfx();
 
-function mountGame(container: HTMLElement, view: ViewSource, _session: GameSession): GameHandle {
+// `?debug=1`: window.__sgwl hooks for automated play-testing (see src/game/debug.ts)
+const debug = debugEnabled() ? new DebugHooks(pkg.version, () => document.querySelector<HTMLElement>('.sg-root')) : null;
+
+function mountGame(container: HTMLElement, view: ViewSource, session: GameSession): GameHandle {
   let pending: GameEvent[] = [];
   let lastIntensity = -1;
   // `handle` is assigned before the first animation frame calls onFrame.
@@ -37,26 +41,32 @@ function mountGame(container: HTMLElement, view: ViewSource, _session: GameSessi
   });
   const offEvents = handle.onEvents((evs) => {
     for (const e of evs) pending.push(e);
+    debug?.onEvents(evs);
   });
   const offFire = handle.renderer.onLocalFire((weaponId) => audio.localFire(weaponId));
-  return {
+  const gameHandle: GameHandle = {
     input: handle.input,
     onEvents: (cb) => handle.onEvents(cb),
     setSpectateTarget: (id) => handle.setSpectateTarget(id),
     worldToScreen: (p) => handle.worldToScreen(p),
     dispose: () => {
+      offDebug?.();
       offEvents();
       offFire();
       audio.setDowned(false);
       handle.dispose();
     },
   };
+  const offDebug = debug?.attachGame({ view, session, handle, gameHandle });
+  return gameHandle;
 }
 
+const track = <T extends GameSession>(s: T): T => (debug ? debug.trackSession(s) : s);
+
 const deps: AppDeps = {
-  createLocalSession: (name) => createLocalSession({ name }),
-  hostOnline: (name, mode) => hostOnlineSession({ name, mode }),
-  joinOnline: (code, name, mode) => joinOnlineSession(code, { name, mode }),
+  createLocalSession: (name) => track(createLocalSession({ name })),
+  hostOnline: async (name, mode) => track(await hostOnlineSession({ name, mode })),
+  joinOnline: async (code, name, mode) => track(await joinOnlineSession(code, { name, mode })),
   mountGame,
   renderHeroPortrait,
   mountHeroTurntable,

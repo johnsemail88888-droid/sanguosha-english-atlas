@@ -275,16 +275,17 @@ export function brakeAfterForced(sim: SimApi, e: Entity): void {
  *
  * Call it from activate(): the caster then moves on the cast tick already.
  * The duration is rounded to n whole ticks and handed to the world as
- * (n − ½) ticks (speed kept at distance / n ticks), so float rounding of
- * `until` can never add or drop a movement tick: the dash covers `distance`
- * exactly, then brakes. Returns the effective duration (n ticks).
+ * (n − ½) ticks; World.dash moves on exactly those n ticks at distance / n
+ * ticks and brakes to walking speed afterwards (SHU-1, so brake() here is a
+ * harmless repeat). Returns the effective duration (n ticks).
  */
 export function charge(ctx: AbilityCtx, o: ChargeOpts): number {
   const { sim, self } = ctx;
   const n = Math.max(1, Math.round(Math.max(SIM_DT, o.duration) / SIM_DT));
   const duration = (n - 0.5) * SIM_DT;
   const before = self.forced;
-  if (o.distance > 0.05) sim.dash(self.id, o.dir, (o.distance * (n - 0.5)) / n, duration, { invuln: o.invuln });
+  // World.dash moves on ⌈duration / SIM_DT⌉ = n ticks and covers `distance` exactly (SHU-1)
+  if (o.distance > 0.05) sim.dash(self.id, o.dir, o.distance, duration, { invuln: o.invuln });
   // undefined: no dash of ours is running (too short, or refused) — strike in place
   const dashState = self.forced !== before ? self.forced : undefined;
   const end = sim.time + duration;
