@@ -75,7 +75,8 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     wrap(r.post, 'render', 'post.render');
     wrap(r, 'frame', 'frame');
     const origFrame = r.frame;
-    r.frame = (d: number) => { origFrame(d); if (n < 4) console.log(`[prof] programs ${r.renderer.info.programs.length}`); n++; };
+    let seen = 0;
+    r.frame = (d: number) => { origFrame(d); const ps = r.renderer.info.programs; if (ps.length !== seen) { console.log(`[prof] frame${n} programs ${ps.length}: ${ps.slice(seen).map((p: any) => p.name + '/' + p.type).join(', ')} ext=${!!r.renderer.extensions.get('KHR_parallel_shader_compile')}`); seen = ps.length; } n++; };
   }
   return gameHandle;
 }
