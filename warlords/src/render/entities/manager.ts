@@ -9,6 +9,8 @@ import { AirdropView, CrateView, LootView, ProjectileView, TurretView, type Enti
 import { HazardView } from './hazards';
 import type { EntityCtx } from './context';
 import { TroopBadgeLayer } from './nameplate';
+import { qualityPreset, type CharacterArt } from '../quality';
+import { settings } from '../../game/settings';
 
 type AnyView = CharacterView | EntityView;
 const MAX_CORPSES = 24;
@@ -27,6 +29,8 @@ export class EntityManager {
   private corpses: CharacterView[] = [];
   private readonly died = new Map<EntityId, number>();
   private readonly seen = new Set<EntityId>();
+  /** which characters use their AI-art body (the renderer's quality preset; setCharacterArt) */
+  private art: CharacterArt = qualityPreset(settings.get().quality).glbCharacters;
 
   constructor() {
     this.group.name = 'entities';
@@ -47,6 +51,14 @@ export class EntityManager {
     return this.views.get(id);
   }
 
+  /** The quality tier changed: existing characters swap between AI-art and procedural bodies in place. */
+  setCharacterArt(art: CharacterArt): void {
+    if (art === this.art) return;
+    this.art = art;
+    for (const v of this.views.values()) if (v instanceof CharacterView) v.setCharacterArt(art);
+    for (const c of this.corpses) c.setCharacterArt(art);
+  }
+
   /** A death event was seen for this entity: keep its visual as a corpse when it leaves the view. */
   noteDeath(id: EntityId, time: number): void {
     this.died.set(id, time);
@@ -57,7 +69,7 @@ export class EntityManager {
       case 'hero':
       case 'troop':
       case 'npc':
-        return new CharacterView(e);
+        return new CharacterView(e, this.art);
       case 'projectile':
         return new ProjectileView(e);
       case 'loot':

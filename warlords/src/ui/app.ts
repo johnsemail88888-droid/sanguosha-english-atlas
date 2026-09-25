@@ -11,6 +11,9 @@ import { Bag, h, clear } from './dom';
 import { getLang, t, tx } from './i18n';
 import { applyRootVars, injectStyles } from './styles';
 import { PortraitCache, button, type SfxName } from './widgets';
+import { TITLE_ART } from './art';
+import { artBackdrop, type ArtBackdrop } from './keyart';
+import { HEROES } from '../data';
 import { createTitleScreen } from './screens/title';
 import { createSingleScreen } from './screens/single';
 import { createOnlineScreen } from './screens/online';
@@ -72,7 +75,7 @@ export interface GameHandle {
 export interface LoadProgress {
   /** 0..1 */
   progress: number;
-  stage: 'scene' | 'shaders' | 'warmup' | 'ready' | 'failed';
+  stage: 'scene' | 'models' | 'shaders' | 'warmup' | 'ready' | 'failed';
   error?: string;
 }
 
@@ -92,6 +95,9 @@ export interface MountAppOptions {
 }
 
 type MusicTrack = 'menu' | 'battle' | 'victory' | 'defeat' | null;
+
+/** Menu screens drawn over the blurred key art (when it ships): the title and loading have their own art. */
+const MENU_ART_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(['single', 'online', 'lobby', 'roles', 'heroSelect', 'gallery', 'help']);
 
 /** Error codes after which the session is unusable (we return to the title). */
 const FATAL_CODES = new Set([
@@ -157,6 +163,9 @@ class App implements UiCtx {
   readonly webgl: WebGLSupport;
   /** the 3D view of the current match failed to start (the failure modal is up) */
   private loadFailed = false;
+  /** blurred key art behind the menu screens (dropped during a match to free the decoded image) */
+  private menuArt: ArtBackdrop | null = null;
+  private prefetchTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     host: HTMLElement,
@@ -397,12 +406,44 @@ class App implements UiCtx {
       prev.el.remove();
     }
     this.screenId = id;
+    this.syncMenuArt(id);
     const s = this.createScreen(id);
     this.screen = s;
     if (s) this.screenLayer.appendChild(s.el);
     this.hudLayerVisible(id === 'match');
     this.updateMusic();
     this.root.dataset.activeScreen = id;
+  }
+
+  /** The blurred key art behind menu screens: created on the first menu screen, freed when a match loads. */
+  private syncMenuArt(id: ScreenId): void {
+    if (MENU_ART_SCREENS.has(id)) {
+      if (this.menuArt) return;
+      const art = artBackdrop([TITLE_ART], {
+        cls: 'menu',
+        onResolve: (url) => {
+          if (url && this.menuArt === art) this.root.classList.add('menu-art');
+        },
+      });
+      this.menuArt = art;
+      this.screenLayer.prepend(art.el);
+    } else if (id === 'loading' || id === 'match') {
+      const art = this.menuArt;
+      if (!art) return;
+      this.menuArt = null;
+      art.dispose();
+      art.el.remove();
+      this.root.classList.remove('menu-art');
+    }
+  }
+
+  /** Warm the HTTP cache with every painted portrait once a match is being set up (hero select pops in). */
+  private schedulePrefetch(): void {
+    if (this.prefetchTimer !== null) return;
+    this.prefetchTimer = setTimeout(() => {
+      this.prefetchTimer = null;
+      this.portraits.prefetch(HEROES.map((x) => x.id));
+    }, 600);
   }
 
   startSingle(patch: Partial<MatchSettings>): void {
@@ -495,6 +536,7 @@ class App implements UiCtx {
   private attachSession(s: GameSession, kind: 'single' | 'online'): void {
     this.session = s;
     this.sessionKind = kind;
+    this.schedulePrefetch();
     this.lastPhase = s.phase;
     this.pickedHero = s.heroSelect?.picks[mySeat(s)] ?? null;
     const bag = new Bag();
@@ -770,6 +812,8 @@ class App implements UiCtx {
   }
 
   dispose(): void {
+    if (this.prefetchTimer !== null) clearTimeout(this.prefetchTimer);
+    this.menuArt?.dispose();
     this.closeSettings();
     this.leaveSession(false, true);
     if (this.screen) {

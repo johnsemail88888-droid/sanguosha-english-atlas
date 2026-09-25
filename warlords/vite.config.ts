@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
@@ -20,26 +21,33 @@ function inlineFavicon(): Plugin {
 }
 
 /**
- * Multi-file builds: `assets/heroes/index.json` lists the optional hero GLB
- * overrides in public/assets/heroes, so the game fetches one manifest instead of
- * probing (and 404-ing) `assets/heroes/<id>.glb` for every hero it meets
- * (src/render/models/glb.ts).
+ * Multi-file builds: `assets/art-index.json` lists every optional art file in
+ * public/assets (AI-generated models, clips, portraits, textures) so the game
+ * fetches one listing instead of probing each file (src/game/assets.ts).
  */
-function heroGlbManifest(): Plugin {
+function artIndex(): Plugin {
   return {
-    name: 'sgwl-hero-glb-manifest',
+    name: 'sgwl-art-index',
     apply: 'build',
     generateBundle() {
-      let heroes: string[] = [];
-      try {
-        heroes = readdirSync(fileURLToPath(new URL('./public/assets/heroes/', import.meta.url)))
-          .filter((f) => /^[\w-]+\.glb$/.test(f))
-          .map((f) => f.slice(0, -4))
-          .sort();
-      } catch {
-        /* no overrides */
-      }
-      this.emitFile({ type: 'asset', fileName: 'assets/heroes/index.json', source: `${JSON.stringify({ heroes })}\n` });
+      const pub = fileURLToPath(new URL('./public/', import.meta.url));
+      const files: string[] = [];
+      const walk = (dir: string): void => {
+        let names: string[] = [];
+        try {
+          names = readdirSync(dir);
+        } catch {
+          return;
+        }
+        for (const n of names) {
+          const full = join(dir, n);
+          if (statSync(full).isDirectory()) walk(full);
+          else if (/\.(glb|webp|png|jpg|json)$/i.test(n)) files.push(relative(pub, full).split(sep).join('/'));
+        }
+      };
+      walk(join(pub, 'assets'));
+      files.sort();
+      this.emitFile({ type: 'asset', fileName: 'assets/art-index.json', source: `${JSON.stringify({ files })}\n` });
     },
   };
 }
@@ -47,7 +55,7 @@ function heroGlbManifest(): Plugin {
 // `vite build --mode single` produces one self-contained HTML file (double-click to play).
 export default defineConfig(({ mode }) => ({
   base: './',
-  plugins: mode === 'single' ? [viteSingleFile(), inlineFavicon()] : [heroGlbManifest()],
+  plugins: mode === 'single' ? [viteSingleFile(), inlineFavicon()] : [artIndex()],
   // the single-file build is exactly one file: nothing from public/ is copied next to it
   publicDir: mode === 'single' ? false : 'public',
   build: {
@@ -57,6 +65,16 @@ export default defineConfig(({ mode }) => ({
     assetsInlineLimit: mode === 'single' ? 100_000_000 : 4096,
   },
   server: { port: 5173 },
+  // dev: the AI-art loaders are imported lazily; pre-bundle them so the first
+  // load does not answer 504 "Outdated Optimize Dep" and reload the page
+  optimizeDeps: {
+    include: [
+      'three/addons/loaders/GLTFLoader.js',
+      'three/addons/libs/meshopt_decoder.module.js',
+      'three/addons/libs/meshopt_simplifier.module.js',
+      'three/addons/utils/SkeletonUtils.js',
+    ],
+  },
   test: {
     include: ['tests/unit/**/*.test.ts'],
     environment: 'node',

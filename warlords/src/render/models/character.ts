@@ -1,15 +1,25 @@
-// CharacterRig: one procedural character = ONE skinned mesh (body + held
-// weapon(s) merged, the weapon skinned to the weapon bone) + optional mount,
-// driven by the CharacterAnimator. One draw call (+ its shadow) per character.
-// Used by the in-game entity views, the portrait renderer and the turntable.
+// CharacterRig: one character = ONE skinned mesh + optional mount.
+//   - GLB body (models/glbBody.ts, when the AI art is shipped and loaded): the
+//     textured mocap-animated model with the procedural weapon in its hand;
+//   - procedural body (the fallback: single-file build, no assets, load
+//     failure, still loading): body + held weapon(s) merged, the weapon skinned
+//     to the weapon bone, driven by the CharacterAnimator.
+// One draw call (+ its shadow) per character either way (+ the weapon mesh for
+// GLB bodies). Used by the in-game entity views, the portrait renderer and the
+// turntable. A GLB body requested with useGlb() swaps in as soon as its model
+// and the shared clips are loaded (immediately when they already are).
 import * as THREE from 'three';
 import { characterMaterial } from '../core/materials';
 import { CharacterAnimator, type AnimInput, type RigBones } from '../anim/animator';
+import type { GlbFrameInput } from '../anim/glbAnimator';
+import { clipsReady, loadAllClips } from '../anim/glbClips';
+import { WEAPON_BY_ID } from '../../data';
 import { buildCharacter, specKey, type CharacterSpec } from './humanoid';
 import { B, localRest, type BodyDims } from './rig';
-import { buildWeapon, isAkimbo, type HoldStyle, type WeaponModel, type WeaponModelInfo } from './weapons';
+import { buildWeapon, isAkimbo, weaponSpecOf, type HoldStyle, type WeaponModelInfo } from './weapons';
 import { MountRig, SADDLE_HIP, type MountKind } from './mounts';
-import { loadHeroGlb } from './glb';
+import { GLB_HERO_HEIGHT, charTemplateSync, heroModelPath, loadCharTemplate } from './glb';
+import { GlbBody } from './glbBody';
 
 export interface RigUpdate {
   speed: number;
@@ -17,6 +27,8 @@ export interface RigUpdate {
   moveZ: number;
   pitch: number;
   flags: number;
+  /** showcase idle (hero select / portraits): weapon held at low ready unless aiming (VF_ADS) */
+  lowReady?: boolean;
 }
 
 const mergedCache = new Map<string, THREE.BufferGeometry>();
@@ -112,7 +124,8 @@ export class CharacterRig {
   /** add this to the scene; position/rotate it at the entity */
   readonly root = new THREE.Group();
   readonly mesh: THREE.SkinnedMesh;
-  readonly material: THREE.MeshStandardMaterial;
+  /** the procedural body's material */
+  readonly procMaterial: THREE.MeshStandardMaterial;
   readonly animator = new CharacterAnimator();
   readonly spec: CharacterSpec;
   readonly rigBones: RigBones;
@@ -126,12 +139,17 @@ export class CharacterRig {
   private akimbo = false;
   mount: MountRig | null = null;
   private readonly mountKey: { kind: MountKind | null; coat: string; cloth: string; trim: string } = { kind: null, coat: '', cloth: '', trim: '' };
-  private glbMixer: THREE.AnimationMixer | null = null;
-  private glbObject: THREE.Object3D | null = null;
-  private glbWeapons: WeaponModel[] = [];
+  private glb: GlbBody | null = null;
+  /** requested GLB model path (null = procedural) and the height to normalise it to */
+  private glbWant: string | null = null;
+  private glbHeight = GLB_HERO_HEIGHT;
+  private meleeStyle: 'heavy' | 'thrust' = 'thrust';
+  private reloadTime = 2;
   private disposed = false;
   private stealthed = false;
   private castShadows = true;
+  /** the held weapon's own shadow (a separate draw on GLB bodies; merged into the procedural body) */
+  private weaponShadows = true;
   private weaponShown = false;
   private fade = 1;
   private localView = false;
@@ -151,6 +169,22 @@ export class CharacterRig {
     leftHandBusy: false,
     akimbo: false,
   };
+  /** reused GLB animator input */
+  private readonly glbIn: GlbFrameInput = {
+    dt: 0,
+    speed: 0,
+    moveX: 0,
+    moveZ: 0,
+    pitch: 0,
+    flags: 0,
+    hold: 'none',
+    mounted: false,
+    meleeStyle: 'thrust',
+    mountHip: 0,
+    mountBob: 0,
+    reloadTime: 2,
+    lowReady: false,
+  };
 
   constructor(spec: CharacterSpec) {
     this.spec = spec;
@@ -159,8 +193,8 @@ export class CharacterRig {
     this.bodyGeo = built.geometry;
     this.dims = built.dims;
     this.leftHandBusy = built.leftHandBusy;
-    this.material = characterMaterial();
-    this.mesh = new THREE.SkinnedMesh(built.geometry, this.material);
+    this.procMaterial = characterMaterial();
+    this.mesh = new THREE.SkinnedMesh(built.geometry, this.procMaterial);
     this.mesh.add(built.bones[0]);
     this.mesh.bind(built.skeleton);
     this.mesh.castShadow = true;
@@ -184,15 +218,37 @@ export class CharacterRig {
    * or seated on the current mount), including the rig's root scale.
    */
   headHeight(): number {
+    const g = this.glb;
+    if (g) {
+      let top = g.headTop();
+      if (this.mount) top += SADDLE_HIP[this.mount.kind] - g.template.landmarks.hipsY * g.scale;
+      return top * this.root.scale.y;
+    }
     const d = this.dims;
     let top = d.headCY + 0.19 * d.h;
     if (this.mount) top += SADDLE_HIP[this.mount.kind] - d.hipY;
     return top * this.root.scale.y;
   }
 
-  /** true once a GLB body replaced the procedural one (see models/glb.ts) */
+  /** Standing height of the procedural body (m, before the root scale): what a GLB body is normalised to. */
+  standHeight(): number {
+    const d = this.dims;
+    return d.headCY + 0.19 * d.h;
+  }
+
+  /** true once a GLB body replaced the procedural one (see models/glbBody.ts) */
   get usesGlb(): boolean {
-    return this.glbObject !== null;
+    return this.glb !== null;
+  }
+
+  /** The GLB body, when one is in use. */
+  get glbBody(): GlbBody | null {
+    return this.glb;
+  }
+
+  /** The material of the body currently shown (tints / hit flash go here). */
+  get material(): THREE.MeshStandardMaterial {
+    return this.glb ? this.glb.material : this.procMaterial;
   }
 
   get currentWeapon(): string | null {
@@ -206,6 +262,7 @@ export class CharacterRig {
   /** World-space muzzle position of the (right) weapon; false when no weapon is shown. */
   muzzleWorld(out: THREE.Vector3): boolean {
     if (!this.info || !this.weaponShown) return false;
+    if (this.glb) return this.glb.muzzleWorld(out);
     const bone = this.rigBones.bones[B.weapon];
     bone.updateWorldMatrix(true, false);
     out.copy(this.info.muzzle).applyMatrix4(bone.matrixWorld);
@@ -220,10 +277,9 @@ export class CharacterRig {
     this.hold = 'none';
     this.akimbo = false;
     this.info = null;
-    for (const w of this.glbWeapons) w.mesh.removeFromParent();
-    this.glbWeapons = [];
     if (!wid) {
       this.mesh.geometry = this.bodyGeo;
+      this.glb?.setWeapon(null, 'none', false);
       return;
     }
     const w = buildWeapon(wid);
@@ -231,6 +287,10 @@ export class CharacterRig {
     this.akimbo = isAkimbo(wid);
     this.hold = this.akimbo ? 'akimbo' : w.info.hold;
     if (this.hold === 'rifle' && w.info.length < 0.45) this.hold = 'pistol';
+    const style = weaponSpecOf(wid).spec.style;
+    this.meleeStyle = style === 'spear' || (this.hold !== 'pole' && this.hold !== 'sword') ? 'thrust' : 'heavy';
+    this.reloadTime = WEAPON_BY_ID[wid]?.reloadTime ?? 2;
+    this.glb?.setWeapon(wid, this.hold, this.akimbo);
     const key = `${this.key}|${wid}`;
     let merged = mergedCache.get(key);
     if (!merged) {
@@ -242,7 +302,6 @@ export class CharacterRig {
       mergedCache.set(key, merged);
     }
     this.mesh.geometry = merged;
-    if (this.glbObject) this.attachGlbWeapons();
   }
 
   /** Ride a mount (null = on foot). Cheap (no allocation) when unchanged. */
@@ -266,37 +325,77 @@ export class CharacterRig {
     }
   }
 
-  /** Swap the procedural body for a GLB if one exists for this hero (async, resolved once per id, silent on failure). */
+  /** Swap the procedural body for this hero's GLB when the deploy ships one (see useGlb). */
   tryGlbOverride(heroId: string): void {
-    void loadHeroGlb(heroId).then((glb) => {
-      if (!glb || this.disposed) return;
-      glb.scene.scale.setScalar(glb.scale);
-      this.glbObject = glb.scene;
-      this.root.add(glb.scene);
-      this.mesh.visible = false;
-      this.attachGlbWeapons();
-      if (glb.animations.length) {
-        this.glbMixer = new THREE.AnimationMixer(glb.scene);
-        const clip =
-          glb.animations.find((a) => /idle/i.test(a.name)) ?? glb.animations.find((a) => /walk|run/i.test(a.name)) ?? glb.animations[0];
-        this.glbMixer.clipAction(clip).play();
-      }
+    this.useGlb(heroModelPath(heroId), GLB_HERO_HEIGHT);
+  }
+
+  /**
+   * Use a GLB body (asset path, see models/glb.ts) normalised to `height` m
+   * (before the root scale); null = procedural. Swaps in right away when the
+   * model and the shared clips are already loaded, else as soon as they are;
+   * silently stays procedural when they are absent or broken.
+   */
+  useGlb(path: string | null, height = GLB_HERO_HEIGHT): void {
+    if (path === this.glbWant && height === this.glbHeight) return;
+    this.glbWant = path;
+    this.glbHeight = height;
+    this.dropGlb();
+    if (!path || this.buildGlb()) return;
+    void Promise.all([loadCharTemplate(path), loadAllClips()]).then(() => {
+      if (!this.disposed && this.glbWant === path && !this.glb) this.buildGlb();
     });
   }
 
-  /** With a GLB body the merged weapon hides with the procedural mesh: show separate weapon meshes on the (invisible) rig. */
-  private attachGlbWeapons(): void {
-    for (const w of this.glbWeapons) w.mesh.removeFromParent();
-    this.glbWeapons = [];
-    if (!this.weaponId) return;
-    const w = buildWeapon(this.weaponId);
-    this.rigBones.bones[B.weapon].add(w.mesh);
-    this.glbWeapons.push(w);
-    if (this.akimbo) {
-      const w2 = buildWeapon(this.weaponId);
-      this.rigBones.bones[B.weaponL].add(w2.mesh);
-      this.glbWeapons.push(w2);
+  private buildGlb(): boolean {
+    const path = this.glbWant;
+    if (!path || this.disposed) return false;
+    const tpl = charTemplateSync(path);
+    if (!tpl || !clipsReady()) return false;
+    try {
+      this.glb = new GlbBody(tpl, this.glbHeight);
+    } catch (err) {
+      console.warn('[render] GLB body failed, keeping the procedural one', err);
+      this.glbWant = null;
+      return false;
     }
+    this.root.add(this.glb.group);
+    this.mesh.visible = false;
+    if (this.xray) this.xray.visible = false;
+    this.glb.setWeapon(this.weaponId, this.hold, this.akimbo);
+    this.glb.setShadows(this.castShadows && !this.stealthed, this.weaponShadows && this.castShadows && !this.stealthed);
+    this.applyOpacity();
+    return true;
+  }
+
+  private dropGlb(): void {
+    if (!this.glb) return;
+    this.glb.dispose();
+    this.glb = null;
+    this.mesh.visible = true;
+  }
+
+  /** Far LOD of a GLB body (fewer triangles, same animation); ignored for procedural bodies. */
+  setLod(far: boolean): void {
+    this.glb?.setLod(far);
+  }
+
+  // one-shot animation events (both animators: the GLB body may swap in mid-action)
+  fire(strength = 1): void {
+    this.animator.fire(strength);
+    this.glb?.animator.fire(strength);
+  }
+  melee(): void {
+    this.animator.melee();
+    this.glb?.animator.melee(this.meleeStyle);
+  }
+  cast(): void {
+    this.animator.cast();
+    this.glb?.animator.cast();
+  }
+  hit(): void {
+    this.animator.hit();
+    this.glb?.animator.hit();
   }
 
   /** Translucent shimmer (stealth seen by yourself / your squad). */
@@ -304,11 +403,15 @@ export class CharacterRig {
     if (on === this.stealthed) return;
     this.stealthed = on;
     this.applyOpacity();
-    this.setShadows(this.castShadows);
+    this.setShadows(this.castShadows, this.weaponShadows);
   }
 
   /** Through-wall silhouette (VF_EXPOSED / reveal): drawn only where the character is occluded. */
   setXray(on: boolean): void {
+    if (this.glb) {
+      this.glb.setXray(on);
+      return;
+    }
     if (!on) {
       if (this.xray) this.xray.visible = false;
       return;
@@ -349,7 +452,8 @@ export class CharacterRig {
   private applyOpacity(): void {
     const opacity = Math.min(this.stealthed ? 0.32 : 1, this.fade);
     const transparent = opacity < 0.999;
-    const mats = [this.material, this.mount?.material].filter((m): m is THREE.MeshStandardMaterial => !!m);
+    this.glb?.setOpacity(opacity);
+    const mats = [this.procMaterial, this.mount?.material].filter((m): m is THREE.MeshStandardMaterial => !!m);
     for (const m of mats) {
       if (m.transparent !== transparent) {
         m.transparent = transparent;
@@ -364,10 +468,13 @@ export class CharacterRig {
     return this.stealthed;
   }
 
-  setShadows(cast: boolean): void {
+  /** `weapon`: also the held weapon's shadow on a GLB body (skipped at range: a thin extra shadow draw per character). */
+  setShadows(cast: boolean, weapon = cast): void {
     this.castShadows = cast;
+    this.weaponShadows = weapon;
     const c = cast && !this.stealthed;
     this.mesh.castShadow = c;
+    this.glb?.setShadows(c, c && weapon);
     if (this.mount) this.mount.mesh.castShadow = c;
   }
 
@@ -375,6 +482,26 @@ export class CharacterRig {
   update(dt: number, time: number, u: RigUpdate): void {
     let mountBob = 0;
     if (this.mount) mountBob = this.mount.update(dt, u.speed, time);
+    const g = this.glb;
+    if (g) {
+      const fi = this.glbIn;
+      fi.dt = dt;
+      fi.speed = u.speed;
+      fi.moveX = u.moveX;
+      fi.moveZ = u.moveZ;
+      fi.pitch = u.pitch;
+      fi.flags = u.flags;
+      fi.hold = this.hold;
+      fi.mounted = this.mount !== null;
+      fi.meleeStyle = this.meleeStyle;
+      fi.mountHip = this.mount ? SADDLE_HIP[this.mount.kind] : 0;
+      fi.mountBob = mountBob;
+      fi.reloadTime = this.reloadTime;
+      fi.lowReady = u.lowReady === true;
+      g.update(fi);
+      this.weaponShown = !!this.info && g.animator.weaponVisible;
+      return;
+    }
     const inp = this.animIn;
     inp.dt = dt;
     inp.time = time;
@@ -396,23 +523,15 @@ export class CharacterRig {
     const s = this.weaponShown ? 1 : 1e-4;
     this.rigBones.bones[B.weapon].scale.setScalar(s);
     this.rigBones.bones[B.weaponL].scale.setScalar(this.akimbo ? s : 1e-4);
-    for (const w of this.glbWeapons) w.mesh.visible = this.weaponShown;
-    if (this.glbMixer) this.glbMixer.update(dt);
-    if (this.glbObject) {
-      // keep GLB bodies roughly in sync with the procedural root motion
-      const r = this.rigBones.bones[B.root];
-      this.glbObject.position.copy(r.position);
-      this.glbObject.quaternion.copy(r.quaternion);
-    }
   }
 
   dispose(): void {
     this.disposed = true;
     this.root.removeFromParent();
     // geometries are shared through caches; only per-instance resources are freed
-    this.material.dispose();
+    this.procMaterial.dispose();
     this.mesh.skeleton.dispose();
     this.mount?.dispose();
-    this.glbMixer?.stopAllAction();
+    this.dropGlb();
   }
 }

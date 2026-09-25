@@ -6,6 +6,10 @@ import * as THREE from 'three';
 import type { MapData, MapProp, PropType } from '../../core/map';
 import { GeoBuilder, trs } from '../core/geo';
 import { glowMaterial, worldMaterial, worldMaterialDouble } from '../core/materials';
+import { bindStructureSet, structureMaterial, structureMaterialDouble } from '../core/structureMaterial';
+import { requestStructSet, withWorldArtListing, worldArtPossible } from '../core/worldArt';
+import { assetListSync } from '../../game/assets';
+import { buildPropModels, fullyReplacedTypes, glbPropKind, propModelPath, type GlbPropType, type PropModelSet } from './propModels';
 import { buildGateTower, buildHouse, buildPalace, buildPavilion, buildWall, buildWatchtower } from './buildings';
 import {
   buildBannerPole,
@@ -69,9 +73,24 @@ export interface WorldBuild {
   group: THREE.Group;
   fires: FireSource[];
   stats: WorldStats;
+  /** Resolves once the AI-art prop models (if any) have been swapped in or given up on. */
+  artReady: Promise<void>;
   /** camera-only occluder boxes (roof shells, under dock decks) — see camera/camOccluders.ts */
   cameraOccluders: BoxCollider[];
   dispose(): void;
+}
+
+/**
+ * Could this prop be replaced by a prop model? Props that may be are built into
+ * per-kind "swap" meshes (hidden once the model is instanced) instead of the
+ * merged chunks — only when the listing has the model, or is not known yet.
+ */
+function swappable(p: MapProp, files: ReadonlySet<string> | null): GlbPropType | null {
+  const k = glbPropKind(p);
+  if (!k || p.type === 'tree' || p.type === 'pine' || p.type === 'bamboo' || p.type === 'rock') return null; // nature: separate instanced meshes already
+  if (!worldArtPossible()) return null; // single-file build, tests, user switch: plain chunks
+  if (files === null) return k; // listing not loaded yet: keep the option open
+  return files.has(propModelPath(k)) ? k : null;
 }
 
 /** Build a single prop into fresh builders (used by the dev harness / tests). */
@@ -82,8 +101,8 @@ export function buildPropGeometry(
 ): { opaque: THREE.BufferGeometry; cloth: THREE.BufferGeometry; glow: THREE.BufferGeometry } | null {
   const fn = BUILDERS[p.type];
   if (!fn) return null;
-  const opaque = new GeoBuilder();
-  const cloth = new GeoBuilder();
+  const opaque = new GeoBuilder({ extraName: 'aSurf' });
+  const cloth = new GeoBuilder({ extraName: 'aSurf' }); // roof shells (roofExtras) carry roof-tile surfaces
   const glow = new GeoBuilder();
   const m = trs(p.x, p.y, p.z, 0, p.rot, 0);
   opaque.push(m);
@@ -102,13 +121,23 @@ export function buildWorld(map: MapData): WorldBuild {
   const occ = new CamOccluderSink();
   let failed = 0;
   let built = 0;
+  const listing = assetListSync();
+  // the cloth builder takes the double-sided roof shells too (propkit roofExtras),
+  // so it carries the surface channel like the opaque one
+  const newChunk = (): Chunk => ({ opaque: new GeoBuilder({ extraName: 'aSurf' }), cloth: new GeoBuilder({ extraName: 'aSurf' }), glow: new GeoBuilder() });
+  const swaps = new Map<GlbPropType, Chunk>();
+  const swapOf = (k: GlbPropType): Chunk => {
+    let ch = swaps.get(k);
+    if (!ch) swaps.set(k, (ch = newChunk()));
+    return ch;
+  };
   const chunkOf = (x: number, z: number): Chunk => {
     const cx = Math.floor((x + half) / CHUNK);
     const cz = Math.floor((z + half) / CHUNK);
     const key = `${cx},${cz}`;
     let ch = chunks.get(key);
     if (!ch) {
-      ch = { opaque: new GeoBuilder(), cloth: new GeoBuilder(), glow: new GeoBuilder() };
+      ch = newChunk();
       chunks.set(key, ch);
     }
     return ch;
@@ -118,11 +147,14 @@ export function buildWorld(map: MapData): WorldBuild {
     if (natureStyle(p)) continue;
     const fn = BUILDERS[p.type];
     if (!fn) continue;
-    const ch = chunkOf(p.x, p.z);
+    const sk = swappable(p, listing);
+    const ch = sk ? swapOf(sk) : chunkOf(p.x, p.z);
     const m = trs(p.x, p.y, p.z, 0, p.rot, 0);
     ch.opaque.push(m);
     ch.cloth.push(m);
     ch.glow.push(m);
+    ch.opaque.extra = 0; // every prop starts plain; builders pick their surfaces
+    ch.cloth.extra = 0;
     try {
       fn(makePropCtx(ch.opaque, ch.cloth, ch.glow, p, map, occ));
       built++;
@@ -137,7 +169,10 @@ export function buildWorld(map: MapData): WorldBuild {
   }
   let triangles = 0;
   const geos: THREE.BufferGeometry[] = [];
-  for (const [key, ch] of chunks) {
+  const opaqueMeshes: THREE.Mesh[] = [];
+  const clothMeshes: THREE.Mesh[] = [];
+  const swapMeshes = new Map<GlbPropType, THREE.Mesh[]>();
+  const buildChunk = (key: string, ch: Chunk, into: THREE.Mesh[] | null): void => {
     const add = (gb: GeoBuilder, mat: THREE.Material, kind: string, shadows: boolean): void => {
       if (gb.isEmpty()) return;
       const g = gb.build();
@@ -148,33 +183,97 @@ export function buildWorld(map: MapData): WorldBuild {
       mesh.castShadow = shadows;
       mesh.receiveShadow = kind !== 'glow';
       mesh.matrixAutoUpdate = false;
+      if (kind === 'opaque') opaqueMeshes.push(mesh);
+      else if (kind === 'cloth') clothMeshes.push(mesh);
+      into?.push(mesh);
       group.add(mesh);
     };
     add(ch.opaque, worldMaterial(), 'opaque', true);
     add(ch.cloth, worldMaterialDouble(), 'cloth', true);
     add(ch.glow, glowMaterial(), 'glow', false);
+  };
+  for (const [key, ch] of chunks) buildChunk(key, ch, null);
+  for (const [k, ch] of swaps) {
+    const list: THREE.Mesh[] = [];
+    buildChunk(`swap_${k}`, ch, list);
+    swapMeshes.set(k, list);
   }
   // the builders' scratch buffers are copied into the geometries: drop them now
   // (dispose() below shares this scope — anything left here lives as long as it)
   const chunkCount = chunks.size;
   chunks.clear();
+  swaps.clear();
   const nature = buildNature(map.props);
   group.add(nature.group);
   const banners = buildBanners(map.props);
   if (banners.mesh) group.add(banners.mesh);
+  // AI-art structure textures: swap the merged chunks to the textured variant
+  // as soon as the listing is known (before the shader warm-up)
+  let disposed = false;
+  requestStructSet((set) => {
+    if (disposed) return;
+    bindStructureSet(set);
+    const m = structureMaterial();
+    for (const mesh of opaqueMeshes) mesh.material = m;
+    // double-sided cloth chunks hold the roof shells: textured tiles, still no culled faces
+    const md = structureMaterialDouble();
+    for (const mesh of clothMeshes) mesh.material = md;
+  });
+  // AI-art prop models: instance them, then retire the procedural stand-ins
+  const stats: WorldStats = { props: built, chunks: chunkCount, instanced: nature.count, triangles: Math.round(triangles), failed };
+  let models: PropModelSet | null = null;
+  let settle: () => void = () => undefined;
+  const artReady = new Promise<void>((res) => (settle = res));
+  const artOn = withWorldArtListing((files) => {
+    void buildPropModels(map.props, map.size, files, () => disposed)
+      .then((set) => {
+        if (!set || disposed) {
+          set?.dispose();
+          return;
+        }
+        models = set;
+        group.add(set.group);
+        nature.removeTypes(fullyReplacedTypes(set.kinds));
+        for (const k of set.kinds) {
+          for (const mesh of swapMeshes.get(k) ?? []) {
+            group.remove(mesh);
+            mesh.geometry.dispose();
+            const gi = geos.indexOf(mesh.geometry);
+            if (gi >= 0) geos.splice(gi, 1);
+            const oi = opaqueMeshes.indexOf(mesh);
+            if (oi >= 0) opaqueMeshes.splice(oi, 1);
+            const ci = clothMeshes.indexOf(mesh);
+            if (ci >= 0) clothMeshes.splice(ci, 1);
+          }
+          swapMeshes.delete(k);
+        }
+        stats.instanced = nature.count + set.instances;
+      })
+      .catch((err) => console.warn('[render] prop models failed', err))
+      .finally(() => settle());
+  });
+  if (!artOn) settle();
   return {
     group,
     fires,
-    stats: { props: built, chunks: chunkCount, instanced: nature.count, triangles: Math.round(triangles), failed },
+    stats,
+    artReady,
     cameraOccluders: occ.boxes,
     dispose(): void {
+      disposed = true;
       for (const g of geos) g.dispose();
       // nothing of the match may stay reachable through this closure (a leaked
       // reference to the WorldBuild must not pin megabytes of vertex arrays)
       geos.length = 0;
       nature.dispose();
       banners.dispose();
+      (models as PropModelSet | null)?.dispose();
+      models = null;
+      opaqueMeshes.length = 0;
+      clothMeshes.length = 0;
+      swapMeshes.clear();
       group.clear();
+      settle();
     },
   };
 }

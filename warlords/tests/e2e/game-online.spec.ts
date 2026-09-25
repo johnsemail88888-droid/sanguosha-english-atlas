@@ -176,8 +176,14 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
     expect(guestHero).toBe(heroes[1]);
     expect(await guest.page.evaluate(() => JSON.parse(sessionStorage.getItem('sgwl.rejoin.v1') ?? 'null'))).toMatchObject({ code, mode: 'peer' });
 
-    // F5 mid-match: the tab rejoins the same room over P2P and gets its hero back
-    await guest.page.reload();
+    // F5 mid-match: the tab rejoins the same room over P2P and gets its hero back.
+    // The reload cancels the old page's in-flight art downloads (GLB bodies, clips and
+    // textures still streaming in after the load budget), and the dying page logs
+    // "Failed to fetch" for each. That is not an error of the game: drop what the old
+    // document logged before the new one commits, and keep checking the new page.
+    const loggedBeforeF5 = guest.errors.length;
+    await guest.page.reload({ waitUntil: 'commit' });
+    guest.errors.splice(loggedBeforeF5);
     await waitMatch(guest.page, 300_000);
     const after = await guest.page.evaluate(() => {
       const g = (window as SgwlWindow).__sgwl!;
@@ -185,8 +191,10 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
     });
     console.log(`[online e2e] after F5: ${JSON.stringify(after)}`);
     expect(after).toMatchObject({ kind: 'guest', phase: 'playing', hero: guestHero, rejoin: { code, mode: 'peer' } });
-    const humans = await host.page.evaluate(() => (window as SgwlWindow).__sgwl!.players().filter((p) => !p.isBot).length);
-    expect(humans, 'the host sees the guest human again').toBe(2);
+    // the host's own view can trail the guest by a frame or two (a slow SwiftShader frame
+    // with the art loaded): poll instead of reading once
+    const humans = () => host.page.evaluate(() => (window as SgwlWindow).__sgwl!.players().filter((p) => !p.isBot).length);
+    await expect.poll(humans, { message: 'the host sees the guest human again', timeout: 20_000 }).toBe(2);
     await guest.page.screenshot({ path: test.info().outputPath('p2p-after-f5.png') });
     for (const g of pages) expect(relevantErrors(g.errors)).toEqual([]);
   } finally {

@@ -31,6 +31,9 @@ import { PickWorld } from './camera/pick';
 import { CameraOccluders } from './camera/camOccluders';
 import { TpsCameraRig, tpsCameraPose, PITCH_LIMIT, adsPull } from './camera/tpsCamera';
 import { EntityManager } from './entities/manager';
+import { preloadCharacterArt } from './models/preload';
+import { evictUnusedTemplates } from './models/glb';
+import { setWorldArtQuality, worldTexturesSettled } from './core/worldArt';
 import { releaseObjectGeometryCache } from './entities/objects';
 import { releaseModelCaches } from './models';
 import type { EntityCtx } from './entities/context';
@@ -148,6 +151,8 @@ export class GameRenderer {
     this.quality = opts.quality ?? s.quality;
     this.preset = qualityPreset(this.quality);
     this.adaptive.enabled = opts.adaptiveResolution !== false;
+    // world-art texture sizes / low-tier shaders follow the tier in use (incl. opts.quality)
+    setWorldArtQuality(this.quality);
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: false, // MSAA lives on the post-processing target
@@ -322,11 +327,30 @@ export class GameRenderer {
    * compiles in the background; without it (SwiftShader, some drivers) the scene
    * is compiled in batches and each batch's programs are linked right away, with
    * a yield to the event loop in between — no single multi-second freeze (network
-   * keep-alives and the loading bar keep running). `onProgress` gets 0..1.
+   * keep-alives and the loading bar keep running). `onProgress` gets 0..1 and
+   * the stage: AI-art models (characters, prop models, world textures), then shaders.
    */
-  async warmup(onProgress?: (fraction: number) => void): Promise<void> {
+  async warmup(onProgress?: (fraction: number, stage: 'models' | 'shaders') => void): Promise<void> {
     if (this.disposed || this.contextLost) return;
     const view = this.view;
+    // AI-art world (prop models + decoded texture arrays) in parallel with the
+    // character bodies, capped at 8 s: prop programs are compiled below and the
+    // first frames show the textured world instead of placeholders popping in
+    let artTimer: ReturnType<typeof setTimeout> | undefined;
+    const worldArt = Promise.race([
+      this.world.artReady.then(() => worldTexturesSettled()),
+      new Promise<void>((r) => (artTimer = setTimeout(r, 8000))),
+    ]);
+    // AI-art character bodies first (0 → 0.45 of the bar): the views created below
+    // then start with their GLB body and its shaders get compiled with the rest
+    const heroIds = new Set<string>();
+    for (const p of view.players()) heroIds.add(p.heroId);
+    for (const e of view.entities()) if (e.kind === 'hero') heroIds.add(e.sub);
+    await preloadCharacterArt(heroIds, (f) => onProgress?.(0.45 * f, 'models'), this.preset.glbCharacters);
+    await worldArt;
+    clearTimeout(artTimer);
+    if (this.disposed || this.contextLost) return;
+    const shaderProgress = onProgress ? (f: number): void => onProgress(0.45 + 0.55 * f, 'shaders') : undefined;
     const localId = view.localId();
     const local = view.local();
     const localEnt = localId !== null ? view.get(localId) : undefined;
@@ -356,7 +380,7 @@ export class GameRenderer {
     try {
       if (this.renderer.extensions.has('KHR_parallel_shader_compile')) {
         await this.renderer.compileAsync(this.scene, this.camera);
-        onProgress?.(1);
+        shaderProgress?.(1);
         return;
       }
       // batches: the scene's top-level objects, big groups split into their children
@@ -378,7 +402,7 @@ export class GameRenderer {
           const prog = (p as { program?: WebGLProgram }).program;
           if (prog) gl.getProgramParameter(prog, gl.LINK_STATUS);
         }
-        onProgress?.((i + 1) / batches.length);
+        shaderProgress?.((i + 1) / batches.length);
         if (performance.now() - lastYield > 120) {
           await new Promise<void>((r) => setTimeout(r, 0));
           lastYield = performance.now();
@@ -406,6 +430,7 @@ export class GameRenderer {
     if (this.disposed || q === this.quality) return;
     this.quality = q;
     this.preset = qualityPreset(q);
+    setWorldArtQuality(q);
     this.applyQuality();
     this.resize(this.size.w, this.size.h);
   }
@@ -541,6 +566,8 @@ export class GameRenderer {
     this.eventSubs.clear();
     this.fireSubs.clear();
     this.entities.dispose();
+    // the match's character models (textures ~5 MB each) go with it; the next match reloads from the HTTP cache
+    evictUnusedTemplates();
     this.fx.dispose();
     this.zone.dispose();
     this.fires.dispose();
@@ -639,6 +666,8 @@ export class GameRenderer {
     this.fx.setBudget(p.particles, this.lightSlots.vfx);
     // mid-match: bloom's programs compile over the next frames, not in one
     this.post.configure({ bloom: p.bloom, vignette: p.post, msaa: p.msaa }, this.frameNo > 0);
+    // character art tier (AI-art vs procedural bodies) follows the active preset, incl. opts.quality
+    this.entities.setCharacterArt(p.glbCharacters);
   }
 
   private onSettings(u: UserSettings): void {

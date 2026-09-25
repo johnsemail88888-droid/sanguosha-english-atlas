@@ -9,11 +9,12 @@
 //   &input=real (the in-match GameHandle uses the real InputController from src/game/input.ts)
 //   &locked=0 (start without the simulated pointer lock → "click to play")
 //   &persist=1 (let settings changed here persist; by default the harness never writes them)
+//   &art=0 (pretend no painted art ships: the procedural look of the single-file build)
 //   &single=1 (roles / heroSelect / loading / gameOver as a single-player session: 返回 button, 再来一局)
 //   &kind=online (hud / match as an online session: the menu reads 菜单 and never pauses)
 import type { RoleId } from '../../core/types';
+import { setAssetListForTests } from '../../game/assets';
 import { settings } from '../../game/settings';
-import { renderHeroPortrait } from '../../render/portrait';
 import { mountApp, type MountAppOptions } from '../app';
 import type { ScreenId } from '../ctx';
 import { createMockDeps } from './harness';
@@ -34,6 +35,7 @@ const overlay = params.get('overlay');
 // anything changed while previewing stay in memory: the persisted settings are
 // restored after every update so `?touch=1` / `?lang=en` never leak into the game.
 if (params.get('persist') !== '1') sandboxSettingsStorage();
+if (params.get('art') === '0') setAssetListForTests([]);
 
 settings.update({
   lang,
@@ -46,7 +48,8 @@ const deps = createMockDeps(
   { role, state, freePick: params.get('freePick') === '1', double: params.get('double') === '1' },
   { realInput: params.get('input') === 'real', locked: params.get('locked') !== '0' },
 );
-if (params.get('portraits') === 'real') deps.renderHeroPortrait = renderHeroPortrait;
+// loaded on demand: the harness itself never pulls in three.js
+if (params.get('portraits') === 'real') deps.renderHeroPortrait = async (id, size) => (await import('../../render/portrait')).renderHeroPortrait(id, size);
 if (params.get('real') === '1') {
   // real single-player stack (net HostSession + sim) behind the painted mock backdrop
   const net = await import('../../net');

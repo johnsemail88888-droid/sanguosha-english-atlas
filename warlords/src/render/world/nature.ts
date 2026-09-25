@@ -168,6 +168,8 @@ export function natureStyle(p: MapProp): string | null {
 export interface NatureMeshes {
   group: THREE.Group;
   count: number;
+  /** Hide (and free) every instanced style of these prop types — prop models took them over. */
+  removeTypes(types: ReadonlySet<string>): void;
   dispose(): void;
 }
 
@@ -183,6 +185,7 @@ export function buildNature(props: readonly MapProp[]): NatureMeshes {
     arr.push(p);
   }
   const geos: THREE.BufferGeometry[] = [];
+  const byType = new Map<string, { mesh: THREE.InstancedMesh; geo: THREE.BufferGeometry }[]>();
   const m4 = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
@@ -218,10 +221,27 @@ export function buildNature(props: readonly MapProp[]): NatureMeshes {
     mesh.receiveShadow = true;
     group.add(mesh);
     count += list.length;
+    const t = list[0].type;
+    let arr = byType.get(t);
+    if (!arr) byType.set(t, (arr = []));
+    arr.push({ mesh, geo });
   }
   return {
     group,
     count,
+    removeTypes(types: ReadonlySet<string>): void {
+      for (const t of types) {
+        for (const { mesh, geo } of byType.get(t) ?? []) {
+          group.remove(mesh);
+          mesh.dispose();
+          geo.dispose();
+          const i = geos.indexOf(geo);
+          if (i >= 0) geos.splice(i, 1);
+          count -= mesh.count;
+        }
+        byType.delete(t);
+      }
+    },
     dispose(): void {
       for (const g of geos) g.dispose();
       group.traverse((o) => {

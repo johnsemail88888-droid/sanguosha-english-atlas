@@ -5,6 +5,7 @@ import { HERO_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, WEAPON_CLASS_INFO, isPassiveAbil
 import type { UiCtx } from '../ctx';
 import { Bag, appendChildren, h } from '../dom';
 import { getLang, heroName, heroTitle, kingdomName, t, tx } from '../i18n';
+import { portraitArtPath } from '../art';
 import { kingdomColor } from '../theme';
 import { difficultyStars, kingdomBadge, magatamaRow } from '../widgets';
 
@@ -91,6 +92,11 @@ export interface HeroDetailOpts {
   lore?: boolean;
   /** a 3D turntable or portrait visual at the top */
   visual?: 'turntable' | 'portrait' | 'none';
+  /**
+   * hero select: the painted face as a medallion in place of the kingdom badge (only
+   * when the art ships). Same footprint as the header, so the abilities keep their room.
+   */
+  medallion?: boolean;
 }
 
 export function heroDetail(ctx: UiCtx, heroId: string, opts: HeroDetailOpts = {}): { el: HTMLElement; dispose(): void } {
@@ -103,27 +109,51 @@ export function heroDetail(ctx: UiCtx, heroId: string, opts: HeroDetailOpts = {}
   }
   el.style.setProperty('--kc', kingdomColor(def.kingdom));
 
+  const art = ctx.portraits.hasArt(heroId);
   if (opts.visual && opts.visual !== 'none') {
     const vis = h('div', { class: 'hd-visual' });
     let mounted = false;
     if (opts.visual === 'turntable' && ctx.deps.mountHeroTurntable) {
+      // painted portrait beside the 3D model when the art ships
+      const stage = art ? h('div', { class: 'hd-stage' }) : vis;
       try {
-        const tt = ctx.deps.mountHeroTurntable(vis, heroId);
+        const tt = ctx.deps.mountHeroTurntable(stage, heroId);
         bag.add(() => tt.dispose());
         mounted = true;
       } catch (err) {
         console.warn('[ui] turntable failed', err);
       }
+      if (mounted && art) {
+        vis.classList.add('duo');
+        // the model stands on a blurred copy of its own painting
+        stage.style.setProperty('--art', `url("${portraitArtPath(heroId)}")`);
+        vis.append(h('div', { class: 'hd-paint' }, ctx.portraits.layer(heroId, 512, 'full')), stage);
+      }
     }
-    if (!mounted) vis.appendChild(ctx.portraits.layer(heroId, 512));
+    if (!mounted) {
+      if (art) vis.classList.add('paint');
+      vis.appendChild(ctx.portraits.layer(heroId, 512, 'bust'));
+    }
     el.appendChild(vis);
+  }
+
+  let badge = kingdomBadge(def.kingdom, '2.4em');
+  if (opts.medallion && !opts.visual) {
+    // painted face with the kingdom seal on its rim; the plain badge without art
+    const medal = (): HTMLElement => h('span', { class: 'hd-medal' }, ctx.portraits.avatar(heroId, 'hd-ava'), kingdomBadge(def.kingdom));
+    if (art) badge = medal();
+    // art listing still loading (first screen of a deep link): swap once it is known
+    else if (ctx.portraits.artState(heroId) === null) {
+      const plain = badge;
+      void ctx.portraits.whenKnown().then(() => !bag.isDisposed && ctx.portraits.hasArt(heroId) && plain.replaceWith(medal()));
+    }
   }
 
   const weapon = WEAPON_BY_ID[def.signatureWeapon];
   const troop = TROOP_BY_ID[def.troopType];
   appendChildren(el,
     h('div', { class: 'hd-head' },
-      kingdomBadge(def.kingdom, '2.4em'),
+      badge,
       h('div', { class: 'hd-names' },
         h('div', { class: 'hd-name' }, heroName(heroId), h('span', { class: 'hd-title' }, heroTitle(heroId))),
         h('div', { class: 'hd-meta' },

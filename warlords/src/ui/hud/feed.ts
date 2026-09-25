@@ -3,6 +3,7 @@ import type { Kingdom, RoleId } from '../../core/types';
 import { h } from '../dom';
 import { colon, getLang, heroName, roleName, t } from '../i18n';
 import { ROLE_GLYPH, kingdomColor, roleColor } from '../theme';
+import type { PortraitCache } from '../widgets';
 
 export interface FeedParty {
   name: string;
@@ -17,13 +18,18 @@ export class KillFeed {
   readonly el: HTMLElement;
   private entries: { el: HTMLElement; until: number }[] = [];
 
-  constructor(private readonly max = 6) {
+  /** `portraits`: face avatars beside the names when the painted portraits ship */
+  constructor(
+    private readonly portraits: PortraitCache | null = null,
+    private readonly max = 6,
+  ) {
     this.el = h('div', { class: 'hud-feed', aria: { live: 'polite' } });
   }
 
   private party(p: FeedParty | null, cls: string): HTMLElement {
     if (!p) return h('span', { class: `who ${cls} zone` }, t('feed.zone'));
-    const el = h('span', { class: `who ${cls}` }, p.heroId ? heroName(p.heroId) : p.name, p.heroId && p.name ? h('small', null, p.name) : null);
+    const face = p.heroId && this.portraits?.hasArt(p.heroId) ? this.portraits.avatar(p.heroId, 'kf-ava') : null;
+    const el = h('span', { class: `who ${cls}${face ? ' has-ava' : ''}` }, face, p.heroId ? heroName(p.heroId) : p.name, p.heroId && p.name ? h('small', null, p.name) : null);
     el.style.setProperty('--kc', kingdomColor(p.kingdom));
     return el;
   }

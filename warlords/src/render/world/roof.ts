@@ -3,6 +3,7 @@
 // ornaments. Built into a GeoBuilder in the current local frame.
 import * as THREE from 'three';
 import { GeoBuilder, PRIM, col, shade, trs, type ColorLike } from '../core/geo';
+import { SURF, packSurf, type SurfId } from '../core/structureMaterial';
 import type { CamOccluderSink } from '../camera/camOccluders';
 
 const _n = new THREE.Vector3();
@@ -57,10 +58,14 @@ export interface RoofOptions {
   plain?: boolean;
   nu?: number;
   nv?: number;
+  /** texture layer of the roof surface in AI-art mode (default roof tiles; thatch / cloth: plain) */
+  surface?: SurfId;
   /**
    * builder for the roof shell (tiles, fascia, underside) in the same frame as
    * `b` — the double-sided one, so a camera inside the shell never looks at
-   * culled / black faces (default: `b`)
+   * culled / black faces (default: `b`). It must carry the 'aSurf' channel too
+   * (world.ts gives the cloth builders one), so the shell keeps its AI-art
+   * roof-tile texture: the double-sided structure material draws it.
    */
   shell?: GeoBuilder;
   /** register the roof volume (eave underside → ridge, overhang included) as a camera occluder */
@@ -75,6 +80,19 @@ const OCC_CUTS = [0, 0.12, 0.26, 0.42, 0.6, 0.8, 1] as const;
  * The ridge runs along X (the longer side should be w).
  */
 export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: number, d: number, h: number, o: RoofOptions): void {
+  const sb = o.shell ?? b;
+  const prev = b.extra;
+  const prevShell = sb.extra;
+  try {
+    hipRoofRaw(b, sb, cx, y0, cz, w, d, h, o);
+  } finally {
+    sb.extra = prevShell;
+    b.extra = prev;
+  }
+}
+
+function hipRoofRaw(b: GeoBuilder, sb: GeoBuilder, cx: number, y0: number, cz: number, w: number, d: number, h: number, o: RoofOptions): void {
+  const tileSurf = packSurf(o.surface ?? SURF.roof);
   const oh = o.overhang ?? 0.6;
   const W = w + oh * 2;
   const D = d + oh * 2;
@@ -89,7 +107,6 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
   const dark = shade(o.color, 0.82);
   const under = o.underside ? col(o.underside) : shade('#4a3222', 1);
   const stripes = o.stripes !== false;
-  const sb = o.shell ?? b;
   if (o.occ) {
     // stepped boxes hugging the concave roof, eave overhang included (the sim's
     // colliders stop at the wall footprint): tier i spans [cut i, cut i+1] of the
@@ -129,6 +146,8 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
   for (let side = 0; side < 4; side++) {
     const out = outward[side];
     const down = out.clone().setY(-1);
+    // the shell (tiles + fascia, then the underside) goes into `sb`: its surface id
+    sb.extra = tileSurf;
     for (let i = 0; i < nu; i++) {
       const u0 = i / nu;
       const u1 = (i + 1) / nu;
@@ -142,6 +161,7 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
       face(sb, pt(side, u0, 0, 0), pt(side, u1, 0, 0), pt(side, u1, 0, -th), pt(side, u0, 0, -th), shade(o.color, 0.6), out.clone().setY(0));
     }
     // underside follows the same curved grid (coarser across) so it never pokes through the top
+    sb.extra = SURF.plain;
     for (let i = 0; i < underNu; i++) {
       const u0 = i / underNu;
       const u1 = (i + 1) / underNu;
@@ -152,6 +172,7 @@ export function hipRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w: nu
       }
     }
   }
+  b.extra = SURF.plain;
   if (o.plain) return;
   // ridge beam + corner ridges
   const rc = o.ridgeColor ?? shade(o.color, 0.7);
@@ -194,10 +215,14 @@ export function copingRoof(b: GeoBuilder, cx: number, y0: number, cz: number, w:
   const hw = w / 2;
   const hd = d / 2;
   const v = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(cx + x, y, cz + z);
+  const prev = b.extra;
+  b.extra = packSurf(SURF.roof);
   face(b, v(-hw, y0, -hd), v(hw, y0, -hd), v(hw, y0 + h, 0), v(-hw, y0 + h, 0), color, new THREE.Vector3(0, 1, -1));
   face(b, v(-hw, y0, hd), v(hw, y0, hd), v(hw, y0 + h, 0), v(-hw, y0 + h, 0), shade(color, 0.9), new THREE.Vector3(0, 1, 1));
   tri(b, v(-hw, y0, -hd), v(-hw, y0, hd), v(-hw, y0 + h, 0), shade(color, 0.8), new THREE.Vector3(-1, 0, 0));
   tri(b, v(hw, y0, -hd), v(hw, y0, hd), v(hw, y0 + h, 0), shade(color, 0.8), new THREE.Vector3(1, 0, 0));
+  b.extra = SURF.plain;
   face(b, v(-hw, y0, -hd), v(hw, y0, -hd), v(hw, y0, hd), v(-hw, y0, hd), shade(color, 0.5), new THREE.Vector3(0, -1, 0));
   b.boxAt(cx, y0 + h, cz, w, 0.08, 0.1, shade(color, 0.75));
+  b.extra = prev;
 }

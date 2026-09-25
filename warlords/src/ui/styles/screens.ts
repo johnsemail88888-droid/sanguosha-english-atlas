@@ -99,6 +99,11 @@ export const SCREENS_CSS = /* css */ `
 }
 @media (max-height: 400px) { .sg-tagline { display: none; } }
 
+/* with the painted key art: the compact phone title also drops the tagline, so more of the painting shows */
+@media (max-height: 480px) {
+  .sg-title.has-art:not(.no-gl) .sg-tagline { display: none; }
+}
+
 .sg-view-failed .sg-fail-detail { font: 0.82em/1.4 ui-monospace, Menlo, Consolas, monospace; opacity: 0.7; word-break: break-word; }
 .sg-title-foot { position: absolute; left: 0; right: 0; bottom: 0.7em; z-index: 2; display: flex; justify-content: center; gap: 1.2em; flex-wrap: wrap; font-size: 0.78em; color: rgba(240, 220, 180, 0.55); text-shadow: 0 1px 2px #000; padding: 0 1em; text-align: center; }
 
@@ -300,10 +305,21 @@ export const SCREENS_CSS = /* css */ `
 .pick .who { display: flex; gap: 0.1em; max-width: 100%; align-items: baseline; }
 .pick .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick .what { font-size: 0.85em; color: var(--gold); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lord-flash { position: absolute; left: 50%; top: 40%; z-index: 5; transform: translate(-50%, -50%); padding: 0.5em 2.4em; font-family: var(--font-display); font-size: 1.6em; color: var(--gold-hi); background: linear-gradient(90deg, transparent, rgba(20, 12, 6, 0.9) 20%, rgba(20, 12, 6, 0.9) 80%, transparent); pointer-events: none; opacity: 0; white-space: nowrap; }
-.lord-flash { transition: opacity 0.4s ease; }
-.lord-flash.show { opacity: 1; animation: sg-flash-in 0.35s ease-out; }
-@keyframes sg-flash-in { from { opacity: 0; transform: translate(-50%, -50%) scale(1.2); } }
+/* crown-pick toast: a flex item of the header row (between the titles and the ring), never over the cards */
+.lord-flash { flex: 1 1 0; min-width: 0; display: flex; justify-content: center; align-items: center; pointer-events: none; opacity: 0; transition: opacity 0.4s ease; }
+.lord-flash .lf-band { display: flex; align-items: center; min-width: 0; max-width: 100%; padding: 0.4em 2.4em; font-family: var(--font-display); font-size: 1.6em; color: var(--gold-hi); white-space: nowrap; background: linear-gradient(90deg, transparent, rgba(20, 12, 6, 0.9) 20%, rgba(20, 12, 6, 0.9) 80%, transparent); }
+.lord-flash .lf-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lord-flash .lf-hero { flex: none; margin-left: 0.3em; }
+.lord-flash.show { opacity: 1; }
+.lord-flash.show .lf-band { animation: sg-flash-in 0.35s ease-out; }
+@keyframes sg-flash-in { from { opacity: 0; transform: scale(1.08); } }
+@media (max-height: 480px) { .lord-flash .lf-band { font-size: 1.3em; padding: 0.3em 1.8em; } }
+/* no room beside the titles (portrait phones): just under the header, over the picks strip */
+@media (max-width: 600px) {
+  .sel-head { position: relative; }
+  .lord-flash { position: absolute; left: 0; right: 0; top: 100%; z-index: 5; margin-top: 0.3em; }
+  .lord-flash .lf-band { font-size: 1.15em; padding: 0.35em 1.8em; }
+}
 .sel-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(19em, 28em); gap: 1.2em; }
 .grid-wrap { min-height: 0; overflow: auto; padding: 0.6em 0.4em; display: flex; flex-direction: column; gap: 0.8em; }
 .sg-select .grid { display: grid; gap: 1.2em; justify-content: center; align-content: start; }

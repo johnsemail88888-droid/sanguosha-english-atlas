@@ -10,6 +10,9 @@ import { WEAPONS } from '../data';
  */
 export const HERO_VIEW_RANGE = Math.min(640, Math.max(300, WEAPONS.reduce((m, w) => Math.max(m, w.maxRange || 0), 0) + 30));
 
+/** Which characters use their AI-art (GLB) body: every one, heroes only, or none (procedural rigs). */
+export type CharacterArt = 'all' | 'heroes' | 'none';
+
 export interface QualityPreset {
   /** multiplier on devicePixelRatio, and an absolute cap */
   pixelRatioScale: number;
@@ -34,6 +37,11 @@ export interface QualityPreset {
   particles: number;
   /** decorative grass tufts around the camera */
   grass: number;
+  /**
+   * AI-art (GLB) character bodies when the deploy ships them: every character,
+   * heroes only (troops / NPCs keep the cheaper procedural bodies) or none.
+   */
+  glbCharacters: CharacterArt;
 }
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
@@ -52,6 +60,8 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     vfxLights: 1,
     particles: 0.5,
     grass: 0,
+    // weak devices (phones): AI-art heroes, the cheaper procedural troops / NPCs
+    glbCharacters: 'heroes',
   },
   medium: {
     pixelRatioScale: 1,
@@ -68,6 +78,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     vfxLights: 2,
     particles: 0.8,
     grass: 0.6,
+    glbCharacters: 'all',
   },
   high: {
     pixelRatioScale: 1,
@@ -84,6 +95,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     vfxLights: 3,
     particles: 1,
     grass: 1,
+    glbCharacters: 'all',
   },
 };
 

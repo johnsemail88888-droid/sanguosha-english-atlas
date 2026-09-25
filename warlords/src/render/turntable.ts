@@ -1,10 +1,14 @@
 // 武将图鉴 gallery turntable: the hero on a pedestal, slowly rotating, draggable,
-// cycling a few poses. Owns its own small WebGLRenderer (dispose() frees it).
+// cycling a few poses (idle at low ready → aim + fire → reload); a click (not a
+// drag) makes the hero dance for a moment. The AI-art GLB body with its mocap
+// idle is shown when the deploy ships it (procedural until it has loaded / without it).
+// Owns its own small WebGLRenderer (dispose() frees it).
 import * as THREE from 'three';
-import { VF_ADS, VF_FIRING, VF_RELOADING } from '../core/types';
+import { VF_ADS, VF_DANCING, VF_FIRING, VF_RELOADING } from '../core/types';
 import { HERO_BY_ID } from '../data';
 import { CharacterRig } from './models/character';
 import { heroMountCoat, heroSpec } from './models';
+import { evictUnusedTemplates } from './models/glb';
 import { kingdomColor } from './palette';
 import { GeoBuilder, PRIM, shade, trs } from './core/geo';
 import { worldMaterial } from './core/materials';
@@ -102,9 +106,14 @@ export function mountHeroTurntable(container: HTMLElement, heroId: string): Turn
   let vel = 0.25;
   let dragging = false;
   let lastX = 0;
+  let downX = 0;
+  let downT = 0;
+  let danceUntil = -1;
   const onDown = (e: PointerEvent): void => {
     dragging = true;
     lastX = e.clientX;
+    downX = e.clientX;
+    downT = performance.now();
     canvas.setPointerCapture(e.pointerId);
     canvas.style.cursor = 'grabbing';
   };
@@ -116,6 +125,8 @@ export function mountHeroTurntable(container: HTMLElement, heroId: string): Turn
     vel = dx * 0.6;
   };
   const onUp = (e: PointerEvent): void => {
+    // a click (no drag): a short dance
+    if (dragging && Math.abs(e.clientX - downX) < 6 && performance.now() - downT < 350) danceUntil = t + 4.5;
     dragging = false;
     canvas.style.cursor = 'grab';
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
@@ -131,22 +142,35 @@ export function mountHeroTurntable(container: HTMLElement, heroId: string): Turn
   let disposed = false;
   // issue the shader compiles now and draw only once they had time to finish
   // (KHR_parallel_shader_compile: when they report ready), so opening the
-  // gallery / hero detail does not freeze on the first frame's program links
+  // gallery / hero detail does not freeze on the first frame's program links.
+  // The AI-art GLB body swaps in once it has loaded: its programs get the same
+  // treatment (the last frame, procedural body, stays up meanwhile).
   let ready = false;
-  const startDrawing = (): void => {
-    ready = true;
-  };
-  try {
-    if (renderer.extensions.has('KHR_parallel_shader_compile')) void renderer.compileAsync(scene, cam).then(startDrawing, startDrawing);
-    else {
-      renderer.compile(scene, cam);
-      setTimeout(startDrawing, TURNTABLE_COMPILE_GRACE_MS);
+  let compileGen = 0;
+  let glbShown = rig.usesGlb;
+  const prepareDraw = (): void => {
+    ready = false;
+    const gen = ++compileGen;
+    const startDrawing = (): void => {
+      if (gen === compileGen) ready = true;
+    };
+    try {
+      if (renderer.extensions.has('KHR_parallel_shader_compile')) void renderer.compileAsync(scene, cam).then(startDrawing, startDrawing);
+      else {
+        renderer.compile(scene, cam);
+        setTimeout(startDrawing, TURNTABLE_COMPILE_GRACE_MS);
+      }
+    } catch {
+      startDrawing();
     }
-  } catch {
-    startDrawing();
-  }
+  };
+  prepareDraw();
   const loop = (now: number): void => {
     if (disposed) return;
+    if (rig.usesGlb !== glbShown) {
+      glbShown = rig.usesGlb;
+      prepareDraw();
+    }
     if (!ready) {
       last = now;
       raf = requestAnimationFrame(loop);
@@ -163,9 +187,10 @@ export function mountHeroTurntable(container: HTMLElement, heroId: string): Turn
     // pose cycle: idle → aim + fire bursts → reload → idle
     const phase = t % 12;
     let flags = 0;
-    if (phase > 5 && phase < 8.5) flags = VF_ADS | (phase % 1 < 0.35 ? VF_FIRING : 0);
+    if (t < danceUntil) flags = VF_DANCING;
+    else if (phase > 5 && phase < 8.5) flags = VF_ADS | (phase % 1 < 0.35 ? VF_FIRING : 0);
     else if (phase >= 8.5 && phase < 10.5) flags = VF_RELOADING;
-    rig.update(dt, t, { speed: 0, moveX: 0, moveZ: 0, pitch: flags & VF_ADS ? 0.05 : 0, flags });
+    rig.update(dt, t, { speed: 0, moveX: 0, moveZ: 0, pitch: flags & VF_ADS ? 0.05 : 0, flags, lowReady: true });
     renderer.render(scene, cam);
     raf = requestAnimationFrame(loop);
   };
@@ -182,6 +207,7 @@ export function mountHeroTurntable(container: HTMLElement, heroId: string): Turn
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
       rig.dispose();
+      evictUnusedTemplates();
       pedestalGeo.dispose();
       renderer.dispose();
       renderer.forceContextLoss();

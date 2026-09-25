@@ -2,6 +2,8 @@
 // form controls. Everything returns plain elements.
 import type { Kingdom, RoleId } from '../core/types';
 import { HERO_BY_ID } from '../data';
+import { assetList, assetListSync } from '../game/assets';
+import { portraitArtPath, portraitCropStyle, type PortraitCrop } from './art';
 import { h, s, type Child } from './dom';
 import { heroName, heroTitle, roleName, tx } from './i18n';
 import { KINGDOM_GLYPH, ROLE_GLYPH, kingdomColor, roleColor, roleInk } from './theme';
@@ -71,7 +73,26 @@ export function difficultyStars(n: number): HTMLElement {
 
 // ── portraits ────────────────────────────────────────────────────────────────
 
-/** Every portrait is rendered once, at this size; smaller uses (128 / 192 px) are CSS-scaled. */
+/** Where PortraitCache learns which painted portraits this deploy ships. */
+export interface PortraitArtSource {
+  /** true / false once the art listing is known, null before */
+  has(path: string): boolean | null;
+  /** resolves once the listing is known */
+  ready(): Promise<unknown>;
+}
+
+function listingState(path: string): boolean | null {
+  const files = assetListSync();
+  return files ? files.has(path) : null;
+}
+
+/** The deploy's art listing (src/game/assets.ts): empty in the single-file build. */
+export const shippedArt: PortraitArtSource = {
+  has: listingState,
+  ready: () => assetList(),
+};
+
+/** Every procedural portrait is rendered once, at this size; smaller uses (128 / 192 px) are CSS-scaled. */
 export const PORTRAIT_SIZE = 256;
 
 interface PortraitJob {
@@ -82,13 +103,17 @@ interface PortraitJob {
 }
 
 /**
- * Memoizes deps.renderHeroPortrait and builds <img> layers with a calligraphy
- * placeholder. Portraits are keyed by hero only (one render per hero, not one per
+ * Hero portraits for every screen: the painted portrait (assets/portraits/<id>.webp,
+ * cropped per frame) when the deploy ships it, else the memoized procedural render
+ * (deps.renderHeroPortrait). Both sit on a calligraphy placeholder until decoded.
+ *
+ * Procedural portraits are keyed by hero only (one render per hero, not one per
  * size) and rendered one at a time from a priority queue, so the cards a player
  * must choose from are drawn before the picks strip / other seats. Between two
  * renders the queue yields to the browser (a render is a synchronous WebGL draw
  * with shader compiles — back to back they froze hero select for the whole
- * countdown), and a layer only asks for its portrait once it scrolls into view.
+ * countdown), and a layer only asks for its render once it scrolls into view.
+ * Heroes with painted art never enter that queue.
  */
 export class PortraitCache {
   private cache = new Map<string, Promise<string>>();
@@ -98,15 +123,58 @@ export class PortraitCache {
   private pumpTimer: ReturnType<typeof setTimeout> | null = null;
   private io: IntersectionObserver | null = null;
   private readonly lazy = new WeakMap<Element, () => void>();
+  /** layers of a torn-down screen: a late art verdict / failed image must not start watching them */
+  private readonly released = new WeakSet<Element>();
+  /** listed art that failed to load (a deploy that dropped files): procedural from then on */
+  private readonly broken = new Set<string>();
+  /** art already shown once: later copies (lists rebuild often) appear without a fade */
+  private readonly seen = new Set<string>();
+  private readonly prefetched = new Set<string>();
 
   constructor(
     private readonly render: (heroId: string, size?: number) => Promise<string>,
+    private readonly art: PortraitArtSource = shippedArt,
     private readonly concurrency = 1,
     /** ms to yield between two renders (input, rAF and timers run meanwhile) */
     private readonly gapMs = 30,
   ) {}
 
-  /** The portrait data URL of a hero ('' when it could not be rendered). `size` is ignored (always PORTRAIT_SIZE). */
+  /** The painted portrait is shipped (false: use the procedural one; null: listing not loaded yet). */
+  artState(heroId: string): boolean | null {
+    const path = portraitArtPath(heroId);
+    return this.broken.has(path) ? false : this.art.has(path);
+  }
+
+  hasArt(heroId: string): boolean {
+    return this.artState(heroId) === true;
+  }
+
+  /** Resolves once artState() is known for every hero. */
+  whenKnown(): Promise<unknown> {
+    return this.art.ready();
+  }
+
+  /** The art listing has loaded (artState() is never null). */
+  known(): boolean {
+    // any path answers null exactly while the listing is still loading
+    return this.art.has(portraitArtPath('_')) !== null;
+  }
+
+  /** Warm the HTTP cache with painted portraits (low priority, nothing decoded) so a grid pops in at once. */
+  prefetch(heroIds: readonly string[]): void {
+    if (typeof Image === 'undefined') return;
+    for (const id of heroIds) {
+      const path = portraitArtPath(id);
+      if (this.prefetched.has(path) || !this.hasArt(id)) continue;
+      this.prefetched.add(path);
+      const img = new Image();
+      img.decoding = 'async';
+      img.fetchPriority = 'low';
+      img.src = path;
+    }
+  }
+
+  /** The procedural portrait data URL of a hero ('' when it could not be rendered). `size` is ignored (always PORTRAIT_SIZE). */
   get(heroId: string, _size?: number, priority = 0): Promise<string> {
     const hit = this.cache.get(heroId);
     if (hit) {
@@ -119,9 +187,25 @@ export class PortraitCache {
     return p;
   }
 
-  /** Render these heroes before anything else still waiting (e.g. your options on hero select). */
+  /**
+   * Render these heroes before anything else still waiting (e.g. your options on
+   * hero select). Heroes whose painted portrait ships are skipped — they need no render.
+   * While the art listing is still loading nothing is queued for a hero yet (the
+   * render would load its GLB + clips for a portrait that is never shown): the
+   * decision waits for the listing.
+   */
   prioritize(heroIds: readonly string[], priority = 10): void {
-    heroIds.forEach((id, i) => this.get(id, undefined, priority - i * 1e-3));
+    const later: Array<[string, number]> = [];
+    heroIds.forEach((id, i) => {
+      const prio = priority - i * 1e-3;
+      const state = this.artState(id);
+      if (state === false) this.get(id, undefined, prio);
+      else if (state === null) later.push([id, prio]);
+    });
+    if (!later.length) return;
+    void this.whenKnown().then(() => {
+      for (const [id, prio] of later) if (this.artState(id) === false) this.get(id, undefined, prio);
+    });
   }
 
   /** Heroes waiting to be rendered, in the order they will be (tests / debugging). */
@@ -196,21 +280,49 @@ export class PortraitCache {
    */
   release(root: Element): void {
     const io = this.io;
-    if (!io) return;
     const layers = root.matches('.portrait') ? [root] : [];
     for (const el of root.querySelectorAll('.portrait')) layers.push(el);
     for (const el of layers) {
-      if (!this.lazy.has(el)) continue;
+      this.released.add(el);
+      if (!io || !this.lazy.has(el)) continue;
       this.lazy.delete(el);
       io.unobserve(el);
     }
   }
 
-  /** A `.portrait` layer: placeholder glyph now, image once rendered (rendered when it comes into view). */
-  layer(heroId: string, _size = PORTRAIT_SIZE, priority = 0): HTMLElement {
+  /**
+   * A `.portrait` layer: placeholder glyph now, image once decoded. `crop` frames the
+   * painted portrait for the container (a 5:7 card, a round face avatar…); the
+   * procedural render is already framed and ignores it (and is only rendered once the
+   * layer comes into view, at `priority` in the render queue).
+   */
+  layer(heroId: string, _size = PORTRAIT_SIZE, crop: PortraitCrop = 'card', priority = 0): HTMLElement {
     const def = HERO_BY_ID[heroId];
     const glyph = def ? def.nameZh.slice(-1) : '?';
     const wrap = h('div', { class: 'portrait' }, h('div', { class: 'ph' }, glyph));
+    const state = this.artState(heroId);
+    if (state === true) this.showArt(wrap, heroId, crop, priority);
+    else if (state === false) this.showRender(wrap, heroId, priority);
+    else {
+      void this.art.ready().then(() => {
+        if (this.released.has(wrap)) return;
+        if (this.hasArt(heroId)) this.showArt(wrap, heroId, crop, priority);
+        else this.showRender(wrap, heroId, priority);
+      });
+    }
+    return wrap;
+  }
+
+  /** Round face avatar in a kingdom ring — painted art only: callers keep their badge when !hasArt(). */
+  avatar(heroId: string, cls = ''): HTMLElement {
+    const el = h('span', { class: `sg-ava ${cls}`.trim(), aria: { hidden: 'true' } }, this.layer(heroId, 96, 'face'));
+    el.style.setProperty('--kc', kingdomColor(HERO_BY_ID[heroId]?.kingdom));
+    return el;
+  }
+
+  /** The procedural render, requested once the layer scrolls into view (at once when already cached). */
+  private showRender(wrap: HTMLElement, heroId: string, priority: number): void {
+    if (this.released.has(wrap)) return;
     const start = (): void => {
       void this.get(heroId, undefined, priority).then((url) => {
         // tiny data URLs are the 1×1 stub — keep the placeholder
@@ -226,8 +338,39 @@ export class PortraitCache {
       this.lazy.set(wrap, start);
       io.observe(wrap);
     } else start();
-    return wrap;
   }
+
+  private showArt(wrap: HTMLElement, heroId: string, crop: PortraitCrop, priority: number): void {
+    const path = portraitArtPath(heroId);
+    const img = h('img', { class: 'art', alt: '', draggable: false, style: portraitCropStyle(heroId, crop) });
+    img.decoding = 'async';
+    if (!this.seen.has(path)) {
+      img.classList.add('fade');
+      img.addEventListener('load', () => {
+        this.seen.add(path);
+        img.classList.add('on');
+      }, { once: true });
+    }
+    img.addEventListener('error', () => {
+      this.broken.add(path);
+      img.remove();
+      wrap.classList.remove('art');
+      this.showRender(wrap, heroId, priority);
+    }, { once: true });
+    img.src = path;
+    wrap.classList.add('art');
+    wrap.appendChild(img);
+  }
+}
+
+/** A hero's face avatar when the painted portrait ships, else the kingdom badge (the procedural look). */
+export function heroIcon(portraits: PortraitCache, heroId: string | undefined, kingdom: Kingdom | undefined, size?: string): HTMLElement {
+  if (heroId && portraits.hasArt(heroId)) {
+    const el = portraits.avatar(heroId);
+    if (size) el.style.setProperty('--sz', size);
+    return el;
+  }
+  return kingdomBadge(kingdom, size);
 }
 
 export interface HeroCardOpts {
@@ -239,7 +382,9 @@ export interface HeroCardOpts {
   /** overlay stamp (e.g. "taken") */
   tag?: HTMLElement | null;
   size?: number;
-  /** portrait render priority (your own options first) */
+  /** how a painted portrait is framed (default: the card's upper body) */
+  crop?: PortraitCrop;
+  /** procedural portrait render priority (your own options first) */
   priority?: number;
   onClick?: () => void;
 }
@@ -255,7 +400,7 @@ export function heroCard(portraits: PortraitCache, heroId: string, opts: HeroCar
     aria: { label: heroName(heroId), pressed: !!opts.selected, disabled: !!opts.disabled },
   });
   card.style.setProperty('--kc', kingdomColor(def?.kingdom));
-  card.appendChild(portraits.layer(heroId, opts.size ?? PORTRAIT_SIZE, opts.priority ?? 0));
+  card.appendChild(portraits.layer(heroId, opts.size ?? PORTRAIT_SIZE, opts.crop, opts.priority ?? 0));
   card.appendChild(h('div', { class: 'shade' }));
   card.appendChild(
     h('div', { class: 'top' },

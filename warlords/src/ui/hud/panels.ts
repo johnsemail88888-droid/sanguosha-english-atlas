@@ -82,7 +82,8 @@ export class VitalsPanel {
     const me = f.me;
     if (!me) return;
     if (me.heroId !== this.heroId || f.lang !== this.heroLang) {
-      if (me.heroId !== this.heroId) this.portrait.replaceChildren(this.portraits.layer(me.heroId, 128));
+      // the painted portrait's face crop (the procedural render is already framed)
+      if (me.heroId !== this.heroId) this.portrait.replaceChildren(this.portraits.layer(me.heroId, 128, 'face'));
       this.heroId = me.heroId;
       this.heroLang = f.lang;
       const def = HERO_BY_ID[me.heroId];

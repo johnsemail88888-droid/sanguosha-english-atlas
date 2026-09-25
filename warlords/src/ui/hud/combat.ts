@@ -11,6 +11,7 @@ import { CRATE_NAME } from '../theme';
 import { crosshairStyle, deriveInteract, distanceOutsideZone, relativeBearing, spreadToPx, type InteractPrompt } from './logic';
 import type { HudFrame } from './types';
 import { viewport } from './viewport';
+import type { PortraitCache } from '../widgets';
 
 const canAnimate = typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function';
 
@@ -88,12 +89,18 @@ export class Crosshair {
 export class KillStamp {
   readonly el: HTMLElement;
   private readonly label: HTMLElement;
-  constructor() {
+  private readonly face: HTMLElement;
+  /** `portraits`: the victim's painted face under the seal when the art ships */
+  constructor(private readonly portraits: PortraitCache | null = null) {
     this.label = h('span', { class: 'lbl' });
-    this.el = h('div', { class: 'hud-killstamp' }, h('span', { class: 'sg-seal', style: '--sz:3.2em' }, h('span', null, '斩')), this.label);
+    this.face = h('span', { class: 'ks-face' });
+    this.el = h('div', { class: 'hud-killstamp' }, h('span', { class: 'sg-seal', style: '--sz:3.2em' }, h('span', null, '斩')), this.face, this.label);
   }
-  show(victim: string): void {
+  show(victim: string, heroId?: string): void {
     this.label.textContent = victim;
+    const pc = this.portraits;
+    if (heroId && pc?.hasArt(heroId)) this.face.replaceChildren(pc.avatar(heroId));
+    else this.face.replaceChildren();
     play(this.el, [
       { opacity: 0, transform: 'translate(-50%, -50%) scale(2.2) rotate(-12deg)' },
       { opacity: 1, transform: 'translate(-50%, -50%) scale(1) rotate(-6deg)', offset: 0.18 },
@@ -402,16 +409,38 @@ export type KillerRef = { entityId: EntityId } | { zone: true } | null;
 export class SpectateBar {
   readonly el: HTMLElement;
   private readonly killerEl: HTMLElement;
+  private readonly killerText: HTMLElement;
+  private readonly killerFace: HTMLElement;
   private readonly targetEl: HTMLElement;
+  private readonly targetText: HTMLElement;
+  private readonly targetFace: HTMLElement;
   private readonly titleEl: HTMLElement;
   private on = false;
-  private key = '';
+  private dirty = true;
+  private shownKiller: KillerRef = null;
+  private shownKillerHero: string | null = null;
+  private shownTarget = -1;
+  private shownLang = '';
+  /** a new reference per death (hud.ts): the name is rendered (and re-rendered) in the current language */
   killer: KillerRef = null;
+  /** the killer's hero (for its painted face) */
+  killerHero: string | null = null;
 
-  /** `label(id)` names an entity as "hero·player" in the current language (null = unknown) */
-  constructor(private readonly cycle: (dir: 1 | -1) => void, private readonly label: (id: EntityId) => string | null = () => null) {
-    this.killerEl = h('div', { class: 'killer' });
-    this.targetEl = h('span', { class: 'target' });
+  /**
+   * `label(id)` names an entity as "hero·player" in the current language (null = unknown);
+   * `portraits`: painted faces of the killer and the spectated hero when the art ships
+   */
+  constructor(
+    private readonly cycle: (dir: 1 | -1) => void,
+    private readonly label: (id: EntityId) => string | null = () => null,
+    private readonly portraits: PortraitCache | null = null,
+  ) {
+    this.killerText = h('span');
+    this.killerFace = h('span', { class: 'face' });
+    this.killerEl = h('div', { class: 'killer' }, this.killerFace, this.killerText);
+    this.targetText = h('span');
+    this.targetFace = h('span', { class: 'face' });
+    this.targetEl = h('span', { class: 'target' }, this.targetFace, this.targetText);
     this.titleEl = h('div', { class: 'dead-title' }, t('hud.dead'));
     const prev = h('button', { class: 'sg-btn small dark', type: 'button', title: t('hud.prev') }, '◀');
     const next = h('button', { class: 'sg-btn small dark', type: 'button', title: t('hud.next') }, '▶');
@@ -427,19 +456,41 @@ export class SpectateBar {
       setClass(this.el, 'on', on);
     }
     if (!on) return;
-    const target = f.players.find((p) => p.entityId === f.spectateId);
+    // per frame while dead: compare fields instead of building a key string
+    let target: HudFrame['players'][number] | undefined;
+    for (const p of f.players) {
+      if (p.entityId === f.spectateId) {
+        target = p;
+        break;
+      }
+    }
+    const targetId = target ? target.entityId : -1;
     const kr = this.killer;
-    const k = `${kr ? ('zone' in kr ? 'zone' : kr.entityId) : ''}|${target?.entityId ?? ''}|${f.lang}`;
-    if (k === this.key) return;
-    this.key = k;
+    if (!this.dirty && this.shownKiller === kr && this.shownKillerHero === this.killerHero && this.shownTarget === targetId && this.shownLang === f.lang) return;
+    this.dirty = false;
+    this.shownKiller = kr;
+    this.shownKillerHero = this.killerHero;
+    this.shownTarget = targetId;
+    this.shownLang = f.lang;
     setText(this.titleEl, t('hud.dead'));
     const killerName = !kr ? '' : 'zone' in kr ? t('hud.zoneDeath') : this.label(kr.entityId) ?? '';
-    setText(this.killerEl, killerName ? t('hud.killedBy', { name: killerName }) : '');
-    setText(this.targetEl, target ? t('hud.spectating', { name: `${heroName(target.heroId)}·${displayName(target.name, f.lang)}` }) : '—');
+    setText(this.killerText, killerName ? t('hud.killedBy', { name: killerName }) : '');
+    setClass(this.killerEl, 'sg-hidden', !killerName);
+    this.face(this.killerFace, kr && !('zone' in kr) ? this.killerHero : null);
+    setText(this.targetText, target ? t('hud.spectating', { name: `${heroName(target.heroId)}·${displayName(target.name, f.lang)}` }) : '—');
+    this.face(this.targetFace, target?.heroId ?? null);
+  }
+
+  private face(slot: HTMLElement, heroId: string | null): void {
+    const pc = this.portraits;
+    const id = heroId && pc?.hasArt(heroId) ? heroId : '';
+    if (slot.dataset.hero === id) return;
+    slot.dataset.hero = id;
+    slot.replaceChildren(...(id && pc ? [pc.avatar(id)] : []));
   }
 
   relabel(): void {
-    this.key = '';
+    this.dirty = true;
   }
 }
 

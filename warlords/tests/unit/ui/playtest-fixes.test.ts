@@ -240,11 +240,15 @@ describe('portrait cache (task 5d)', () => {
     const order: string[] = [];
     let release: () => void = () => undefined;
     const gate = new Promise<void>((r) => (release = r));
-    const c = new PortraitCache(async (id) => {
-      order.push(id);
-      if (id === 'first') await gate;
-      return id;
-    });
+    // art listing known, no painted portraits: every hero needs a render
+    const c = new PortraitCache(
+      async (id) => {
+        order.push(id);
+        if (id === 'first') await gate;
+        return id;
+      },
+      { has: () => false, ready: async () => undefined },
+    );
     const all = [c.get('first'), c.get('strip1'), c.get('strip2')];
     c.prioritize(['opt1', 'opt2', 'strip2']);
     all.push(c.get('opt1'), c.get('opt2'));

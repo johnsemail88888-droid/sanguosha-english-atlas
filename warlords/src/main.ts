@@ -10,7 +10,11 @@ import type { ViewSource } from './render/view';
 import { registerAllVfx } from './render/vfx/registerAll';
 import { mountApp, type AppDeps, type GameHandle } from './ui/app';
 import { DebugHooks, debugEnabled, type DebugSessionKind } from './game/debug';
+import { assetList } from './game/assets';
 
+// which optional painted art this deploy ships (one small listing fetch, none in the
+// single-file build): start it before anything asks, the title screen needs it first
+void assetList();
 registerAllVfx();
 
 // `?debug=1`: window.__sgwl hooks for automated play-testing (see src/game/debug.ts)

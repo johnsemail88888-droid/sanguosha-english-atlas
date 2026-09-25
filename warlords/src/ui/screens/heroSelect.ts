@@ -47,6 +47,15 @@ export function selectTurn(v: HeroSelectView, me: number, deal: RoleDealView | n
   };
 }
 
+/**
+ * The crown-pick toast's sentence ('主公选择了 {hero}') split around the hero's name, so
+ * the name can sit in its own never-shrinking span (the space before it is a CSS margin).
+ */
+export function lordPickedParts(): { pre: string; post: string } {
+  const [pre = '', post = ''] = t('select.lordPicked', { hero: '\u0000' }).split('\u0000');
+  return { pre: pre.trimEnd(), post };
+}
+
 /** Seconds before the deadline at which a focused-but-unconfirmed card is locked in for you. */
 export const AUTO_PICK_AT = 1.5;
 
@@ -76,6 +85,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
   // crown picks already announced (seat → hero); the initial view's picks are not flashed
   const flashed = new Map<number, string>(Object.entries(session.heroSelect?.picks ?? {}).map(([seat, hero]) => [Number(seat), hero]));
   let lastBeep = -1;
+  let flashToken = 0;
   let detail: { el: HTMLElement; dispose(): void } | null = null;
   let detailHero: string | null = null;
   // the grid is built once per set of options; later updates only patch classes
@@ -107,7 +117,9 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
     ctx.sfx('confirm');
   }, { cls: 'big gold', sfx: 'none' });
   const waitNote = h('div', { class: 'wait-note' });
-  const flash = h('div', { class: 'lord-flash', aria: { live: 'polite' } });
+  // crown-pick toast: lives in the header row (between the titles and the ring) so it never covers a card
+  const flashBand = h('div', { class: 'lf-band' });
+  const flash = h('div', { class: 'lord-flash', aria: { live: 'polite' } }, flashBand);
   const single = ctx.sessionKind === 'single';
   const back = single ? backToSetup(ctx, session) : null;
 
@@ -121,7 +133,8 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
     detailBox.replaceChildren();
     if (!heroId) return;
     // crowns get the +1 勾玉; only the real Lord gets the lord skill
-    detail = heroDetail(ctx, heroId, { asLord: turn.iAmCrown, dimLord: !turn.iAmRealLord });
+    // the grid card beside the panel already shows the painting: the panel keeps its height for the abilities
+    detail = heroDetail(ctx, heroId, { asLord: turn.iAmCrown, dimLord: !turn.iAmRealLord, medallion: true });
     detailBox.appendChild(detail.el);
   };
 
@@ -220,9 +233,18 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
       flashed.set(seat, hero);
       if (seat === me) continue;
       const who = crowns.length > 1 ? `${seatName(session, seat)} · ` : '';
-      flash.replaceChildren(h('span', { class: 'crown' }, '♛'), who, t('select.lordPicked', { hero: heroName(hero) }));
+      // the hero's name never gets cut: only the lead-in shrinks (with an ellipsis) on narrow screens
+      const { pre, post } = lordPickedParts();
+      flashBand.replaceChildren(
+        ...(ctx.portraits.hasArt(hero) ? [ctx.portraits.avatar(hero, 'flash-ava')] : []),
+        h('span', { class: 'crown' }, '♛'),
+        h('span', { class: 'lf-text' }, who, pre),
+        h('span', { class: 'lf-hero' }, heroName(hero), post),
+      );
       flash.classList.add('show');
-      bag.timeout(() => flash.classList.remove('show'), 2400);
+      // a second crown's toast keeps its full time
+      const token = ++flashToken;
+      bag.timeout(() => token === flashToken && flash.classList.remove('show'), 2400);
       ctx.sfx('reveal');
     }
 
@@ -248,7 +270,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
           // only the real Lord is told which crown is the decoy
           const decoy = crowned && !!deal && shownSeatRole(deal, st.seat, me) === 'double';
           return h('div', { class: `pick${st.seat === me ? ' me' : ''}${crowned ? ' lord' : ''}${decoy ? ' decoy' : ''}${hero ? ' done' : ''}` },
-            h('div', { class: 'thumb' }, hero ? heroCard(ctx.portraits, hero, { compact: true, size: 128 }) : h('span', { class: 'q' }, '?')),
+            h('div', { class: 'thumb' }, hero ? heroCard(ctx.portraits, hero, { compact: true, size: 128, crop: 'thumb' }) : h('span', { class: 'q' }, '?')),
             h('div', { class: 'who' }, crowned ? h('span', { class: `crown${decoy ? ' decoy' : ''}`, title: decoy ? t('score.decoy') : undefined }, '♛') : null, h('span', { class: 'nm' }, displayName(st.name, getLang()))),
             h('div', { class: 'what' }, hero ? heroName(hero) : t('select.picking')),
           );
@@ -280,10 +302,10 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
       h('header', { class: 'sel-head' },
         back ? back.el : null,
         h('div', { class: 'titles' }, h('h1', { class: 'sg-h1' }, t('select.title')), stageText),
+        flash,
         ring,
       ),
       strip,
-      flash,
       h('div', { class: 'sel-main' },
         h('div', { class: 'grid-wrap' }, waitNote, grid),
         h('aside', { class: 'detail sg-panel sg-corners' }, detailBox, h('div', { class: 'detail-actions' }, confirmBtn)),

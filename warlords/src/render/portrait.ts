@@ -1,13 +1,16 @@
-// Hero portraits: offscreen three.js render of the procedural hero bust with
-// dramatic lighting on a kingdom-coloured ink-wash backdrop → PNG data URL.
+// Hero portraits: offscreen three.js render of the hero bust (the AI-art GLB
+// body when the deploy ships it, else the procedural one) with dramatic lighting
+// on a kingdom-coloured ink-wash backdrop → PNG data URL. The UI prefers the
+// painted portraits (assets/portraits/*.webp); this is their fallback.
 // One shared offscreen "studio" (renderer, lights, backdrop); cached per
 // heroId+size. Falls back to a 2D-canvas calligraphy card without WebGL.
 //
 // Scheduling (hero select opens with ~30 portraits to draw on a fresh client):
 //   - jobs wait in a priority queue (renderHeroPortrait(id, size, priority),
 //     bumpHeroPortraits(ids) for the cards the player is looking at);
-//   - each job is split into stages — build the rig and issue its shader
-//     compiles / draw / read the pixels back / encode the PNG — and the runner
+//   - each job is split into stages — load the hero's GLB body + clips when
+//     the deploy ships them (async, network / decode) / build the rig and issue
+//     its shader compiles / draw / read the pixels back / encode the PNG — and the runner
 //     yields to the browser between stages whenever the current slice has used
 //     its ~12 ms budget, and always between two jobs (a job never runs in the
 //     microtask chain of another);
@@ -23,6 +26,8 @@ import type { Kingdom } from '../core/types';
 import { HERO_BY_ID } from '../data';
 import { CharacterRig } from './models/character';
 import { heroSpec } from './models';
+import { heroModelPath, loadCharTemplate, modelUrl } from './models/glb';
+import { loadAllClips } from './anim/glbClips';
 import { CALLIGRAPHY_FONT, inkBackdropCanvas, makeCanvas } from './core/textures';
 import { KINGDOM_COLORS } from './palette';
 
@@ -223,8 +228,23 @@ function scheduleIdleRelease(): void {
   }, IDLE_RELEASE_MS);
 }
 
+/** Load the hero's GLB body + clips first when the deploy ships them (so the rig can pose it synchronously). */
+async function prepareGlb(heroId: string): Promise<void> {
+  try {
+    if (!(await modelUrl(heroModelPath(heroId)))) return;
+    await Promise.all([loadCharTemplate(heroModelPath(heroId)), loadAllClips()]);
+  } catch {
+    /* procedural portrait */
+  }
+}
+
 async function renderJob(heroId: string, size: number): Promise<string> {
-  const st = getStudio();
+  let st = getStudio();
+  if (!st) return fallbackPortrait(heroId, size);
+  // 0. the AI-art body (only with WebGL: the 2D fallback needs none of it)
+  await prepareGlb(heroId);
+  await checkpoint();
+  st = getStudio(); // the context may have been lost while loading
   if (!st) return fallbackPortrait(heroId, size);
   const { renderer } = st;
   // 1. this hero's rig + backdrop into the studio scene
@@ -238,14 +258,17 @@ async function renderJob(heroId: string, size: number): Promise<string> {
   st.backdropMat.color.set(bdTex ? 0xffffff : KINGDOM_COLORS[kingdom]);
   const rig = new CharacterRig(heroSpec(heroId, kingdom));
   rig.setWeapon(def?.signatureWeapon ?? null);
+  rig.tryGlbOverride(heroId); // synchronous once prepareGlb loaded it
   rig.root.rotation.y = Math.PI + 0.42;
   const t0 = 0.8;
-  for (let i = 0; i < 30; i++) rig.update(1 / 30, t0 + i / 30, { speed: 0, moveX: 0, moveZ: 0, pitch: 0.05, flags: 0 });
+  for (let i = 0; i < 30; i++) rig.update(1 / 30, t0 + i / 30, { speed: 0, moveX: 0, moveZ: 0, pitch: 0.05, flags: 0, lowReady: true });
   st.scene.add(rig.root);
-  const h = rig.spec.body === 'huge' ? 1.1 : rig.spec.body === 'heavy' ? 1.02 : 1;
+  const glb = rig.usesGlb;
+  const h = glb ? rig.headHeight() / 1.835 : rig.spec.body === 'huge' ? 1.1 : rig.spec.body === 'heavy' ? 1.02 : 1;
   const headY = 1.6 * h;
-  st.cam.position.set(0.3, headY + 0.08, 1.75);
-  st.cam.lookAt(0.02, headY - 0.06, 0);
+  // GLB bodies: a touch wider (hair buns, helmets and plumes are modelled, not stylised)
+  st.cam.position.set(0.3, headY + (glb ? 0.02 : 0.08), glb ? 1.95 : 1.75);
+  st.cam.lookAt(0.02, headY - (glb ? 0.1 : 0.06), 0);
   const release = (): void => {
     rig.dispose();
     bdTex?.dispose();
