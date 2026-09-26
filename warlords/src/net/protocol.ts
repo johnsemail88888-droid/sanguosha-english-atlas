@@ -64,7 +64,12 @@ export type ClientMsg =
    * rendering at < 1 fps still gets deltas, not full snapshots (MP2-6). Additive.
    */
   | { t: 'ack'; tick: number }
-  | { t: 'leave' };
+  /**
+   * Leaving the room. `reload`: the page is going away (F5, the tab closing), not the
+   * player — it comes back with its seat token: the lobby keeps the seat for a moment
+   * instead of announcing 「X 离开了房间」 + 「X 加入了房间」 (ONL3). Additive.
+   */
+  | { t: 'leave'; reload?: boolean };
 
 // ── host → client ───────────────────────────────────────────────────────────
 export type HostMsg =

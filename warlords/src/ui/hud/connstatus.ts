@@ -80,6 +80,18 @@ export const OK_CHIP_SECS = 3;
  */
 export const TROUBLE_LOG_AFTER = 10;
 
+/**
+ * How long a trouble lasted, for its chat line: 「14 秒」 / 「8 分 55 秒」 / 「9 分钟」
+ * ("14 s" / "8 min 55 s" / "9 min") — a wait of minutes (a host loading for ages) reads as such.
+ */
+export function outageText(secs: number, lang: 'zh' | 'en'): string {
+  const n = Math.max(1, Math.round(secs));
+  const m = Math.floor(n / 60);
+  const r = n % 60;
+  if (lang === 'en') return m === 0 ? `${n} s` : r === 0 ? `${m} min` : `${m} min ${r} s`;
+  return m === 0 ? `${n} 秒` : r === 0 ? `${m} 分钟` : `${m} 分 ${r} 秒`;
+}
+
 /** A chat line about the link: `key` names the episode's one line (a later line with the same key replaces it). */
 export interface LinkLine {
   key: string;
@@ -121,10 +133,13 @@ export class LinkStatus {
       this.okUntil = now + OK_CHIP_SECS;
       const logged = this.logged;
       this.logged = false;
-      if (!logged) return { handled: true, chat: null };
+      const secs = now - this.since;
+      // a trouble that lasted but was never logged — the HUD was not running (a guest on the
+      // loading screen while the host loaded for minutes) — gets its line now, when it is over
+      // (ONL3: no line at all for a 9-minute wait; a later short episode's line read as its)
+      if (!logged && secs < TROUBLE_LOG_AFTER) return { handled: true, chat: null };
       // the episode's line becomes "back (after N s)"
-      const secs = Math.max(1, Math.round(now - this.since));
-      return { handled: true, chat: { key: this.key(), zh: `${zh}（中断 ${secs} 秒）`, en: `${st.en} (after ${secs} s)` } };
+      return { handled: true, chat: { key: this.key(), zh: `${zh}（中断 ${outageText(secs, 'zh')}）`, en: `${st.en} (after ${outageText(secs, 'en')})` } };
     }
     this.chip = { zh, en: st.en, tone: next === 'waiting' ? 'warn' : 'bad', actions: linkActions(next), counter: next === 'waiting' };
     if (prev === 'ok') {

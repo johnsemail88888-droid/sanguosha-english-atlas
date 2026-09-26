@@ -109,12 +109,29 @@ function tabStore(): Storage | null {
 }
 
 /** Remember how this tab joined `code` (next to the net layer's seat token, also per tab). */
-export function saveRejoin(info: Omit<RejoinInfo, 'at'>, store: Pick<Storage, 'setItem'> | null = tabStore()): void {
+export function saveRejoin(info: Omit<RejoinInfo, 'at'>, store: Pick<Storage, 'setItem'> | null = tabStore(), now = Date.now()): void {
   try {
-    store?.setItem(REJOIN_KEY, JSON.stringify({ ...info, at: Date.now() }));
+    store?.setItem(REJOIN_KEY, JSON.stringify({ ...info, at: now }));
   } catch {
     /* storage blocked: F5 falls back to the saved default mode */
   }
+}
+
+/**
+ * The rejoin record of a guest session that is still alive (`joined`: how this tab joined
+ * its room, kept by the app for the session's lifetime) saved again with a fresh age — a
+ * drop or an F5 an hour into the session still offers 重新加入 and keeps the seat token
+ * (a record dated at the join aged out after REJOIN_MAX_AGE_MS: the drop wiped both).
+ * Without a live session: the stored record, if it is young enough.
+ */
+export function refreshRejoin(
+  joined: Omit<RejoinInfo, 'at'> | null,
+  store: Pick<Storage, 'setItem' | 'getItem'> | null = tabStore(),
+  now = Date.now(),
+): RejoinInfo | null {
+  if (!joined) return loadRejoin(store, now);
+  saveRejoin(joined, store, now);
+  return { ...joined, at: now };
 }
 
 export function clearRejoin(store: Pick<Storage, 'removeItem'> | null = tabStore()): void {

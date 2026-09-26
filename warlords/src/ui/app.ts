@@ -28,7 +28,7 @@ import { createHelpScreen } from './screens/help';
 import { createSettingsPanel } from './screens/settings';
 import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
-import { clearRejoin, isReconnectable, loadRejoin, netFor, saveRejoin } from './invite';
+import { clearRejoin, isReconnectable, loadRejoin, netFor, refreshRejoin, type RejoinInfo } from './invite';
 import type { NetServerConfig } from '../game/settings';
 
 export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
@@ -165,6 +165,13 @@ class App implements UiCtx {
   private lobbyChat: LobbyChatLog | null = null;
   /** connection of the current online session (host or guest) */
   private conn: { mode: 'peer' | 'ws'; net: NetServerConfig } | null = null;
+  /**
+   * How this tab joined the current online room as a guest: its rejoin record is saved
+   * again from this (with a fresh age) on every (re)connect, a drop and a page unload, so
+   * it never ages out while the session lives (pt3-online: a drop 40 min after the join
+   * skipped 重新加入 and wiped the seat token).
+   */
+  private joined: Omit<RejoinInfo, 'at'> | null = null;
   private load: LoadProgress | null = null;
   private readonly loadSubs = new Set<(p: LoadProgress | null) => void>();
   private music: MusicTrack | undefined = undefined;
@@ -525,7 +532,17 @@ class App implements UiCtx {
     const net = { ...settings.get().net };
     this.conn = { mode, net };
     // F5 in the lobby or mid-match rejoins this room the same way (see screens/online.ts)
-    saveRejoin({ code: (s.lobby?.roomCode || code).toUpperCase(), mode, net: netFor(mode, net) });
+    this.joined = { code: (s.lobby?.roomCode || code).toUpperCase(), mode, net: netFor(mode, net) };
+    this.touchRejoin();
+  }
+
+  /**
+   * An online guest's rejoin record, saved again with a fresh age (null: no guest session
+   * joined from this tab — then the stored record, if still young). See `joined`.
+   */
+  private touchRejoin(): RejoinInfo | null {
+    const guest = this.sessionKind === 'online' && !!this.session && !this.session.isHost;
+    return refreshRejoin(guest ? this.joined : null);
   }
 
   connection(): { mode: 'peer' | 'ws'; net: NetServerConfig } | null {
@@ -546,7 +563,10 @@ class App implements UiCtx {
   /** `keepRejoin`: a page unload (F5) must not forget how to rejoin this tab's room */
   leaveSession(goTitle = true, keepRejoin = false): void {
     const s = this.session;
-    if (!keepRejoin) clearRejoin();
+    // F5 / a drop: the record is kept, dated now (it must not age out under a live session)
+    if (keepRejoin) this.touchRejoin();
+    else clearRejoin();
+    this.joined = null;
     this.conn = null;
     this.sessionBag?.dispose();
     this.sessionBag = null;
@@ -590,7 +610,15 @@ class App implements UiCtx {
     this.pickedHero = s.heroSelect?.picks[mySeat(s)] ?? null;
     const bag = new Bag();
     this.sessionBag = bag;
-    if (kind === 'online') this.lobbyChat = new LobbyChatLog(s);
+    if (kind === 'online') {
+      this.lobbyChat = new LobbyChatLog(s);
+      // every (re)connect and phase change dates the guest's rejoin record afresh
+      const touch = (): void => {
+        if (this.joined) this.touchRejoin();
+      };
+      bag.add(s.on('lobby', touch));
+      bag.add(s.on('phase', touch));
+    }
     bag.add(
       s.on('heroSelect', (v) => {
         const hero = v.picks[mySeat(s)];
@@ -666,7 +694,8 @@ class App implements UiCtx {
     if (isFatalSessionError(e.code)) {
       // a guest who lost the host (after the net layer's own retries): the rejoin record and the seat
       // token are kept (F5 and the online screen's 重新加入 still work) and the way back is offered (MP2-3)
-      const rejoin = this.sessionKind === 'online' && this.session && !this.session.isHost && isReconnectable(e.code) ? loadRejoin() : null;
+      // (dated afresh: the record set at the join may be older than REJOIN_MAX_AGE_MS by now)
+      const rejoin = this.sessionKind === 'online' && this.session && !this.session.isHost && isReconnectable(e.code) ? this.touchRejoin() : null;
       this.leaveSession(true, !!rejoin);
       if (rejoin) {
         void this.confirm(msg, { title: t('error.title'), ok: t('online.rejoinCode', { code: rejoin.code }), cancel: t('over.toTitle') }).then((yes) => {

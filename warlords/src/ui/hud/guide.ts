@@ -35,6 +35,24 @@ export function shouldShowGuide(count: number): boolean {
   return count < GUIDE_MATCHES;
 }
 
+/**
+ * Put the card up now? Not behind the rotate-to-landscape cover (NP-3): a phone held
+ * upright sees nothing of the match, so the card (and the showing it counts) waits for
+ * the first landscape frame.
+ */
+export function guideMayMount(rotating: boolean): boolean {
+  return !rotating;
+}
+
+/**
+ * Does the card's fade-out clock run? Only while the card can be read: in play (not
+ * behind 「点击进入战场」, a menu or the rotate cover). Turning the phone upright again
+ * stops it — the card gets its full time back in landscape.
+ */
+export function guideClockRuns(o: { overlay: string; rotating: boolean }): boolean {
+  return o.overlay === 'none' && !o.rotating;
+}
+
 function save(n: number): void {
   try {
     store()?.setItem(GUIDE_KEY, String(n));

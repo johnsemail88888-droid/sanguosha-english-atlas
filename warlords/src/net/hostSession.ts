@@ -106,6 +106,13 @@ export interface FlowTimings {
    */
   loadDropGrace: number;
   /**
+   * In the lobby, a guest whose page reloads (F5: its 'leave' says so) or whose link
+   * failed keeps its seat this long (s; 0 = freed at once): the tab comes back with its
+   * seat token and takes the same seat without 「X 离开了房间」 + 「X 加入了房间」 (ONL3).
+   * A real leave (离开房间) frees the seat at once.
+   */
+  lobbyDropGrace: number;
+  /**
    * After a player reported 'loaded', loadGrace / loadDropGrace keep applying
    * until its input has flowed steadily for this long (s; 0 = at once): a slow
    * device's first real frames still freeze its page for many seconds (at most
@@ -134,6 +141,7 @@ export const DEFAULT_TIMINGS: FlowTimings = {
   dropGrace: 5,
   loadGrace: 60,
   loadDropGrace: 20,
+  lobbyDropGrace: 20,
   warmUp: 10,
   spawnShield: 300,
 };
@@ -332,6 +340,8 @@ export class HostSession implements GameSession {
   private snapAcc = 0;
   private postGameTicks = 0;
   private extraEvents: GameEvent[] = [];
+  /** host-made events one player does not get (「X 重新连接」 is no news to X, ONL3) → that player */
+  private readonly eventSkips = new Map<GameEvent, PlayerId>();
   private resultValue: GameResult | null = null;
   private unwatchFocus: (() => void) | null = null;
   /** single-player pause (setPaused) */
@@ -886,6 +896,12 @@ export class HostSession implements GameSession {
         }
       }
       if (free === null) continue; // cannot happen: count >= humans
+      // a seat held for a reloading player (holdSeat) keeps its timer under the new number
+      const held = this.dropTimers.get(rec.seat);
+      if (held !== undefined) {
+        this.dropTimers.delete(rec.seat);
+        this.dropTimers.set(free, held);
+      }
       rec.seat = free;
       this.seats.set(free, rec);
       if (rec.peer) {
@@ -936,8 +952,11 @@ export class HostSession implements GameSession {
     });
   }
 
-  /** `said`: the peer sent 'leave' (a reload or a real leave) — its link did not just fail under it. */
-  private onPeerLeave(id: PeerId, said = false): void {
+  /**
+   * `said`: the peer sent 'leave' — its link did not just fail under it; `reload`: that
+   * 'leave' came from a page going away (F5), not from the player.
+   */
+  private onPeerLeave(id: PeerId, said = false, reload = false): void {
     const peer = this.peers.get(id);
     if (!peer) return;
     this.peers.delete(id);
@@ -947,6 +966,13 @@ export class HostSession implements GameSession {
     if (!rec || rec.peer !== id) return;
     rec.peer = null;
     if (this.phaseValue === 'lobby') {
+      // a real leave frees the seat at once; a reload or a failed link keeps it for the tab
+      // that comes back with its token — seamless, like a blip mid-match (ONL3)
+      const grace = said && !reload ? 0 : this.timings.lobbyDropGrace * 1000;
+      if (grace > 0) {
+        this.holdSeat(rec, grace);
+        return;
+      }
       rec.connected = false;
       this.leftLobby(rec);
       return;
@@ -971,11 +997,17 @@ export class HostSession implements GameSession {
       this.finishDrop(rec);
       return;
     }
+    this.holdSeat(rec, grace);
+  }
+
+  /** The seat's player is gone for now: keep the seat `ms`, then finishDrop (a rejoin with the token cancels it). */
+  private holdSeat(rec: SeatRec, ms: number): void {
+    this.cancelDrop(rec.seat);
     const timer = setTimeout(() => {
       if (this.dropTimers.get(rec.seat) !== timer) return;
       this.dropTimers.delete(rec.seat);
       if (!this.disposed) this.finishDrop(rec);
-    }, grace);
+    }, ms);
     this.dropTimers.set(rec.seat, timer);
   }
 
@@ -1127,7 +1159,7 @@ export class HostSession implements GameSession {
         break;
       case 'leave':
         this.transport?.disconnect(from);
-        this.onPeerLeave(from, true);
+        this.onPeerLeave(from, true, msg.reload === true);
         break;
       default:
         break;
@@ -1272,14 +1304,15 @@ export class HostSession implements GameSession {
       }
       this.sendMatchStart(peer);
       if (this.phaseValue === 'loading') this.waitingLoad.add(peer.id);
-      if (wasBot) this.injectEvent({ t: 'announce', zh: `${rec.name} 重新连接`, en: `${rec.name} reconnected`, kind: 'info' });
+      // (not to the player who is back: their own screen already says 已重新连接)
+      if (wasBot) this.injectEvent({ t: 'announce', zh: `${rec.name} 重新连接`, en: `${rec.name} reconnected`, kind: 'info' }, rec.playerId);
     }
     // a player who comes back after the match ended gets the real results: the
     // loop has stopped, so no snapshot will bring the final player list
     if (this.phaseValue === 'gameOver' && this.resultValue) {
       this.sendTo(peer.id, { t: 'gameOver', result: this.resultValue, players: this.finalPlayersFor(rec) });
     }
-    if (wasBot) this.notice(`${rec.name} 重新连接`, `${rec.name} reconnected`);
+    if (wasBot) this.notice(`${rec.name} 重新连接`, `${rec.name} reconnected`, false, peer.id);
     this.lobbyChanged();
   }
 
@@ -1806,7 +1839,17 @@ export class HostSession implements GameSession {
    */
   private fanOutEvents(tick: number, events: GameEvent[]): void {
     const sim = this.sim;
-    const priv = hasPrivateEvents(events);
+    // host-made events that skip one player (eventSkips): that player's list is filtered too
+    let skips: Map<GameEvent, PlayerId> | null = null;
+    if (this.eventSkips.size > 0) {
+      for (const ev of events) {
+        const who = this.eventSkips.get(ev);
+        if (who === undefined) continue;
+        (skips ??= new Map()).set(ev, who);
+        this.eventSkips.delete(ev);
+      }
+    }
+    const priv = hasPrivateEvents(events) || skips !== null;
     const entityOf = (playerId: PlayerId): number | null => {
       try {
         return sim?.entityOf(playerId) ?? null;
@@ -1827,6 +1870,10 @@ export class HostSession implements GameSession {
         const rec = this.seats.get(peer.seat);
         if (!rec || rec.peer !== peer.id) continue;
         list = filterEventsFor(events, entityOf(rec.playerId));
+        if (skips) {
+          const sk = skips;
+          list = list.filter((ev) => sk.get(ev) !== rec.playerId);
+        }
       }
       if (list.length === 0) continue;
       // same length as the public list ⇒ identical (the filter only removes)
@@ -1835,13 +1882,14 @@ export class HostSession implements GameSession {
     }
   }
 
-  /** Add a host-generated event (announcements) to the stream; sent with the next tick. */
-  private injectEvent(ev: GameEvent): void {
+  /** Add a host-generated event (announcements) to the stream; sent with the next tick. `skip`: a player it is not for. */
+  private injectEvent(ev: GameEvent, skip?: PlayerId): void {
     const sim = this.sim;
     if (!sim) return;
+    if (skip !== undefined) this.eventSkips.set(ev, skip);
     if (this.loop?.isRunning) {
       this.extraEvents.push(ev);
-      if (this.extraEvents.length > 64) this.extraEvents.shift();
+      if (this.extraEvents.length > 64) this.eventSkips.delete(this.extraEvents.shift() as GameEvent);
     } else if (this.phaseValue === 'gameOver') {
       this.fanOutEvents(sim.tick, [ev]);
     }
@@ -1933,9 +1981,12 @@ export class HostSession implements GameSession {
     this.emitter.emit('chat', { from, text });
   }
 
-  /** Tell everyone; `log`: a lobby event (join / leave / kick) that the UI keeps as a system chat line. */
-  private notice(zh: string, en: string, log = false): void {
-    this.broadcast(log ? { t: 'notice', zh, en, log: true } : { t: 'notice', zh, en });
+  /**
+   * Tell everyone (but `except`: the player it is about, when it is no news to them); `log`: a
+   * lobby event (join / leave / kick) that the UI keeps as a system chat line.
+   */
+  private notice(zh: string, en: string, log = false, except?: PeerId): void {
+    this.broadcast(log ? { t: 'notice', zh, en, log: true } : { t: 'notice', zh, en }, except);
     this.status(zh, en);
     if (log) this.emitter.emit('chat', { from: '', text: zh, system: true, zh, en });
   }
@@ -1962,11 +2013,11 @@ export class HostSession implements GameSession {
   }
 
   /** Send to every seated, connected peer. */
-  private broadcast(msg: HostMsg): void {
+  private broadcast(msg: HostMsg, except?: PeerId): void {
     const t = this.transport;
     if (!t) return;
     const text = encodeJson(msg);
-    for (const peer of this.peers.values()) if (peer.seat !== null) t.send(peer.id, text, 'reliable');
+    for (const peer of this.peers.values()) if (peer.seat !== null && peer.id !== except) t.send(peer.id, text, 'reliable');
   }
 
   private after(seconds: number, fn: () => void): void {

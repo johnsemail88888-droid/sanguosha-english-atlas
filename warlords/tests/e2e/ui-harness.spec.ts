@@ -927,6 +927,20 @@ test('round 2: help tables, card labels, pickup lines, full-bar swap + discard, 
   await drop();
   await rejoinBtn.click();
   await expect(rc.page.locator('[data-screen="lobby"] .room-code')).toContainText('BWKQR', { timeout: 15_000 });
+  // ONL3: a drop long after the join (the stored record is past REJOIN_MAX_AGE_MS) still offers
+  // 重新加入: the live session dates the record afresh
+  const agedAt = await rc.page.evaluate(() => {
+    const at = Date.now() - 40 * 60_000;
+    sessionStorage.setItem('sgwl.rejoin.v1', JSON.stringify({ code: 'BWKQR', mode: 'peer', net: {}, at }));
+    (window as unknown as MockInternals).__ui.deps.lastSession.fail('connectionLost', '与房主的连接已断开', 'Lost connection to the host');
+    return at;
+  });
+  await expect(rejoinBtn).toBeVisible();
+  const kept = await rc.page.evaluate(() => JSON.parse(sessionStorage.getItem('sgwl.rejoin.v1') ?? 'null') as { code: string; at: number } | null);
+  expect(kept?.code).toBe('BWKQR');
+  expect(kept!.at - agedAt).toBeGreaterThan(39 * 60_000);
+  await rejoinBtn.click();
+  await expect(rc.page.locator('[data-screen="lobby"] .room-code')).toContainText('BWKQR', { timeout: 15_000 });
   expect(rc.errors).toEqual([]);
   await rc.ctx.close();
 });
@@ -1128,6 +1142,8 @@ test('MP2-1 / MP2-2 guest link: the chip counts a silent host, offers 重试 / �
     await page.evaluate(() => {
       const s = (window as unknown as LinkMock).__ui.deps.lastSession;
       s.status('连接中断，正在重新连接…', 'Connection lost — reconnecting…');
+      // (a host notice meanwhile: its own chat line, below the episode's line for now)
+      s.status('关羽 断开连接，由人机接管', 'Guan Yu disconnected — a bot takes over');
       s.status('暂时联系不上房主，正在重试…', 'Connection lost — cannot reach the host, retrying…', { key: 'hostUnreachable' });
     });
     await expect(chip.locator('.lk-text')).toHaveText('⚠ 暂时联系不上房主，正在重试…');
@@ -1142,16 +1158,43 @@ test('MP2-1 / MP2-2 guest link: the chip counts a silent host, offers 重试 / �
     await page.evaluate(() => (window as unknown as LinkMock).__ui.deps.lastSession.status('已重新连接', 'Reconnected', { key: 'hostUnreachable', clear: true }));
     await expect(chip).toHaveAttribute('data-tone', 'ok');
     await expect(chip.locator('.lk-btn')).toHaveCount(0);
+    // ONL3: the episode's one line now says it is over — and sits last (it is the newest news)
+    const lines = page.locator('.hud-chat .line');
+    await expect(lines.last()).toContainText(/已重新连接（中断 \d+ 秒）/);
+    await expect(lines.filter({ hasText: '关羽 断开连接' })).toHaveCount(1);
+    await expect(lines.filter({ hasText: /重新连接|联系不上/ })).toHaveCount(1);
     expect(errors).toEqual([]);
     await ctx.close();
   }
   // loading: the view is ready but the host's clock has not started → 等待房主加载…, not 开战！
-  const ld = await open('screen=loading&awaitHost=1', 1280, 720);
-  await expect(ld.page.locator('.load-stage')).toHaveText('等待房主加载…', { timeout: 15_000 });
+  // (ONL3: the wait counts its seconds, and a guest has a way out — 离开 / Esc)
+  const ld = await open('screen=loading&awaitHost=1&host=0', 1280, 720);
+  await expect(ld.page.locator('.load-stage')).toHaveText(/^等待房主加载…/, { timeout: 15_000 });
+  await expect(ld.page.locator('.load-stage')).toHaveText(/^等待房主加载… [1-9]\d* 秒$/, { timeout: 5000 });
+  const leaveBtn = ld.page.locator('.load-stage-row .load-leave');
+  await expect(leaveBtn).toBeVisible();
+  await expect(leaveBtn).toHaveText('离开');
+  // Esc asks first (确定离开当前对局？); 取消 stays
+  await ld.page.keyboard.press('Escape');
+  const dlg = ld.page.locator('.sg-modal-back');
+  await expect(dlg).toContainText('确定离开当前对局？');
+  await dlg.locator('.sg-btn', { hasText: '取消' }).click();
+  await expect(dlg).toHaveCount(0);
+  await expect(ld.page.locator('[data-screen="loading"]')).toBeVisible();
   await ld.page.evaluate(() => {
     (window as unknown as { __ui: { deps: { lastSession: { awaitingHostStart: boolean } } } }).__ui.deps.lastSession.awaitingHostStart = false;
   });
   await expect(ld.page.locator('.load-stage')).toHaveText('开战！ 100%');
+  await expect(leaveBtn).toBeHidden();
+  await ld.page.evaluate(() => {
+    (window as unknown as { __ui: { deps: { lastSession: { awaitingHostStart: boolean } } } }).__ui.deps.lastSession.awaitingHostStart = true;
+  });
+  // 离开 → confirmed → out of the room, back on the title
+  await leaveBtn.click();
+  await ld.page.locator('.sg-modal-back .sg-btn', { hasText: '确定' }).click();
+  await expect(ld.page.locator('[data-screen="title"]')).toBeVisible({ timeout: 15_000 });
+  expect(await ld.page.evaluate(() => (window as unknown as { __ui: { deps: { lastSession: { calls: string[] } } } }).__ui.deps.lastSession.calls)).toContain('leave');
+  expect(ld.errors).toEqual([]);
   await ld.ctx.close();
 });
 
@@ -1186,4 +1229,114 @@ test('PLATFORM-4 a mid-match quality switch: 「应用中…」 over the HUD and
   expect(await page.evaluate(() => (window as unknown as ApplyingMock).__ui.deps.lastSession.paused)).toBe(false);
   expect(errors).toEqual([]);
   await ctx.close();
+});
+
+type Box = { x: number; y: number; width: number; height: number };
+type LordPickMock = { __ui: { deps: { lastSession: { heroSelect: { picks: Record<number, string> }; emit(ev: string, v: unknown): void } } } };
+
+test('round 3 newplayer: guide behind the rotate cover, skill glyphs while art loads, touch-first help, 初始武器, phone pickups + framed scrolling, lord picked', async () => {
+  // NP-3: a phone held upright neither shows nor counts the first-match guide; it goes up on the first landscape frame
+  const pt = await open('screen=hud&touch=1', 390, 844);
+  await expect(pt.page.locator('.sg-rotate')).toBeVisible({ timeout: 15_000 });
+  await pt.page.waitForTimeout(1200);
+  await expect(pt.page.locator('.hud-guide')).toHaveCount(0);
+  expect(await pt.page.evaluate(() => localStorage.getItem('sgwl.guide.v1'))).toBeNull();
+  await pt.page.setViewportSize({ width: 844, height: 390 });
+  await expect(pt.page.locator('.hud-guide')).toBeVisible({ timeout: 10_000 });
+  expect(await pt.page.evaluate(() => localStorage.getItem('sgwl.guide.v1'))).toBe('1');
+  expect(pt.errors).toEqual([]);
+  await pt.ctx.close();
+
+  // NP-4 / NP-8: skill emblems keep the short name until the art is in; 初始武器 for a common gun, 专属武器 for a named one
+  const hs = await open('screen=heroSelect&freePick=1', 1280, 720);
+  await hs.page.locator('.sg-hcard[data-hero="zhangliao"]').first().click();
+  await expect(hs.page.locator('.sg-ability > .ab-ico > .g')).toHaveText(['辽来', '突袭', '威震'], { timeout: 15_000 });
+  await expect(hs.page.locator('.sg-ability > .ab-ico.art-on')).toHaveCount(3, { timeout: 15_000 });
+  await expect.poll(() => hs.page.locator('.sg-ability > .ab-ico > .g').evaluateAll((els) => els.map((e) => getComputedStyle(e).visibility))).toEqual(['hidden', 'hidden', 'hidden']);
+  await expect(hs.page.locator('.hd-gear .hd-sec h4').first()).toHaveText('初始武器');
+  await hs.page.locator('.sg-hcard[data-hero="guanyu"]').first().click();
+  await expect(hs.page.locator('.hd-gear .hd-sec h4').first()).toHaveText('专属武器');
+  expect(hs.errors).toEqual([]);
+  await hs.ctx.close();
+
+  // NP-7 / NP-10: touch reads the touch controls first (装弹, 切枪, 丢弃此锦囊); desktop the keys; 诸葛连弩 without 〔诸葛连弩〕
+  for (const touch of [true, false]) {
+    const hp = await open(`screen=help${touch ? '&touch=1' : ''}`, 844, 390);
+    await expect(hp.page.locator('.help-body .role-row').first()).toBeVisible({ timeout: 15_000 });
+    await hp.page.locator('.sg-tab[data-tab="controls"]').click();
+    await expect(hp.page.locator('.help-sec h2').first()).toHaveText(touch ? '触屏操作' : '键鼠操作');
+    const sheet = await hp.page.locator('.sg-table.controls.touch').textContent();
+    for (const s of ['装弹', '切枪', '丢弃此锦囊', '长按']) expect(sheet, s).toContain(s);
+    expect(sheet).not.toContain('换弹');
+    // the tab scrolls inside the framed panel: the frame (and its corner brackets) never moves
+    await hp.page.evaluate(() => {
+      document.querySelector('.help-scroll')!.scrollTop = 200;
+    });
+    expect(await hp.page.evaluate(() => [document.querySelector('.help-scroll')!.scrollTop, document.querySelector('.help-body')!.scrollTop])).toEqual([200, 0]);
+    if (!touch) {
+      await hp.page.locator('.sg-tab[data-tab="weapons"]').click();
+      const names = await hp.page.locator('.sg-table.weapons td.wname').allTextContents();
+      expect(names.find((n) => n.startsWith('诸葛连弩'))).toBe('诸葛连弩');
+      expect(names.some((n) => n.includes('青釭〔青釭剑〕'))).toBe(true);
+    }
+    expect(hp.errors).toEqual([]);
+    await hp.ctx.close();
+  }
+
+  // NP-11: phone pickup lines never on the stick's ring (nor a button, the vitals or the crosshair)
+  for (const [w, hgt, lang] of [[844, 390, 'zh'], [667, 375, 'en'], [640, 360, 'zh'], [1024, 768, 'zh']] as const) {
+    const at = `${w}×${hgt} ${lang}`;
+    const { ctx, page, errors } = await open(`screen=hud&touch=1&lang=${lang}`, w, hgt);
+    await expect(page.locator('.sg-touch .fire')).toBeVisible({ timeout: 15_000 });
+    await page.evaluate(() => {
+      const v = (window as unknown as MockInternals).__ui.deps.lastSession.view;
+      for (const item of ['wuzhong', 'lebusishu', 'bagua', 'qinglong', 'shan']) v.emit({ t: 'pickup', who: v.myId, item });
+    });
+    // the newest three (two on a 360 px screen: the chat lines sit above them)
+    await expect(page.locator('.hud-pickups .pk-row:visible')).toHaveCount(hgt <= 370 ? 2 : 3);
+    const rows = await page.locator('.hud-pickups .pk-row:visible').evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      }),
+    );
+    const others = await page.locator('.sg-touch .stick-base, .sg-touch .tbtn:not(.sg-hidden), .hud-vitals, .hud-touchbar .tb, .hud-chat .line').evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return { cls: e.className, x: r.x, y: r.y, width: r.width, height: r.height };
+      }),
+    );
+    const cross: Box = { x: w / 2 - 28, y: hgt / 2 - 28, width: 56, height: 56 };
+    for (const r of rows) {
+      for (const o of others) expect(overlaps(r, o), `${at}: pickup line over ${o.cls}`).toBe(false);
+      expect(overlaps(r, cross), `${at}: pickup line over the crosshair`).toBe(false);
+      expect(r.x + r.width, at).toBeLessThanOrEqual(w);
+    }
+    expect(errors, at).toEqual([]);
+    await ctx.close();
+  }
+  // …and a phone lobby's settings scroll inside the framed panel (the corner brackets stay on the frame)
+  const lb = await open('screen=lobby', 844, 390);
+  await lb.page.locator('.lobby-tabs .lt').nth(1).click();
+  await expect(lb.page.locator('.settings-panel')).toBeVisible({ timeout: 15_000 });
+  const scrolled = await lb.page.evaluate(() => {
+    const inner = document.querySelector<HTMLElement>('.settings-panel > .settings')!;
+    inner.scrollTop = 90;
+    return { inner: inner.scrollTop, panel: document.querySelector('.settings-panel')!.scrollTop, overflow: inner.scrollHeight > inner.clientHeight };
+  });
+  expect(scrolled).toEqual({ inner: 90, panel: 0, overflow: true });
+  await lb.ctx.close();
+
+  // NP-15: once the Lord has picked, the header and the centre say so
+  const lp = await open('screen=heroSelect&lordPhase=1&role=rebel', 1280, 720);
+  await expect(lp.page.locator('.stage-text')).toHaveText('等待主公选将…', { timeout: 15_000 });
+  await lp.page.evaluate(() => {
+    const s = (window as unknown as LordPickMock).__ui.deps.lastSession;
+    s.heroSelect = { ...s.heroSelect, picks: { ...s.heroSelect.picks, 0: 'yuanshao' } };
+    s.emit('heroSelect', s.heroSelect);
+  });
+  await expect(lp.page.locator('.stage-text')).toHaveText('主公已选定，即将开始选将…');
+  await expect(lp.page.locator('.wait-note')).toContainText('主公已选定，即将开始选将…');
+  expect(lp.errors).toEqual([]);
+  await lp.ctx.close();
 });

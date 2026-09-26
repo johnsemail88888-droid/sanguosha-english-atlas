@@ -337,6 +337,9 @@ export const BASE_CSS = /* css */ `
 .sg-table-wrap { overflow-x: auto; max-width: 100%; }
 .sg-chip { display: inline-flex; align-items: center; gap: 0.3em; padding: 0.05em 0.55em; border-radius: 999px; font-size: 0.85em; font-weight: 600; border: 1px solid currentColor; white-space: nowrap; }
 .sg-key { display: inline-grid; place-items: center; min-width: 1.6em; height: 1.6em; padding: 0 0.35em; border-radius: 3px; font-family: var(--font-body); font-size: 0.8em; font-weight: 700; color: var(--paper-ink); background: linear-gradient(#fff6e0, #d9c79d); border: 1px solid #7a5a22; box-shadow: 0 2px 0 #7a5a22; white-space: nowrap; }
+/* a touch button's label as a cap (玩法说明 / 操作说明 on touch): round and dark like the on-screen buttons */
+.sg-tcap { display: inline-grid; place-items: center; min-width: 2em; height: 2em; padding: 0 0.5em; border-radius: 999px; font-family: var(--font-body); font-size: 0.86em; font-weight: 800; line-height: 1; color: #f5dc98; background: #2a1a10; border: 1.5px solid rgba(214, 173, 82, 0.75); white-space: nowrap; text-shadow: none; }
+.keys .sg-tcap { margin-right: 0.25em; }
 
 /* Latin text needs far less tracking than CJK */
 .sg-root[data-lang="en"] .sg-btn { letter-spacing: 0.04em; }

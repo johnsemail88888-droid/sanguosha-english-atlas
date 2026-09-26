@@ -4,7 +4,7 @@ import type { HeroSelectView, RoleDealView } from '../../core/types';
 import type { GameSession } from '../../game/session';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, s, setText } from '../dom';
-import { getLang, heroName, seatLabel, t, tx } from '../i18n';
+import { getLang, heroName, seatLabel, t, tx, type I18nKey } from '../i18n';
 import { displayName } from '../../game/names';
 import { button, heroCard, seal } from '../widgets';
 import { heroDetail } from './heroDetail';
@@ -45,6 +45,17 @@ export function selectTurn(v: HeroSelectView, me: number, deal: RoleDealView | n
     iAmRealLord: deal ? deal.yourRole === 'lord' : me === v.lordSeat,
     waiting: v.lordPhase && v.options.length === 0,
   };
+}
+
+/**
+ * The waiting line while the crowns pick: 等待主公选将… — and once every crown has chosen
+ * (the host starts the general phase a few seconds later) 主公已选定，即将开始选将…, so the
+ * header never says the Lord is still choosing under a 「主公选择了 袁绍」 toast (NP-15).
+ */
+export function lordWaitKey(v: Pick<HeroSelectView, 'picks'>, crowns: readonly number[]): I18nKey {
+  const done = crowns.length > 0 && crowns.every((c) => !!v.picks[c]);
+  if (crowns.length > 1) return done ? 'select.crownsDone' : 'select.crownsPicking';
+  return done ? 'select.lordDone' : 'select.waitLord';
 }
 
 /**
@@ -216,7 +227,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
     setText(
       stageText,
       waiting
-        ? t(crowns.length > 1 ? 'select.crownsPicking' : 'select.waitLord')
+        ? t(lordWaitKey(v, crowns))
         : picked
           ? t('select.waitOthers')
           : v.lordPhase
@@ -291,7 +302,7 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
     waitNote.replaceChildren();
     if (waiting) {
       const who = crowns.map((c) => tx(`${seatName(session, c)}（${seatLabel(c)}）`, `${seatName(session, c)} (${seatLabel(c)})`)).join(' · ');
-      waitNote.append(h('span', { class: 'sg-spinner' }), ' ', t(crowns.length > 1 ? 'select.crownsPicking' : 'select.waitLord'), h('span', { class: 'sg-mute' }, ` · ${who}`));
+      waitNote.append(h('span', { class: 'sg-spinner' }), ' ', t(lordWaitKey(v, crowns)), h('span', { class: 'sg-mute' }, ` · ${who}`));
     }
     renderDetail(focused, turn);
     confirmBtn.disabled = waiting || !!picked || !focused || !opts.length;

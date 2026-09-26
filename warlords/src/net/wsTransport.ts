@@ -129,9 +129,11 @@ export const RELAY_DEAD_MS = 20_000;
 /**
  * Host: how long it tries to get its room back after its relay socket dropped
  * (responsive ms) — longer than the relay's HOST_GRACE_MS (30 s), so a restarted relay
- * gets the room re-created under the same code too (MP2-8).
+ * gets the room re-created under the same code too (MP2-8); and as long as its guests
+ * keep rejoining (clientSession REJOIN_WINDOW_MS, 2 min): a relay down for a minute and a
+ * half (ONL3: 98 s) must not end the match while the guests still wait for the room.
  */
-export const RESUME_WINDOW_MS = 45_000;
+export const RESUME_WINDOW_MS = 120_000;
 /** Pauses between the host's attempts to reconnect to the relay (ms; the last repeats). */
 const RESUME_BACKOFF_MS = [250, 500, 1000, 2000, 3000];
 /** Reliable frames the host keeps while it reconnects to the relay (bytes; beyond: dropped). */

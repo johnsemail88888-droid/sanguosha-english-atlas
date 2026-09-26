@@ -15,11 +15,11 @@ import { CLAIM_TEXT, quickChatText, roleColor } from '../theme';
 import { touchLabel, type TouchKey } from '../short';
 import { mountTouchControls, shouldUseTouch, type TouchControls } from '../touch';
 import { button, keyCap } from '../widgets';
-import { CONTROLS } from '../screens/help';
+import { CONTROLS, touchControlCells } from '../screens/help';
 import { AbilityBar, SquadPanel, TopBar, VitalsPanel, WeaponPanel } from './panels';
 import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, DuelBar, InteractPromptView, KillStamp, Scope, SpectateBar, ZoneWarning } from './combat';
 import { Announcer, ChatBox, KillFeed, PickupStrip, type FeedParty } from './feed';
-import { createGuideCard, fitGuideCard, guideCount, shouldShowGuide } from './guide';
+import { createGuideCard, fitGuideCard, guideClockRuns, guideCount, guideMayMount, shouldShowGuide } from './guide';
 import { drawMinimap, type MarkerInput } from './minimap';
 import { BigMap, PauseMenu, Scoreboard, Wheel, cardRow, type WheelChoice } from './overlays';
 import { UiKeyDeduper, cycleSpectate, deniedText, entityLabel } from './logic';
@@ -91,6 +91,8 @@ export class Hud {
   private cardInfoTimer: ReturnType<typeof setTimeout> | null = null;
   private guide: HTMLElement | null = null;
   private guideTimer: ReturnType<typeof setTimeout> | null = null;
+  /** the guide is due but the rotate cover is up: it goes up (and is counted) on the first landscape frame */
+  private guidePending = false;
   /** 「应用中…」 while a mid-match quality switch applies (above the pause menu) */
   private readonly applyingEl = h('div', { class: 'hud-applying sg-hidden', role: 'status' });
   /** what the touch guide was last fitted to (screen size, the Lord's G button): refit when it changes */
@@ -307,8 +309,11 @@ export class Hud {
       this.bag.add(() => mq.removeEventListener?.('change', onRotate));
     }
 
-    // first two matches: a hint card with the keys that are easy to miss
-    if (shouldShowGuide(guideCount())) this.showGuide();
+    // first two matches: a hint card with the keys that are easy to miss (NP-3: never behind the rotate cover)
+    if (shouldShowGuide(guideCount())) {
+      if (guideMayMount(this.rotating)) this.showGuide();
+      else this.guidePending = true;
+    }
 
     // initial pointer-lock state: desktop players must click into the game first
     if (!this.isTouch() && !this.safeIsLocked()) this.openPause('click');
@@ -408,8 +413,20 @@ export class Hud {
       this.fpsFrames = 0;
       this.fpsT = now;
     }
+    if (this.guidePending && !this.gameOver && guideMayMount(this.rotating)) {
+      this.guidePending = false;
+      if (shouldShowGuide(guideCount())) this.showGuide();
+    }
     if (!this.active) return;
-    if (this.guide && this.guideTimer === null && this.overlay === 'none') this.guideTimer = setTimeout(() => this.closeGuide(), 45_000);
+    if (this.guide) {
+      const runs = guideClockRuns({ overlay: this.overlay, rotating: this.rotating });
+      if (runs && this.guideTimer === null) this.guideTimer = setTimeout(() => this.closeGuide(), 45_000);
+      else if (!runs && this.rotating && this.guideTimer !== null) {
+        // held upright again: the card waits behind the cover with its full time
+        clearTimeout(this.guideTimer);
+        this.guideTimer = null;
+      }
+    }
     let f: HudFrame;
     try {
       f = this.readFrame(now, dt);
@@ -1083,6 +1100,7 @@ export class Hud {
   }
 
   private closeGuide(): void {
+    this.guidePending = false;
     const g = this.guide as (HTMLElement & { closeGuide?: (never: boolean) => void }) | null;
     if (g?.closeGuide) g.closeGuide(false);
     else g?.remove();
@@ -1092,9 +1110,13 @@ export class Hud {
   }
 
   private renderControls(): void {
+    // touch: the on-screen buttons (NP-7), not a keyboard a phone does not have
+    const rows = this.isTouch()
+      ? touchControlCells(getLang()).map((c) => h('div', { class: 'ctl' }, h('span', { class: 'keys' }, c.caps), h('span', null, c.text)))
+      : CONTROLS.map((c) => h('div', { class: 'ctl' }, h('span', { class: 'keys' }, c.keys.map((k) => keyCap(k === '左键' ? tx('左键', 'LMB') : k === '右键' ? tx('右键', 'RMB') : k === '中键' ? tx('中键', 'MMB') : k))), h('span', null, tx(c.zh, c.en))));
     this.controlsBox.replaceChildren(
       h('div', { class: 'ctl-head' }, h('h2', { class: 'sg-h2' }, t('pause.controls')), button(t('common.back'), () => this.closeOverlay('controls'), { cls: 'small dark', sfx: 'back' })),
-      h('div', { class: 'ctl-grid' }, CONTROLS.map((c) => h('div', { class: 'ctl' }, h('span', { class: 'keys' }, c.keys.map((k) => keyCap(k === '左键' ? tx('左键', 'LMB') : k === '右键' ? tx('右键', 'RMB') : k === '中键' ? tx('中键', 'MMB') : k))), h('span', null, tx(c.zh, c.en))))),
+      h('div', { class: 'ctl-grid' }, rows),
     );
   }
 

@@ -318,8 +318,16 @@ export const HUD_CSS = /* css */ `
 .pk-row:not(:has(> .pk-ico, > .pk-w)) { padding-left: ${u(12)}; }
 @keyframes sg-pk-in { from { opacity: 0; transform: translateY(${u(8)}); } }
 .sg-hud.dead .hud-pickups { display: none; }
-/* touch: the vitals sit above the item bar in the middle — the lines go to the free bottom-left corner instead (they never take touches) */
-.sg-hud.touch .hud-pickups { left: 8px; transform: none; align-items: flex-start; bottom: calc(clamp(44px, 12vmin, 62px) * 0.95 + 16px); z-index: 23; }
+/* touch: the vitals sit above the item bar in the middle and the stick rests bottom-left — the lines go just above
+   the stick's ring, right of 随 / 标 (NP-11: they sat on the ring), short of the crosshair, the newest three
+   (two on a 360 px screen: the chat lines are above them); they never take touches. --stick-x / --stick-top: .stick-base */
+.sg-hud.touch { --stick-x: clamp(70px, 16vmin, 110px); --stick-top: calc(clamp(80px, 22vmin, 130px) + 60px); }
+.sg-hud.touch .hud-pickups { left: calc(var(--stick-x) + 68px); transform: none; align-items: flex-start; bottom: calc(var(--stick-top) + 6px); max-width: calc(50% - var(--stick-x) - 68px - 52px); z-index: 23; }
+.sg-hud.touch .pk-row { max-width: 100%; }
+.sg-hud.touch .pk-row .pk-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sg-hud.touch .pk-row:nth-last-child(n + 4) { display: none; }
+/* 640×360: the third line would reach the chat's last line */
+@media (max-height: 370px) { .sg-hud.touch .pk-row:nth-last-child(n + 3) { display: none; } }
 .hud-abilities .item.empty .card { background: rgba(0, 0, 0, 0.35); border: 1.5px dashed rgba(214, 173, 82, 0.4); box-shadow: none; }
 
 /* ── weapon ────────────────────────────────────────────── */
@@ -461,7 +469,9 @@ export const HUD_CSS = /* css */ `
   .pm-cards { padding: 0.7em 0.9em; }
 }
 .click-prompt { display: flex; align-items: center; gap: 0.8em; padding: 0.7em 1.6em; font-family: var(--font-display); font-size: 1.35em; font-weight: 800; letter-spacing: 0.1em; color: var(--gold-hi); background: rgba(20, 12, 6, 0.82); border: 1px solid var(--gold); border-radius: 8px; cursor: pointer; animation: sg-breathe 2s ease-in-out infinite; }
-.hud-controls { width: min(56em, 96vw); max-height: 90vh; overflow: auto; padding: 1.1em 1.4em; }
+/* the list scrolls under a fixed head (返回 stays in reach); the corner brackets stay on the frame */
+.hud-controls { display: flex; flex-direction: column; width: min(56em, 96vw); max-height: 90vh; overflow: hidden; padding: 1.1em 1.4em; }
+.hud-controls .ctl-grid { min-height: 0; overflow: auto; }
 .ctl-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6em; }
 .ctl-head h2 { color: var(--red-lo); }
 .ctl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(19em, 1fr)); gap: 0.35em 1.2em; }
@@ -630,6 +640,7 @@ export const HUD_CSS = /* css */ `
 .sg-touch .zone { position: absolute; top: 0; bottom: 0; }
 .sg-touch .zone.move { left: 0; width: 42%; }
 .sg-touch .zone.look { right: 0; width: 58%; }
+/* its resting place: the HUD's --stick-x / --stick-top (the pickup lines keep off the ring) say the same */
 .sg-touch .stick-base { position: absolute; left: clamp(70px, 16vmin, 110px); top: calc(100% - clamp(80px, 22vmin, 130px)); width: 120px; height: 120px; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid rgba(245, 220, 152, 0.35); background: rgba(0, 0, 0, 0.18); opacity: 0.55; pointer-events: none; }
 .sg-touch .stick-base.active { opacity: 1; }
 .sg-touch .stick-base.sprint { border-color: #ff9a6a; }
