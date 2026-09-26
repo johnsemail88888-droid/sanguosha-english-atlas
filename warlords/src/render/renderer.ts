@@ -21,6 +21,7 @@ import { SKY } from './palette';
 import { createSkyLayer, type SkyLayer } from './scene/sky';
 import { SceneLights, SUN_DIR } from './scene/lights';
 import { buildTerrain, type TerrainMeshes } from './scene/terrain';
+import { displayMap } from './scene/rimShape';
 import { buildWater, type WaterMesh } from './scene/water';
 import { PostChain } from './scene/post';
 import { installSkyFog } from './scene/skyfog';
@@ -190,7 +191,8 @@ export class GameRenderer {
     this.pickWorld = new PickWorld(map);
     // roof shells / under dock decks: the camera boom stops short of them (no black inside faces)
     this.pickWorld.setCameraOccluders(new CameraOccluders(this.world.cameraOccluders, map.size));
-    this.grass = new GrassField(map, this.pickWorld);
+    // ground visuals follow the displayed rim shape (scene/rimShape.ts); pick / camera keep the sim heights
+    this.grass = new GrassField(displayMap(map), this.pickWorld);
     this.scene.add(this.grass.mesh);
     this.fx = new Effects(this.scene, this.preset.vfxLights);
     this.fx.groundY = (x, z) => this.pickWorld.groundHeight(x, z);
@@ -203,7 +205,7 @@ export class GameRenderer {
     this.fx.shakeAt = (pos, intensity, radius) => this.shakeAt(pos, intensity, radius);
     this.scene.add(this.fx.group);
     this.scene.add(this.entities.group);
-    this.zone = new ZoneVisual(map);
+    this.zone = new ZoneVisual(displayMap(map));
     this.scene.add(this.zone.group);
     this.post = new PostChain(this.renderer, this.sky, this.scene, this.camera, {
       bloom: this.preset.bloom,
