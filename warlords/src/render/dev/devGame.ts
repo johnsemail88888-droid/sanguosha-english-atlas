@@ -6,6 +6,7 @@
 //   ?at=x,z         lineup origin override
 //   ?far=<m>        a hero standing <m> metres straight ahead (hero visibility at range)
 //   ?texcap=off     AI-art character / weapon textures at their shipped size on every tier (A/B)
+//   ?qstaged=0      a mid-match quality switch applies all at once (A/B of the staged switch)
 import { generateMap } from '../../sim/map/generate';
 import type { MapData } from '../../core/map';
 import { terrainHeight } from '../../core/map';
@@ -73,7 +74,7 @@ export function startDevGame(canvas: HTMLCanvasElement, params: URLSearchParams)
   const at = params.get('at')?.split(',').map(Number);
   const origin = at && at.length === 2 ? { x: at[0], z: at[1] } : showcase ? { x: 0, z: 25 } : findOpenArea(map, { x: 0, z: 60 });
   const view = new DevView({ heroId: params.get('hero') ?? 'guanyu', map, origin, farHeroDist: Number(params.get('far') ?? 0) });
-  const renderer = new GameRenderer(canvas, view, { quality });
+  const renderer = new GameRenderer(canvas, view, { quality, stagedQualitySwitch: params.get('qstaged') !== '0' });
   const tBuild = performance.now() - t0;
   // debug: ?hide=zone,terrain_skirt,water,... hides scene objects by name prefix
   const hide = params.get('hide')?.split(',') ?? [];

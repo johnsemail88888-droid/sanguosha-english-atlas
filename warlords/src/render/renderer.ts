@@ -13,7 +13,7 @@ import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { ViewSource } from './view';
-import { HERO_VIEW_RANGE, qualityPreset, type QualityPreset } from './quality';
+import { HERO_VIEW_RANGE, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
 import { AdaptiveResolution, adaptiveFloor } from './adaptiveRes';
 import { LocalFirePredictor, type LocalFireGate } from './localFire';
 import { sharedUniforms, disposeSharedMaterials } from './core/materials';
@@ -53,7 +53,15 @@ export interface GameRendererOptions {
   quality?: Quality;
   /** lower the pixel ratio while frames are slow, raise it again when fast (default true) */
   adaptiveResolution?: boolean;
+  /**
+   * A quality switch during a match is applied in stages (default true): see
+   * setQuality(). false: all at once, in the next frame (dev A/B only).
+   */
+  stagedQualitySwitch?: boolean;
 }
+
+/** Order of the character-art tiers (a switch to a higher one preloads its models first). */
+const ART_RANK: Record<CharacterArt, number> = { none: 0, heroes: 1, all: 2 };
 
 export interface RenderStats {
   drawCalls: number;
@@ -143,6 +151,15 @@ export class GameRenderer {
    * material (5–15 s on software GL, seconds on phones) — see applyQuality().
    */
   private lightSlots: { fires: number; vfx: number } | null = null;
+  /** the tier asked for last (the one in use until a staged switch reaches it) */
+  private wantedQuality: Quality;
+  /** a staged quality switch is running (qualityApplying) */
+  private applyingQuality = false;
+  /** bumped by every switch: a superseded staged switch stops at its next step */
+  private qualitySeq = 0;
+  /** keep the last picture on screen while a switch compiles the scene's programs */
+  private holdRender = false;
+  private readonly applyingSubs = new Set<(applying: boolean) => void>();
 
   constructor(canvas: HTMLCanvasElement, view: ViewSource, opts: GameRendererOptions = {}) {
     this.canvas = canvas;
@@ -150,6 +167,7 @@ export class GameRenderer {
     this.opts = opts;
     const s = settings.get();
     this.quality = opts.quality ?? s.quality;
+    this.wantedQuality = this.quality;
     this.preset = qualityPreset(this.quality);
     this.adaptive.enabled = opts.adaptiveResolution !== false;
     // world-art texture sizes / low-tier shaders follow the tier in use (incl. opts.quality)
@@ -237,7 +255,9 @@ export class GameRenderer {
     if (this.opts.updateView) this.view.update(d);
     this.time += d;
     this.frameNo++;
-    this.adaptResolution();
+    // (frames that hold the picture during a quality switch are no frame-rate sample)
+    if (this.holdRender) this.lastFrameAt = -1;
+    else this.adaptResolution();
     sharedUniforms.uTime.value = this.time;
     updateAuraShared(this.time);
 
@@ -307,8 +327,11 @@ export class GameRenderer {
 
     // 6. render (far plane stretched so no hero within weapon range is clipped)
     this.updateFarPlane(localId);
-    this.renderer.info.reset();
-    this.post.render(d);
+    // (a staged quality switch holds the last picture while it compiles the scene)
+    if (!this.holdRender) {
+      this.renderer.info.reset();
+      this.post.render(d);
+    }
 
     if (evs.length) {
       for (const cb of this.eventSubs) {
@@ -381,7 +404,7 @@ export class GameRenderer {
     };
     try {
       if (this.renderer.extensions.has('KHR_parallel_shader_compile')) {
-        await this.renderer.compileAsync(this.scene, this.camera);
+        await this.forWorldTarget(() => this.renderer.compileAsync(this.scene, this.camera));
         shaderProgress?.(1);
         return;
       }
@@ -396,7 +419,7 @@ export class GameRenderer {
       const linked = new Set<unknown>(this.renderer.info.programs ?? []);
       let lastYield = performance.now();
       for (let i = 0; i < batches.length; i++) {
-        this.renderer.compile(batches[i], this.camera, this.scene);
+        this.forWorldTarget(() => this.renderer.compile(batches[i], this.camera, this.scene));
         // link the new programs now (blocks until each is ready) instead of at the first draw
         for (const p of this.renderer.info.programs ?? []) {
           if (linked.has(p)) continue;
@@ -428,13 +451,45 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Switch the graphics tier. Before the first frame (menus, loading screen) it
+   * applies at once — the loading warm-up compiles everything anyway. During a
+   * match it is staged so no single frame carries the whole switch (it used to
+   * freeze for seconds, much longer with the AI art):
+   *   1. the new tier's character art (troop / NPC models when leaving 流畅) is
+   *      fetched, decoded and prepared while the old tier keeps drawing;
+   *   2. the tier switches; when that recompiles materials (shadows toggled, the
+   *      character art or the ground shader changed) the last picture stays on
+   *      screen while the scene's programs compile in batches, yielding to the
+   *      event loop in between (network, HUD and input keep running);
+   *   3. textures the new tier shows first (new bodies…) upload a few at a time;
+   *   4. bloom's programs compile one per frame and it turns on when they are ready.
+   * qualityApplying is true from the call until the end of 4 (onQualityApplying
+   * reports both edges): the UI shows 「应用中…」 meanwhile.
+   */
   setQuality(q: Quality): void {
-    if (this.disposed || q === this.quality) return;
-    this.quality = q;
-    this.preset = qualityPreset(q);
-    setWorldArtQuality(q);
-    this.applyQuality();
-    this.resize(this.size.w, this.size.h);
+    if (this.disposed || q === this.wantedQuality) return;
+    this.wantedQuality = q;
+    if (this.frameNo === 0 || this.opts.stagedQualitySwitch === false) {
+      this.qualitySeq++;
+      this.holdRender = false;
+      this.switchQuality(q);
+      this.setApplying(false);
+      return;
+    }
+    void this.applyQualityStaged(q);
+  }
+
+  /** True while a quality switch is being applied (UI: 「应用中…」). */
+  get qualityApplying(): boolean {
+    return this.applyingQuality;
+  }
+
+  /** Called with true when a staged quality switch starts and false when it has fully applied. */
+  onQualityApplying(cb: (applying: boolean) => void): () => void {
+    if (this.disposed) return () => false;
+    this.applyingSubs.add(cb);
+    return () => this.applyingSubs.delete(cb);
   }
 
   /**
@@ -567,6 +622,8 @@ export class GameRenderer {
     this.unsubSettings();
     this.eventSubs.clear();
     this.fireSubs.clear();
+    this.qualitySeq++;
+    this.applyingSubs.clear();
     this.entities.dispose();
     // the match's character models (textures ~5 MB each) go with it; the next match reloads from the HTTP cache
     evictUnusedTemplates();
@@ -642,6 +699,175 @@ export class GameRenderer {
     this.adaptive.restart();
   };
 
+  /** Make `q` the tier in use (everything at once). */
+  private switchQuality(q: Quality): void {
+    this.quality = q;
+    this.preset = qualityPreset(q);
+    setWorldArtQuality(q);
+    this.applyQuality();
+    this.resize(this.size.w, this.size.h);
+  }
+
+  private setApplying(on: boolean): void {
+    if (on === this.applyingQuality) return;
+    this.applyingQuality = on;
+    for (const cb of this.applyingSubs) {
+      try {
+        cb(on);
+      } catch (err) {
+        console.error('[render] onQualityApplying subscriber failed', err);
+      }
+    }
+  }
+
+  /** The staged mid-match switch (see setQuality). A newer switch or dispose() stops it at its next step. */
+  private async applyQualityStaged(q: Quality): Promise<void> {
+    const seq = ++this.qualitySeq;
+    const live = (): boolean => seq === this.qualitySeq && !this.disposed && !this.contextLost;
+    this.setApplying(true);
+    try {
+      const next = qualityPreset(q);
+      // 1. the new tier's character art, loaded while the old tier keeps drawing
+      if (ART_RANK[next.glbCharacters] > ART_RANK[this.preset.glbCharacters]) {
+        const heroIds = new Set<string>();
+        for (const p of this.view.players()) heroIds.add(p.heroId);
+        for (const e of this.view.entities()) if (e.kind === 'hero') heroIds.add(e.sub);
+        await preloadCharacterArt(heroIds, undefined, next.glbCharacters);
+        if (!live()) return;
+      }
+      // 2. switch; recompiles happen behind the held picture, in batches
+      const recompiles =
+        next.shadows !== this.renderer.shadowMap.enabled ||
+        next.glbCharacters !== this.preset.glbCharacters ||
+        (q === 'low') !== (this.quality === 'low'); // the textured ground's cheap variant (terrain.ts GROUND_LQ)
+      this.switchQuality(q);
+      if (recompiles) {
+        this.holdRender = true;
+        await this.compileSceneBatched(live);
+        if (!live()) return;
+      }
+      // 3. uploads the first new frames would otherwise do all at once
+      await this.uploadPendingTextures(live);
+      if (!live()) return;
+      if (recompiles) {
+        // one hidden draw into a tiny target: the shadow pass's depth programs, new
+        // vertex buffers (the swapped-in bodies) — still behind the held picture
+        await new Promise<void>((res) => setTimeout(res, 0));
+        if (!live()) return;
+        this.prerender();
+      }
+      this.holdRender = false;
+      // 4. bloom switches on once its programs are compiled (PostChain: one per frame)
+      for (let i = 0; i < 400 && this.post.bloomWarming; i++) {
+        await new Promise<void>((r) => setTimeout(r, 50));
+        if (!live()) return;
+      }
+    } catch (err) {
+      console.warn('[render] quality switch failed', err);
+    } finally {
+      if (seq === this.qualitySeq) {
+        this.holdRender = false;
+        this.setApplying(false);
+      }
+    }
+  }
+
+  /**
+   * Compile (and link) every program the scene uses now, a batch of objects at a
+   * time with a yield in between (the loading warm-up's scheme, for a running
+   * match). With KHR_parallel_shader_compile the driver compiles in the background.
+   */
+  private async compileSceneBatched(live: () => boolean): Promise<void> {
+    const r = this.renderer;
+    if (r.extensions.has('KHR_parallel_shader_compile')) {
+      await this.forWorldTarget(() => r.compileAsync(this.scene, this.camera));
+      return;
+    }
+    const batches: THREE.Object3D[] = [];
+    for (const c of this.scene.children) {
+      if ((c as THREE.Light).isLight) continue;
+      if (c.children.length > 6) batches.push(...c.children);
+      else batches.push(c);
+    }
+    const gl = r.getContext();
+    const linked = new Set<unknown>(r.info.programs ?? []);
+    let lastYield = performance.now();
+    for (const b of batches) {
+      // (compile() visits hidden objects too: VFX pools, far LODs)
+      this.forWorldTarget(() => r.compile(b, this.camera, this.scene));
+      for (const p of r.info.programs ?? []) {
+        if (linked.has(p)) continue;
+        linked.add(p);
+        const prog = (p as { program?: WebGLProgram }).program;
+        if (prog) gl.getProgramParameter(prog, gl.LINK_STATUS);
+      }
+      if (performance.now() - lastYield > 100) {
+        await new Promise<void>((res) => setTimeout(res, 0));
+        lastYield = performance.now();
+        if (!live()) return;
+      }
+    }
+  }
+
+  /** Draw the scene once into a 4×4 target (same program variants as the world pass): see applyQualityStaged. */
+  private prerender(): void {
+    const r = this.renderer;
+    const t = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(t);
+    try {
+      r.clear(true, true, false);
+      r.render(this.scene, this.camera);
+    } catch (err) {
+      console.warn('[render] quality pre-render failed', err);
+    } finally {
+      r.setRenderTarget(prev);
+      t.dispose();
+    }
+  }
+
+  /** Run a compile with the world pass's target bound (the program variants the frames use: PostChain.worldTarget). */
+  private forWorldTarget<T>(fn: () => T): T {
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(this.post.worldTarget);
+    try {
+      return fn();
+    } finally {
+      r.setRenderTarget(prev);
+    }
+  }
+
+  /** Upload the scene's textures that are not on the GPU yet (or changed), a few per event-loop turn. */
+  private async uploadPendingTextures(live: () => boolean): Promise<void> {
+    const r = this.renderer;
+    const props = r.properties as unknown as { get(o: object): { __version?: number } };
+    const todo = new Set<THREE.Texture>();
+    const take = (v: unknown): void => {
+      const t = v as THREE.Texture | null;
+      if (t && t.isTexture && !(t as { isRenderTargetTexture?: boolean }).isRenderTargetTexture && t.image) todo.add(t);
+    };
+    this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      if (!m) return;
+      for (const mt of Array.isArray(m) ? m : [m]) {
+        for (const v of Object.values(mt)) take(v);
+        const u = (mt as THREE.ShaderMaterial).uniforms;
+        if (u) for (const k in u) take(u[k]?.value);
+      }
+    });
+    let lastYield = performance.now();
+    for (const t of todo) {
+      if (props.get(t).__version === t.version) continue;
+      r.initTexture(t);
+      if (performance.now() - lastYield > 60) {
+        await new Promise<void>((res) => setTimeout(res, 0));
+        lastYield = performance.now();
+        if (!live()) return;
+      }
+    }
+  }
+
   private applyQuality(): void {
     const p = this.preset;
     const shadowsChanged = this.renderer.shadowMap.enabled !== p.shadows;
@@ -673,7 +899,8 @@ export class GameRenderer {
   }
 
   private onSettings(u: UserSettings): void {
-    if (u.quality !== this.quality) this.setQuality(u.quality);
+    // (against the tier asked for last: switching back mid-switch cancels it)
+    if (u.quality !== this.wantedQuality) this.setQuality(u.quality);
     this.rig.baseFov = u.fov;
   }
 

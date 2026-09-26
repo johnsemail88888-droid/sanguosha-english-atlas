@@ -10,6 +10,14 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import type { SkyLayer } from './sky';
 
+/** A full-screen triangle with exactly the attributes of three's FullScreenQuad (position + uv). */
+export function fullscreenTriangle(): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 2, 0, 0, 2, 0], 2));
+  return g;
+}
+
 /** Renders the background sky layer, then the world on top (depth cleared in between). */
 class WorldPass extends Pass {
   constructor(
@@ -146,6 +154,17 @@ export class PostChain {
     this.vignettePass.uniforms.uDamage.value = v;
   }
 
+  /**
+   * The target the world pass (sky + scene) draws into. Programs compiled ahead of
+   * time must be compiled with it bound: tone mapping and output colour space are
+   * part of every program's key, and the world is drawn linear into this HDR
+   * target (OutputPass tone-maps afterwards) — compiled for the canvas, the
+   * warm-up would build variants the first frame never uses.
+   */
+  get worldTarget(): THREE.WebGLRenderTarget {
+    return this.composer.readBuffer;
+  }
+
   /** true while bloom programs are still being compiled (bloom off meanwhile) */
   get bloomWarming(): boolean {
     return this.bloomWarm !== null;
@@ -177,7 +196,10 @@ export class PostChain {
       }
       if (w.todo.length) {
         const known = new Set<unknown>(r.info.programs ?? []);
-        const mesh = (this.warmMesh ??= new THREE.Mesh(new THREE.PlaneGeometry(2, 2)));
+        // the same attributes as the passes' FullScreenQuad (position + uv): a normal
+        // attribute would compile a different program variant (vertexNormals is in the
+        // program key) and every bloom program would compile again on bloom's first frame
+        const mesh = (this.warmMesh ??= new THREE.Mesh(fullscreenTriangle()));
         const prev = r.getRenderTarget();
         // the bloom pass draws into its own linear targets: compile that variant
         r.setRenderTarget(this.bloomPass.renderTargetBright);
