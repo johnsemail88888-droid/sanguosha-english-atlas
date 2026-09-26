@@ -925,3 +925,69 @@ test('round 2: help tables, card labels, pickup lines, full-bar swap + discard, 
   expect(rc.errors).toEqual([]);
   await rc.ctx.close();
 });
+
+/** Two boxes overlap (by more than a pixel)? */
+const overlaps = (a: { x: number; y: number; width: number; height: number } | null, b: { x: number; y: number; width: number; height: number } | null): boolean =>
+  !!a && !!b && a.x < b.x + b.width - 1 && b.x < a.x + a.width - 1 && a.y < b.y + b.height - 1 && b.y < a.y + a.height - 1;
+
+test('MP2-11 small screens: lord HUD row, game over, online error, role seals, guest settings, wheel hint, loading card', async () => {
+  // a lord's four emblems + four cards between the vitals and the weapon panel (640×360, 800×450)
+  for (const [w, hgt] of [[640, 360], [800, 450]]) {
+    const { ctx, page, errors } = await open('screen=hud&role=lord', w, hgt);
+    await expect(page.locator('.hud-abilities .ab')).toHaveCount(4, { timeout: 15_000 });
+    const bar = await page.locator('.hud-abilities').boundingBox();
+    expect(overlaps(bar, await page.locator('.hud-weapon .w-main').boundingBox()), `${w}×${hgt} weapon`).toBe(false);
+    expect(overlaps(bar, await page.locator('.hud-vitals').boundingBox()), `${w}×${hgt} vitals`).toBe(false);
+    expect(bar!.x + bar!.width).toBeLessThanOrEqual(w);
+    expect(errors).toEqual([]);
+    await ctx.close();
+  }
+  // game over 640×360: your four stats above the sticky button bar
+  const go = await open('screen=gameOver&single=1', 640, 360);
+  await expect(go.page.locator('.stat-row .stat')).toHaveCount(4, { timeout: 15_000 });
+  const actions = await go.page.locator('.over-actions').boundingBox();
+  for (const st of await go.page.locator('.stat-row .stat').all()) {
+    const b = await st.boundingBox();
+    expect(b!.y + b!.height).toBeLessThanOrEqual(actions!.y + 1);
+  }
+  await go.ctx.close();
+  // online 800×450: the join error and the switch-mode retry sit inside the panel
+  const on = await open('screen=online', 800, 450);
+  await on.page.locator('.sg-code-input').fill('FAIL0');
+  await on.page.locator('.join-row .sg-btn').click();
+  await expect(on.page.locator('.sg-online-status .switch-mode')).toBeVisible({ timeout: 15_000 });
+  const sheet = await on.page.locator('.sg-online .sg-sheet').boundingBox();
+  const retry = await on.page.locator('.sg-online-status .switch-mode').boundingBox();
+  expect(retry!.y + retry!.height).toBeLessThanOrEqual(sheet!.y + sheet!.height - 8);
+  await on.ctx.close();
+  // lobby 1280×720, 乱世 8 players: every variant's seals on one line; a guest at 800×450 sees 身份分配 without scrolling
+  const lb = await open('screen=lobby', 1280, 720);
+  await expect(lb.page.locator('[data-screen="lobby"] .settings-panel')).toBeVisible({ timeout: 15_000 });
+  for (const n of [6, 8]) {
+    await lb.page.evaluate((c) => (window as unknown as { __ui: { deps: { lastSession: { updateSettings(p: object): void } } } }).__ui.deps.lastSession.updateSettings({ mode: 'chaos', playerCount: c }), n);
+    await expect(lb.page.locator('.settings-panel .sg-role-preview .variant').first().locator('.cell')).toHaveCount(n);
+    const tops = await lb.page.evaluate(() => [...document.querySelectorAll('.settings-panel .sg-role-preview .variant')].map((v) => new Set([...v.querySelectorAll('.cell')].map((c) => Math.round(c.getBoundingClientRect().top))).size));
+    expect(tops.every((k) => k === 1), `chaos ${n}: ${tops}`).toBe(true);
+  }
+  await lb.ctx.close();
+  const gs = await open('screen=lobby&host=0', 800, 450);
+  await expect(gs.page.locator('[data-screen="lobby"]')).toBeVisible({ timeout: 15_000 });
+  await gs.page.evaluate(() => (window as unknown as { __ui: { deps: { lastSession: { updateSettings(p: object): void } } } }).__ui.deps.lastSession.updateSettings({ mode: 'chaos', playerCount: 8 }));
+  await gs.page.locator('.lobby-tabs .lt[data-tab="settings"]').click();
+  const panel = await gs.page.locator('.settings-panel').boundingBox();
+  const preview = await gs.page.locator('.settings-panel .sg-role-preview').boundingBox();
+  expect(preview!.y + preview!.height).toBeLessThanOrEqual(panel!.y + panel!.height);
+  await gs.ctx.close();
+  // the claim wheel at 640×360: its hint is not drawn over the (hidden) item bar
+  const wh = await open('screen=hud&overlay=wheel', 640, 360);
+  await expect(wh.page.locator('.sg-hud[data-overlay="wheel"] .wh-hint')).toBeVisible({ timeout: 15_000 });
+  await expect(wh.page.locator('.hud-abilities')).toHaveCSS('visibility', 'hidden');
+  await wh.ctx.close();
+  // loading 640×360: the hero card is not cut at the top
+  const ld = await open('screen=loading', 640, 360);
+  await expect(ld.page.locator('.load-card .sg-hcard')).toBeVisible({ timeout: 15_000 });
+  const card = await ld.page.locator('.load-card').boundingBox();
+  expect(card!.y).toBeGreaterThanOrEqual(0);
+  expect(card!.y + card!.height).toBeLessThanOrEqual(360);
+  await ld.ctx.close();
+});
