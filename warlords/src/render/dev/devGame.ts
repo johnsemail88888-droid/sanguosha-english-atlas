@@ -5,6 +5,7 @@
 //   ?map=showcase   hand-made showcase map (default: the real generated map)
 //   ?at=x,z         lineup origin override
 //   ?far=<m>        a hero standing <m> metres straight ahead (hero visibility at range)
+//   ?texcap=off     AI-art character / weapon textures at their shipped size on every tier (A/B)
 import { generateMap } from '../../sim/map/generate';
 import type { MapData } from '../../core/map';
 import { terrainHeight } from '../../core/map';
@@ -14,6 +15,7 @@ import { InputController } from '../../game/input';
 import { DevView } from './devView';
 import { buildShowcaseMap } from './showcase';
 import { colliderAabb } from '../camera/pick';
+import { QUALITY_PRESETS } from '../quality';
 
 declare global {
   interface Window {
@@ -63,6 +65,8 @@ export function startDevGame(canvas: HTMLCanvasElement, params: URLSearchParams)
   const qp = params.get('quality');
   // dev override only: do not persist into the player's stored settings
   const quality: Quality | undefined = qp === 'low' || qp === 'medium' || qp === 'high' ? qp : undefined;
+  // measurement A/B only: the per-tier GLB texture caps off
+  if (params.get('texcap') === 'off') for (const p of Object.values(QUALITY_PRESETS)) Object.assign(p, { charTexture: 1 << 14, weaponTexture: 1 << 14 });
   const t0 = performance.now();
   const showcase = params.get('map') === 'showcase';
   const map = showcase ? buildShowcaseMap() : generateMap(Number(params.get('seed') ?? 20260924));
