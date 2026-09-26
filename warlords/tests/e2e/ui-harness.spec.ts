@@ -721,11 +721,14 @@ test('online HUD: a host freeze is one live chip (replaced in place, green, gone
   const before = await sysLines();
   // (the net layer says 主机; the HUD reads 房主 like every other online string — UX-17)
   for (let i = 0; i < 3; i++) await status('等待主机响应…', 'Waiting for host…', { key: 'waitingHost' });
-  await expect(page.locator('.link-chip')).toHaveText('⚠ 等待房主响应…');
+  // (the chip's text; since MP2-1 a waiting chip also carries 离开 — and a counter once the session reports the silence)
+  await expect(page.locator('.link-chip .lk-text')).toHaveText('⚠ 等待房主响应…');
+  await expect(page.locator('.link-chip .lk-btn')).toHaveText(['离开']);
   await expect(page.locator('.link-chip')).toHaveAttribute('data-tone', 'warn');
   await expect(page.locator('.hud-top .match-info')).toBeHidden();
   await status('主机已恢复响应', 'Host is responding again', { key: 'waitingHost', clear: true });
   await expect(page.locator('.link-chip')).toHaveText('✓ 房主已恢复响应');
+  await expect(page.locator('.link-chip .lk-btn')).toHaveCount(0);
   // a short freeze is the chip alone (MP2-7)
   expect(await sysLines()).toBe(before);
   // no announcement for the link, and the chip clears itself
