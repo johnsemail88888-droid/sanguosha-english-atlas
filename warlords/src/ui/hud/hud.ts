@@ -2,7 +2,7 @@
 // through GameHandle.onEvents (never drains the view itself). Owns the in-match
 // overlays (scoreboard, big map, wheel, chat, pause) and the touch overlay.
 import type { EntityId, GameEvent, SquadOrderKind, ViewEntity } from '../../core/types';
-import { ARMOR_BY_ID, HERO_BY_ID, ITEM_BY_ID, MOUNT_BY_ID } from '../../data';
+import { HERO_BY_ID, ITEM_BY_ID } from '../../data';
 import type { GameSession } from '../../game/session';
 import { displayName } from '../../game/names';
 import { settings } from '../../game/settings';
@@ -28,12 +28,6 @@ import { LinkStatus } from './connstatus';
 import { prewarmWeapons } from '../artIcons';
 import type { HudFrame } from './types';
 import { trackViewport } from './viewport';
-
-/** One-line effect of a card / armor / mount in the current language ('' for anything else). */
-export function pickupDesc(id: string): string {
-  const d = ITEM_BY_ID[id] ?? ARMOR_BY_ID[id] ?? MOUNT_BY_ID[id];
-  return d ? tx(d.descZh, d.descEn) : '';
-}
 
 /** `setPaused` of a local single-player session (GameSession G2 extension; optional). */
 type PausableSession = GameSession & { setPaused?(paused: boolean): void };

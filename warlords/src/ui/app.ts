@@ -597,6 +597,7 @@ class App implements UiCtx {
         this.go('roles');
         break;
       case 'heroSelect':
+        if (s.heroSelect) prefetchArt(heroAbilityArt(s.heroSelect.options));
         this.go('heroSelect');
         break;
       case 'loading':
