@@ -1,0 +1,120 @@
+// Entry point: wires the UI shell to the netcode (sessions), the three.js
+// renderer and the procedural audio engine.
+import pkg from '../package.json';
+import { audio } from './audio';
+import type { GameEvent } from './core/types';
+import type { GameSession } from './game/session';
+import { createLocalSession, hostOnlineSession, joinOnlineSession } from './net';
+import { mountGameView, mountHeroTurntable, renderHeroPortrait } from './render';
+import type { ViewSource } from './render/view';
+import { registerAllVfx } from './render/vfx/registerAll';
+import { mountApp, type AppDeps, type GameHandle } from './ui/app';
+import { DebugHooks, debugEnabled, type DebugSessionKind } from './game/debug';
+import { assetList } from './game/assets';
+
+// which optional painted art this deploy ships (one small listing fetch, none in the
+// single-file build): start it before anything asks, the title screen needs it first
+void assetList();
+registerAllVfx();
+
+// `?debug=1`: window.__sgwl hooks for automated play-testing (see src/game/debug.ts)
+const debug = debugEnabled() ? new DebugHooks(pkg.version, () => document.querySelector<HTMLElement>('.sg-root')) : null;
+
+function mountGame(container: HTMLElement, view: ViewSource, session: GameSession): GameHandle {
+  let pending: GameEvent[] = [];
+  let lastIntensity = -1;
+  // `handle` is assigned before the first frame calls onFrame (frames start after the staged build).
+  // eslint-disable-next-line prefer-const
+  let handle: ReturnType<typeof mountGameView>;
+  handle = mountGameView(container, view, {
+    onFrame: () => {
+      const r = handle.renderer;
+      if (r) {
+        const pose = r.getCameraPose();
+        audio.setListener(pose.pos, pose.yaw, pose.pitch);
+      }
+      // Audio also drives footsteps/loops from the view state, so call it every frame.
+      const evs = pending;
+      pending = [];
+      audio.handleEvents(evs, view);
+      const me = view.local();
+      audio.setDowned(Boolean(me && me.downed && !me.dead));
+      const intensity = Math.min(1, Math.max(0, view.zone().phase / 5));
+      if (Math.abs(intensity - lastIntensity) > 0.01) {
+        lastIntensity = intensity;
+        audio.setIntensity(intensity);
+      }
+    },
+  });
+  const offEvents = handle.onEvents((evs) => {
+    for (const e of evs) pending.push(e);
+    debug?.onEvents(evs);
+    // 张辽 突袭 of ours: the view turns towards the target (WEI-7)
+    handle.input.onEvents(evs, view.localId());
+  });
+  const offFire = handle.onLocalFire((weaponId) => audio.localFire(weaponId));
+  const offProgress = handle.onProgress((p) => {
+    debug?.mark(`load:${p.stage}`);
+    if (p.stage === 'failed') console.error('[app] 3D view failed to start:', p.error);
+  });
+  const gameHandle: GameHandle = {
+    input: handle.input,
+    onEvents: (cb) => handle.onEvents(cb),
+    setSpectateTarget: (id) => handle.setSpectateTarget(id),
+    worldToScreen: (p) => handle.worldToScreen(p),
+    onLoadProgress: (cb) => handle.onProgress(cb),
+    isReady: () => handle.ready,
+    // PLATFORM-4: the staged mid-match quality switch (the UI subscribes once the view is ready)
+    qualityApplying: () => handle.renderer?.qualityApplying ?? false,
+    onQualityApplying: (cb) => handle.renderer?.onQualityApplying(cb) ?? (() => undefined),
+    dispose: () => {
+      offDebug?.();
+      offProgress();
+      offEvents();
+      offFire();
+      audio.setDowned(false);
+      handle.dispose();
+    },
+  };
+  const offDebug = debug?.attachGame({ view, session, handle, gameHandle });
+  return gameHandle;
+}
+
+const track = <T extends GameSession>(s: T, kind: DebugSessionKind): T => (debug ? debug.trackSession(s, kind) : s);
+
+// The latest online guest session (the one the App shows; older ones are closed):
+// a reload of this tab must not give up its seat (see pagehide below).
+let guest: GameSession | null = null;
+
+const deps: AppDeps = {
+  createLocalSession: (name) => track(createLocalSession({ name }), 'local'),
+  hostOnline: async (name, mode) => track(await hostOnlineSession({ name, mode }), 'host'),
+  joinOnline: async (code, name, mode) => (guest = track(await joinOnlineSession(code, { name, mode }), 'guest')),
+  mountGame,
+  renderHeroPortrait,
+  mountHeroTurntable,
+  audio: {
+    ui: (name) => audio.ui(name),
+    music: (track) => audio.music(track),
+    unlock: () => audio.unlock(),
+  },
+};
+
+const root = document.getElementById('app');
+if (!root) throw new Error('#app root missing');
+root.textContent = '';
+const app = mountApp(root, deps, { version: pkg.version });
+// Tear down on a real unload only: a page kept in the back/forward cache
+// (persisted) must come back exactly as it was, not as an empty #app.
+window.addEventListener('pagehide', (ev) => {
+  if ((ev as PageTransitionEvent).persisted) return;
+  // F5 / closing the tab is not a leave: the guest keeps its seat token (sessionStorage
+  // survives a reload of this tab) and the reloaded page reclaims the same seat with it —
+  // not just by player name. Leave it before app.dispose(), whose plain leave() (the same
+  // one the Leave button and "back to title" after game over use) would forget the token;
+  // on the already closed session that second leave() is a no-op.
+  guest?.leave({ keepToken: true });
+  guest = null;
+  app.dispose();
+  audio.dispose();
+});

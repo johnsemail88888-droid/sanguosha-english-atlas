@@ -1,0 +1,48 @@
+name: Warlords · Deploy web version
+
+# Publishes the game to GitHub Pages under /warlords/ on the existing gh-pages branch.
+# With destination_dir set, only /warlords/ is replaced on each deploy (the atlas site
+# elsewhere on the branch is untouched), so old hashed bundles and removed art don't pile up.
+# A push that only edits the art manifest is skipped here: the assets workflow fetches
+# the art, commits it and then starts this workflow itself.
+on:
+  push:
+    branches: [main]
+    paths: ['warlords/**', '!warlords/assets-src/**', '.github/workflows/warlords-pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: warlords-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: warlords
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: warlords/package-lock.json
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm test
+      - run: npm run build
+      - run: npm run build:single
+      - name: Add the single-file offline build
+        run: cp dist-single/index.html dist/sanguo-warlords-offline.html
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./warlords/dist
+          destination_dir: warlords
+          keep_files: false
+          commit_message: 'deploy(warlords): ${{ github.sha }}'

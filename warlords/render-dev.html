@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Sanguo Warlords — render dev harness</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #1a1410; overflow: hidden; }
+      #c { width: 100vw; height: 100vh; display: block; }
+      #stats { position: fixed; left: 8px; top: 8px; color: #f0e4c6; font: 12px/1.4 monospace; background: rgba(0,0,0,0.45); padding: 6px 8px; pointer-events: none; white-space: pre; }
+      #crosshair { position: fixed; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; pointer-events: none; }
+      #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,0.85); }
+      #crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
+      #crosshair::after { top: 6px; left: 0; height: 2px; width: 14px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="crosshair"></div>
+    <div id="stats"></div>
+    <script type="module" src="/src/render/dev/devMain.ts"></script>
+  </body>
+</html>
