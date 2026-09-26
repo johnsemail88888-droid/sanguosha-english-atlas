@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import type { BodyType, Headgear, HeroExtra, HeroVisual } from '../../data/types';
 import { GeoBuilder, PRIM, col, mixCol, shade, trs } from '../core/geo';
+import { valueNoise2 } from '../core/noise';
 import { B, bodyDims, createSkeleton, type BodyDims, type BoneName } from './rig';
 import { buildHeadgear, buildBeard } from './headgear';
 import { buildExtras } from './extras';
@@ -145,7 +146,46 @@ function buildCharacterGeometry(spec: CharacterSpec): THREE.BufferGeometry {
   buildBeard(ctx);
   buildExtras(ctx);
   if (spec.shield) buildShield(ctx);
-  return b.build();
+  const g = b.build();
+  paintBodyShading(g, d.shoulderY);
+  return g;
+}
+
+/** Colour at the feet relative to the shoulders (the painted bodies' shading runs dark to light upward). */
+export const BODY_SHADE_FEET = 0.72;
+/** How much darker a face pointing straight down is (under brims, sleeves, skirts). */
+export const BODY_SHADE_UNDER = 0.24;
+/** Fraction of the saturation taken out of the flat palette colours. */
+export const BODY_DESATURATE = 0.16;
+
+/**
+ * Bake painted shading into a procedural body's vertex colours (in place):
+ * dark to light from the feet up, darker undersides, a faint brush mottling
+ * and a touch less saturation — the flat palette colours otherwise read as
+ * plastic toy soldiers beside the AI-art (painted) bodies. Pure.
+ */
+export function paintBodyShading(g: THREE.BufferGeometry, shoulderY: number): void {
+  const P = g.getAttribute('position') as THREE.BufferAttribute;
+  const N = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  const C = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!C) return;
+  for (let i = 0; i < C.count; i++) {
+    const y = P.getY(i);
+    const t = Math.min(1, Math.max(0, y / Math.max(0.1, shoulderY)));
+    let k = BODY_SHADE_FEET + (1 - BODY_SHADE_FEET) * t * t * (3 - 2 * t);
+    if (N) k *= 1 - BODY_SHADE_UNDER * Math.max(0, -N.getY(i));
+    // faint brush mottling (a few centimetres wide: breaks up the flat panels)
+    k *= 1 + 0.08 * (valueNoise2(P.getX(i) * 9 + P.getZ(i) * 6.3, y * 9) - 0.5);
+    let r = C.getX(i);
+    let gg = C.getY(i);
+    let b = C.getZ(i);
+    const l = 0.2126 * r + 0.7152 * gg + 0.0722 * b;
+    r += (l - r) * BODY_DESATURATE;
+    gg += (l - gg) * BODY_DESATURATE;
+    b += (l - b) * BODY_DESATURATE;
+    C.setXYZ(i, r * k, gg * k, b * k);
+  }
+  C.needsUpdate = true;
 }
 
 // ── torso ───────────────────────────────────────────────────────────────────

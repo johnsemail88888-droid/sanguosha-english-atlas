@@ -12,6 +12,7 @@ import {
   STRUCT_LAYERS,
   findSun,
   groundPlanUsable,
+  makePanoramaTileable,
   planLayers,
   SKY_RAD_PER_IMAGE,
   setSkySunElevation,
@@ -161,6 +162,71 @@ describe('world art: sky analysis', () => {
     expect(skyHorizonV(0.99)).toBeLessThanOrEqual(0.88);
     expect(skyHorizonV(0.0)).toBeGreaterThanOrEqual(0.62);
     setSkySunElevation(Math.asin(0.5144));
+  });
+
+  /** A panorama that does not tile: deep blue left edge, warm right edge with a dark range, a sun at u 0.81, cloud streaks. */
+  const pano = (w: number, h: number): Uint8ClampedArray => {
+    const px = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const u = (x + 0.5) / w;
+        const v = (y + 0.5) / h;
+        const i = (y * w + x) * 4;
+        const warm = Math.min(1, Math.max(0, (u - 0.3) / 0.5));
+        const streak = 18 * Math.sin(x * 0.9 + y * 0.3);
+        px[i] = 30 + 190 * warm + streak;
+        px[i + 1] = 50 + 120 * warm + streak;
+        px[i + 2] = 110 - 40 * warm + streak;
+        if (u > 0.9 && v > 0.55 && v < 0.75) px[i] = px[i + 1] = px[i + 2] = 60; // painted range at the edge
+        px[i + 3] = 255;
+      }
+    for (let y = Math.floor(h * 0.5); y < Math.floor(h * 0.5) + 3; y++)
+      for (let x = Math.floor(w * 0.81); x < Math.floor(w * 0.81) + 3; x++) px.fill(255, (y * w + x) * 4, (y * w + x) * 4 + 3);
+    return px;
+  };
+  const colDiff = (px: Uint8ClampedArray, w: number, h: number, xa: number, xb: number): number => {
+    let s = 0;
+    for (let y = 0; y < h; y++) for (let c = 0; c < 3; c++) s += Math.abs(px[(y * w + xa) * 4 + c] - px[(y * w + xb) * 4 + c]);
+    return s / (h * 3);
+  };
+
+  it('makes the sky panorama wrap without a seam, keeping its middle and the sun', () => {
+    const w = 400;
+    const h = 170;
+    const px = pano(w, h);
+    const orig = px.slice();
+    // before: the wrap (last column → first) is a colour wall
+    expect(colDiff(px, w, h, w - 1, 0)).toBeGreaterThan(80);
+    makePanoramaTileable(px, w, h);
+    // after: stepping across the wrap changes no more than stepping between two neighbours inside
+    const across = colDiff(px, w, h, w - 1, 0);
+    const inside = Math.max(colDiff(px, w, h, 100, 101), colDiff(px, w, h, 200, 201), colDiff(px, w, h, w - 2, w - 1), colDiff(px, w, h, 0, 1));
+    expect(across).toBeLessThan(Math.max(4, inside * 1.5));
+    // and no column near the seam jumps either (no wall a few degrees in)
+    for (let x = w - 40; x < w - 1; x++) expect(colDiff(px, w, h, x, x + 1)).toBeLessThan(12);
+    // the middle of the painting (and the sun at u 0.81) is untouched
+    for (const x of [Math.floor(w * 0.5), Math.floor(w * 0.81) + 1])
+      for (let y = 0; y < h; y++) for (let c = 0; c < 3; c++) expect(px[(y * w + x) * 4 + c]).toBe(orig[(y * w + x) * 4 + c]);
+    expect(findSun(px, w, h)!.u).toBeCloseTo((Math.floor(w * 0.81) + 1.5) / w, 2);
+  });
+
+  it('leaves a panorama that already tiles alone', () => {
+    const w = 128;
+    const h = 64;
+    const px = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        px[i] = 60 + y;
+        px[i + 1] = 90 + y;
+        px[i + 2] = 180 - y;
+        px[i + 3] = 255;
+      }
+    const orig = px.slice();
+    makePanoramaTileable(px, w, h);
+    let maxd = 0;
+    for (let i = 0; i < px.length; i++) maxd = Math.max(maxd, Math.abs(px[i] - orig[i]));
+    expect(maxd).toBeLessThanOrEqual(1);
   });
 });
 

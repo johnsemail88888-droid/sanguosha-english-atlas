@@ -37,6 +37,8 @@ import type { ViewEntity } from '../../../src/core/types';
 import { CHARACTER_FOG_MAX } from '../../../src/render/core/materials';
 import { assetList, setAssetListForTests } from '../../../src/game/assets';
 import { boxGlbUrl } from './glbFixtures';
+import { setWorldArtQuality } from '../../../src/render/core/worldArt';
+import { QUALITY_PRESETS } from '../../../src/render/quality';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const AXES: Axis[] = ['+x', '-x', '+y', '-y', '+z', '-z'];
@@ -272,6 +274,38 @@ describe('weapon art', () => {
     expect(art.info.muzzle.z).toBeLessThan(-0.4);
     expect(art.info.fore!.z).toBeLessThan(-0.1);
     expect(art.info.mag!.y).toBeLessThan(0);
+  });
+
+  it('sizes the texture for the quality tier (phones: 256², others: as shipped)', () => {
+    // a minimal canvas for capTexture (node has no DOM)
+    const g = globalThis as { document?: unknown };
+    const hadDoc = 'document' in g;
+    g.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ({ drawImage: () => undefined, imageSmoothingQuality: 'low' }) }) };
+    try {
+      const shipped = (): { scene: THREE.Group; map: THREE.Texture } => {
+        const { scene, map } = gunScene();
+        map.image = { width: 512, height: 512, data: new Uint8Array(4) } as unknown as typeof map.image;
+        return { scene, map };
+      };
+      setWorldArtQuality('low');
+      const low = shipped();
+      let disposed = false;
+      low.map.addEventListener('dispose', () => (disposed = true));
+      const a = prepareWeaponArt('carbine', WEAPON_GLB_CAL.carbine, low.scene)!;
+      expect(a.material.map).not.toBe(low.map);
+      expect((a.material.map!.image as { width: number }).width).toBe(QUALITY_PRESETS.low.weaponTexture);
+      expect(a.held.map).toBe(a.material.map);
+      expect(a.material.map!.colorSpace).toBe(THREE.SRGBColorSpace);
+      expect(disposed).toBe(true); // the full-size copy is released
+      setWorldArtQuality('high');
+      const high = shipped();
+      expect(prepareWeaponArt('carbine', WEAPON_GLB_CAL.carbine, high.scene)!.material.map).toBe(high.map);
+      expect(QUALITY_PRESETS.low.charTexture).toBe(512);
+      expect(QUALITY_PRESETS.high.charTexture).toBe(1024);
+    } finally {
+      setWorldArtQuality('medium');
+      if (!hadDoc) delete g.document;
+    }
   });
 
   it('buildWeapon returns the art once registered (procedural before and after), buildProceduralWeapon never does', () => {

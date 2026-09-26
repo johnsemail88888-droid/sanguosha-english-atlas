@@ -36,6 +36,9 @@ import type { GLTF, GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { assetList, assetListSync } from '../../game/assets';
 import { CHARACTER_FOG_MAX } from '../core/materials';
 import { useSkyArtFog } from '../core/skyArtFog';
+import { capTexture } from '../core/gltfLoader';
+import { worldArtQuality } from '../core/worldArt';
+import { qualityPreset } from '../quality';
 
 /** Nominal height of every hero (m): the sim's 1.8 m capsule (sim/physics CHAR_HEIGHT). */
 export const GLB_HERO_HEIGHT = 1.8;
@@ -635,7 +638,8 @@ function prepare(url: string, gltf: GLTF, clone: (o: THREE.Object3D) => THREE.Ob
   for (const b of m.skeleton.bones) rest.set(b.name, { p: b.position.clone(), q: b.quaternion.clone() });
   // plain lit material: the loader's is emissive = base colour (a flat, unlit look) and fully metallic
   const src = m.material as THREE.MeshStandardMaterial;
-  const map = src.map ?? null;
+  // sized for the quality tier in use (phones: 512², ¼ of a hero's GPU memory)
+  const map = src.map ? capTexture(src.map, qualityPreset(worldArtQuality()).charTexture) : null;
   if (map) map.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.MeshStandardMaterial({ map, roughness: 0.78, metalness: 0.04 });
   material.name = 'glbCharacter';

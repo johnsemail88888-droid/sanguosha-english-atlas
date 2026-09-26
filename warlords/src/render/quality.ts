@@ -42,6 +42,13 @@ export interface QualityPreset {
    * heroes only (troops / NPCs keep the cheaper procedural bodies) or none.
    */
   glbCharacters: CharacterArt;
+  /**
+   * Longest side (texels) of an AI-art character's texture (heroes ship 1024²,
+   * troops / NPCs 512²) and of an AI-art weapon's (they ship 512²): GPU memory
+   * on phones — a hero is ~5.6 MB at 1024² with mips, ~1.4 MB at 512².
+   */
+  charTexture: number;
+  weaponTexture: number;
 }
 
 export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
@@ -62,6 +69,8 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     grass: 0,
     // weak devices (phones): AI-art heroes, the cheaper procedural troops / NPCs
     glbCharacters: 'heroes',
+    charTexture: 512,
+    weaponTexture: 256,
   },
   medium: {
     pixelRatioScale: 1,
@@ -79,6 +88,8 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     particles: 0.8,
     grass: 0.6,
     glbCharacters: 'all',
+    charTexture: 1024,
+    weaponTexture: 512,
   },
   high: {
     pixelRatioScale: 1,
@@ -96,6 +107,8 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     particles: 1,
     grass: 1,
     glbCharacters: 'all',
+    charTexture: 1024,
+    weaponTexture: 512,
   },
 };
 

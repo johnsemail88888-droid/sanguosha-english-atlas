@@ -92,6 +92,42 @@ test('showcase map at low quality, free camera', async ({ page }) => {
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
+// PLATFORM-4: a mid-match switch is staged (troop art preloaded, the scene compiled
+// behind the held picture, textures uploaded, bloom warmed) and reported through
+// qualityApplying / onQualityApplying so the UI can show 「应用中…」.
+test('a mid-match quality switch applies in stages and reports qualityApplying', async ({ page }) => {
+  test.setTimeout(420_000);
+  const errors = collectErrors(page);
+  await openHarness(page, '?quality=low&look=0,-0.08');
+  const r = await page.evaluate(async () => {
+    type R = {
+      qualityApplying: boolean;
+      setQuality(q: string): void;
+      onQualityApplying(cb: (a: boolean) => void): () => void;
+      renderer: { shadowMap: { enabled: boolean } };
+      stats(): { drawCalls: number };
+    };
+    const R = (window as unknown as { __renderer: R }).__renderer;
+    const seen: boolean[] = [];
+    R.onQualityApplying((a) => seen.push(a));
+    const shadowsBefore = R.renderer.shadowMap.enabled;
+    R.setQuality('medium');
+    const applyingNow = R.qualityApplying;
+    const t0 = performance.now();
+    while (R.qualityApplying && performance.now() - t0 < 300_000) await new Promise((res) => setTimeout(res, 250));
+    // and it draws again afterwards
+    await new Promise((res) => setTimeout(res, 1500));
+    return { seen, applyingNow, shadowsBefore, shadowsAfter: R.renderer.shadowMap.enabled, done: !R.qualityApplying, calls: R.stats().drawCalls };
+  });
+  expect(r.applyingNow).toBe(true);
+  expect(r.done).toBe(true);
+  expect(r.seen).toEqual([true, false]);
+  expect(r.shadowsBefore).toBe(false);
+  expect(r.shadowsAfter).toBe(true);
+  expect(r.calls).toBeGreaterThan(10);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
 test('mount lineup: the AI-art horses (every coat) and war elephant are rigged and animate', async ({ page }) => {
   test.setTimeout(240_000);
   const errors = collectErrors(page);

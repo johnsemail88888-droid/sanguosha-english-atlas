@@ -6,8 +6,8 @@
 // AI-art mode (env/sky.webp shipped): the dome shows the painted panorama
 // instead — wrapped once around 360° and squeezed to 80° of elevation (see
 // SKY_RAD_PER_IMAGE), turned so the painted sun sits in the scene light's
-// azimuth (and as high as the painting allows), the image edges cross-faded
-// into each other behind the sun, the top blended into the painting's zenith
+// azimuth (and as high as the painting allows), its edges matched at load so it
+// wraps without a seam (worldArt makePanoramaTileable), the top blended into the painting's zenith
 // colour (no pole pinch) and the horizon into the sky-matched fog colour so
 // distant terrain melts into it. The painting is pre-compensated for the ACES
 // tone mapping so it reads as painted. The mountain rings take its horizon tint.
@@ -55,7 +55,6 @@ uniform vec3 uArtZenith;
 uniform float uExposure;
 uniform sampler2D uFogSkyTex;
 uniform vec4 uFogSkyMap;
-const float SEAM = 0.07;
 // inverse of three's ACESFilmicToneMapping (what the OutputPass applies), so
 // the painting comes out of the tone mapper as painted
 vec3 invRRT(vec3 y) {
@@ -112,13 +111,10 @@ void main() {
     float el = asin(clamp(d.y, -1.0, 1.0));
     float v = uHorizonV - el * uVPerRad;
     vec2 dv = -vec2(dFdx(el), dFdy(el)) * uVPerRad;
-    // texture space is v-down: flipY is on for canvas textures, so sample at 1 - v
+    // texture space is v-down: flipY is on for canvas textures, so sample at 1 - v. The
+    // painting was made tileable at load (makePanoramaTileable), so the repeat wrap at
+    // u = 0 / 1 is seamless — also under bilinear / mip filtering
     vec3 c = textureGrad(uSkyTex, vec2(u, 1.0 - v), vec2(du.x, -dv.x), vec2(du.y, -dv.y)).rgb;
-    if (u > 1.0 - SEAM) {
-      // the right edge fades into the (mirrored) left edge: seamless over 360°
-      vec3 c2 = textureGrad(uSkyTex, vec2(1.0 - u, 1.0 - v), vec2(-du.x, -dv.x), vec2(-du.y, -dv.y)).rgb;
-      c = mix(c, c2, smoothstep(1.0 - SEAM, 1.0, u));
-    }
     // above the painting's top edge: its zenith colour (no clamp streaks, no pinch at the pole)
     float topEl = uHorizonV / uVPerRad;
     c = mix(c, uArtZenith, smoothstep(topEl - 0.32, topEl - 0.02, el));
@@ -234,7 +230,7 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
     u.uHorizonV.value = art.horizonV;
     u.uArtZenith.value.copy(art.zenith);
     activateSkyArtFog(sunDirN);
-    const lut = buildPaintedFogLut(art.preview, { horizonV: art.horizonV, vPerRad: 1 / SKY_RAD_PER_IMAGE, seam: 0.07, zenith: art.zenith });
+    const lut = buildPaintedFogLut(art.preview, { horizonV: art.horizonV, vPerRad: 1 / SKY_RAD_PER_IMAGE, seam: 0, zenith: art.zenith });
     setSkyArtFogLut(makeSkyFogLutTexture(lut), art.sunU + u.uSunAz.value / (Math.PI * 2));
     paintedFog = true;
     skyMat.defines = { ...skyMat.defines, SKY_ART: '' };

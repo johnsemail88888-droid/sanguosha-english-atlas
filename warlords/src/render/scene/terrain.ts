@@ -18,6 +18,7 @@ import { fbm2, valueNoise2 } from '../core/noise';
 import { onWorldArtQuality, requestGroundSet, worldArtQuality, type TexArraySet } from '../core/worldArt';
 import { computeGroundSplat, dryness, FLOW_STRIDE, SPLAT_STRIDE, type GroundSplat } from './terrainSplat';
 import { applySkyArtFog, skyArtFogKey } from '../core/skyArtFog';
+import { displayMap } from './rimShape';
 
 const CHUNKS = 4;
 
@@ -427,8 +428,9 @@ interface ChunkInfo {
   d: number;
 }
 
-/** Build chunked terrain + outer skirt. */
-export function buildTerrain(map: MapData): TerrainMeshes {
+/** Build chunked terrain + outer skirt (the rim beyond the walls in its display shape: rimShape.ts). */
+export function buildTerrain(simMap: MapData): TerrainMeshes {
+  const map = displayMap(simMap);
   const group = new THREE.Group();
   group.name = 'terrain';
   const mat = terrainMaterial();
