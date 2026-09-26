@@ -11,7 +11,9 @@
 // A second test joins over P2P from an invite link and reloads the guest (F5) while
 // the host's link to the PeerJS signalling server is down (NET-4: the signalling
 // server reports the host peer unavailable for a while): the tab keeps its seat
-// token across the reload, keeps asking, and gets its hero back.
+// token across the reload, keeps asking, and gets its hero back. (The host's
+// signalling socket is dropped through a WebSocket wrapper: an online host's
+// __sgwl.session exposes no internals, MP2-9.)
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import {
   PORT_OFFSET,
@@ -88,6 +90,60 @@ async function recordStatus(page: Page): Promise<void> {
 }
 
 const statusLog = (page: Page): Promise<string[]> => page.evaluate(() => (window as StatusWindow).__e2eStatus ?? []);
+
+type SignallingWindow = Window & { __e2eSignalling?: { drop(): void; back(): void } };
+
+/**
+ * Init script (host page): wraps WebSocket so the test can drop the page's PeerJS signalling
+ * socket and keep it down — a new signalling socket never connects (PeerJS retries every
+ * 2 s) until `back()`. The game's own sockets are untouched.
+ */
+function signallingSwitch(): void {
+  const Orig = window.WebSocket;
+  const sockets: WebSocket[] = [];
+  let held = false;
+  const isSignalling = (url: string | URL): boolean => /\/peerjs(\/|\?|$)/.test(String(url));
+  function Wrapped(url: string | URL, protocols?: string | string[]): WebSocket {
+    if (held && isSignalling(url)) {
+      // a socket that never opens (and logs no console error): closed after a moment
+      const fake = {
+        readyState: 0,
+        url: String(url),
+        bufferedAmount: 0,
+        onopen: null,
+        onmessage: null,
+        onerror: null,
+        onclose: null as null | ((ev: { code: number; reason: string; wasClean: boolean }) => void),
+        send() {},
+        close() {
+          fake.readyState = 3;
+        },
+        addEventListener() {},
+        removeEventListener() {},
+      };
+      setTimeout(() => {
+        fake.readyState = 3;
+        fake.onclose?.({ code: 1006, reason: '', wasClean: false });
+      }, 50);
+      return fake as unknown as WebSocket;
+    }
+    const ws = protocols === undefined ? new Orig(url) : new Orig(url, protocols);
+    sockets.push(ws);
+    return ws;
+  }
+  Wrapped.prototype = Orig.prototype;
+  Object.assign(Wrapped, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+  (window as unknown as { WebSocket: unknown }).WebSocket = Wrapped;
+  (window as SignallingWindow).__e2eSignalling = {
+    drop() {
+      held = true;
+      for (const s of sockets) if (isSignalling(s.url) && s.readyState <= 1) s.close();
+    },
+    back() {
+      held = false;
+    },
+  };
+}
 
 /** NET-4: each guest page freezes this long, this many times back to back, while it builds the match scene. */
 const SLOW_PHONE_FREEZES = [12_000, 12_000, 12_000];
@@ -324,7 +380,7 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
   // the host uses the server's own PeerJS signalling (no internet here): a non-default PeerJS server
   const peer = { mode: 'peer', peerHost: '127.0.0.1', peerPort: RELAY_PORT, peerPath: '/peerjs', peerSecure: false };
   try {
-    const host = await openGame(browser, `${relay.url}?debug=1`, { viewport: VIEWPORT, name: '主持人', settings: { net: peer } });
+    const host = await openGame(browser, `${relay.url}?debug=1`, { viewport: VIEWPORT, name: '主持人', settings: { net: peer }, initScript: signallingSwitch });
     pages.push(host);
     await host.ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: relay.url.replace(/\/$/, '') });
     await host.page.locator('.sg-menu-btn', { hasText: '联机对战' }).click();
@@ -376,18 +432,13 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
     // (its automatic reconnect is held) until the reloading guest has been told "peer
     // unavailable" at least once: a transient answer the guest must not take for
     // "room not found" — it keeps asking, and gets in once the host is back.
-    await host.page.evaluate(() => {
-      type HeldPeer = { reconnect(): void; disconnect(): void };
-      const w = window as SgwlWindow & { __e2eSignallingBack?: () => void };
-      const peer = ((w.__sgwl!.session as unknown as { transport: { peer: HeldPeer } }).transport).peer;
-      const reconnect = peer.reconnect.bind(peer);
-      peer.reconnect = () => undefined; // PeerTransport's reconnect after 2 s does nothing …
-      peer.disconnect();
-      w.__e2eSignallingBack = () => {
-        peer.reconnect = reconnect; // … until the network is back
-        reconnect();
-      };
+    // (the host's session hands out no internals — MP2-9: its transport cannot be reached)
+    const hostInternals = await host.page.evaluate(() => {
+      const s = (window as SgwlWindow).__sgwl!.session as unknown as Record<string, unknown>;
+      return { transport: s.transport === undefined, deal: s.dealtRoles === undefined && s.deal === undefined, handle: (window as SgwlWindow).__sgwl!.handle === null };
     });
+    expect(hostInternals).toEqual({ transport: true, deal: true, handle: true });
+    await host.page.evaluate(() => (window as SignallingWindow).__e2eSignalling!.drop());
     const retries: string[] = [];
     guest.page.on('console', (m) => {
       if (/^\[net\] room not found .*asking again/.test(m.text())) retries.push(m.text());
@@ -409,7 +460,7 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
     };
     await expect.poll(joinState, { message: 'the reloaded guest keeps asking for the unavailable host peer', timeout: 90_000 }).toBe('keeps asking');
     const downFor = Date.now() - f5At;
-    await host.page.evaluate(() => (window as SgwlWindow & { __e2eSignallingBack?: () => void }).__e2eSignallingBack!());
+    await host.page.evaluate(() => (window as SignallingWindow).__e2eSignalling!.back());
     await waitMatch(guest.page, 300_000);
     console.log(`[online e2e] host signalling down ${(downFor / 1000).toFixed(1)} s after the F5; guest retries: ${JSON.stringify(retries)}; back in the match ${((Date.now() - f5At) / 1000).toFixed(1)} s after the F5`);
     const after = await guest.page.evaluate((k) => {
