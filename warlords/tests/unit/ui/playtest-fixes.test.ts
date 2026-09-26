@@ -329,6 +329,10 @@ describe('HUD bits (tasks 18 / 19 / 20 / 21)', () => {
     expect(isNoticeCode('hostLeft')).toBe(true);
     expect(isNoticeCode('connectionLost')).toBe(false);
     expect(isFatalSessionError('kicked')).toBe(true);
+    // MP2-4: the seat opened in another window ends this tab's session as a notice
+    expect(isFatalSessionError('replacedElsewhere')).toBe(true);
+    expect(isNoticeCode('replacedElsewhere')).toBe(true);
+    expect(isFatalSessionError('relayLost')).toBe(true);
   });
 
   it('the first-match guide shows in the first two matches only', () => {
