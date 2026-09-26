@@ -107,6 +107,9 @@ export function killHero(w: World, e: Entity, creditId: EntityId | undefined, so
     const srcEnt = killerSource !== undefined ? w.get(killerSource) : undefined;
     if (srcEnt || killerSource === undefined) direct = w.isDirectSource(killerSource, killer);
     else if (killerSource === rt?.downedBySource) direct = rt?.downedDirect ?? true;
+    // …or he downed the victim by his own hand and his soldier / summon only finished him: the kill
+    // the feed credits to him is his (C3-3: 误杀 skipped when a guard landed the last shot)
+    if (!direct && rt?.downedBy === killer.id && rt.downedDirect) direct = true;
   }
   if (killer?.hero) {
     killer.hero.stats.kills++;

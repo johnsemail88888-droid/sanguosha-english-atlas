@@ -138,8 +138,10 @@ since both crowns carry the lord's bonus), swapping in:
 - **Death reveals the role** to everyone (kill feed: "张飞(反贼) 被 曹操 击杀"). Dead players spectate
   (cycle alive heroes). Their squad disbands (troops become neutral NPCs that flee/fight 20 s, then vanish).
 - **Rewards/penalties** (official): whoever kills a **Rebel** draws **3 random items**
-  (dropped straight into their slots / at their feet). If the **Lord kills a Loyalist or the Double**,
-  the Lord **drops every item, armor, mount and the secondary weapon**.
+  (dropped straight into their slots / at their feet). If the **Lord kills a Loyalist or the Double**
+  by his own hand (his shots, projectiles, fields, turrets — or he downed him and a soldier finished;
+  a kill his troops / summons make alone doesn't count), the Lord **drops every item, armor, mount
+  and the secondary weapon**.
 - Friendly fire is ON (it's an identity game). A commander's own troops/turrets never damage him
   and are immune to his own AoE.
 
@@ -296,7 +298,9 @@ removed). Mounts: offensive −1 马 赤兔/大宛/紫骍 (+30–40 % speed); de
   the last 10 s, (b) whatever their commander is shooting at / marked, (c) NPCs that aggro,
   (d) heroes whose **known** role is hostile to the commander's role (e.g. revealed rebels for the
   Lord's troops). They never attack heroes they have no reason to — this keeps the hidden-role
-  tension. A charm duel (离间 / 反间) is no reason: the hits and aim it forces don't count, both
+  tension. One stray hit on a hero on the commander's side (the public lord; a revealed / claimed
+  fellow 忠 or 反) is no reason either: (a)/(b) need the commander's sustained fire (~90 damage by
+  his own hand in the last few seconds), a mark or an order. A charm duel (离间 / 反间) is no reason: the hits and aim it forces don't count, both
   heroes' squads (and turrets) sit it out, and both sides forget it when the charm ends.
   Troops don't respawn; recruit with 征兵令 / abilities.
 - 黄巾 camps (4–6 bandits + bronze crate) guard the best early loot; they leash back home.

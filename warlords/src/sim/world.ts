@@ -238,6 +238,8 @@ const DODGE_DISTANCE = 4.5;
 const DODGE_TIME = 0.35;
 const WEAPON_SWAP_TIME = 0.25;
 const ATTACK_MEMORY = 10;
+/** half-life (s) of the per-pair tally of damage a hero dealt another by his own hand (heroHarm) */
+const HARM_HALF_LIFE = 3;
 const MARK_TIME = 12;
 const AIRDROP_RADIUS = 1.0;
 /** airdrops stay this far from the map edge */
@@ -318,6 +320,8 @@ export class World implements SimExt, SimHost {
   private scheduled: Scheduled[] = [];
   private schedSeq = 0;
   private attackLog = new Map<EntityId, Map<EntityId, number>>();
+  /** victim hero → attacker hero → decaying damage he dealt by his own hand (heroHarm) */
+  private harmLog = new Map<EntityId, Map<EntityId, { amt: number; at: number }>>();
   private expiries = new Map<EntityId, number>();
   private removals = new Map<EntityId, number>();
   private turretAis = new Map<EntityId, { nextScan: number }>();
@@ -1410,6 +1414,10 @@ export class World implements SimExt, SimHost {
         for (const [att, t] of m) if (now - t > ATTACK_MEMORY) m.delete(att);
         if (m.size === 0) this.attackLog.delete(victim);
       }
+      for (const [victim, m] of this.harmLog) {
+        for (const [att, r] of m) if (now - r.at > HARM_HALF_LIFE * 6) m.delete(att);
+        if (m.size === 0) this.harmLog.delete(victim);
+      }
       for (const [id, st] of this.freezeStacks) if (now > st.until && now > st.immuneUntil) this.freezeStacks.delete(id);
       for (const [id, echo] of this.nullifyEcho) if (echo.tick < this.tick) this.nullifyEcho.delete(id);
     }
@@ -1534,6 +1542,25 @@ export class World implements SimExt, SimHost {
     };
     calm(sideA, inB);
     calm(sideB, inA);
+  }
+
+  /** Tally damage hero `attackerId` dealt hero `victimId` by his own hand (combat.ts; not his troops'). */
+  noteHeroHarm(attackerId: EntityId, victimId: EntityId, amount: number): void {
+    let m = this.harmLog.get(victimId);
+    if (!m) {
+      m = new Map();
+      this.harmLog.set(victimId, m);
+    }
+    m.set(attackerId, { amt: this.heroHarm(attackerId, victimId) + amount, at: this.time });
+  }
+
+  /**
+   * Damage hero `attackerId` dealt hero `victimId` by his own hand lately (decays with a 3 s
+   * half-life): tells sustained fire from a stray hit (hostility.ts, C3-3).
+   */
+  heroHarm(attackerId: EntityId, victimId: EntityId): number {
+    const r = this.harmLog.get(victimId)?.get(attackerId);
+    return r ? r.amt * Math.pow(0.5, (this.time - r.at) / HARM_HALF_LIFE) : 0;
   }
 
   /** did `attackerId` damage `victimId` within the memory window? */

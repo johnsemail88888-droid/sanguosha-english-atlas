@@ -8,7 +8,7 @@ import { hero, makeWorld, place, stepN } from '../sim/helpers';
 
 const STD5: RoleId[] = ['lord', 'loyalist', 'rebel', 'rebel', 'traitor'];
 
-function scenario(lordIsBot: boolean): { w: World; loyal: ReturnType<typeof hero> } {
+function scenario(lordIsBot: boolean, strayHits = 1): { w: World; loyal: ReturnType<typeof hero> } {
   const w = makeWorld(STD5, {
     heroes: ['caocao', 'guanyu', 'guanyu', 'guanyu', 'guanyu'],
     humans: lordIsBot ? [1, 2, 3, 4] : [0, 1, 2, 3, 4],
@@ -34,8 +34,11 @@ function scenario(lordIsBot: boolean): { w: World; loyal: ReturnType<typeof hero
   w.setInput('p1', { ...emptyInput(500), actions: [{ a: 'claim', role: 'loyalist' }] });
   w.heal(lord.id, 100, loyal.id);
   stepN(w, 30);
-  // …then one stray bullet hits the lord
-  w.dealDamage({ targetId: lord.id, sourceId: loyal.id, amount: 12, type: 'normal', weaponId: 'pistol' });
+  // …then one stray bullet hits the lord (or a whole burst)
+  for (let i = 0; i < strayHits; i++) {
+    w.dealDamage({ targetId: lord.id, sourceId: loyal.id, amount: 12, type: 'normal', weaponId: 'pistol', canDodge: false });
+    stepN(w, 2);
+  }
   stepN(w, 30 * 5);
   return { w, loyal };
 }
@@ -44,9 +47,12 @@ describe('squad brain', () => {
   it("a bot lord's soldiers don't open fire on a believed loyalist over a stray bullet", () => {
     const withBot = scenario(true);
     expect(withBot.loyal.hp).toBe(withBot.loyal.maxHp);
-    // control: a human lord's soldiers follow the world's retaliation rule
+    // a human lord's soldiers don't either: one hit from a 忠-claimer is no war (C3-3)…
     const withHuman = scenario(false);
-    expect(withHuman.loyal.hp).toBeLessThan(withHuman.loyal.maxHp);
+    expect(withHuman.loyal.hp).toBe(withHuman.loyal.maxHp);
+    // control: …sustained fire from him is (the world's retaliation rule)
+    const burst = scenario(false, 12);
+    expect(burst.loyal.hp).toBeLessThan(burst.loyal.maxHp);
   });
 
   it("借刀杀人 on a bot lord: his hijacked squad hurts the loyalist but never downs him (the lord's mercy holds)", () => {

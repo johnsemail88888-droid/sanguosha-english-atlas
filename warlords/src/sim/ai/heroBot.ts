@@ -1275,7 +1275,8 @@ export class HeroBot implements BotBrain, BotView {
    */
   private lordSideMercy(t: Entity): boolean {
     if (t.kind !== 'hero' || (!t.hero?.downed && t.hp > t.maxHp * 0.35)) return false;
-    return (this.role === 'lord' || this.role === 'loyalist' || this.role === 'double') && !this.beliefs.mayFinish(t);
+    if (this.role === 'lord') return !this.beliefs.lordMayFinish(this.sim, this.self, t);
+    return (this.role === 'loyalist' || this.role === 'double') && !this.beliefs.mayFinish(t);
   }
 
   /** CommanderMind: the squad spares whom this bot spares (the lord side's mercy, see lordSideMercy). */

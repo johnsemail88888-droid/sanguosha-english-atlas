@@ -305,6 +305,11 @@ function pushFrame(w: World, reqIn: DamageRequest, req: DamageRequest, outgoing:
   return f;
 }
 
+/** Is `e` charmed (离间 / 反间) onto `target` right now? */
+function charmedOnto(e: Entity, target: Entity, now: number): boolean {
+  return e.statuses.length > 0 && findStatus(e, 'charm', now)?.params?.targetId === target.id;
+}
+
 function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   const res: DamageResult = { dealt: 0, absorbed: 0, killed: false };
   const target = w.ents.get(reqIn.targetId);
@@ -475,6 +480,11 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   });
   // stats: HP actually removed (finishing a downed hero only shortens its bleed-out)
   if (credit?.hero && credit !== target && !h?.downed) credit.hero.stats.damage += res.dealt;
+  // hero-on-hero damage by his own hand (not his troops, not a charm's forced shot): sustained
+  // fire tells a real fight from a stray hit (hostility.ts, C3-3)
+  if (credit?.hero && h && credit !== target && total > 0 && w.isDirectSource(req.sourceId, credit) && !charmedOnto(credit, target, now)) {
+    w.noteHeroHarm(credit.id, target.id, total);
+  }
 
   // 7. reflect / thorns
   if (!req.noReflect && src && src !== target && src.alive && total > 0 && !isZone && target.statuses.length > 0) {

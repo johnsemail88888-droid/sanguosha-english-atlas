@@ -13,6 +13,12 @@ import { findStatus, hasStatusFrom } from './status';
 import type { World } from './world';
 
 const FOCUS_MEMORY = 4;
+/**
+ * Damage a commander must have dealt a hero on his side (the public lord, a 忠-claimer…) by his
+ * own hand lately (World.heroHarm, 3 s half-life) before his soldiers join in: ~4 carbine hits.
+ */
+export const SUSTAINED_HARM = 90;
+const LORD_SIDE: ReadonlySet<RoleId> = new Set<RoleId>(['lord', 'loyalist', 'double']);
 
 /** Role of `target` as `viewer` knows it (undefined viewer = public knowledge). */
 export function knownRoleFor(w: World, viewer: Entity | undefined, target: Entity): RoleId | undefined {
@@ -64,6 +70,36 @@ export function charmBound(w: World, x: Entity, y: Entity): boolean {
   return charmedOnto(w, x, y) || charmedOnto(w, y, x);
 }
 
+/**
+ * Is hero `b` on commander `ca`'s side as far as `ca` can tell: 'lord' = the public lord (for
+ * anyone but a rebel), 'ally' = a revealed or 忠-claiming lord-side hero for a lord-side
+ * commander, a revealed or 反-claiming rebel for a rebel; null = not. One stray hit between them
+ * is no war (C3-3): their soldiers only join on sustained fire (SUSTAINED_HARM), a mark or an
+ * order — else a human loyalist's squad turned on the bot lord after a single pistol shot and
+ * got him executed.
+ */
+export function onSideOf(w: World, ca: Entity, b: Entity): 'lord' | 'ally' | null {
+  const mine = ca.hero?.role;
+  const h = b.hero;
+  if (!mine || !h || b === ca || h.dead) return null;
+  const known = knownRoleFor(w, ca, b);
+  if (known === 'lord' || (known === 'double' && mine === 'lord')) return mine === 'rebel' ? null : 'lord';
+  const theirs = known ?? h.claim ?? undefined;
+  if (!theirs) return null;
+  return (LORD_SIDE.has(mine) && LORD_SIDE.has(theirs)) || (mine === 'rebel' && theirs === 'rebel') ? 'ally' : null;
+}
+
+/**
+ * Must a unit of commander `ca` leave `bRoot` (a hero on his side, onSideOf) alone although it was
+ * hit / aimed at? Yes unless `ca` himself fired at it in earnest — or, for anyone but the public
+ * lord, it has been pressing `ca` hard (a claimed ally shooting us for real is no ally).
+ */
+function spareSide(w: World, ca: Entity, bRoot: Entity): boolean {
+  const side = onSideOf(w, ca, bRoot);
+  if (!side || w.heroHarm(ca.id, bRoot.id) >= SUSTAINED_HARM) return false;
+  return side === 'lord' || w.heroHarm(bRoot.id, ca.id) < SUSTAINED_HARM;
+}
+
 export function isHostile(w: World, a: Entity, b: Entity): boolean {
   if (a === b || !b.alive || b.hero?.dead) return false;
   if (b.kind !== 'hero' && b.kind !== 'troop' && b.kind !== 'npc' && b.kind !== 'turret') return false;
@@ -83,9 +119,9 @@ export function isHostile(w: World, a: Entity, b: Entity): boolean {
   if (!ca) return w.attackedRecently(a.id, b.id);
 
   const bRoot = cb ?? b;
-  // a unit of a commander in a charm duel with `b`'s side ignores that fight's hits and aim
-  // (orders, marks and known roles still count)
-  const duel = a !== ca && charmBound(w, ca, bRoot);
+  // a unit of a commander in a charm duel with `b`'s side ignores that fight's hits and aim, and so
+  // does one whose commander only grazed a hero on his side (orders, marks and known roles still count)
+  const duel = a !== ca && (charmBound(w, ca, bRoot) || spareSide(w, ca, bRoot));
   // (a) damage memory
   if (
     !duel &&
