@@ -30,7 +30,7 @@ English section below → [English](#english).*
 | 方式 | 说明 |
 |---|---|
 | **网页版** | <https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/> —— 打开即玩（推荐 Chrome / Edge / Firefox 最新版） |
-| **桌面版** | 在 GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases) 下载：Windows 便携版 / 安装版（`.exe`）、macOS（`.dmg`）、Linux（`.AppImage`）。桌面版自带局域网服务器。 |
+| **桌面版** | 在 GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases) 下载：Windows 便携版 / 安装版（`.exe`）、macOS（`.dmg`）、Linux（`.AppImage`）。桌面版自带局域网服务器。应用未签名：Windows 首次运行点「更多信息 → 仍要运行」，并在防火墙提示里允许「专用网络」（否则朋友连不进来）；macOS 15+ 在「系统设置 → 隐私与安全性」点「仍要打开」。 |
 | **离线单文件** | 下载 [`sanguo-warlords-offline.html`](https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/sanguo-warlords-offline.html)（或自行 `npm run build:single` 生成 `dist-single/index.html`），双击即可单机游玩，无需网络。 |
 
 手机横屏也能玩（自动切换触屏操作：左侧摇杆、右侧拖动瞄准、射击 / 开镜 / 跳跃 / 闪避 / 技能按钮；左上角「令 聊 图 战 ☰」再点一次即关闭，长按锦囊栏可查看说明）。
@@ -219,7 +219,7 @@ and glyphs — gameplay is identical.
 
 ### How to play
 - **Web:** <https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/> (latest Chrome / Edge / Firefox; phones in landscape get touch controls).
-- **Desktop:** download from GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases) — Windows portable / installer, macOS `.dmg`, Linux `.AppImage`. The desktop app embeds the LAN server.
+- **Desktop:** download from GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases) — Windows portable / installer, macOS `.dmg`, Linux `.AppImage`. The desktop app embeds the LAN server. The builds are unsigned: on Windows choose "More info → Run anyway" and allow **private networks** at the firewall prompt (otherwise LAN friends can't join); on macOS 15+ use System Settings → Privacy & Security → "Open Anyway".
 - **Offline single file:** [`sanguo-warlords-offline.html`](https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/sanguo-warlords-offline.html) (or `npm run build:single` → `dist-single/index.html`); double-click to play single player without a network.
 - Switch the UI language on the title screen (中文 / English).
 - Needs WebGL 2. If the title screen says "3D graphics can't start", turn on hardware acceleration in the browser settings, update the graphics driver or browser, and reload.

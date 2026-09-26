@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # start the Pages deploy after committing art on main
 
 concurrency:
   group: warlords-assets-${{ github.ref }}
@@ -34,11 +35,25 @@ jobs:
         working-directory: warlords
         run: NODE_PATH=scripts/node_modules node scripts/fetch-assets.mjs
       - name: Commit results
+        id: commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           mkdir -p warlords/public/assets && git add -A warlords/public/assets warlords/assets-src
           if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
           git commit -m "assets(warlords): fetch AI art from manifest"
-          for i in 1 2 3; do git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0; sleep 5; done
+          for i in 1 2 3; do
+            if git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 5
+          done
           exit 1
+      # a push made with GITHUB_TOKEN starts no workflows, so the web version would keep
+      # the old art until the next unrelated push: deploy it explicitly
+      - name: Deploy the web version with the new art
+        if: steps.commit.outputs.pushed == 'true' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run warlords-pages.yml --ref "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}"

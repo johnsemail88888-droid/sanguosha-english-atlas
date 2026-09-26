@@ -1,11 +1,14 @@
 name: Warlords · Deploy web version
 
-# Publishes the game to GitHub Pages under /warlords/ on the existing gh-pages branch
-# (keep_files keeps the atlas site that already lives there).
+# Publishes the game to GitHub Pages under /warlords/ on the existing gh-pages branch.
+# With destination_dir set, only /warlords/ is replaced on each deploy (the atlas site
+# elsewhere on the branch is untouched), so old hashed bundles and removed art don't pile up.
+# A push that only edits the art manifest is skipped here: the assets workflow fetches
+# the art, commits it and then starts this workflow itself.
 on:
   push:
     branches: [main]
-    paths: ['warlords/**', '.github/workflows/warlords-pages.yml']
+    paths: ['warlords/**', '!warlords/assets-src/**', '.github/workflows/warlords-pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -41,5 +44,5 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./warlords/dist
           destination_dir: warlords
-          keep_files: true
+          keep_files: false
           commit_message: 'deploy(warlords): ${{ github.sha }}'
