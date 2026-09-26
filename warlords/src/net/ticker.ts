@@ -285,10 +285,12 @@ export class FixedStepLoop {
     return this.scale;
   }
 
-  start(): void {
+  /** `paused`: start frozen (a pause asked for before the loop ran), as if pause() came right after. */
+  start(paused = false): void {
     if (this.running) return;
     this.running = true;
-    this.paused = false;
+    this.paused = paused;
+    this.pausedAlpha = 0;
     this.last = this.now();
     this.acc = 0;
     this.failures = 0;

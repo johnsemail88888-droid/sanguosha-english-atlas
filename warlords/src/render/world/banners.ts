@@ -1,8 +1,9 @@
 // War banners (军旗): every banner cloth on the map is merged into ONE mesh with
-// a shared glyph atlas (魏 蜀 吴 群 黄 蛮 汉 令) and a vertex-shader wind wave.
+// a shared glyph atlas (魏 蜀 吴 群 黄 蛮 汉 令 董) and a vertex-shader wind wave.
 import * as THREE from 'three';
 import { applySkyArtFog, skyArtFogKey } from '../core/skyArtFog';
 import type { MapProp } from '../../core/map';
+import { BANNER_GLYPHS } from '../../sim/map/regions';
 import { KINGDOM_COLORS } from '../palette';
 import { makeCanvas, CALLIGRAPHY_FONT, whiteTexture } from '../core/textures';
 import { sharedUniforms } from '../core/materials';
@@ -10,6 +11,8 @@ import { sharedUniforms } from '../core/materials';
 interface AtlasEntry {
   glyph: string;
   color: string;
+  /** only by an explicit banner variant, never by nearest colour */
+  explicit?: boolean;
 }
 
 export const BANNER_ATLAS: AtlasEntry[] = [
@@ -21,6 +24,7 @@ export const BANNER_ATLAS: AtlasEntry[] = [
   { glyph: '蛮', color: '#7a4a22' },
   { glyph: '汉', color: '#b3261e' },
   { glyph: '令', color: '#8a6d3a' },
+  { glyph: '董', color: '#2b2724', explicit: true },
 ];
 
 const hexToRgb = (h: string): [number, number, number] => {
@@ -28,13 +32,21 @@ const hexToRgb = (h: string): [number, number, number] => {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 };
 
-/** Atlas cell whose colour is nearest to the prop's colour hint. */
-export function bannerCell(color: string | undefined): number {
+/**
+ * Atlas cell of a banner: the glyph its `variant` names explicitly (1 + index in BANNER_GLYPHS),
+ * else the one whose colour is nearest to the prop's colour hint.
+ */
+export function bannerCell(color: string | undefined, variant = 0): number {
+  if (variant > 0) {
+    const i = BANNER_ATLAS.findIndex((e) => e.glyph === BANNER_GLYPHS[variant - 1]);
+    if (i >= 0) return i;
+  }
   if (!color) return 7;
   const [r, g, b] = hexToRgb(color);
   let best = 7;
   let bd = Infinity;
   BANNER_ATLAS.forEach((e, i) => {
+    if (e.explicit) return;
     const [er, eg, eb] = hexToRgb(e.color);
     const d = (r - er) ** 2 + (g - eg) ** 2 + (b - eb) ** 2;
     if (d < bd) {
@@ -120,7 +132,7 @@ export function buildBanners(props: readonly MapProp[]): BannerMesh {
   const idx: number[] = [];
   const cells = BANNER_ATLAS.length;
   for (const p of banners) {
-    const cell = bannerCell(p.color);
+    const cell = bannerCell(p.color, p.variant);
     const w = Math.max(0.6, p.sx);
     const h = Math.min(p.sy * 0.5, w * 1.5);
     const c = Math.cos(p.rot);

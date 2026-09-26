@@ -57,6 +57,16 @@ const SQUAD_POLL_TICKS = 6;
 /** seconds of the world's attack log used to tell how a hit was dealt (weapon / squad / field) */
 const VIA_WINDOW = 0.12;
 
+/**
+ * A hit `actor` was forced into by a charm (离间 / 反间) on that very unit: not the hero's
+ * intent, so no evidence about its side (the charm itself is public).
+ */
+function forcedHit(sim: SimApi, actor: Entity, unitId: EntityId): boolean {
+  const now = sim.time;
+  for (const s of actor.statuses) if (s.id === 'charm' && s.until > now && s.params?.targetId === unitId) return true;
+  return false;
+}
+
 export class WorldObserver {
   private lastTick = -1;
   private lastTime = 0;
@@ -96,7 +106,7 @@ export class WorldObserver {
         const actor = sim.get(ev.src);
         if (!actor?.hero) return;
         const unit = sim.get(ev.target);
-        if (!unit) return;
+        if (!unit || forcedHit(sim, actor, unit.id)) return;
         let target: Entity | undefined = unit;
         let viaSquad = false;
         if (!unit.hero) {
@@ -187,7 +197,8 @@ export class WorldObserver {
         const via = new Map<EntityId, number>();
         for (const a of x.recentAttackers(e.id, window)) {
           const c = x.creditOf(a);
-          if (c === undefined || c === e.id || !sim.get(c)?.hero) continue;
+          const ch = c !== undefined ? sim.get(c) : undefined;
+          if (c === undefined || c === e.id || !ch?.hero || forcedHit(sim, ch, e.id)) continue;
           if (!heroAttackers.includes(c)) heroAttackers.push(c);
           if (a === c) continue;
           const k = sim.get(a)?.kind;

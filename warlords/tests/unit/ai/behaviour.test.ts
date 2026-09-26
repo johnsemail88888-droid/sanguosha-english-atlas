@@ -5,6 +5,7 @@ import type { Entity, GameEvent, MatchSettings, RoleId } from '../../../src/core
 import { emptyInput } from '../../../src/core/types';
 import { HEROES } from '../../../src/data';
 import { getAbility } from '../../../src/sim/abilities/registry';
+import { aimAnglesFor } from '../../../src/sim/aim';
 import { DIFFICULTY_PROFILES } from '../../../src/sim/ai/difficulty';
 import { HeroBot } from '../../../src/sim/ai/heroBot';
 import { teamPushAt } from '../../../src/sim/ai/strategy';
@@ -318,6 +319,57 @@ describe('squad and abilities', () => {
     process.stdout.write(`[ai] abilities used in a 16 s fight: ${implemented.map((id) => `${id}:${usedBy[id]}`).join(' ')}\n`);
     expect(users.length).toBeGreaterThanOrEqual(Math.ceil(implemented.length * 0.75));
   }, 120_000);
+});
+
+describe('deployables and closers (COMBAT-5)', () => {
+  /** One bot rebel fighting an (unkillable) loyalist who shoots it, `dist` m away, for `seconds`: casts per ability id. */
+  function fight(heroId: string, dist: number, seconds: number): { casts: Record<string, number>; w: World; me: Entity } {
+    const w = createWorld(makeInit(STD5, ['caocao', 'guanyu', heroId, 'guanyu', 'guanyu'], {}, [0, 1, 3, 4]), {
+      map: makeWorldMap(),
+      ambient: false,
+      zone: false,
+      airdrops: false,
+      squads: false,
+      nav: false,
+      onWarn: () => {},
+    });
+    const foe = hero(w, 1);
+    foe.maxHp = foe.hp = 1e5;
+    place(w, foe, 0, 30, Math.PI); // facing the bot: its hits are meant for it
+    place(w, hero(w, 2), 0, 30 + dist);
+    farAway(w, [0, 3, 4]);
+    setTime(w, 300);
+    const me = hero(w, 2);
+    const casts: Record<string, number> = {};
+    let seq = 1;
+    for (let t = 0; t < 30 * seconds; t++) {
+      // the foe keeps facing the bot (its hits are meant for it) and lands 16 dps
+      const a = aimAnglesFor(foe.pos, { x: me.pos.x, y: me.pos.y + 1.1, z: me.pos.z });
+      w.setInput(foe.hero!.playerId, { ...emptyInput(seq++), yaw: a.yaw, pitch: a.pitch });
+      if (t % 15 === 0 && !me.hero!.downed && me.hp > 120) w.dealDamage({ targetId: me.id, sourceId: foe.id, amount: 8, type: 'normal', weaponId: 'pistol' });
+      w.step();
+      for (const ev of w.drainEvents() as GameEvent[]) if (ev.t === 'ability' && ev.src === me.id) casts[ev.ability] = (casts[ev.ability] ?? 0) + 1;
+    }
+    return { casts, w, me };
+  }
+
+  it('黄月英 sets 木牛流马 down beside her when the enemy is inside the turret\'s range (25 m), not only within 6 m', () => {
+    const { casts, w, me } = fight('huangyueying', 25, 12);
+    expect(casts.huangyueying_muniu ?? 0).toBeGreaterThanOrEqual(1);
+    const turrets = w.kindList('turret').filter((t) => t.ownerId === me.id);
+    expect(turrets.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('许褚 猛击, 马超 冲锋 and 张飞 断桥 get used in a fight that starts 25 m out', () => {
+    const want: [string, string][] = [
+      ['xuchu', 'xuchu_slam'],
+      ['machao', 'machao_charge'],
+      ['zhangfei', 'zhangfei_duanqiao'],
+    ];
+    const got = want.map(([h, a]) => [a, fight(h, 25, 20).casts[a] ?? 0] as const);
+    process.stdout.write(`[ai] closers in a 20 s fight from 25 m: ${got.map(([a, n]) => `${a}:${n}`).join(' ')}\n`);
+    for (const [a, n] of got) expect(n, a).toBeGreaterThanOrEqual(1);
+  }, 60_000);
 });
 
 let testMap: ReturnType<typeof realMap> | null = null;

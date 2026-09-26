@@ -38,6 +38,8 @@ interface Pending {
 /** Longest distance at which the ability does something useful. */
 export function abilityReach(def: AbilityDef): number {
   const p = def.params;
+  // a deployable (木牛流马): set down beside us, it reaches as far as its gun (COMBAT-5)
+  if (p.turretRange !== undefined) return p.turretRange;
   if (p.length !== undefined) return p.length;
   if (p.distance !== undefined) return p.distance;
   if (p.count !== undefined && p.spacing !== undefined) return (p.start ?? 3) + p.count * p.spacing;
@@ -102,9 +104,9 @@ export class AbilityUser {
   }
 
   /**
-   * WEI-11: while an enemy-targeted mobility ability (张辽 突袭…) is ready and
-   * we are healthy, keep the fight inside its reach so it can be pressed.
-   * Returns the capped preferred distance, or undefined.
+   * WEI-11: while an enemy-targeted mobility ability (张辽 突袭…) — or a damaging dash /
+   * leap (许褚 猛击, 马超 冲锋, 关羽 青龙斩, COMBAT-5) — is ready and we are healthy, keep the
+   * fight inside its reach so it can be pressed. Returns the capped preferred distance, or undefined.
    */
   engageCap(v: BotView): number | undefined {
     const { sim, self, now } = v;
@@ -114,7 +116,7 @@ export class AbilityUser {
     let cap: number | undefined;
     for (const def of hero.abilities) {
       if (def.slot !== 'q' && def.slot !== 'e') continue;
-      if ((def.aiHint ?? 'utility') !== 'mobility' || (def.targeting ?? 'none') !== 'enemy') continue;
+      if (!isCloser(def)) continue;
       if (!getAbility(def.id)?.activate || (this.backoff.get(def.id) ?? 0) > now || !this.ready(v, def)) continue;
       const r = abilityReach(def) - 1.5;
       if (r > 3) cap = cap === undefined ? r : Math.min(cap, r);
@@ -183,7 +185,8 @@ export class AbilityUser {
           if (p.radius !== undefined && p.radius <= 16) return enemiesWithin(p.radius) >= 2 || (pressed && enemiesWithin(p.radius) >= 1) ? base : null;
           return pressed ? base : null;
         }
-        if (targeting === 'direction') return t && los && d <= reach && (pressed || d < reach * 0.7) ? at(t) : null;
+        // a shove with damage (张飞 断桥) is worth it on any hero inside its cone's reach
+        if (targeting === 'direction') return t && los && d <= reach && (pressed || d < reach * 0.7 || (p.damage !== undefined && !!tHero)) ? at(t) : null;
         if (targeting === 'point') {
           if (!t || !los || d > reach) return null;
           return pressed || d < 14 ? ground(t) : null;
@@ -226,6 +229,8 @@ export class AbilityUser {
           return null;
         }
         if (targeting === 'enemy') return t && los && d <= reach && d > 4 && hpFrac > 0.45 ? at(t) : null;
+        // a charge that hits on the way (马超 冲锋, 赵云 七进七出): through the target, when it is in reach
+        if (targeting === 'direction' && p.damage !== undefined && !escape && t && los && d <= reach && d > 3 && hpFrac > 0.45) return at(t);
         if (escape && threatNear) {
           // dash / blink away from the closest threat
           const dir = norm2(self.pos.x - threatNear.e.pos.x, self.pos.z - threatNear.e.pos.z);
@@ -245,6 +250,16 @@ export class AbilityUser {
       case 'summon': {
         const busy = (!!t && d < 45) || !!threatNear;
         if (!busy) return null;
+        // a deployable (木牛流马): set it down right beside us — we fight from here (or from the
+        // cover we hold) — once the enemy is inside its gun's range; placement range is only 6 m
+        if (targeting === 'point' && p.turretRange !== undefined) {
+          if (!(t && d <= p.turretRange) && !threatNear) return null;
+          const aim = t ? t.pos : threatNear!.e.pos;
+          const dir = norm2(aim.x - self.pos.x, aim.z - self.pos.z);
+          const px = self.pos.x + dir.x * 2.5;
+          const pz = self.pos.z + dir.z * 2.5;
+          return { ...base, mode: 'point', point: { x: px, y: v.sim.groundHeight(px, pz), z: pz } };
+        }
         if (targeting === 'point') return t && los && d <= reach ? ground(t) : null;
         if (targeting === 'direction') return t && los && d <= reach ? at(t) : null;
         if (targeting === 'enemy') return t && los && d <= reach ? at(t) : null;
@@ -288,8 +303,9 @@ export class AbilityUser {
     if (def.params.privateReveal) return true;
     if ((targeting === 'self' || targeting === 'none') && !HARMFUL_PARAMS.some((k) => def.params[k] !== undefined)) return true;
     const aim = planPoint(v, plan);
-    // NPC hordes rushing a point attack everything that is not ours: keep them far from friends
-    if ((hint === 'summon' && targeting === 'point') || this.wild.has(def.id)) return wildSummonClear(v, aim, plan.targetId);
+    // NPC hordes rushing a point attack everything that is not ours: keep them far from friends.
+    // A turret is not a horde: it shoots what its engineer fights — just don't set it on a friend.
+    if ((hint === 'summon' && targeting === 'point' && def.params.turretRange === undefined) || this.wild.has(def.id)) return wildSummonClear(v, aim, plan.targetId);
     return areaClear(v, def.params, targeting, aim, plan.targetId, abilityReach(def));
   }
 
@@ -327,6 +343,18 @@ export class AbilityUser {
     }
     return best;
   }
+}
+
+/**
+ * Abilities that want the fight inside their reach: enemy-targeted mobility (张辽 突袭) and
+ * dashes / leaps that hit on the way (许褚 猛击, 马超 冲锋, 关羽 青龙斩, 夏侯惇 冲阵).
+ */
+function isCloser(def: AbilityDef): boolean {
+  const hint = def.aiHint ?? 'utility';
+  const targeting = def.targeting ?? 'none';
+  if (hint === 'mobility' && targeting === 'enemy') return true;
+  const p = def.params;
+  return (hint === 'offense' || hint === 'mobility') && targeting === 'direction' && p.damage !== undefined && (p.dash !== undefined || p.leap !== undefined);
 }
 
 /**

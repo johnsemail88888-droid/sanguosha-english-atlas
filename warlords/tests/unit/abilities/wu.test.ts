@@ -255,6 +255,35 @@ describe('甘宁 Gan Ning', () => {
     expect(w.hasStatus(foe.id, 'silence')).toBe(false);
   });
 
+  it('奇袭: the gear is flung 2–3 m off and locked for its wearer for 5 s — anyone else may take it (COMBAT-2)', () => {
+    const { w, g, foe } = raid();
+    w.equip(foe.id, 'bagua');
+    w.equip(foe.id, 'chitu');
+    expect(cast(w, 2, 'q', aimAt(g, foe)).fired).toBe(true);
+    const loot = w.kindList('loot');
+    const armor = loot.find((l) => l.loot!.itemId === 'bagua')!;
+    const horse = loot.find((l) => l.loot!.itemId === 'chitu')!;
+    for (const l of [armor, horse]) {
+      const d = Math.hypot(l.pos.x - foe.pos.x, l.pos.z - foe.pos.z);
+      expect(d).toBeGreaterThan(1.9);
+      expect(d).toBeLessThan(3.1);
+    }
+    // the victim walks onto its armor and presses F: locked (a bot would re-equip it in ~1 s)
+    place(w, foe, armor.pos.x, armor.pos.z);
+    send(w, 4, [{ a: 'interact' }], aimAt(foe, armor.pos));
+    w.step();
+    expect(foe.hero!.armor).toBeNull();
+    // Gan Ning takes the horse at once
+    place(w, g, horse.pos.x, horse.pos.z);
+    send(w, 2, [{ a: 'interact' }], aimAt(g, horse.pos));
+    w.step();
+    expect(g.hero!.mount).toBe('chitu');
+    stepN(w, 5 * 30);
+    send(w, 4, [{ a: 'interact' }], aimAt(foe, armor.pos));
+    w.step();
+    expect(foe.hero!.armor).toBe('bagua');
+  });
+
   it('奇袭: 无懈可击 cancels the whole bolt (spent); no target → no cooldown', () => {
     const { w, g, foe } = raid();
     w.equip(foe.id, 'bagua');
