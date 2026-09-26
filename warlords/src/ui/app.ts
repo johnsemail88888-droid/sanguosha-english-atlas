@@ -1,7 +1,7 @@
 // App shell: owns the layer stack (3D game, HUD, screens, modals, toasts),
 // routes screens from GameSession phases/events, and exposes the UiCtx that
 // every screen uses. Public entry point: mountApp().
-import type { GameEvent, MatchPhase, MatchSettings, Vec3 } from '../core/types';
+import type { GameEvent, HeroSelectView, MatchPhase, MatchSettings, Vec3 } from '../core/types';
 import type { GameSession } from '../game/session';
 import type { InputSink } from '../game/input-types';
 import { settings } from '../game/settings';
@@ -10,7 +10,7 @@ import type { ScreenId, Screen, SettingsTab, UiCtx } from './ctx';
 import { Bag, h, clear } from './dom';
 import { getLang, t, tx } from './i18n';
 import { applyRootVars, injectStyles } from './styles';
-import { PortraitCache, button, type SfxName } from './widgets';
+import { PortraitCache, button, portraitPrefetchPlan, type SfxName } from './widgets';
 import { TITLE_ART } from './art';
 import { artBackdrop, type ArtBackdrop } from './keyart';
 import { heroAbilityArt, matchCardArt, prefetchArt } from './artIcons';
@@ -167,6 +167,8 @@ class App implements UiCtx {
   /** blurred key art behind the menu screens (dropped during a match to free the decoded image) */
   private menuArt: ArtBackdrop | null = null;
   private prefetchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** the portraits of the heroes not on offer are fetched once (idle, after the offered ones) */
+  private restPrefetch = false;
 
   constructor(
     host: HTMLElement,
@@ -438,13 +440,26 @@ class App implements UiCtx {
     }
   }
 
-  /** Warm the HTTP cache with every painted portrait once a match is being set up (hero select pops in). */
-  private schedulePrefetch(): void {
-    if (this.prefetchTimer !== null) return;
-    this.prefetchTimer = setTimeout(() => {
-      this.prefetchTimer = null;
-      this.portraits.prefetch(HEROES.map((x) => x.id));
-    }, 600);
+  /**
+   * PLATFORM-12: warm the HTTP cache with the portraits hero select shows — offered, then picked —
+   * at once (again as picks come in), and every other hero's only once those have arrived and the
+   * browser is idle (they are for the gallery / later matches).
+   */
+  private prefetchPortraits(v: HeroSelectView): void {
+    const plan = portraitPrefetchPlan([...v.options, ...Object.values(v.picks)], HEROES.map((x) => x.id));
+    // a free pick offers all of them: no point asking for 30 files at high priority
+    const shown = this.portraits.prefetch(plan.first, plan.first.length <= 8 ? 'high' : 'auto');
+    if (this.restPrefetch) return;
+    this.restPrefetch = true;
+    void shown.then(() => {
+      const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      const rest = (): void => {
+        this.prefetchTimer = null;
+        void this.portraits.prefetch(plan.rest, 'low');
+      };
+      if (ric) ric(rest, { timeout: 4000 });
+      else this.prefetchTimer = setTimeout(rest, 1500);
+    });
   }
 
   startSingle(patch: Partial<MatchSettings>): void {
@@ -538,7 +553,7 @@ class App implements UiCtx {
   private attachSession(s: GameSession, kind: 'single' | 'online'): void {
     this.session = s;
     this.sessionKind = kind;
-    this.schedulePrefetch();
+    if (s.heroSelect) this.prefetchPortraits(s.heroSelect);
     this.lastPhase = s.phase;
     this.pickedHero = s.heroSelect?.picks[mySeat(s)] ?? null;
     const bag = new Bag();
@@ -550,6 +565,7 @@ class App implements UiCtx {
         if (hero) this.pickedHero = hero;
         // the offered heroes' ability emblems: the detail panel shows them without a blank wait
         prefetchArt(heroAbilityArt(v.options));
+        this.prefetchPortraits(v);
       }),
     );
     bag.add(s.on('phase', (p) => this.onPhase(p)));

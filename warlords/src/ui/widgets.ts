@@ -116,6 +116,17 @@ interface PortraitJob {
  * countdown), and a layer only asks for its render once it scrolls into view.
  * Heroes with painted art never enter that queue.
  */
+/**
+ * Portrait prefetch order (PLATFORM-12): the heroes hero select shows (offered first, then the
+ * seats' picks) before anything else; every other hero after — not all 30 in hero-list order up
+ * front, which left a tablet's offered 周瑜 / 陆逊 as placeholders behind the queue.
+ */
+export function portraitPrefetchPlan(shown: readonly (string | null | undefined)[], all: readonly string[]): { first: string[]; rest: string[] } {
+  const first = [...new Set(shown.filter((id): id is string => !!id))];
+  const seen = new Set(first);
+  return { first, rest: all.filter((id) => !seen.has(id)) };
+}
+
 export class PortraitCache {
   private cache = new Map<string, Promise<string>>();
   private queue: PortraitJob[] = [];
@@ -161,18 +172,31 @@ export class PortraitCache {
     return this.art.has(portraitArtPath('_')) !== null;
   }
 
-  /** Warm the HTTP cache with painted portraits (low priority, nothing decoded) so a grid pops in at once. */
-  prefetch(heroIds: readonly string[]): void {
-    if (typeof Image === 'undefined') return;
+  /**
+   * Warm the HTTP cache with painted portraits (nothing decoded), in the given order: `high` for
+   * the ones a screen is about to show (hero select's offered / picked heroes), `low` for the rest
+   * (PLATFORM-12). Each file is asked for once. Waits for the art listing when it is still loading;
+   * resolves once every file asked for here has loaded or failed.
+   */
+  prefetch(heroIds: readonly string[], priority: 'high' | 'low' | 'auto' = 'low'): Promise<void> {
+    if (typeof Image === 'undefined') return Promise.resolve();
+    if (!this.known()) return Promise.resolve(this.whenKnown()).then(() => this.prefetch(heroIds, priority));
+    const loads: Promise<void>[] = [];
     for (const id of heroIds) {
       const path = portraitArtPath(id);
       if (this.prefetched.has(path) || !this.hasArt(id)) continue;
       this.prefetched.add(path);
       const img = new Image();
       img.decoding = 'async';
-      img.fetchPriority = 'low';
+      img.fetchPriority = priority;
+      loads.push(
+        new Promise<void>((resolve) => {
+          img.onload = img.onerror = () => resolve();
+        }),
+      );
       img.src = path;
     }
+    return Promise.all(loads).then(() => undefined);
   }
 
   /** The procedural portrait data URL of a hero ('' when it could not be rendered). `size` is ignored (always PORTRAIT_SIZE). */

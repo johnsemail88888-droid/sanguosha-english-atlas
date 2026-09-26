@@ -991,3 +991,106 @@ test('MP2-11 small screens: lord HUD row, game over, online error, role seals, g
   expect(card!.y + card!.height).toBeLessThanOrEqual(360);
   await ld.ctx.close();
 });
+
+test('PLATFORM-5/6/9/10 phones: touch labels, emblem captions, card captions, the guide off the controls, chat, roles / lobby / select fit', async () => {
+  for (const [w, hgt, lang] of [[844, 390, 'zh'], [667, 375, 'en'], [640, 360, 'zh'], [1024, 768, 'zh']] as const) {
+    const at = `${w}×${hgt} ${lang}`;
+    const { ctx, page, errors } = await open(`screen=hud&touch=1&lang=${lang}`, w, hgt);
+    await expect(page.locator('.sg-touch .fire')).toBeVisible({ timeout: 15_000 });
+    await page.evaluate(() => {
+      (window as unknown as MockInternals).__ui.deps.lastSession.view.me.items = ['tao', 'jiu', 'sha', 'shan'].map((id) => ({ id, count: 1 }));
+    });
+    // PLATFORM-5: 装弹 / 切枪, and the interact button never reads a Latin F
+    await expect(page.locator('.sg-touch .reload .l')).toHaveText(lang === 'en' ? 'Reload' : '装弹');
+    await expect(page.locator('.sg-touch .swap .l')).toHaveText(lang === 'en' ? 'Swap' : '切枪');
+    expect(await page.locator('.sg-touch .interact .l').textContent(), at).not.toBe('F');
+    // PLATFORM-10: the whole guide shows (touches pass through it: it cannot scroll) and covers no control
+    const guide = page.locator('.hud-guide');
+    await expect(guide).toBeVisible();
+    await expect.poll(() => guide.evaluate((el) => el.scrollHeight - el.clientHeight), { message: `${at} guide clipped` }).toBeLessThanOrEqual(1);
+    const g = await guide.boundingBox();
+    const controls = await page.locator('.sg-touch .tbtn:not(.sg-hidden), .sg-touch .stick-base, .hud-touchbar .tb, .hud-weapon .w-main, .hud-minimap, .hud-vitals, .hud-topcenter').evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return { cls: e.className, x: r.x, y: r.y, width: r.width, height: r.height };
+      }),
+    );
+    for (const c of controls) expect(overlaps(g, c), `${at}: guide over ${c.cls}`).toBe(false);
+    // never into the stick zone (the left 42 % — 36 % as the last resort); right of the crosshair when there is room
+    expect(g!.x, at).toBeGreaterThanOrEqual(w * 0.36 - 1);
+    if (w >= 844) expect(g!.x, at).toBeGreaterThan(w / 2);
+    // the weapon panel keeps clear of the zone banner
+    expect(overlaps(await page.locator('.hud-weapon .w-main').boundingBox(), await page.locator('.hud-zone').boundingBox()), `${at} weapon / zone`).toBe(false);
+    // PLATFORM-6: painted emblems keep the skill's name and a ≥ 10 px key letter; card captions ≥ 10 px, 桃 / 酒 / 杀 / 闪 too
+    await expect(page.locator('.sg-touch .ab-q.art-on')).toHaveCount(1, { timeout: 15_000 });
+    await expect(page.locator('.sg-touch .item.art-on')).toHaveCount(4, { timeout: 15_000 });
+    const labels = await page.locator('.sg-touch :is(.ab-q, .ab-e), .sg-touch .item').evaluateAll((els) =>
+      els.map((b) => {
+        const l = b.querySelector<HTMLElement>(':scope > .l, :scope > .n')!;
+        const k = b.querySelector<HTMLElement>(':scope > .k')!;
+        const cs = getComputedStyle(l);
+        return { cls: b.className, text: l.textContent ?? '', shown: cs.visibility === 'visible' && cs.display !== 'none' && l.getBoundingClientRect().height > 0, fs: parseFloat(cs.fontSize), kfs: parseFloat(getComputedStyle(k).fontSize) };
+      }),
+    );
+    expect(labels).toHaveLength(6);
+    for (const l of labels) {
+      expect(l.shown && l.text.length > 0, `${at} ${l.cls}: "${l.text}"`).toBe(true);
+      expect(l.fs, `${at} ${l.cls}`).toBeGreaterThanOrEqual(10);
+      if (/\bab\b/.test(l.cls)) expect(l.kfs, `${at} ${l.cls} key`).toBeGreaterThanOrEqual(10);
+    }
+    if (lang === 'zh') expect(labels.slice(2).map((l) => l.text)).toEqual(['桃', '酒', '杀', '闪']);
+    await guide.locator('.gd-x').click();
+    await expect(guide).toHaveCount(0);
+    expect(errors, at).toEqual([]);
+    await ctx.close();
+  }
+
+  // PLATFORM-9 (d) chat overlay: the oldest line can be scrolled back to below 令聊图战; the input is opaque
+  const ch = await open('screen=hud&touch=1', 844, 390);
+  await expect(ch.page.locator('.sg-touch .fire')).toBeVisible({ timeout: 15_000 });
+  await ch.page.evaluate(() => {
+    const v = (window as unknown as MockInternals).__ui.deps.lastSession.view;
+    for (let i = 0; i < 8; i++) v.emit({ t: 'chat', from: `人机${i + 2}`, text: `第 ${i + 1} 句：我是忠臣！` });
+  });
+  await ch.page.locator('.hud-touchbar .tb[data-key="chat"]').click();
+  await expect(ch.page.locator('.hud-chat.open')).toHaveCount(1);
+  const chat = await ch.page.evaluate(() => {
+    const log = document.querySelector<HTMLElement>('.hud-chat .log')!;
+    log.scrollTop = 0;
+    const first = log.querySelector('.line')!.getBoundingClientRect();
+    const bar = document.querySelector('.hud-touchbar')!.getBoundingClientRect();
+    const bg = getComputedStyle(document.querySelector('.hud-chat .sg-input')!).backgroundColor;
+    return { firstTop: first.top, barBottom: bar.bottom, alpha: Number(/rgba?\(([^)]+)\)/.exec(bg)![1].split(',')[3] ?? 1) };
+  });
+  expect(chat.firstTop).toBeGreaterThanOrEqual(chat.barBottom);
+  expect(chat.alpha).toBeGreaterThanOrEqual(0.9);
+  await ch.ctx.close();
+
+  // (a) roles: every seat chip and the tip inside the screen
+  const ro = await open('screen=roles&single=1', 844, 390);
+  await expect(ro.page.locator('.seat-chip').first()).toBeVisible({ timeout: 15_000 });
+  for (const el of await ro.page.locator('.seat-chip, .roles-tip').all()) {
+    const b = await el.boundingBox();
+    expect(b!.y + b!.height, 'roles').toBeLessThanOrEqual(390);
+  }
+  await ro.ctx.close();
+  // (b) lobby: ＋ 添加AI in the seats heading, nothing scrolled out of the panel
+  const lb = await open('screen=lobby', 844, 390);
+  const add = lb.page.locator('.seats-panel .seat-tools .sg-btn');
+  await expect(add).toBeVisible({ timeout: 15_000 });
+  const panel = await lb.page.locator('.seats-panel').boundingBox();
+  const addBox = await add.boundingBox();
+  expect(addBox!.y + addBox!.height).toBeLessThanOrEqual(panel!.y + panel!.height);
+  await lb.ctx.close();
+  // (e) hero select: every seat's name in full (「AI·孙仲谋」, not 「A…」)
+  const hs = await open('screen=heroSelect', 844, 390);
+  await expect(hs.page.locator('.pick .nm').first()).toBeVisible({ timeout: 15_000 });
+  const cut = await hs.page.locator('.pick .nm').evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent));
+  expect(cut).toEqual([]);
+  await hs.ctx.close();
+  // (f) portrait select: 选定 sits on an opaque bar (the 专属武器 stats no longer show through a fade)
+  const ps = await open('screen=heroSelect', 390, 844);
+  await expect(ps.page.locator('.detail-actions')).toBeVisible({ timeout: 15_000 });
+  expect(await ps.page.locator('.detail-actions').evaluate((e) => getComputedStyle(e).backgroundColor)).toMatch(/^rgb\(/);
+  await ps.ctx.close();
+});
