@@ -16,7 +16,7 @@ import { flatMap, testHeroPool, waitFor } from './fixtures';
 // @ts-expect-error plain .mjs without type declarations
 import { startServer } from '../../../server/server.mjs';
 // @ts-expect-error plain .mjs without type declarations
-import { createRelay, HEARTBEAT_MISSES, UNRELIABLE_BACKLOG as RELAY_BACKLOG } from '../../../server/relay.mjs';
+import { createRelay, HEARTBEAT_MISSES, HOST_HEARTBEAT_MISSES, UNRELIABLE_BACKLOG as RELAY_BACKLOG } from '../../../server/relay.mjs';
 
 interface Server {
   port: number;
@@ -323,5 +323,330 @@ describe('PeerJS signalling mount', () => {
     });
     expect(JSON.parse(msg)).toMatchObject({ type: 'OPEN' });
     ws.close();
+  });
+});
+
+/** A relay on its own HTTP server (custom options), optionally on a given port (a restart). */
+async function ownRelay(opts: Record<string, unknown> = {}, port = 0) {
+  const relay = createRelay(opts);
+  const server = http.createServer();
+  server.on('upgrade', (req, socket, head) => relay.handleUpgrade(req, socket, head));
+  await new Promise<void>((r) => server.listen(port, '127.0.0.1', () => r()));
+  const p = (server.address() as { port: number }).port;
+  return {
+    relay,
+    port: p,
+    url: `ws://127.0.0.1:${p}/ws`,
+    close: async () => {
+      await relay.close();
+      server.closeAllConnections?.();
+      await new Promise((r) => server.close(r));
+    },
+  };
+}
+
+describe('relay: a dropped host gets its room back (MP2-8)', () => {
+  it('keeps the room and the guests through a host drop, keeps their reliable frames, and hands the room back with its secret', async () => {
+    const r = await ownRelay({ hostGraceMs: 5000 });
+    try {
+      const host = await rawSocket(r.url);
+      host.ws.send(JSON.stringify({ op: 'create', v: 1 }));
+      await waitFor(() => host.ctrl.length > 0);
+      const { code, secret } = host.ctrl[0] as { code: string; secret: string };
+      expect(secret).toMatch(/^[A-Z0-9]{16,}$/);
+      const a = await rawSocket(r.url);
+      a.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
+      await waitFor(() => a.ctrl.length > 0);
+      const aId = (a.ctrl[0] as { id: string }).id;
+      a.ws.send(JSON.stringify({ op: 'ping' }));
+      await waitFor(() => a.ctrl.some((c) => c.op === 'pong'));
+      expect(a.ctrl.find((c) => c.op === 'pong')).toEqual({ op: 'pong', host: true });
+
+      host.ws.terminate(); // no close frame: a dropped link (the relay sees 1006)
+      await waitFor(() => r.relay.stats().players === 1, 2000, 'host gone from the room');
+      expect(a.closed()).toBe(false);
+      a.ws.send(JSON.stringify({ op: 'ping' }));
+      await waitFor(() => a.ctrl.filter((c) => c.op === 'pong').length === 2);
+      expect(a.ctrl.filter((c) => c.op === 'pong')[1]).toEqual({ op: 'pong', host: false });
+      a.ws.send(encodeRelayFrame('host', '{"t":"loaded"}', 'reliable'));
+      a.ws.send(encodeRelayFrame('host', new Uint8Array([2, 1]), 'unreliable'));
+
+      // someone else cannot take the room over
+      const thief = await rawSocket(r.url);
+      thief.ws.send(JSON.stringify({ op: 'resume', v: 1, code, secret: 'NOPE' }));
+      await waitFor(() => thief.ctrl.length > 0);
+      expect(thief.ctrl[0]).toMatchObject({ op: 'error', code: 'roomNotFound' });
+      expect(thief.closed()).toBe(false); // (a host whose room is gone may create it again)
+      thief.ws.close();
+
+      const back = await rawSocket(r.url);
+      back.ws.send(JSON.stringify({ op: 'resume', v: 1, code, secret }));
+      await waitFor(() => back.ctrl.length > 0 && back.data.length > 0);
+      expect(back.ctrl[0]).toEqual({ op: 'resumed', code, id: 'host', hostId: 'host', peers: [aId] });
+      expect(back.data).toEqual([{ peer: aId, data: '{"t":"loaded"}' }]); // the reliable one, kept; the snapshot-like one dropped
+      back.ws.send(encodeRelayFrame(aId, 'hi again', 'reliable'));
+      await waitFor(() => a.data.length === 1);
+      expect(a.data[0]).toEqual({ peer: 'host', data: 'hi again' });
+      a.ws.send(JSON.stringify({ op: 'ping' }));
+      await waitFor(() => a.ctrl.filter((c) => c.op === 'pong').length === 3);
+      expect(a.ctrl.filter((c) => c.op === 'pong')[2]).toEqual({ op: 'pong', host: true });
+      back.ws.close();
+      await waitFor(() => a.closed());
+      expect(a.ctrl.some((c) => c.op === 'hostLeft')).toBe(true); // a clean close still ends it at once
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('a host that does not come back within the grace: the guests are told hostLeft', async () => {
+    const r = await ownRelay({ hostGraceMs: 200 });
+    try {
+      const host = await rawSocket(r.url);
+      host.ws.send(JSON.stringify({ op: 'create', v: 1 }));
+      await waitFor(() => host.ctrl.length > 0);
+      const { code } = host.ctrl[0] as { code: string };
+      const a = await rawSocket(r.url);
+      a.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
+      await waitFor(() => a.ctrl.length > 0);
+      const t0 = Date.now();
+      host.ws.terminate();
+      await waitFor(() => a.closed(), 3000, 'guest closed');
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(150);
+      expect(a.ctrl.some((c) => c.op === 'hostLeft')).toBe(true);
+      expect(r.relay.stats().rooms).toBe(0);
+    } finally {
+      await r.close();
+    }
+  });
+});
+
+describe('WsTransport: relay liveness and the host resuming its room (MP2-1 / MP2-8)', () => {
+  function makeWsHost(t: WsTransport, sims: FakeSim[]) {
+    return new HostSession({
+      name: '房主',
+      transport: t,
+      roomCode: t.roomCode,
+      heroes: testHeroPool(),
+      timings: { roleReveal: 0.02, lordPick: 0.5, pick: 0.5, pickReveal: 0.01, pingInterval: 0.2, peerTimeout: 1, dropGrace: 0 },
+      preferWorkerTicker: false,
+      seed: 7,
+      createMatch: (init) => {
+        const s = new FakeSim(init, { map: flatMap() });
+        sims.push(s);
+        return s;
+      },
+    });
+  }
+
+  async function toPlaying(host: HostSession, clients: ClientSession[]) {
+    await waitFor(() => host.lobby.seats.length === 1 + clients.length, 3000, 'lobby');
+    host.on('heroSelect', (v) => v.options.length && v.picks[0] === undefined && host.pickHero(v.options[0]));
+    for (const c of clients) c.on('heroSelect', (v) => v.options.length && v.picks[c.mySeat] === undefined && c.pickHero(v.options[0]));
+    host.start();
+    await waitFor(() => [host, ...clients].every((s) => s.phase === 'playing'), 6000, 'playing over ws');
+  }
+
+  it('a guest whose relay answers pings watches the host (hostPresenceWatched)', async () => {
+    const r = await ownRelay();
+    try {
+      const hostT = await WsTransport.host(r.url, { pingMs: 50 });
+      const g = await WsTransport.join(r.url, hostT.roomCode, { pingMs: 50 });
+      expect(g.hostPresenceWatched()).toBe(false); // no answer yet: an older relay is not trusted
+      await waitFor(() => g.hostPresenceWatched(), 1000, 'relay answered');
+      expect(hostT.hostPresenceWatched()).toBe(false); // (a guest-side notion)
+      g.close();
+      hostT.close();
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('the relay drops the host socket mid-match: the host resumes the room, the guests never notice beyond a pause', async () => {
+    const r = await ownRelay({ hostGraceMs: 5000 });
+    const sims: FakeSim[] = [];
+    const hostT = await WsTransport.host(r.url, { pingMs: 100, resumeWindowMs: 4000 });
+    const host = makeWsHost(hostT, sims);
+    const clients: ClientSession[] = [];
+    try {
+      for (const name of ['甲', '乙']) {
+        const t = await WsTransport.join(r.url, hostT.roomCode, { pingMs: 100 });
+        clients.push(await ClientSession.connect({ transport: t, name, mapFactory: () => flatMap(), hostWarmUpMs: 0 }));
+      }
+      await toPlaying(host, clients);
+      const ids = clients.map((c) => c.myId);
+      const hostStatus: { zh: string; en: string; key?: string; clear?: boolean }[] = [];
+      const guestStatus: string[] = [];
+      const errors: string[] = [];
+      host.on('status', (s) => hostStatus.push(s));
+      host.on('error', (e) => errors.push(`host ${e.code}`));
+      for (const c of clients) {
+        c.on('status', (s) => guestStatus.push(s.en));
+        c.on('error', (e) => errors.push(`guest ${e.code}`));
+      }
+      r.relay.rooms.get(hostT.roomCode).host.ws.terminate(); // the relay loses the host's socket
+      await waitFor(() => hostStatus.some((s) => s.key === 'relayLink' && s.clear), 4000, 'host back on the relay');
+      expect(hostStatus[0]).toMatchObject({ key: 'relayLink', zh: '与中转服务器的连接中断，正在重新连接…' });
+      expect(hostT.stats.resumed).toBe(1);
+      // the match goes on for everyone on the same connections: a guest's input reaches the host
+      const n0 = sims[0].inputLog.filter((x) => x.playerId === ids[0]).length;
+      const end = Date.now() + 600;
+      while (Date.now() < end) {
+        clients[0].view?.pushInput({ ...emptyInput(), moveZ: 1 });
+        clients[0].view?.update(1 / 60);
+        await new Promise((res) => setTimeout(res, 16));
+      }
+      expect(sims[0].inputLog.filter((x) => x.playerId === ids[0]).length).toBeGreaterThan(n0);
+      expect(clients.map((c) => c.myId)).toEqual(ids);
+      expect(guestStatus.filter((s) => /reconnect/i.test(s))).toEqual([]);
+      expect(errors).toEqual([]);
+      expect(host.lobby.seats.filter((s) => !s.isBot).length).toBe(3);
+      expect(host.phase).toBe('playing');
+    } finally {
+      for (const c of clients) c.leave();
+      host.leave();
+      await r.close();
+    }
+  });
+
+  it('the relay restarts: the host creates the room again under the same code and the guests rejoin into their seats', async () => {
+    let r = await ownRelay({ hostGraceMs: 5000 });
+    const port = r.port;
+    const sims: FakeSim[] = [];
+    const hostT = await WsTransport.host(r.url, { pingMs: 100, resumeWindowMs: 8000 });
+    const host = makeWsHost(hostT, sims);
+    const code = hostT.roomCode;
+    const clients: ClientSession[] = [];
+    try {
+      for (const name of ['甲', '乙']) {
+        const t = await WsTransport.join(r.url, code, { pingMs: 100 });
+        clients.push(
+          await ClientSession.connect({
+            transport: t,
+            name,
+            mapFactory: () => flatMap(),
+            hostWarmUpMs: 0,
+            reconnect: () => WsTransport.join(`ws://127.0.0.1:${port}/ws`, code, { pingMs: 100, timeoutMs: 1000 }),
+            rejoinDelaysMs: [0, 200],
+            rejoinRetryMs: 300,
+          }),
+        );
+      }
+      await toPlaying(host, clients);
+      const seats = clients.map((c) => c.mySeat);
+      const errors: string[] = [];
+      host.on('error', (e) => errors.push(`host ${e.code}`));
+      for (const c of clients) c.on('error', (e) => errors.push(`guest ${e.code}`));
+      await r.close(); // the relay process dies …
+      await new Promise((res) => setTimeout(res, 500));
+      r = await ownRelay({ hostGraceMs: 5000 }, port); // … and comes back empty
+      await waitFor(() => hostT.stats.resumed === 1, 8000, 'room created again');
+      expect(hostT.roomCode).toBe(code);
+      await waitFor(() => clients.every((c) => !c.reconnecting && c.phase === 'playing'), 10_000, 'guests back');
+      expect(clients.map((c) => c.mySeat)).toEqual(seats);
+      await waitFor(() => host.lobby.seats.filter((s) => !s.isBot).length === 3, 3000, 'humans again');
+      expect(errors).toEqual([]);
+    } finally {
+      for (const c of clients) c.leave();
+      host.leave();
+      await r.close();
+    }
+  });
+
+  it('no relay for longer than the resume window: the host is told 与中转服务器的连接已断开 (relayLost)', async () => {
+    const r = await ownRelay();
+    const hostT = await WsTransport.host(r.url, { pingMs: 100, resumeWindowMs: 600, timeoutMs: 300 });
+    const host = makeWsHost(hostT, []);
+    try {
+      const errors: { code: string; zh: string }[] = [];
+      host.on('error', (e) => errors.push(e));
+      await r.close();
+      await waitFor(() => errors.length > 0, 5000, 'gave up');
+      expect(errors[0]).toMatchObject({ code: 'relayLost', zh: '与中转服务器的连接已断开' });
+    } finally {
+      host.leave();
+    }
+  });
+});
+
+describe('relay heartbeat for a frozen host (MP2-1 / MP2-8)', () => {
+  it('a host socket gets twice the heartbeat tolerance, then the room still waits its grace for the host', async () => {
+    expect(HOST_HEARTBEAT_MISSES).toBeGreaterThanOrEqual(2 * HEARTBEAT_MISSES);
+    const r = await ownRelay({ heartbeatMs: 40, hostGraceMs: 400 });
+    try {
+      // the host's page is frozen: its browser answers no pings and sends nothing
+      const host = new WebSocket(r.url, { autoPong: false });
+      const ctrl: Record<string, unknown>[] = [];
+      let hostClosed = false;
+      host.on('message', (d, isBinary) => !isBinary && ctrl.push(JSON.parse(d.toString())));
+      host.on('close', () => (hostClosed = true));
+      await new Promise((res) => host.once('open', res));
+      host.send(JSON.stringify({ op: 'create', v: 1 }));
+      await waitFor(() => ctrl.length > 0);
+      const code = (ctrl[0] as { code: string }).code;
+      const a = await rawSocket(r.url);
+      a.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
+      await waitFor(() => a.ctrl.length > 0);
+      const t0 = Date.now();
+      await new Promise((res) => setTimeout(res, (HEARTBEAT_MISSES + 1) * 40 + 20));
+      expect(hostClosed).toBe(false); // a guest would be gone by now
+      await waitFor(() => hostClosed, 3000, 'host socket dropped');
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(HOST_HEARTBEAT_MISSES * 40 - 20);
+      expect(a.closed()).toBe(false); // the room waits for the host to resume it
+      await waitFor(() => a.closed(), 3000, 'grace over');
+      expect(a.ctrl.some((c) => c.op === 'hostLeft')).toBe(true);
+    } finally {
+      await r.close();
+    }
+  });
+});
+
+describe('WsTransport resume: what the guests sent meanwhile (MP2-8)', () => {
+  it('reaches the host transport right behind the "resumed" answer, peers reconciled', async () => {
+    const r = await ownRelay({ hostGraceMs: 5000 });
+    // the host's resume request goes out 300 ms late: the guests talk while it is away
+    type Impl = NonNullable<NonNullable<Parameters<typeof WsTransport.host>[1]>['WebSocketImpl']>;
+    const Native = (globalThis as unknown as { WebSocket: new (url: string) => { send(d: unknown): void } }).WebSocket;
+    function SlowResume(url: string) {
+      const ws = new Native(url);
+      const send = ws.send.bind(ws);
+      ws.send = (d: unknown) => (typeof d === 'string' && d.includes('"op":"resume"') ? void setTimeout(() => send(d), 300) : send(d));
+      return ws;
+    }
+    try {
+      const hostT = await WsTransport.host(r.url, { WebSocketImpl: SlowResume as unknown as Impl, pingMs: 1000 });
+      const joins: string[] = [];
+      const leaves: string[] = [];
+      const got: string[] = [];
+      const links: string[] = [];
+      hostT.onPeerJoin((p) => joins.push(p));
+      hostT.onPeerLeave((p) => leaves.push(p));
+      hostT.onMessage((from, data) => typeof data === 'string' && got.push(`${from}:${data}`));
+      hostT.onLinkState((s) => links.push(s));
+      const a = await rawSocket(r.url);
+      a.ws.send(JSON.stringify({ op: 'join', v: 1, code: hostT.roomCode }));
+      const b = await rawSocket(r.url);
+      b.ws.send(JSON.stringify({ op: 'join', v: 1, code: hostT.roomCode }));
+      await waitFor(() => joins.length === 2, 2000, 'joins');
+      const [aId, bId] = [(a.ctrl[0] as { id: string }).id, (b.ctrl[0] as { id: string }).id];
+      r.relay.rooms.get(hostT.roomCode).host.ws.terminate();
+      await waitFor(() => r.relay.rooms.get(hostT.roomCode)?.host === null && links.includes('reconnecting'), 2000, 'host away');
+      for (let i = 0; i < 5; i++) a.ws.send(encodeRelayFrame('host', `{"t":"chat","text":"m${i}"}`, 'reliable'));
+      b.ws.close(); // one guest leaves while the host is away
+      const c = await rawSocket(r.url); // … and another one arrives
+      c.ws.send(JSON.stringify({ op: 'join', v: 1, code: hostT.roomCode }));
+      await waitFor(() => c.ctrl.length > 0, 2000, 'c joined');
+      const cId = (c.ctrl[0] as { id: string }).id;
+      await waitFor(() => links.at(-1) === 'ok', 3000, 'resumed');
+      await waitFor(() => got.length === 5, 2000, 'kept frames delivered');
+      expect(got).toEqual([0, 1, 2, 3, 4].map((i) => `${aId}:{"t":"chat","text":"m${i}"}`));
+      expect(leaves).toEqual([bId]);
+      expect(joins).toEqual([aId, bId, cId]);
+      // and the link works both ways again
+      hostT.send(aId, 'welcome back', 'reliable');
+      await waitFor(() => a.data.some((d) => d.data === 'welcome back'), 2000, 'host → guest');
+      hostT.close();
+    } finally {
+      await r.close();
+    }
   });
 });

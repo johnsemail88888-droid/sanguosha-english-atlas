@@ -1493,6 +1493,12 @@ export class World implements SimExt, SimHost {
     if (sourceId !== undefined && sourceId !== creditId) m.set(sourceId, this.time);
   }
 
+  /** Drop what `a` and `b` remember of hurting each other (a charm's forced fight ended). */
+  forgetAttacks(a: EntityId, b: EntityId): void {
+    this.attackLog.get(a)?.delete(b);
+    this.attackLog.get(b)?.delete(a);
+  }
+
   /** did `attackerId` damage `victimId` within the memory window? */
   attackedRecently(victimId: EntityId, attackerId: EntityId, window = ATTACK_MEMORY): boolean {
     const t = this.attackLog.get(victimId)?.get(attackerId);

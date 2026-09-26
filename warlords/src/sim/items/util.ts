@@ -239,6 +239,40 @@ export function spotAround(sim: SimApi, center: Vec3, a: number, radius: number)
   return p;
 }
 
+/** How gear knocked off a hero flies (过河拆桥 / 奇袭 / 麒麟弓). */
+export interface FlingOpts {
+  /** how far from its wearer the stripped gear is flung (m) */
+  scatter: number;
+  /** seconds before the victim may pick its own gear back up */
+  lock: number;
+}
+
+/**
+ * Knock `ids` (armor / mount, already taken off `u`) out of reach: flung `scatter` m away
+ * from `from` (fanned out, pulled in by walls) and locked for `u` for `lock` s — anyone
+ * else may grab them at once.
+ */
+export function flingGear(sim: SimApi, u: Entity, from: Vec3, ids: string[], o: FlingOpts): void {
+  const dx = u.pos.x - from.x;
+  const dz = u.pos.z - from.z;
+  // straight away from the source; a victim on top of it gets a fixed per-unit direction
+  const base = Math.hypot(dx, dz) > 0.3 ? Math.atan2(dz, dx) : u.id * 2.399963;
+  ids.forEach((itemId, i) => {
+    const a = base + (i - (ids.length - 1) / 2) * 1.1;
+    // stay on the victim's level: not over a deck's edge into the water or off a rampart
+    let at: Vec3 = { ...u.pos };
+    for (let r = o.scatter, k = 0; k < 3; k++, r *= 0.5) {
+      const spot = spotAround(sim, u.pos, a, r);
+      const g = dropToGround(sim, { x: spot.x, y: u.pos.y + 1, z: spot.z });
+      if (Math.abs(g.y - u.pos.y) <= 1.2) {
+        at = g;
+        break;
+      }
+    }
+    spawnLockedLoot(sim, at, { itemId }, { heroId: u.id, seconds: o.lock });
+  });
+}
+
 /** Evenly spread points on a ring around `center`, pulled in where a wall is in the way. */
 export function ringSpots(sim: SimApi, center: Vec3, n: number, radius: number, phase: number): Vec3[] {
   const out: Vec3[] = [];

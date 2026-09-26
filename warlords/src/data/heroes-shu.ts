@@ -540,7 +540,8 @@ export const SHU_HEROES: HeroDef[] = [
         descEn: 'Deploy an auto-turret within 6 m (200 HP, 15 s, turret gun). Up to 2 at once; extra ones replace the oldest.',
         cooldown: 20,
         // impl: sim.spawnTurret(self.id, point, 'muniu', 'turret_smg', lifetime, hp).
-        params: { range: 6, hp: 200, lifetime: 15, maxActive: 2 },
+        // turretRange: how far the deployed gun reaches (bots set it down when an enemy is that close)
+        params: { range: 6, hp: 200, lifetime: 15, maxActive: 2, turretRange: 35 },
         targeting: 'point',
         aiHint: 'summon',
       },

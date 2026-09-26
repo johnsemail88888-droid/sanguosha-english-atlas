@@ -41,7 +41,7 @@ registerAbility({
 });
 
 // 离间 (Q): charm the crosshair enemy hero and the nearest other hero within 15 m of it for
-// 2.5 s: they are forced to attack each other. With no other standing hero around, the target
+// 2.5 s: they are forced to attack each other (their shots at each other deal ×dmgMul). With no other standing hero around, the target
 // is charmed onto the nearest unit (troop / NPC / turret) that isn't its own — preferably
 // not yours either, else one of your soldiers (it shoots them instead of you).
 registerAbility({
@@ -56,10 +56,13 @@ registerAbility({
     const heroes = sim
       .queryRadius(a.pos, radius, { kinds: ['hero'], exclude: [self.id, a.id] })
       .filter((h) => standing(h) && flatDist(h.pos, a.pos) <= radius + h.radius && pickable(sim, self, h));
+    // the forced shots hit softer (COMBAT-6: a double near-kill otherwise); the pair forgets
+    // the fight when the charm ends (status.ts)
+    const dmgMul = param(ctx, 'dmgMul', 0.35);
     let b: Entity | undefined = nearestTo(heroes, a.pos);
     if (b) {
-      sim.applyStatus(a.id, 'charm', duration, { sourceId: self.id, params: { targetId: b.id } });
-      sim.applyStatus(b.id, 'charm', duration, { sourceId: self.id, params: { targetId: a.id } });
+      sim.applyStatus(a.id, 'charm', duration, { sourceId: self.id, params: { targetId: b.id, dmgMul } });
+      sim.applyStatus(b.id, 'charm', duration, { sourceId: self.id, params: { targetId: a.id, dmgMul } });
     } else {
       // never its own squad (it can't hurt them); third-party units first, else Diaochan's
       // own soldiers — the target turns its fire on them instead of on her
@@ -68,7 +71,7 @@ registerAbility({
         .filter((u) => u.alive && flatDist(u.pos, a.pos) <= radius + u.radius && pickable(sim, self, u));
       b = nearestTo(units.filter((u) => !sim.isOwnSide(self, u)), a.pos) ?? nearestTo(units, a.pos);
       if (!b) return deny(ctx, 'needOther'); // nobody to turn it on: keep the cooldown
-      sim.applyStatus(a.id, 'charm', duration, { sourceId: self.id, params: { targetId: b.id } });
+      sim.applyStatus(a.id, 'charm', duration, { sourceId: self.id, params: { targetId: b.id, dmgMul } });
     }
     // the event carries the pair: target = the crosshair hero, pos = the one it is turned on
     setCastEvent(ctx, { target: a.id, pos: chestOf(b) });

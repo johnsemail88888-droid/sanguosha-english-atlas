@@ -43,6 +43,7 @@ import { NetError, netErrorText } from './errors';
 import { filterEventsFor, hasPrivateEvents } from './eventFilter';
 import { isPageHidden, watchPageFocus } from './focus';
 import {
+  botFreePickHero,
   botPickHero,
   clampPlayerCount,
   crownSeats,
@@ -56,8 +57,8 @@ import {
 import { LocalView } from './localView';
 import { adaptiveTimeoutMs, maxStepFor, RecentSilence, ResponsiveClock, SILENCE_DECAY_MS, WarmUp } from './stall';
 import { FixedStepLoop } from './ticker';
-import type { Channel, Payload, PeerId, Transport } from './transport';
-import { neutralInput, sanitizeInputPacket } from './validate';
+import type { Channel, LinkState, Payload, PeerId, Transport } from './transport';
+import { isActiveInput, neutralInput, sanitizeInputPacket } from './validate';
 
 export interface FlowTimings {
   /** role card reveal (s) */
@@ -70,6 +71,12 @@ export interface FlowTimings {
   pickReveal: number;
   /** max wait for clients to build the map (s) */
   loadTimeout: number;
+  /**
+   * max wait for the host player's OWN view (setLocalLoading) (s). The clock never starts
+   * behind the host's loading screen before this — downloading the art takes a while on a
+   * slow line; only a view that never settles is given up on (COMBAT-10).
+   */
+  localLoadTimeout: number;
   /** keep simulating after game over (s) */
   postGame: number;
   pingInterval: number;
@@ -105,6 +112,13 @@ export interface FlowTimings {
    * 2 min, see WarmUp in stall.ts).
    */
   warmUp: number;
+  /**
+   * Online: every human hero starts invulnerable and untargetable (bots, troops and
+   * turrets ignore it) until its owner's first active input, for at most this long (s;
+   * 0 = off). A guest the clock did not wait for (still on its loading screen) or a
+   * player not at the controls yet is never shot at (MP2-1).
+   */
+  spawnShield: number;
 }
 
 export const DEFAULT_TIMINGS: FlowTimings = {
@@ -113,6 +127,7 @@ export const DEFAULT_TIMINGS: FlowTimings = {
   pick: 20,
   pickReveal: 1.5,
   loadTimeout: 20,
+  localLoadTimeout: 300,
   postGame: 4,
   pingInterval: 2,
   peerTimeout: 15,
@@ -120,11 +135,14 @@ export const DEFAULT_TIMINGS: FlowTimings = {
   loadGrace: 60,
   loadDropGrace: 20,
   warmUp: 10,
+  spawnShield: 300,
 };
 
 export const MAX_PLAYERS = 8;
 /** extra heroes offered to the lord on top of every lord candidate */
 export const LORD_EXTRA_CHOICES = 3;
+/** 自由选将 in single player: the pick timers run this many times longer (30 heroes to read, UX-10). */
+export const SOLO_FREE_PICK_TIME_MUL = 4;
 const MAX_INPUT_QUEUE = 3;
 /**
  * A client whose input stream has been silent this long (hidden tab, stall,
@@ -139,6 +157,8 @@ export const INPUT_STALE_TICKS = Math.round(0.25 * SIM_HZ);
 export const INPUT_STALE_MAX_TICKS = SIM_HZ;
 /** Time constant (ms) with which a long input gap is forgotten once packets arrive steadily again. */
 const INPUT_GAP_DECAY_MS = 3000;
+/** status key of the host's "relay connection lost — reconnecting…" line (SessionEventMap.status, MP2-8) */
+export const RELAY_LINK_KEY = 'relayLink';
 /** Consecutive throwing sim steps before the match is abandoned (1 s). */
 const MAX_STEP_FAILURES = SIM_HZ;
 /**
@@ -336,6 +356,12 @@ export class HostSession implements GameSession {
   private readonly dropTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** steps of the peer-timeout check in time this page was responsive (stall detection) */
   private pingClock: ResponsiveClock | null = null;
+  /** the transport is re-establishing its own link (relay socket): nobody can hear or reach us */
+  private linkDown = false;
+  /** seats whose hero is still spawn-shielded (timings.spawnShield, MP2-1) */
+  private readonly shielded = new Set<number>();
+  /** sim time at which the spawn shields run out by themselves */
+  private shieldEnd = 0;
 
   constructor(opts: HostSessionOptions) {
     this.transport = opts.transport ?? null;
@@ -371,6 +397,8 @@ export class HostSession implements GameSession {
         t.onPeerLeave((p) => this.onPeerLeave(p)),
         t.onClose((err) => this.onTransportClosed(err)),
       );
+      const offLink = t.onLinkState?.((st) => this.onLinkState(st));
+      if (offLink) this.unsubs.push(offLink);
       this.pingClock = new ResponsiveClock(maxStepFor(this.timings.pingInterval * 1000), now);
       this.pingTimer = setInterval(() => this.pingPeers(), this.timings.pingInterval * 1000);
       this.status('房间已创建，等待玩家加入…', 'Room created — waiting for players…');
@@ -599,7 +627,7 @@ export class HostSession implements GameSession {
 
   /**
    * The host's own 3D view is still loading: keep the match in 'loading' until
-   * `ready` settles (capped by timings.loadTimeout). Called by the UI from its
+   * `ready` settles (capped by timings.localLoadTimeout). Called by the UI from its
    * 'matchStart' handler; without it the match starts as soon as every client
    * reported 'loaded' (the old behaviour).
    */
@@ -692,6 +720,55 @@ export class HostSession implements GameSession {
     } catch (err) {
       console.warn('[net] god mode failed', err);
     }
+  }
+
+  /**
+   * Online match start (MP2-1): every human hero is invulnerable and untargetable — bots,
+   * troops and turrets ignore it — until its owner's first active input (a guest the clock
+   * did not wait for is still on its loading screen; nobody is at the controls the moment the
+   * clock starts), for at most timings.spawnShield. Only at the start: coming back from a
+   * reload later does not make a hero invulnerable again. Sims without statuses: no shield.
+   */
+  private shieldHumans(): void {
+    this.shielded.clear();
+    const sim = this.sim;
+    const w = this.cheatWorld();
+    const secs = this.timings.spawnShield;
+    if (!this.transport || !sim || !w?.applyStatus || !(secs > 0)) return;
+    this.shieldEnd = sim.time + secs;
+    for (const rec of this.seats.values()) {
+      if (!rec.human || this.seatBotControlled(rec.seat)) continue;
+      const id = sim.entityOf(rec.playerId);
+      if (id === null) continue;
+      try {
+        if (!w.applyStatus(id, 'invuln', secs)) continue;
+        w.applyStatus(id, 'untargetable', secs);
+        this.shielded.add(rec.seat);
+      } catch (err) {
+        console.warn('[net] spawn shield failed', err);
+      }
+    }
+  }
+
+  /** The seat's owner took the controls (or a bot took over): its hero can be hurt and targeted again. */
+  private unshield(seat: number): void {
+    if (!this.shielded.delete(seat)) return;
+    const sim = this.sim;
+    const w = this.cheatWorld();
+    const rec = this.seats.get(seat);
+    const id = sim && rec ? sim.entityOf(rec.playerId) : null;
+    if (!w?.removeStatus || id === null) return;
+    try {
+      w.removeStatus(id, 'invuln');
+      w.removeStatus(id, 'untargetable');
+    } catch (err) {
+      console.warn('[net] removing the spawn shield failed', err);
+    }
+  }
+
+  /** Seats whose hero is still spawn-shielded (tests / debug). */
+  get shieldedSeats(): number[] {
+    return [...this.shielded].sort((a, b) => a - b);
   }
 
   private unpause(): void {
@@ -931,6 +1008,7 @@ export class HostSession implements GameSession {
 
   /** A human seat lost its player during the flow: a bot takes over. */
   private humanLostMidMatch(rec: SeatRec): void {
+    this.unshield(rec.seat); // a bot plays it now
     if (this.sim) {
       try {
         this.sim.convertToBot(rec.playerId);
@@ -952,6 +1030,25 @@ export class HostSession implements GameSession {
     if (this.disposed) return;
     const e = err ?? new NetError('closed');
     this.emitter.emit('error', e.toPayload());
+  }
+
+  /**
+   * The relay socket dropped and the transport is getting the room back (MP2-8): the
+   * match goes on; nobody can hear us meanwhile, so nobody's silence counts.
+   */
+  private onLinkState(state: LinkState): void {
+    if (this.disposed) return;
+    const down = state === 'reconnecting';
+    if (down === this.linkDown) return;
+    this.linkDown = down;
+    if (down) {
+      // (the English line starts like a guest's reconnect line: the HUD shows it as the same kind of trouble)
+      this.emitter.emit('status', { zh: '与中转服务器的连接中断，正在重新连接…', en: 'Connection lost (relay server) — reconnecting…', key: RELAY_LINK_KEY });
+      return;
+    }
+    for (const peer of this.peers.values()) peer.silentMs = 0;
+    this.pingClock?.reset();
+    this.emitter.emit('status', { zh: '已重新连接到中转服务器', en: 'Reconnected', key: RELAY_LINK_KEY, clear: true });
   }
 
   private onMessage(from: PeerId, data: Payload, _channel: Channel): void {
@@ -1017,6 +1114,10 @@ export class HostSession implements GameSession {
         if (clean) this.relayChat(rec.name, clean);
         break;
       }
+      case 'ack':
+        // delta baseline acknowledgement from the client's receive path (MP2-6)
+        if (typeof msg.tick === 'number' && msg.tick > peer.snapAck && peer.sent.has(msg.tick)) peer.snapAck = msg.tick;
+        break;
       case 'loaded':
         peer.loaded = true;
         peer.loading = false;
@@ -1131,12 +1232,17 @@ export class HostSession implements GameSession {
   }
 
   private reclaim(peer: PeerRec, rec: SeatRec): void {
-    // replace a connection the host still believes alive (dead link, duplicate tab)
+    // replace a connection the host still believes alive (dead link, duplicate tab). A live
+    // one (the same player's other tab — a duplicated tab holds the same token) is told why:
+    // final, it must not rejoin and take the seat back, or the two tabs swap it forever (MP2-4)
     const oldPeer = rec.peer;
     if (oldPeer && oldPeer !== peer.id) {
       this.peers.delete(oldPeer);
       this.waitingLoad.delete(oldPeer);
-      this.transport?.disconnect(oldPeer);
+      const m = netErrorText('replacedElsewhere');
+      this.sendTo(oldPeer, { t: 'reject', code: 'replacedElsewhere', zh: m.zh, en: m.en });
+      // give the message a moment to flush before dropping the link
+      setTimeout(() => this.transport?.disconnect(oldPeer), 200);
     }
     // back within the drop grace (or replacing a link we still thought alive):
     // nobody was told it left, nothing to announce
@@ -1203,6 +1309,8 @@ export class HostSession implements GameSession {
     // such a stall the timer may run before the messages that queued up meanwhile
     // — no timeout verdicts this round, so they are processed first
     const step = clock.tick();
+    // our own link is being re-established (relay): nobody could reach us meanwhile
+    if (this.linkDown) return;
     for (const peer of [...this.peers.values()]) {
       peer.silentMs += step;
       if (!clock.stalled && peer.silentMs > this.peerTimeoutMs(peer)) {
@@ -1296,11 +1404,11 @@ export class HostSession implements GameSession {
       options: new Map(crowns.map((s) => [s, options[s]])),
       picks: new Map(),
       hints: new Map(),
-      deadlineAt: now() + this.timings.lordPick * 1000,
+      deadlineAt: now() + this.pickSeconds(true) * 1000,
       completing: false,
     };
     this.setPhase('heroSelect');
-    this.runPickPhase(this.timings.lordPick);
+    this.runPickPhase(this.pickSeconds(true));
   }
 
   private beginGeneralPick(): void {
@@ -1319,18 +1427,28 @@ export class HostSession implements GameSession {
       options: new Map(others.map((s) => [s, options[s]])),
       picks: prev.picks,
       hints: new Map(),
-      deadlineAt: now() + this.timings.pick * 1000,
+      deadlineAt: now() + this.pickSeconds(false) * 1000,
       completing: false,
     };
-    this.runPickPhase(this.timings.pick);
+    this.runPickPhase(this.pickSeconds(false));
+  }
+
+  /** Length of a pick phase: 自由选将 in single player gives time to read the whole roster. */
+  private pickSeconds(lordPhase: boolean): number {
+    const s = lordPhase ? this.timings.lordPick : this.timings.pick;
+    return this.settings.freePick && this.transport === null ? s * SOLO_FREE_PICK_TIME_MUL : s;
   }
 
   private runPickPhase(seconds: number): void {
     const token = ++this.flowToken;
     this.after(seconds, () => {
-      if (token !== this.flowToken || !this.pick) return;
-      // time's up: auto-pick for everyone still choosing
-      for (const seat of this.pick.pickers) if (!this.pick.picks.has(seat)) this.autoPick(seat);
+      const pick = this.pick;
+      if (token !== this.flowToken || !pick) return;
+      // time's up: the humans still choosing get the card they were looking at first, then
+      // the bots choose, then anyone left
+      for (const seat of pick.pickers) if (!pick.picks.has(seat) && !this.seatBotControlled(seat)) this.autoPick(seat);
+      this.botPicks(true);
+      for (const seat of pick.pickers) if (!pick.picks.has(seat)) this.autoPick(seat);
       this.broadcastHeroSelect();
       this.checkPickComplete();
     });
@@ -1350,9 +1468,14 @@ export class HostSession implements GameSession {
     return free.length > 0 ? free : opts;
   }
 
-  private botPicks(): void {
+  /**
+   * Bot-controlled seats choose. In 自由选将 the humans choose first (the whole roster is
+   * theirs): the bots wait until every human locked in, or `force` at the deadline (COMBAT-1).
+   */
+  private botPicks(force = false): void {
     const pick = this.pick;
     if (!pick) return;
+    if (this.settings.freePick && !force && [...pick.pickers].some((s) => !pick.picks.has(s) && !this.seatBotControlled(s))) return;
     // real lord first so a bot double never steals from a bot lord's best choice
     const order = [...pick.pickers].sort((a, b) => (a === this.deal?.lordSeat ? -1 : b === this.deal?.lordSeat ? 1 : a - b));
     for (const seat of order) if (!pick.picks.has(seat) && this.seatBotControlled(seat)) this.autoPick(seat);
@@ -1366,7 +1489,14 @@ export class HostSession implements GameSession {
     if (opts.length === 0) return;
     // the hero the player was looking at when the timer ran out, if still free
     const hint = pick.hints.get(seat);
-    const heroId = hint !== undefined && opts.includes(hint) && !this.takenByOther(seat, hint) ? hint : botPickHero(opts, deal.roles[seat], this.heroById, this.rng);
+    if (hint !== undefined && opts.includes(hint) && !this.takenByOther(seat, hint)) {
+      pick.picks.set(seat, hint);
+      return;
+    }
+    const role = deal.roles[seat];
+    const heroId = this.settings.freePick
+      ? botFreePickHero(opts, role, this.heroById, this.rng, { crown: pick.lordPhase, choices: this.settings.heroChoices, extra: LORD_EXTRA_CHOICES })
+      : botPickHero(opts, role, this.heroById, this.rng);
     pick.picks.set(seat, heroId);
   }
 
@@ -1376,6 +1506,7 @@ export class HostSession implements GameSession {
     if (!pick.pickers.has(seat) || pick.picks.has(seat)) return;
     if (!this.availableOptions(seat).includes(heroId)) return;
     pick.picks.set(seat, heroId);
+    this.botPicks(); // 自由选将: the last human locked in → the bots choose now
     this.broadcastHeroSelect();
     this.checkPickComplete();
   }
@@ -1501,7 +1632,10 @@ export class HostSession implements GameSession {
     });
     if (this.debugTimeScale !== 1) loop.setTimeScale(this.debugTimeScale);
     this.loop = loop;
-    this.localView = new LocalView(sim, this.myId, () => loop.alpha());
+    this.localView = new LocalView(sim, this.myId, () => loop.alpha(), (f) => {
+      // the host player took the controls: the spawn shield ends (MP2-1)
+      if (this.shielded.has(0) && isActiveInput(f)) this.unshield(0);
+    });
     // host player: release the controls while the tab is hidden / unfocused
     // (the worker keeps the sim ticking with the last input otherwise)
     const view = this.localView;
@@ -1522,7 +1656,14 @@ export class HostSession implements GameSession {
       this.sendMatchStart(peer);
     }
     const token = this.flowToken;
+    // guests that are still loading after loadTimeout are not waited for any longer (they join
+    // late); the host's own view is (COMBAT-10), up to localLoadTimeout
     this.after(this.timings.loadTimeout, () => {
+      if (token !== this.flowToken || this.phaseValue !== 'loading') return;
+      this.waitingLoad.clear();
+      this.maybeBeginPlaying();
+    });
+    this.after(Math.max(this.timings.loadTimeout, this.timings.localLoadTimeout), () => {
       if (token === this.flowToken && this.phaseValue === 'loading') this.beginPlaying();
     });
     // the UI mounts the view here and may call setLocalLoading() synchronously:
@@ -1592,13 +1733,17 @@ export class HostSession implements GameSession {
     this.waitingLoad.clear();
     this.localLoading = false;
     this.setPhase('playing');
-    this.loop.start();
+    this.shieldHumans();
+    // the HUD mounted by the phase change may already have asked to pause (「点击进入战场」):
+    // setPaused could not freeze a loop that was not running yet, so it starts frozen (UX-11)
+    this.loop.start(this.paused);
   }
 
   /** One authoritative tick. */
   private tick(): void {
     const sim = this.sim;
     if (!sim) return;
+    if (this.shielded.size > 0 && sim.time >= this.shieldEnd) this.shielded.clear(); // ran out by themselves
     if (this.godPlayers.size > 0) {
       const w = this.cheatWorld();
       for (const pid of this.godPlayers) {
@@ -1615,6 +1760,8 @@ export class HostSession implements GameSession {
       }
       const f = peer.inputQueue.shift();
       if (f) {
+        // the player took the controls: the spawn shield ends before this input acts (MP2-1)
+        if (this.shielded.has(rec.seat) && isActiveInput(f)) this.unshield(rec.seat);
         sim.setInput(rec.playerId, f);
         peer.processedSeq = f.seq;
         peer.lastFrame = f;
@@ -1753,7 +1900,14 @@ export class HostSession implements GameSession {
     this.resultValue = r;
     this.postGameTicks = Math.max(1, Math.round(this.timings.postGame * SIM_HZ));
     this.setPhase('gameOver');
-    this.broadcast({ t: 'gameOver', result: r });
+    // with each player's final table (kills, heroes…): a player still loading its view or
+    // just back from a reload gets no snapshot with it any more (MP2-5)
+    for (const peer of this.peers.values()) {
+      if (peer.seat === null) continue;
+      const rec = this.seats.get(peer.seat);
+      const players = rec && rec.peer === peer.id ? this.finalPlayersFor(rec) : undefined;
+      this.sendTo(peer.id, players ? { t: 'gameOver', result: r, players } : { t: 'gameOver', result: r });
+    }
     this.emitter.emit('gameOver', r);
   }
 
@@ -1763,6 +1917,7 @@ export class HostSession implements GameSession {
     this.paused = false;
     this.localLoading = false;
     this.godPlayers.clear();
+    this.shielded.clear();
     this.loop?.stop();
     this.loop = null;
     this.localView?.dispose();

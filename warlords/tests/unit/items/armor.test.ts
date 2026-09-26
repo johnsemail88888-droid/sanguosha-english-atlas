@@ -165,6 +165,30 @@ describe('mounts', () => {
     expect(b.hp).toBeLessThan(400);
   });
 
+  it('麒麟弓: the mount is flung 2–3 m off and the rider cannot climb back on for 5 s (COMBAT-2)', () => {
+    const { w, a, b } = duel();
+    b.hp = b.maxHp = 400;
+    b.hero!.mount = 'chitu';
+    a.hero!.weapons[0] = { id: 'qilin', mag: 5, reserve: 20 };
+    a.hero!.activeSlot = 0;
+    w.setInput(a.hero!.playerId, aimFrame(w, a, chest(b), { buttons: BTN_FIRE | BTN_ADS }));
+    w.step();
+    const horse = w.kindList('loot').find((l) => l.loot?.itemId === 'chitu')!;
+    const d = Math.hypot(horse.pos.x - b.pos.x, horse.pos.z - b.pos.z);
+    expect(d).toBeGreaterThan(1.9);
+    expect(d).toBeLessThan(3.1);
+    w.setInput(a.hero!.playerId, { ...emptyInput(), yaw: 0 });
+    // the rider walks onto it and presses F: locked
+    place(w, b, horse.pos.x, horse.pos.z);
+    send(w, b, aimFrame(w, b, feet(horse)), [{ a: 'interact' }]);
+    w.step();
+    expect(b.hero!.mount).toBeNull();
+    stepN(w, ticks(5));
+    send(w, b, aimFrame(w, b, feet(horse)), [{ a: 'interact' }]);
+    w.step();
+    expect(b.hero!.mount).toBe('chitu');
+  });
+
   it('过河拆桥 knocks the rider off too; a hero keeps a single mount (picking another drops the old one)', () => {
     const { w, a, b } = setup();
     place(w, b, 0, 35);

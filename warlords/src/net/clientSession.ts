@@ -16,9 +16,18 @@
 //    host for its own stall — and it skips its verdict right after a stall so
 //    queued messages are processed first; after a few silent seconds it shows
 //    "Waiting for host…". The hello / rejoin timeouts count responsive time too.
-//  - a P2P rejoin whose signalling server reports the host peer unavailable
-//    (the host's signalling link may be reconnecting) keeps retrying with
-//    backoff for a while before the room counts as gone.
+//  - on the WebSocket relay the host's silence alone never ends the session
+//    while the relay answers (it says 'hostLeft' when the host really goes, and
+//    keeps the room while the host's own socket reconnects): a host frozen while
+//    it loads the match is waited for (MP2-1).
+//  - an automatic rejoin that cannot find the host (P2P: its peer id vanished
+//    from the signalling server while its page was frozen; timeouts) keeps
+//    trying with backoff for REJOIN_WINDOW_MS and says so (status key
+//    'hostUnreachable', retryNow()) — it never turns into "the host left"
+//    (MP2-2). A connection replaced by the same player's newer one (a
+//    duplicated tab) is told so and does not rejoin (MP2-4).
+//  - the newest snapshot is acknowledged from the receive path too, not only
+//    in input packets: a guest rendering at < 1 fps keeps getting deltas (MP2-6).
 //  - when the page is hidden / loses focus the local player's controls are
 //    released immediately (the host also neutralizes a silent client).
 import type { MapData } from '../core/map';
@@ -60,17 +69,19 @@ export interface ClientSessionOptions {
   token?: string;
   /** opens a new transport to the same room: enables automatic rejoin after a drop */
   reconnect?: () => Promise<Transport>;
-  /** delays (ms) before each rejoin attempt; default [0, 1500, 3000, 5000] */
+  /** delays (ms) before the first rejoin attempts; default [0, 1500, 3000, 5000], then every 5 s */
   rejoinDelaysMs?: readonly number[];
   /**
-   * A rejoin answered "room not found" keeps retrying (with backoff, without
-   * using up the attempts above) for this long, in responsive ms, before the
-   * room counts as gone. PeerJS reports the host peer unavailable while the
-   * host's signalling link is reconnecting — its data channels, and the room,
-   * are fine. Default: ROOM_NOT_FOUND_RETRY_MS on 'peer' transports, 0 on the
-   * relay (which knows its rooms) and loopback.
+   * An automatic rejoin that cannot reach the host ("room not found": PeerJS reports
+   * the host peer unavailable while the host's page is frozen or its signalling link
+   * reconnects; timeouts; the relay down) keeps trying for this long, in responsive ms,
+   * before the session ends with the original connection error (default
+   * REJOIN_WINDOW_MS). Answers that make it pointless (kicked, room full, version,
+   * the host closed the room) end it at once (MP2-2).
    */
-  roomNotFoundRetryMs?: number;
+  rejoinWindowMs?: number;
+  /** pause between rejoin attempts after rejoinDelaysMs (ms, default REJOIN_RETRY_MS; tests) */
+  rejoinRetryMs?: number;
   /** host silent this long ⇒ 'status' "Waiting for host…" (ms, default 3000) */
   waitingStatusMs?: number;
   /** host-silence watchdog period (ms, default 1000; tests) */
@@ -95,11 +106,30 @@ const now = (): number => performance.now();
 
 /** Losses worth an automatic rejoin (the room may still be there). */
 const RECOVERABLE: ReadonlySet<NetErrorCode> = new Set<NetErrorCode>(['connectionLost', 'timeout', 'networkRestricted', 'serverUnreachable', 'closed']);
-/** Rejoin answers that make further attempts pointless. */
-const FINAL_REJOIN: ReadonlySet<NetErrorCode> = new Set<NetErrorCode>(['inProgress', 'roomFull', 'versionMismatch', 'kicked', 'hostLeft', 'roomNotFound']);
+/**
+ * Rejoin failures that do not mean the room is gone — the host may be frozen, its peer id
+ * may come back to the signalling server, the relay may be restarting: keep trying for the
+ * rejoin window (MP2-2). Anything else (kicked, full, version, the host closed the room…)
+ * ends the rejoin at once.
+ */
+const TRANSIENT_REJOIN: ReadonlySet<NetErrorCode> = new Set<NetErrorCode>(['roomNotFound', 'timeout', 'networkRestricted', 'serverUnreachable', 'connectionLost', 'closed']);
 const DEFAULT_REJOIN_DELAYS = [0, 1500, 3000, 5000];
-/** P2P: how long a rejoin retries "room not found" (host peer unavailable) before giving up (responsive ms). */
-export const ROOM_NOT_FOUND_RETRY_MS = 30_000;
+/** How long an automatic rejoin keeps trying to reach a host it cannot find (responsive ms, MP2-2). */
+export const REJOIN_WINDOW_MS = 120_000;
+/** Pause between rejoin attempts once the first ones (rejoinDelaysMs) failed (ms). */
+export const REJOIN_RETRY_MS = 5000;
+/**
+ * P2P reload rejoin (joinOnlineSession, a tab holding a seat token): how long "room not
+ * found" (host peer unavailable — a frozen host) is retried, in responsive ms: as long as
+ * an automatic rejoin keeps trying (MP2-2; it was 30 s).
+ */
+export const ROOM_NOT_FOUND_RETRY_MS = REJOIN_WINDOW_MS;
+/**
+ * The newest snapshot is acknowledged from the receive path when no input packet carried
+ * an ack for this long (ms): input packets go out once per rendered frame, so a guest at
+ * < 1 fps would otherwise fall behind DELTA_HISTORY and get full snapshots (MP2-6).
+ */
+export const ACK_INTERVAL_MS = 100;
 
 /** Backoff before the n-th retry of a "room not found" answer (ms): 1 s, 2 s, 4 s, then every 5 s. */
 export function roomNotFoundBackoffMs(retry: number): number {
@@ -137,6 +167,8 @@ export async function openRetryingRoomNotFound<T>(open: () => Promise<T>, retryM
 const CHECK_INTERVAL_MS = 1000;
 /** status key of the "Waiting for host…" line (SessionEventMap.status) */
 export const WAITING_HOST_KEY = 'waitingHost';
+/** status key of the "cannot reach the host, retrying…" line of an automatic rejoin (MP2-2) */
+export const HOST_UNREACHABLE_KEY = 'hostUnreachable';
 
 const TOKEN_KEY = (room: string): string => `sgwl-seat-${room}`;
 
@@ -188,7 +220,8 @@ export class ClientSession implements GameSession {
   private readonly roomCode: string | undefined;
   private readonly reconnectFn: (() => Promise<Transport>) | null;
   private readonly rejoinDelays: readonly number[];
-  private readonly roomNotFoundRetryMs: number;
+  private readonly rejoinWindowMs: number;
+  private readonly rejoinRetryMs: number;
   private readonly waitingStatusMs: number;
   private readonly checkIntervalMs: number;
   private readonly hostLoadingTimeoutMs: number;
@@ -219,7 +252,7 @@ export class ClientSession implements GameSession {
   private localLoadPending: Promise<void> | null = null;
   private lastHint: string | null = null;
   /** how long the host has been silent, in time this page was responsive (ms) */
-  private hostSilentMs = 0;
+  private hostSilentMs_ = 0;
   /** the host's longest recent silence (decaying): after a long one the timeout is raised for a while */
   private readonly recentHostSilence = new RecentSilence(SILENCE_DECAY_MS, now);
   /** steps of the host-silence watchdog (stall-aware) */
@@ -231,6 +264,16 @@ export class ClientSession implements GameSession {
   private welcomed = false;
   private everWelcomed = false;
   private rejoining = false;
+  /** the automatic rejoin cannot find the host and keeps trying (status 'hostUnreachable') */
+  private unreachable = false;
+  /** responsive-time budget of the running automatic rejoin (retryNow restarts it) */
+  private rejoinBudget: StallAwareTimeout | null = null;
+  /** ends the rejoin's current pause between attempts early (retryNow) */
+  private rejoinWake: (() => void) | null = null;
+  /** the host's clock runs: a snapshot of the current match arrived (kept across a rejoin into it) */
+  private hostStarted = false;
+  /** when the newest snapshot was last acknowledged (input packet or 'ack') */
+  private lastAckAt = 0;
   private closed = false;
   private hidden = isPageHidden();
   /** last built map: a rejoin or the next match on the same seed skips the rebuild */
@@ -262,7 +305,8 @@ export class ClientSession implements GameSession {
     this.roomCode = opts.roomCode;
     this.reconnectFn = opts.reconnect ?? null;
     this.rejoinDelays = opts.rejoinDelaysMs?.length ? opts.rejoinDelaysMs : DEFAULT_REJOIN_DELAYS;
-    this.roomNotFoundRetryMs = Math.max(0, opts.roomNotFoundRetryMs ?? (opts.transport.kind === 'peer' ? ROOM_NOT_FOUND_RETRY_MS : 0));
+    this.rejoinWindowMs = Math.max(0, opts.rejoinWindowMs ?? REJOIN_WINDOW_MS);
+    this.rejoinRetryMs = Math.max(10, opts.rejoinRetryMs ?? REJOIN_RETRY_MS);
     this.waitingStatusMs = opts.waitingStatusMs ?? 3000;
     this.checkIntervalMs = Math.max(10, opts.checkIntervalMs ?? CHECK_INTERVAL_MS);
     this.watchClock = new ResponsiveClock(maxStepFor(this.checkIntervalMs), now);
@@ -287,7 +331,7 @@ export class ClientSession implements GameSession {
     this.detach(false);
     this.transport = t;
     this.hostId = t.hostId;
-    this.hostSilentMs = 0;
+    this.hostSilentMs_ = 0;
     this.watchClock.reset();
     this.transportUnsubs = [
       t.onMessage((from, data, ch) => this.onMessage(from, data, ch)),
@@ -395,6 +439,31 @@ export class ClientSession implements GameSession {
     return this.waitingHost;
   }
 
+  /** How long the host has been silent, in ms this page was responsive (a "等待房主响应… N 秒" counter). */
+  get hostSilentMs(): number {
+    return this.welcomed ? this.hostSilentMs_ : 0;
+  }
+
+  /** true while the automatic rejoin cannot reach the host and keeps trying (status key 'hostUnreachable'). */
+  get hostUnreachable(): boolean {
+    return this.unreachable;
+  }
+
+  /** The match view exists but the host's clock has not started yet (phase 'loading' until the first snapshot). */
+  get awaitingHostStart(): boolean {
+    return this.viewValue !== null && !this.hostStarted && this.phaseValue === 'loading';
+  }
+
+  /**
+   * During an automatic rejoin: try again now instead of waiting out the pause, and keep
+   * trying for the full rejoin window again (the player chose 重试). No-op otherwise.
+   */
+  retryNow(): void {
+    if (this.closed || !this.rejoining) return;
+    this.restartRejoinBudget();
+    this.rejoinWake?.();
+  }
+
   on<K extends SessionEvent>(ev: K, cb: (payload: SessionEventMap[K]) => void): () => void {
     return this.emitter.on(ev, cb);
   }
@@ -459,11 +528,11 @@ export class ClientSession implements GameSession {
   // ── inbound ──────────────────────────────────────────────────────────────
   private onMessage(from: PeerId, data: Payload, _ch: Channel): void {
     if (this.closed || from !== this.hostId) return;
-    if (this.hostSilentMs > 0) this.recentHostSilence.note(this.hostSilentMs);
-    this.hostSilentMs = 0;
+    if (this.hostSilentMs_ > 0) this.recentHostSilence.note(this.hostSilentMs_);
+    this.hostSilentMs_ = 0;
     if (this.waitingHost) {
       this.waitingHost = false;
-      this.emitter.emit('status', { zh: '主机已恢复响应', en: 'Host is responding again', key: WAITING_HOST_KEY, clear: true });
+      this.emitter.emit('status', { zh: '房主已恢复响应', en: 'Host is responding again', key: WAITING_HOST_KEY, clear: true });
     }
     if (typeof data !== 'string') {
       if (binaryTag(data) === BIN_SNAPSHOT) this.onSnapshot(data);
@@ -485,10 +554,29 @@ export class ClientSession implements GameSession {
         if (first) this.hostWarmUp.start();
         this.hostWarmUp.beat();
         view.onSnapshot(got.snap, got.byId);
+        this.ackFromReceivePath(rx);
+        if (!this.hostStarted) {
+          // the host's clock runs: out of 等待房主加载… into the match (MP2-1)
+          this.hostStarted = true;
+          if (this.phaseValue === 'loading') this.setPhase(this.resultValue ? 'gameOver' : 'playing');
+        }
       }
     } catch (err) {
       console.warn('[net] bad snapshot dropped', err);
     }
+  }
+
+  /**
+   * Acknowledge the newest snapshot now unless an input packet did so recently (MP2-6):
+   * those go out once per rendered frame, and a guest at < 1 fps would otherwise hold
+   * only baselines the host forgot (DELTA_HISTORY) and get full snapshots.
+   */
+  private ackFromReceivePath(rx: SnapshotReceiver): void {
+    if (this.rejoining || rx.newest < 0) return;
+    const t = now();
+    if (t - this.lastAckAt < ACK_INTERVAL_MS) return;
+    this.lastAckAt = t;
+    this.transport.send(this.hostId, encodeJson({ t: 'ack', tick: rx.newest } satisfies ClientMsg), 'unreliable');
   }
 
   private handle(msg: HostMsg): void {
@@ -499,6 +587,11 @@ export class ClientSession implements GameSession {
       return;
     }
     switch (msg.t) {
+      case 'reject':
+        // our seat went to this player's newer connection (a duplicated tab, MP2-4): final —
+        // rejoining would take it back and start a reconnect storm between the two
+        this.fatal(new NetError(asErrorCode(msg.code, 'replacedElsewhere')));
+        break;
       case 'lobby':
         this.lobbyValue = msg.lobby;
         this.syncSeat();
@@ -624,11 +717,12 @@ export class ClientSession implements GameSession {
       this.phaseValue = phase;
     }
     if (this.watchdog) clearInterval(this.watchdog);
-    this.hostSilentMs = 0;
+    this.hostSilentMs_ = 0;
     this.watchClock.reset();
     this.watchdog = setInterval(() => this.checkHost(), this.checkIntervalMs);
     this.handshake?.resolve();
-    if (rejoin) this.emitter.emit('status', { zh: '已重新连接', en: 'Reconnected' });
+    if (rejoin && this.unreachable) this.emitter.emit('status', { zh: '已重新连接', en: 'Reconnected', key: HOST_UNREACHABLE_KEY, clear: true });
+    else if (rejoin) this.emitter.emit('status', { zh: '已重新连接', en: 'Reconnected' });
     else this.emitter.emit('status', { zh: '已连接到房间', en: 'Connected to the room' });
   }
 
@@ -641,7 +735,7 @@ export class ClientSession implements GameSession {
       this.snapshots = new SnapshotReceiver(new StringTable(msg.strings));
       view.resetNetState();
       this.sendLoadedWhen(this.localLoadPending, this.matchToken);
-      this.setPhase(this.resultValue ? 'gameOver' : 'playing');
+      this.setPhase(this.resultValue ? 'gameOver' : this.hostStarted ? 'playing' : 'loading');
       this.emitter.emit('matchStart', view);
       return;
     }
@@ -684,7 +778,10 @@ export class ClientSession implements GameSession {
         if (this.closed || this.rejoining) return;
         // acknowledge the newest snapshot of the current stream (a rejoin swaps the receiver)
         const rx = this.snapshots;
-        if (rx && rx.newest >= 0) pkt.snapAck = rx.newest;
+        if (rx && rx.newest >= 0) {
+          pkt.snapAck = rx.newest;
+          this.lastAckAt = now();
+        }
         this.transport.send(this.hostId, encodeInputMsg(pkt), 'unreliable');
       },
     });
@@ -695,11 +792,13 @@ export class ClientSession implements GameSession {
     this.pendingPlayers = null;
     const over = this.resultValue;
     // the UI mounts the view on the phase change / matchStart and may hand over
-    // its load promise (setLocalLoading) meanwhile: 'loaded' waits for it
+    // its load promise (setLocalLoading) meanwhile: 'loaded' waits for it. Until the
+    // host's clock runs (its first snapshot) the phase stays 'loading': the host, or
+    // a slower guest, may still be loading (MP2-1)
     this.localLoad = null;
     this.acceptLocalLoad = true;
     try {
-      this.setPhase(over ? 'gameOver' : 'playing');
+      this.setPhase(over ? 'gameOver' : this.hostStarted ? 'playing' : 'loading');
       this.emitter.emit('matchStart', view);
     } finally {
       this.acceptLocalLoad = false;
@@ -740,6 +839,7 @@ export class ClientSession implements GameSession {
     this.viewValue = null;
     this.snapshots = null;
     this.hostWarmUp.reset();
+    this.hostStarted = false;
     this.currentMatch = null;
     this.localLoadPending = null;
     this.heroSelectValue = null;
@@ -759,24 +859,27 @@ export class ClientSession implements GameSession {
     // stall-aware (APP-6, NET-4): only time this page was responsive counts — a
     // page frozen building the scene (slow device), compiling shaders or in a
     // throttled tab could neither hear the host nor answer it meanwhile
-    this.hostSilentMs += this.watchClock.tick();
+    this.hostSilentMs_ += this.watchClock.tick();
     // right after such a stall the host's messages that queued up behind it may
     // not have been dispatched yet: no verdict this round
     if (this.watchClock.stalled) return;
-    const silent = this.hostSilentMs;
+    const silent = this.hostSilentMs_;
     // no snapshot yet in this match, or not steadily yet: the host is still loading it /
     // rendering its first frames (its page may be frozen)
     const hostLoading = this.currentMatch !== null && (this.snapshots === null || this.snapshots.newest < 0 || this.hostWarmUp.active);
     const loadingLimit = Math.max(this.hostTimeoutMs, this.hostLoadingTimeoutMs);
     // after a long silence (a host busy with its first frames) the timeout stays raised for a while
     const limit = hostLoading ? loadingLimit : adaptiveTimeoutMs(this.hostTimeoutMs, this.recentHostSilence.current(), loadingLimit);
-    if (silent > limit) {
+    // on the relay, a silent host is not a gone host while the relay answers: it says
+    // 'hostLeft' when the host really goes (and keeps the room while the host's own socket
+    // reconnects) — a host frozen for minutes loading the match is waited for (MP2-1)
+    if (silent > limit && !this.transport.hostPresenceWatched?.()) {
       this.lost(new NetError('connectionLost'));
       return;
     }
     if (silent > this.waitingStatusMs && !this.waitingHost) {
       this.waitingHost = true;
-      this.emitter.emit('status', { zh: '等待主机响应…', en: 'Waiting for host…', key: WAITING_HOST_KEY });
+      this.emitter.emit('status', { zh: '等待房主响应…', en: 'Waiting for host…', key: WAITING_HOST_KEY });
     }
     // measure our own RTT occasionally (host pings drive its view of us)
     if (++this.pingSeq % 3 === 0) this.send({ t: 'ping', id: this.pingSeq, ts: now() });
@@ -797,6 +900,15 @@ export class ClientSession implements GameSession {
     this.fatal(err);
   }
 
+  /**
+   * Reopen the link and reclaim the seat with the token. Attempts follow rejoinDelays,
+   * then every REJOIN_RETRY_MS, for up to rejoinWindowMs of responsive time while the
+   * failures are transient (MP2-2): a frozen P2P host's peer id is gone from the
+   * signalling server until its page wakes up ("room not found"), a relay may be
+   * restarting. Once the quick attempts failed — or at the first "room not found" — the
+   * session says so (status 'hostUnreachable'; retryNow() / leave()). Out of time, it
+   * ends with the original connection error (never "the host left": nobody said so).
+   */
   private async rejoin(cause: NetError): Promise<void> {
     this.rejoining = true;
     this.welcomed = false;
@@ -807,44 +919,82 @@ export class ClientSession implements GameSession {
     this.watchdog = null;
     this.emitter.emit('status', { zh: '连接中断，正在重新连接…', en: 'Connection lost — reconnecting…' });
     const reconnect = this.reconnectFn as () => Promise<Transport>;
+    this.restartRejoinBudget();
     let final: NetError | null = null;
-    for (const delay of this.rejoinDelays) {
-      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
-      if (this.closed) return;
-      let t: Transport;
-      try {
-        // P2P: "room not found" may only mean the host's signalling link is reconnecting
-        t = await openRetryingRoomNotFound(reconnect, this.roomNotFoundRetryMs, () => this.closed);
-      } catch (e) {
+    try {
+      for (let attempt = 0; ; attempt++) {
+        const delay = attempt < this.rejoinDelays.length ? this.rejoinDelays[attempt] : this.rejoinRetryMs;
+        if (delay > 0) await this.rejoinPause(delay);
         if (this.closed) return;
-        if (e instanceof NetError && FINAL_REJOIN.has(e.code)) {
-          final = e;
+        if (attempt > 0 && !this.rejoinBudget?.pending) break; // out of time
+        let err: NetError | null = null;
+        let t: Transport | null = null;
+        try {
+          t = await reconnect();
+        } catch (e) {
+          err = e instanceof NetError ? e : new NetError('connectionLost', e instanceof Error ? e.message : undefined);
+        }
+        if (this.closed) {
+          t?.close();
+          return;
+        }
+        if (t) {
+          this.attach(t);
+          try {
+            await this.handshakeWith(this.helloTimeoutMs);
+            this.rejoining = false;
+            this.setUnreachable(false);
+            return;
+          } catch (e) {
+            this.detach(true);
+            if (this.closed) return;
+            err = e instanceof NetError ? e : new NetError('timeout');
+          }
+        }
+        err ??= new NetError('connectionLost');
+        if (!TRANSIENT_REJOIN.has(err.code)) {
+          final = err;
           break;
         }
-        continue;
+        if (err.code === 'roomNotFound') console.info(`[net] rejoin: room not found (host peer unavailable?) — asking again in ${this.rejoinRetryMs / 1000} s`);
+        // the host cannot be found (P2P: its peer id is gone — a frozen host), or the quick
+        // attempts are used up: tell the player, keep trying
+        if (err.code === 'roomNotFound' || attempt >= this.rejoinDelays.length - 1) this.setUnreachable(true);
       }
-      if (this.closed) {
-        t.close();
-        return;
-      }
-      this.attach(t);
-      try {
-        await this.handshakeWith(this.helloTimeoutMs);
-        this.rejoining = false;
-        return;
-      } catch (e) {
-        this.detach(true);
-        if (this.closed) return;
-        if (e instanceof NetError && FINAL_REJOIN.has(e.code)) {
-          final = e;
-          break;
-        }
-      }
+    } finally {
+      this.rejoinBudget?.cancel();
+      this.rejoinBudget = null;
+      this.rejoinWake = null;
     }
     this.rejoining = false;
     if (this.closed) return;
-    // the room vanished while we were away: the host is gone
-    this.fatal(final ? (final.code === 'roomNotFound' ? new NetError('hostLeft') : final) : cause);
+    this.fatal(final ?? cause);
+  }
+
+  /** (Re)start the rejoin's responsive-time budget (rejoinWindowMs). */
+  private restartRejoinBudget(): void {
+    this.rejoinBudget?.cancel();
+    this.rejoinBudget = new StallAwareTimeout(this.rejoinWindowMs, () => this.rejoinWake?.());
+  }
+
+  /** Wait `ms` between rejoin attempts (retryNow and the end of the budget cut it short). */
+  private rejoinPause(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        if (this.rejoinWake === done) this.rejoinWake = null;
+        resolve();
+      };
+      const timer = setTimeout(done, ms);
+      this.rejoinWake = done;
+    });
+  }
+
+  private setUnreachable(on: boolean): void {
+    if (this.unreachable === on) return;
+    this.unreachable = on;
+    // (the English line starts like the reconnect line: a UI that only knows that one shows it as the same trouble)
+    if (on) this.emitter.emit('status', { zh: '暂时联系不上房主，正在重试…', en: 'Connection lost — cannot reach the host, retrying…', key: HOST_UNREACHABLE_KEY });
   }
 
   /** Report a terminal error and close the session. */
@@ -872,6 +1022,9 @@ export class ClientSession implements GameSession {
     this.matchToken++;
     if (this.watchdog) clearInterval(this.watchdog);
     this.watchdog = null;
+    // a running rejoin stops at once (its loop sees `closed`)
+    this.rejoinBudget?.cancel();
+    this.rejoinWake?.();
     this.unwatchFocus?.();
     this.unwatchFocus = null;
     this.detach(true);
@@ -901,6 +1054,8 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<NetErrorCode>([
   'simFailed',
   'unsupported',
   'closed',
+  'replacedElsewhere',
+  'relayLost',
 ]);
 
 function asErrorCode(code: string, fallback: NetErrorCode): NetErrorCode {

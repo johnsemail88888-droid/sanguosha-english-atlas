@@ -4,6 +4,7 @@
 // not finish a hero it has no strong loyal read on before its push.
 import { describe, expect, it } from 'vitest';
 import type { Entity, GameEvent, RoleId } from '../../../src/core/types';
+import { emptyInput } from '../../../src/core/types';
 import { HeroBot } from '../../../src/sim/ai/heroBot';
 import { DIFFICULTY_PROFILES } from '../../../src/sim/ai/difficulty';
 import { teamPushAt } from '../../../src/sim/ai/strategy';
@@ -33,6 +34,9 @@ function world(roles: RoleId[], bots: number[], heroes: string[]): { w: World; b
   return { w, bot: (seat) => made.get(seat)! };
 }
 
+let seq = 50_000;
+const emptyInputFrame = () => emptyInput(seq++);
+
 function run(w: World, ticks: number): GameEvent[] {
   const out: GameEvent[] = [];
   for (let t = 0; t < ticks; t++) {
@@ -46,21 +50,22 @@ type Strat = { strategy: { pushAt: number } };
 const pushAt = (b: HeroBot): number => (b as unknown as Strat).strategy.pushAt;
 
 describe('rebel push timing', () => {
-  it('all rebels of a table plan the same late push (lootPhase + 285..395 s, + a few seconds each)', () => {
+  it('all rebels of a table plan the same late push (lootPhase + 295..405 s, + a few seconds each)', () => {
     const heroes = ['caocao', 'guanyu', 'zhangfei', 'lubu', 'machao', 'zhaoyun', 'huangzhong', 'xuchu'];
     const { w, bot } = world(STD8, [3, 4, 5, 6], heroes);
     STD8.forEach((_, i) => place(w, hero(w, i), i * 12 - 50, 60));
     w.step();
     const n = DIFFICULTY_PROFILES.normal;
     const team = teamPushAt(w, n);
-    expect(team).toBeGreaterThanOrEqual(n.lootPhase + 285);
-    expect(team).toBeLessThanOrEqual(n.lootPhase + 395);
+    expect(team).toBeGreaterThanOrEqual(n.lootPhase + 295);
+    expect(team).toBeLessThanOrEqual(n.lootPhase + 405);
     const times = [3, 4, 5, 6].map((s) => pushAt(bot(s)));
     for (const t of times) {
       expect(t).toBeGreaterThanOrEqual(team);
       expect(t).toBeLessThanOrEqual(team + 20);
     }
-    // the decisive push is in the second half of an 8–12 minute match (≥ 6:40 on normal)
+    // the decisive push comes late in the match (≥ 6:50 on normal): the early minutes belong to the
+    // skirmishes between rebels who admitted it and the loyalists who hunt them (COMBAT-3)
     expect(Math.min(...times)).toBeGreaterThanOrEqual(400);
   });
 
@@ -122,5 +127,53 @@ describe('rebel mercy', () => {
     expect((bot as unknown as { mercy(t: Entity): boolean }).mercy(x)).toBe(true);
     x.hp = x.maxHp * 0.9;
     expect((bot as unknown as { mercy(t: Entity): boolean }).mercy(x)).toBe(false);
+  });
+});
+
+describe('the identity game starts earlier (COMBAT-3)', () => {
+  type Strat = { strategy: { suspectNear(v: HeroBot, lp: { x: number; y: number; z: number }): { x: number; z: number } | undefined } };
+
+  it('a loyalist hunts a rebel who admitted it (跳反) up to 75 m from the lord — a mere suspect only within 55 m', () => {
+    const { w, bot } = world(STD5, [1], ['caocao', 'guanyu', 'guanyu', 'guanyu', 'guanyu']);
+    const [lord, loyal, rebel, other] = [hero(w, 0), hero(w, 1), hero(w, 2), hero(w, 3)];
+    for (const e of [lord, rebel, other]) e.maxHp = e.hp = 1e4;
+    place(w, lord, 0, -50);
+    place(w, loyal, 0, -10);
+    place(w, rebel, 0, 20); // 70 m from the lord, in the loyalist's sight
+    place(w, other, 55, 55);
+    place(w, hero(w, 4), -55, 55);
+    setTime(w, 250);
+    run(w, 30);
+    const s = (bot(1) as unknown as Strat).strategy;
+    expect(s.suspectNear(bot(1), lord.pos)).toBeUndefined(); // nothing admitted yet
+    w.setInput('p2', { ...emptyInputFrame(), actions: [{ a: 'claim', role: 'rebel' }] });
+    run(w, 30);
+    const goal = s.suspectNear(bot(1), lord.pos);
+    expect(goal).toBeDefined();
+    expect(Math.hypot(goal!.x - rebel.pos.x, goal!.z - rebel.pos.z)).toBeLessThan(3);
+  });
+
+  it('rebels stand together: a stranger shooting a fellow rebel who admitted it (跳反) is hostile', () => {
+    const { w, bot } = world(STD5, [2], ['caocao', 'guanyu', 'guanyu', 'guanyu', 'guanyu']);
+    const [loyal, me, mate] = [hero(w, 1), hero(w, 2), hero(w, 3)];
+    for (const e of [loyal, mate]) e.maxHp = e.hp = 1e4;
+    place(w, hero(w, 0), -55, -55);
+    place(w, hero(w, 4), 55, -55);
+    place(w, mate, 0, 20);
+    place(w, me, 8, 26);
+    place(w, loyal, 0, -8, 0); // 28 m from the mate, facing it
+    setTime(w, 250);
+    run(w, 15);
+    w.setInput('p3', { ...emptyInputFrame(), actions: [{ a: 'claim', role: 'rebel' }] });
+    run(w, 15);
+    const before = bot(2).hostility(loyal);
+    for (let t = 0; t < 30 * 2; t++) {
+      if (t % 10 === 0) w.dealDamage({ targetId: mate.id, sourceId: loyal.id, amount: 15, type: 'normal', weaponId: 'pistol' });
+      w.step();
+      w.drainEvents();
+    }
+    expect(before).toBeLessThan(0.84);
+    expect(bot(2).hostility(loyal)).toBeGreaterThanOrEqual(0.95);
+    expect(bot(2).wouldEngage(loyal)).toBe(true);
   });
 });

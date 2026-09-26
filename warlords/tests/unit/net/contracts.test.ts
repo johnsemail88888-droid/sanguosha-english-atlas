@@ -77,6 +77,32 @@ describe('setPaused (single player)', () => {
     }
   });
 
+  it('a pause asked for while "playing" is being entered (the HUD\'s 点击进入战场) holds: the match starts frozen (UX-11)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance', 'Date'] });
+    const { host, sims } = localHost();
+    // the HUD mounts on the phase change and immediately opens "click to play"
+    host.on('phase', (p) => {
+      if (p === 'playing') host.setPaused(true);
+    });
+    try {
+      host.start();
+      for (let i = 0; i < 300 && host.phase !== 'playing'; i++) vi.advanceTimersByTime(20);
+      expect(host.phase).toBe('playing');
+      const sim = sims[0];
+      const t0 = sim.time;
+      vi.advanceTimersByTime(3000);
+      expect(host.isPaused).toBe(true);
+      expect(host.debugState()).toMatchObject({ phase: 'playing', paused: true, loopRunning: true });
+      expect(sim.time).toBe(t0); // bots, zone and clock wait for the click
+      host.setPaused(false); // clicked in
+      vi.advanceTimersByTime(1000);
+      expect(sim.time - t0).toBeGreaterThan(0.85);
+      expect(sim.time - t0).toBeLessThan(1.15);
+    } finally {
+      host.leave();
+    }
+  });
+
   it('is ignored outside "playing"; a phase change resumes the match', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance', 'Date'] });
     const { host } = localHost();
@@ -130,8 +156,25 @@ describe('setLocalLoading (the match clock waits for the local view)', () => {
     }
   });
 
-  it('host: a view that never gets ready is capped by loadTimeout', async () => {
-    const { host } = localHost({ loadTimeout: 0.5 });
+  it('single player: the clock waits for a slow view past loadTimeout — nobody else is waiting (COMBAT-10)', async () => {
+    const { host } = localHost({ loadTimeout: 0.3, localLoadTimeout: 30 });
+    const d = deferred();
+    host.on('matchStart', () => host.setLocalLoading(d.promise));
+    try {
+      host.start();
+      await waitFor(() => host.phase === 'loading', 5000, 'loading');
+      await sleep(900); // 3× loadTimeout: the art is still downloading
+      expect(host.phase).toBe('loading');
+      expect(host.debugState().loopRunning).toBe(false);
+      d.resolve();
+      await waitFor(() => host.phase === 'playing', 1000, 'playing once the view is ready');
+    } finally {
+      host.leave();
+    }
+  });
+
+  it('host: a view that never gets ready is capped by localLoadTimeout (changed: was loadTimeout)', async () => {
+    const { host } = localHost({ loadTimeout: 0.2, localLoadTimeout: 0.8 });
     let at = 0;
     host.on('matchStart', () => {
       at = performance.now();
@@ -140,11 +183,29 @@ describe('setLocalLoading (the match clock waits for the local view)', () => {
     try {
       host.start();
       await waitFor(() => host.phase === 'playing', 5000, 'playing by timeout');
-      expect(performance.now() - at).toBeGreaterThanOrEqual(450);
+      expect(performance.now() - at).toBeGreaterThanOrEqual(750);
     } finally {
       host.leave();
     }
   });
+
+  it('online: the load timeout stops waiting for slow guests, never for the host\'s own view (COMBAT-10)', async () => {
+    const h = makeHost({ seed: 5, timings: { loadTimeout: 0.3, localLoadTimeout: 30 } });
+    const a = await addClient(h, 'A');
+    const b = await addClient(h, 'B');
+    const hostView = deferred();
+    h.host.on('matchStart', () => h.host.setLocalLoading(hostView.promise));
+    b.session.on('matchStart', () => b.session.setLocalLoading(new Promise<void>(() => {}))); // B never loads
+    autoPick(h);
+    h.host.start();
+    await waitFor(() => a.session.view !== null, 5000, 'client view');
+    await sleep(900);
+    expect(h.host.phase).toBe('loading'); // the host still loads: no clock
+    hostView.resolve();
+    // B is not waited for any longer (past loadTimeout): the match starts with the host's view
+    await waitFor(() => h.host.phase === 'playing', 1000, 'host playing');
+  });
+
 
   it('host: a failed view load does not block the match', async () => {
     const { host } = localHost({ loadTimeout: 5 });

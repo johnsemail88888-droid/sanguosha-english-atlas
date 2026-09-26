@@ -3,11 +3,20 @@
 //
 // Protocol v1 (mirrors src/net/wsTransport.ts):
 //  control = JSON text frames
-//    → {op:'create', v, code?}          ← {op:'created', code, id, hostId}
+//    → {op:'create', v, code?}          ← {op:'created', code, id, hostId, secret}
 //    → {op:'join', v, code}             ← {op:'joined', code, id, hostId}
+//    → {op:'resume', v, code, secret}   ← {op:'resumed', code, id, hostId, peers}   (host back after a drop)
 //    → {op:'kick', id}   (host only)
+//    → {op:'ping'}                      ← {op:'pong', host?}   (host: is the room's host connected)
 //    ← {op:'peerJoin', id} / {op:'peerLeave', id}   (to the host)
 //    ← {op:'hostLeft'} (to clients, then closed) / {op:'error', code, message}
+//  (additive over the first v1: older clients ignore 'secret' / never send 'resume' / 'ping')
+//
+//  A host socket that closes cleanly (the host left, the tab closed: codes 1000 / 1001 /
+//  1005) ends its room at once. One that just drops (network blip, heartbeat timeout)
+//  leaves the room waiting HOST_GRACE_MS for the host to 'resume' it with the room's
+//  secret: the guests keep their sockets, their reliable frames to the host are kept for
+//  it, their pings say host:false meanwhile; then 'hostLeft' (MP2-8).
 //  data = binary frames: [flags u8][idLen u8][peer id][payload]
 //    flags bit0 = binary payload, bit1 = unreliable (may be dropped under backpressure)
 //    the sender writes the destination ('*' = every client, host only);
@@ -34,10 +43,28 @@ export const UNRELIABLE_BACKLOG = 16 * 1024;
  * merely quiet is kept (NET-4); the game's own watchdogs judge the players.
  */
 export const HEARTBEAT_MISSES = 4;
+/**
+ * Heartbeat misses tolerated from a room's HOST socket (2–2.25 min): the host's page does the
+ * heavy work (it runs the sim and loads its own view — on a slow machine frozen for minutes,
+ * not reading its socket), and a dropped host still has HOST_GRACE_MS to resume its room.
+ * The guests meanwhile see the host's silence with the relay's word that it is still there.
+ */
+export const HOST_HEARTBEAT_MISSES = 8;
 
 /**
- * @param {{ maxPerRoom?: number, maxRooms?: number, heartbeatMs?: number, heartbeatMisses?: number,
- *           helloTimeoutMs?: number, unreliableBacklog?: number, log?: (...a: unknown[]) => void }} [opts]
+ * A room whose host socket dropped without closing waits this long for the host to
+ * reconnect ({op:'resume'}) before its guests are told 'hostLeft' (MP2-8).
+ */
+export const HOST_GRACE_MS = 30_000;
+/** Reliable frames kept for an absent host during the grace, per room (bytes; beyond: dropped). */
+export const HOST_QUEUE_BYTES = 1024 * 1024;
+/** Close codes of a socket closed on purpose (leave, tab closed): the room ends at once. */
+const CLEAN_CLOSE = new Set([1000, 1001, 1005]);
+
+/**
+ * @param {{ maxPerRoom?: number, maxRooms?: number, heartbeatMs?: number, heartbeatMisses?: number, hostHeartbeatMisses?: number,
+ *           helloTimeoutMs?: number, unreliableBacklog?: number, hostGraceMs?: number,
+ *           log?: (...a: unknown[]) => void }} [opts]
  */
 export function createRelay(opts = {}) {
   const maxPerRoom = opts.maxPerRoom ?? 8;
@@ -45,10 +72,17 @@ export function createRelay(opts = {}) {
   const maxRooms = opts.maxRooms ?? 1000;
   const heartbeatMs = opts.heartbeatMs ?? 15000;
   const heartbeatMisses = Math.max(1, opts.heartbeatMisses ?? HEARTBEAT_MISSES);
+  const hostHeartbeatMisses = Math.max(heartbeatMisses, opts.hostHeartbeatMisses ?? HOST_HEARTBEAT_MISSES);
   const helloTimeoutMs = opts.helloTimeoutMs ?? 10000;
+  const hostGraceMs = Math.max(0, opts.hostGraceMs ?? HOST_GRACE_MS);
   const log = opts.log ?? (() => {});
 
-  /** @type {Map<string, { code: string, host: any, clients: Map<string, any>, nextId: number, createdAt: number }>} */
+  /**
+   * `host` is null while the host's socket is away (grace); `hostQueue` holds the guests'
+   * reliable frames for it meanwhile.
+   * @type {Map<string, { code: string, secret: string, host: any, clients: Map<string, any>, nextId: number, createdAt: number,
+   *                      graceTimer: any, hostQueue: { flags: number, from: string, payload: Buffer }[], hostQueueBytes: number }>}
+   */
   const rooms = new Map();
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024, perMessageDeflate: false });
   let droppedUnreliable = 0;
@@ -67,6 +101,13 @@ export function createRelay(opts = {}) {
   };
 
   const validCode = (c) => typeof c === 'string' && c.length === 5 && [...c].every((ch) => ROOM_ALPHABET.includes(ch));
+
+  /** The room's secret: only its host can resume it after a drop. */
+  const genSecret = () => {
+    let s = '';
+    for (let i = 0; i < 24; i++) s += ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)];
+    return s;
+  };
 
   const frameFor = (flags, fromId, payload) => {
     const id = Buffer.from(fromId, 'utf8');
@@ -87,23 +128,50 @@ export function createRelay(opts = {}) {
     ws.send(frameFor(flags, fromId, payload), { binary: true });
   };
 
-  const leave = (client) => {
+  const closeRoom = (room) => {
+    if (rooms.get(room.code) !== room) return;
+    rooms.delete(room.code);
+    clearTimeout(room.graceTimer);
+    room.graceTimer = null;
+    room.hostQueue = [];
+    room.hostQueueBytes = 0;
+    for (const c of room.clients.values()) {
+      c.room = null;
+      sendJson(c.ws, { op: 'hostLeft' });
+      c.ws.close(4000, 'host left');
+    }
+    room.clients.clear();
+    log(`[relay] room ${room.code} closed`);
+  };
+
+  /** `code`: the socket's close code (a clean close of the host's socket ends its room at once). */
+  const leave = (client, code) => {
     const room = client.room;
     if (!room) return;
     client.room = null;
     if (client.isHost) {
-      rooms.delete(room.code);
-      for (const c of room.clients.values()) {
-        c.room = null;
-        sendJson(c.ws, { op: 'hostLeft' });
-        c.ws.close(4000, 'host left');
+      if (room.host !== client) return; // a host socket already replaced by a resume
+      if (code !== undefined && CLEAN_CLOSE.has(code)) {
+        closeRoom(room);
+        return;
       }
-      room.clients.clear();
-      log(`[relay] room ${room.code} closed`);
+      // dropped, not closed: the host may come back (resume) — its guests stay (MP2-8)
+      room.host = null;
+      clearTimeout(room.graceTimer);
+      room.graceTimer = setTimeout(() => closeRoom(room), hostGraceMs);
+      room.graceTimer.unref?.();
+      log(`[relay] room ${room.code}: host dropped (${code ?? '?'}), waiting ${hostGraceMs / 1000} s for it`);
     } else if (room.clients.get(client.id) === client) {
       room.clients.delete(client.id);
-      sendJson(room.host.ws, { op: 'peerLeave', id: client.id });
+      if (room.host) sendJson(room.host.ws, { op: 'peerLeave', id: client.id });
     }
+  };
+
+  /** A guest's reliable frame while the host is away: kept for it (bounded). */
+  const queueForHost = (room, flags, from, payload) => {
+    if (room.hostQueueBytes + payload.length > HOST_QUEUE_BYTES) return;
+    room.hostQueue.push({ flags, from, payload: Buffer.from(payload) });
+    room.hostQueueBytes += payload.length;
   };
 
   const onControl = (client, msg) => {
@@ -124,12 +192,22 @@ export function createRelay(opts = {}) {
           return;
         }
         const code = validCode(msg.code) && !rooms.has(msg.code) ? msg.code : genCode();
-        const room = { code, host: client, clients: new Map(), nextId: 1, createdAt: Date.now() };
+        const room = {
+          code,
+          secret: genSecret(),
+          host: client,
+          clients: new Map(),
+          nextId: 1,
+          createdAt: Date.now(),
+          graceTimer: null,
+          hostQueue: [],
+          hostQueueBytes: 0,
+        };
         rooms.set(code, room);
         client.room = room;
         client.isHost = true;
         client.id = HOST_ID;
-        sendJson(ws, { op: 'created', code, id: HOST_ID, hostId: HOST_ID });
+        sendJson(ws, { op: 'created', code, id: HOST_ID, hostId: HOST_ID, secret: room.secret });
         log(`[relay] room ${code} created`);
         return;
       }
@@ -150,7 +228,57 @@ export function createRelay(opts = {}) {
       client.id = id;
       room.clients.set(id, client);
       sendJson(ws, { op: 'joined', code, id, hostId: HOST_ID });
-      sendJson(room.host.ws, { op: 'peerJoin', id });
+      // (a host that is away learns its guests from the 'resumed' list)
+      if (room.host) sendJson(room.host.ws, { op: 'peerJoin', id });
+      return;
+    }
+    if (msg.op === 'resume') {
+      // the host of a room reconnects after its socket dropped (MP2-8)
+      if (client.room) return;
+      if (msg.v !== RELAY_PROTOCOL_VERSION) {
+        sendJson(ws, { op: 'error', code: 'version', message: `relay protocol ${RELAY_PROTOCOL_VERSION}` });
+        ws.close(4002, 'version');
+        return;
+      }
+      const code = typeof msg.code === 'string' ? msg.code.trim().toUpperCase() : '';
+      const room = rooms.get(code);
+      if (!room || typeof msg.secret !== 'string' || msg.secret !== room.secret) {
+        // gone (the grace ran out, the relay restarted): the socket stays open — the host
+        // may create the room again under the same code
+        sendJson(ws, { op: 'error', code: 'roomNotFound' });
+        return;
+      }
+      clearTimeout(client.helloTimer);
+      const old = room.host;
+      if (old && old !== client) {
+        // its previous socket is still around (a half-open link): this one replaces it
+        old.room = null;
+        try {
+          old.ws.terminate();
+        } catch {
+          /* ignore */
+        }
+      }
+      clearTimeout(room.graceTimer);
+      room.graceTimer = null;
+      room.host = client;
+      client.room = room;
+      client.isHost = true;
+      client.id = HOST_ID;
+      sendJson(ws, { op: 'resumed', code, id: HOST_ID, hostId: HOST_ID, peers: [...room.clients.keys()] });
+      // what the guests sent meanwhile (only guests still here)
+      const queued = room.hostQueue;
+      room.hostQueue = [];
+      room.hostQueueBytes = 0;
+      for (const f of queued) if (room.clients.has(f.from)) deliver(client, f.flags, f.from, f.payload);
+      log(`[relay] room ${code}: host back`);
+      return;
+    }
+    if (msg.op === 'ping') {
+      // liveness for the players' own watchdogs: a guest learns the relay is there (and
+      // whether the host is) — a silent host is then not a gone host (MP2-1)
+      const room = client.room;
+      sendJson(ws, room && !client.isHost ? { op: 'pong', host: room.host !== null } : { op: 'pong' });
       return;
     }
     if (msg.op === 'kick' && client.isHost && client.room) {
@@ -177,8 +305,10 @@ export function createRelay(opts = {}) {
         const c = room.clients.get(dest);
         if (c) deliver(c, flags, HOST_ID, payload);
       }
-    } else {
+    } else if (room.host) {
       deliver(room.host, flags, client.id, payload);
+    } else if (!(flags & F_UNRELIABLE)) {
+      queueForHost(room, flags, client.id, payload);
     }
   };
 
@@ -205,9 +335,9 @@ export function createRelay(opts = {}) {
         onFrame(client, buf);
       }
     });
-    ws.on('close', () => {
+    ws.on('close', (code) => {
       clearTimeout(client.helloTimer);
-      leave(client);
+      leave(client, code);
     });
     ws.on('error', () => {
       /* 'close' follows */
@@ -219,9 +349,11 @@ export function createRelay(opts = {}) {
     for (const ws of wss.clients) {
       const c = ws._sgwlClient;
       if (!c) continue;
-      // no pong / message for `heartbeatMisses` pings in a row (60–75 s by default): a dead link
-      if (c.missed >= heartbeatMisses) {
-        log(`[relay] ${c.room ? `room ${c.room.code} ${c.id}` : 'socket'}: no sign of life for ${heartbeatMisses} heartbeats, dropped`);
+      // no pong / message for `heartbeatMisses` pings in a row (60–75 s by default; a host
+      // twice that): a dead link
+      const misses = c.isHost && c.room ? hostHeartbeatMisses : heartbeatMisses;
+      if (c.missed >= misses) {
+        log(`[relay] ${c.room ? `room ${c.room.code} ${c.id}` : 'socket'}: no sign of life for ${misses} heartbeats, dropped`);
         ws.terminate();
         continue;
       }
@@ -244,11 +376,12 @@ export function createRelay(opts = {}) {
     },
     stats() {
       let players = 0;
-      for (const r of rooms.values()) players += 1 + r.clients.size;
+      for (const r of rooms.values()) players += (r.host ? 1 : 0) + r.clients.size;
       return { rooms: rooms.size, players, droppedUnreliable };
     },
     close() {
       clearInterval(heartbeat);
+      for (const r of rooms.values()) clearTimeout(r.graceTimer);
       for (const ws of wss.clients) ws.terminate();
       rooms.clear();
       return new Promise((resolve) => wss.close(() => resolve()));

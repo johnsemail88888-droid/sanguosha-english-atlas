@@ -12,6 +12,10 @@
 //   __sgwl.cheats.*                  sim cheats for LOCAL single-player sessions only (never an
 //                                    online host: guests are real people): time scale, god mode,
 //                                    give item/weapon, teleport, kill, down
+//
+// An online HOST holds every hidden role (the dealt roles, the sim, the guests' seat tokens):
+// its __sgwl.session / view are narrow stand-ins exposing only what the host player may see
+// (the GameSession API, the host's own view), and handle / gameHandle are null (MP2-9).
 import type { EntityId, GameEvent, PrivateHeroView, PublicPlayerView, Vec3, ViewEntity } from '../core/types';
 import type { ViewSource } from '../render/view';
 import { HEROES, ITEMS, isPassiveAbility } from '../data';
@@ -64,6 +68,68 @@ export interface DebugGame {
 
 /** How a session was created: cheats only ever touch a 'local' (single-player, no network) one. */
 export type DebugSessionKind = 'local' | 'host' | 'guest';
+
+/** The ViewSource members a stand-in exposes: the player's own view, nothing that reaches the sim. */
+const VIEW_METHODS = ['entities', 'get', 'localId', 'local', 'zone', 'players', 'viewTick', 'elapsed', 'result', 'pushInput'] as const;
+
+/**
+ * A view that shows exactly what `v` shows its player, without a way into what it is built
+ * from (an online host's LocalView reads the authoritative sim, hidden roles included).
+ */
+export function publicView(v: ViewSource): ViewSource {
+  const out = { map: v.map } as Record<string, unknown>;
+  for (const k of VIEW_METHODS) {
+    const fn = (v as unknown as Record<string, (...a: unknown[]) => unknown>)[k];
+    out[k] = (...args: unknown[]) => fn.apply(v, args);
+  }
+  // rendering is the game's business: no frame stepping / event draining from outside
+  out.update = () => undefined;
+  out.drainEvents = () => [];
+  return Object.freeze(out) as unknown as ViewSource;
+}
+
+const SESSION_GETTERS = ['isHost', 'myId', 'phase', 'lobby', 'roles', 'heroSelect', 'result', 'waitingForHost', 'isPaused'] as const;
+const SESSION_METHODS = [
+  'setName',
+  'setReady',
+  'pickHero',
+  'sendChat',
+  'leave',
+  'updateSettings',
+  'addBot',
+  'removeBot',
+  'kick',
+  'start',
+  'returnToLobby',
+  'setPaused',
+  'focusHero',
+  'debugState',
+] as const;
+
+/**
+ * The GameSession API of `s` (what its UI can do and see) without its internals: an online
+ * host's HostSession holds the dealt roles, the sim and every guest's seat token (MP2-9).
+ * The match view it hands out ('matchStart', `view`) is a publicView too.
+ */
+export function publicSession(s: GameSession): GameSession {
+  const views = new WeakMap<ViewSource, ViewSource>();
+  const wrap = (v: ViewSource | null): ViewSource | null => {
+    if (!v) return null;
+    let w = views.get(v);
+    if (!w) views.set(v, (w = publicView(v)));
+    return w;
+  };
+  const out: Record<string, unknown> = {};
+  for (const k of SESSION_GETTERS) Object.defineProperty(out, k, { get: () => (s as unknown as Record<string, unknown>)[k], enumerable: true });
+  Object.defineProperty(out, 'view', { get: () => wrap(s.view), enumerable: true });
+  for (const k of SESSION_METHODS) {
+    const fn = (s as unknown as Record<string, ((...a: unknown[]) => unknown) | undefined>)[k];
+    if (typeof fn === 'function') out[k] = (...args: unknown[]) => fn.apply(s, args);
+  }
+  out.on = (ev: string, cb: (payload: unknown) => void) =>
+    s.on(ev as 'phase', (payload: unknown) => cb(ev === 'matchStart' ? wrap(payload as ViewSource) : payload));
+  return Object.freeze(out) as unknown as GameSession;
+}
 
 export interface SgwlDebug {
   readonly version: string;
@@ -139,6 +205,9 @@ export class DebugHooks {
    */
   private sessionRef: WeakRef<GameSession> | null = null;
   private readonly kinds = new WeakMap<GameSession, DebugSessionKind>();
+  /** the stand-ins handed out for online hosts' sessions / views (MP2-9), one per object */
+  private readonly publicSessions = new WeakMap<GameSession, GameSession>();
+  private readonly publicViews = new WeakMap<ViewSource, ViewSource>();
   private game: DebugGame | null = null;
   private readonly timings: Record<string, number> = {};
   private events = { counts: {} as Record<string, number>, deaths: [] as DebugDeath[], downed: 0, total: 0, heroHits: 0, heroDamage: 0 };
@@ -254,6 +323,27 @@ export class DebugHooks {
     return s ? this.kinds.get(s) ?? null : null;
   }
 
+  /** The current session is an online host's: it knows every hidden role (MP2-9). */
+  private get guarded(): boolean {
+    return this.kindOf(this.session) === 'host';
+  }
+
+  private exposedSession(): GameSession | null {
+    const s = this.session;
+    if (!s || this.kindOf(s) !== 'host') return s;
+    let p = this.publicSessions.get(s);
+    if (!p) this.publicSessions.set(s, (p = publicSession(s)));
+    return p;
+  }
+
+  private exposedView(): ViewSource | null {
+    const v = this.game?.view ?? this.session?.view ?? null;
+    if (!v || !this.guarded) return v;
+    let p = this.publicViews.get(v);
+    if (!p) this.publicViews.set(v, (p = publicView(v)));
+    return p;
+  }
+
   /** The in-process host of a LOCAL session (single player). Online hosts get no cheats. */
   private host(): HostLike | null {
     const s = this.session;
@@ -292,16 +382,17 @@ export class DebugHooks {
         return self.root()?.dataset.activeScreen ?? null;
       },
       get session() {
-        return self.session;
+        return self.exposedSession();
       },
       get view() {
-        return self.game?.view ?? self.session?.view ?? null;
+        return self.exposedView();
       },
+      // (the renderer holds the host's LocalView, and through it the sim)
       get handle() {
-        return self.game?.handle ?? null;
+        return self.guarded ? null : self.game?.handle ?? null;
       },
       get gameHandle() {
-        return self.game?.gameHandle ?? null;
+        return self.guarded ? null : self.game?.gameHandle ?? null;
       },
       get timings() {
         return self.timings;

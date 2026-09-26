@@ -112,6 +112,8 @@ export interface OpenOptions extends BrowserContextOptions {
   /** single-player setup prefs (sgwl.ui.single.v1) */
   single?: { playerCount?: number; mode?: 'standard' | 'chaos'; botDifficulty?: 'easy' | 'normal' | 'hard'; freePick?: boolean };
   name?: string;
+  /** extra script run in every document of the context before the app (e.g. a WebSocket wrapper) */
+  initScript?: () => void;
 }
 
 /**
@@ -119,7 +121,7 @@ export interface OpenOptions extends BrowserContextOptions {
  * SwiftShader fast enough: low quality, voice lines off.
  */
 export async function openGame(browser: Browser, url: string, opts: OpenOptions = {}): Promise<GamePage> {
-  const { settings, single, name, ...ctxOpts } = opts;
+  const { settings, single, name, initScript, ...ctxOpts } = opts;
   const ctx = await browser.newContext({ viewport: { width: 1024, height: 576 }, ...ctxOpts });
   const st = { quality: 'low', voiceLines: false, playerName: name ?? 'e2e', ...settings };
   const sp = { playerCount: 5, mode: 'standard', botDifficulty: 'normal', freePick: true, ...single };
@@ -137,6 +139,7 @@ export async function openGame(browser: Browser, url: string, opts: OpenOptions 
     },
     [st, sp] as const,
   );
+  if (initScript) await ctx.addInitScript(initScript);
   const page = await ctx.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));

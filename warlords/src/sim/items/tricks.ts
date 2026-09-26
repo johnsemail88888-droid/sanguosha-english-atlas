@@ -14,8 +14,8 @@ import {
   botView,
   centerOf,
   clusterScore,
-  dropToGround,
   flatDist,
+  flingGear,
   hostileHeroesNear,
   isAlive,
   isEnemyUnit,
@@ -25,15 +25,13 @@ import {
   prm,
   resolveEnemyHero,
   ringSpots,
-  spawnLockedLoot,
-  spotAround,
   statusStacks,
   throwItem,
   troopsPerHero,
   unitsInBlast,
   vetoes,
 } from './util';
-import type { ThrowPlan } from './util';
+import type { FlingOpts, ThrowPlan } from './util';
 
 const P = itemParam;
 
@@ -85,38 +83,8 @@ registerItem({
 });
 
 // ── 过河拆桥: thrown EMP — enemies drop armor and mount, shields vanish ───────
-interface EmpOpts {
+interface EmpOpts extends FlingOpts {
   radius: number;
-  /** how far from its wearer the stripped gear is flung (m) */
-  scatter: number;
-  /** seconds before the victim may pick its own gear back up */
-  lock: number;
-}
-
-/**
- * Knock `ids` (armor / mount) off `u`: flung `scatter` m away from the blast
- * (fanned out, pulled in by walls) and locked for `u` for `lock` s — anyone
- * else may grab them at once.
- */
-function flingGear(sim: SimApi, u: Entity, blast: Vec3, ids: string[], o: EmpOpts): void {
-  const dx = u.pos.x - blast.x;
-  const dz = u.pos.z - blast.z;
-  // straight away from the blast; a victim on top of it gets a fixed per-unit direction
-  const base = Math.hypot(dx, dz) > 0.3 ? Math.atan2(dz, dx) : u.id * 2.399963;
-  ids.forEach((itemId, i) => {
-    const a = base + (i - (ids.length - 1) / 2) * 1.1;
-    // stay on the victim's level: not over a deck's edge into the water or off a rampart
-    let at: Vec3 = { ...u.pos };
-    for (let r = o.scatter, k = 0; k < 3; k++, r *= 0.5) {
-      const spot = spotAround(sim, u.pos, a, r);
-      const g = dropToGround(sim, { x: spot.x, y: u.pos.y + 1, z: spot.z });
-      if (Math.abs(g.y - u.pos.y) <= 1.2) {
-        at = g;
-        break;
-      }
-    }
-    spawnLockedLoot(sim, at, { itemId }, { heroId: u.id, seconds: o.lock });
-  });
 }
 
 function empBlast(sim: SimApi, selfId: EntityId, pos: Vec3, o: EmpOpts): void {

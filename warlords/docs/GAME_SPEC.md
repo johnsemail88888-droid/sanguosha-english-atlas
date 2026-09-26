@@ -87,7 +87,10 @@ electron/, .github/workflows, scripts/  packaging + CI                  (PACKAGI
    (in 乱世 mode with 影武者, two crowns are announced — see §4).
 4. **选将 (hero select)**: the Lord first picks from the 5 lord candidates + 3 random heroes (15 s);
    the Lord's pick is shown to everyone; then all others pick simultaneously from 3 random
-   heroes (20 s; `freePick` shows all). Duplicate heroes are not allowed. Bots pick instantly.
+   heroes (20 s; `freePick` shows all). Duplicate heroes are not allowed. Bots pick instantly —
+   except with `freePick`: the humans choose first (bots pick once every human locked in, or at
+   the deadline), each bot from a random handful of the roster; single player gets 4× the time.
+   When the timer runs out a human gets the card shown selected (clicked or default).
 5. **Battle**: everyone spawns (Lord at the palace, others at shuffled spawn points ~110 m out)
    with their signature weapon, a pistol, 1 × 桃, and their squad.
 6. **Game over** screen: winners, every role revealed, stats (kills/damage/healing/rescues), MVP;
@@ -144,7 +147,9 @@ since both crowns carry the lord's bonus), swapping in:
 
 Players may publicly claim a role at any time (T wheel: 我是忠臣 / 我是反贼 / 我是内奸 / 保护主公 /
 集火此人 / 需要桃 / 跟我来). Claims show as a small tag above the nameplate and in the scoreboard.
-Lies are allowed. Bots claim too (sometimes lying as traitors).
+Lies are allowed. Bots claim too: most bot rebels 跳反 after the opening loot (a few bluff 忠,
+the rest keep quiet until the push), the 内奸 bluffs 忠. Loyalists hunt a rebel who admitted it
+and rebels stand by one who is being shot.
 
 ### Zone 烽火圈 (`sim/zone.ts`)
 
@@ -208,7 +213,7 @@ are guidance; DATA tunes them for balance (TTK for a 400 HP hero under sustained
 | id | 名 | HP | passive | Q | E | lord (G) |
 |---|---|---|---|---|---|---|
 | sunquan | 孙权 ★ | 4 | 制衡(被动): reload 20 % faster | 制衡: discard all items and redraw the same number +1; instantly reload everything; reset dodges | 坐断东南: recruit 2 troops (up to squad cap + 2) | 救援: 6 s: nearby Wu units take 30 % less; heals from Wu heroes on you ×2 |
-| ganning | 甘宁 | 4 | 锦帆: +10 % speed; kills refill your mag | 奇袭: EMP bolt — target drops armor & mount, loses shield, silenced 3 s | 百骑劫营: 8 s stealth for you + squad; first attack from stealth +60 % | — |
+| ganning | 甘宁 | 4 | 锦帆: +10 % speed; kills refill your mag | 奇袭: EMP bolt — target's armor & mount knocked 2.5 m away (locked for it 5 s), loses shield, silenced 2.5 s | 百骑劫营: 8 s stealth for you + squad; first attack from stealth +60 % | — |
 | lumeng | 吕蒙 | 4 | 克己: not firing for 4 s ⇒ stealth (breaks on firing) | 白衣渡江: 6 s stealth while moving + 30 % haste | 攻心: target disarmed 2.5 s and you steal 1 item | — |
 | huanggai | 黄盖 | 4 | 苦肉(被动): below 50 % HP, fire damage +30 % | 苦肉: lose 40 HP ⇒ gain 2 random items + fire-rate ×1.4 5 s | 诈降火船: launch a burning fire-ship drone (12 m/s), explodes 7 m: 120 fire + fire field | — |
 | zhouyu | 周瑜 | 3 | 英姿: reload +25 %, ability cooldowns −20 % | 反间: charm the crosshair enemy 3 s — they attack the nearest other hero; their troops turn on them (18 s cd) | 火烧赤壁: napalm strike along a 25 m line after 1.5 s: 110 fire + burning ground 18/s (24 s cd) | — |
@@ -221,7 +226,7 @@ are guidance; DATA tunes them for balance (TTK for a 400 HP hero under sustained
 |---|---|---|---|---|---|---|
 | huatuo | 华佗 | 3 | 急救: revives take 0.5 s and give +80 HP; revive without 桃 once per 30 s | 青囊: heal crosshair ally/self 150 over 3 s + cleanse debuffs | 麻沸散: gas grenade 5 m: enemies stunned 1.5 s + slowed | — |
 | lubu | 吕布 | 4 | 无双: your damage is undodgeable and ignores 50 % of shields; rides 赤兔 (+15 %) | 方天画戟: 360° halberd spin 5 m, 110 dmg + knockback | 辕门射戟: precise long shot 150 dmg, stun 1 s | — |
-| diaochan | 貂蝉 | 3 | 闭月: regen 6 HP/s after 5 s without damage | 离间: crosshair enemy + the nearest other hero to it are charmed to fight each other 3 s | 连环计: chain up to 3 enemies near the target for 8 s (fire/thunder spreads) | — |
+| diaochan | 貂蝉 | 3 | 闭月: regen 6 HP/s after 5 s without damage | 离间: crosshair enemy + the nearest other hero to it are charmed to fight each other 2.5 s (their shots at each other ×0.35; the grudge is forgotten when it ends) | 连环计: chain up to 3 enemies near the target for 8 s (fire/thunder spreads) | — |
 | zhangjiao | 张角 ★ | 3 | 鬼道: thunder damage +30 % | 雷击: 3 lightning bolts at the crosshair point (0.6 s apart), 42 thunder each in 3 m, the first stuns 0.5 s (15 s cd) | 太平要术: a storm cloud follows the crosshair enemy 8 s, striking every 1.5 s | 黄天: summon 5 黄巾力士 allies (40 s) |
 | yuanshao | 袁绍 ★ | 4 | 名门: squad +1; troops +20 % HP | 乱击: arrow-rain barrage 12 m radius at crosshair for 3 s | 四世三公: summon 4 crossbowmen (30 s) | 血裔: +50 max HP per living Qun hero; squad +2 |
 | menghuo | 孟获 | 4 | 祸首/再起: immune to barbarians; once per match, when downed instantly rise with 50 % HP | 南蛮入侵: summon 4 barbarian warriors (15 s, 30 s cd) rushing the crosshair point | 象兵: a war elephant charges forward 30 m trampling everything | — |

@@ -253,6 +253,12 @@ export function createHeroSelectScreen(ctx: UiCtx, session: GameSession): Screen
     if (!focused || !opts.includes(focused) || taken.has(focused)) {
       focused = picked ?? opts.find((o) => !taken.has(o)) ?? opts[0] ?? null;
       userFocused = false;
+      // the card shown selected by default is the pick hint too: the timer running out gives that hero (UX-10)
+      try {
+        if (focused && !picked && v.options.includes(focused)) (session as FocusSession).focusHero?.(focused);
+      } catch (err) {
+        console.warn('[ui] focusHero failed', err);
+      }
     }
     buildGrid(opts, iAmCrown);
     patchCards(picked, taken, waiting);

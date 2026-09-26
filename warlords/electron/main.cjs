@@ -7,9 +7,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { mirrorFile, portOrder, readJson, writeJson } = require('./state.cjs');
 
 const APP_NAME = '三国杀·枪火乱世';
-const PORTS = [8787, 8788, 8789, 18787, 0];
 const ROOT = app.isPackaged ? app.getAppPath() : path.join(__dirname, '..');
 let server = null;
 let win = null;
@@ -32,19 +32,39 @@ function lanUrls(port) {
   return ips.map((ip) => `http://${ip}:${port}/`);
 }
 
+/**
+ * The game's origin is http://127.0.0.1:<port>/ and its localStorage (settings, keybinds…)
+ * belongs to that origin: the port that worked last time is tried first, so the settings
+ * stay where they are; if another port must be used, the preload restores them from the
+ * mirror in userData (state.cjs, PLATFORM-7).
+ */
 async function startEmbeddedServer() {
   const mod = await import(pathToFileURL(path.join(ROOT, 'server', 'server.mjs')).href);
   const distDir = path.join(ROOT, 'dist');
+  const stateFile = path.join(app.getPath('userData'), 'desktop.json');
+  const state = readJson(stateFile) || {};
   let lastErr;
-  for (const port of PORTS) {
+  for (const port of portOrder(state.port)) {
     try {
-      return await mod.startServer({ port, distDir, quiet: true });
+      const srv = await mod.startServer({ port, distDir, quiet: true });
+      if (state.port !== srv.port) {
+        try {
+          writeJson(stateFile, { ...state, port: srv.port });
+        } catch (err) {
+          console.warn('[desktop] could not remember the port', err);
+        }
+      }
+      return srv;
     } catch (err) {
       lastErr = err;
     }
   }
   throw lastErr;
 }
+
+/** userData/web-storage.json: the game's localStorage keys, for whichever port the window opens on. */
+let storageMirror = null;
+const mirror = () => (storageMirror ??= mirrorFile(path.join(app.getPath('userData'), 'web-storage.json')));
 
 /** The window / taskbar icon (Linux shows none without it; Windows / macOS use the packaged one). */
 function windowIcon() {
@@ -130,6 +150,24 @@ function showLan() {
 // renderer (preload): a fresh, ranked LAN address list on demand
 ipcMain.on('sgwl:lan-urls', (ev) => {
   ev.returnValue = lanUrls(server ? server.port : 8787);
+});
+
+// renderer (preload): the mirrored localStorage keys (PLATFORM-7, see state.cjs)
+ipcMain.on('sgwl:storage-load', (ev) => {
+  try {
+    ev.returnValue = mirror().load();
+  } catch (err) {
+    console.warn('[desktop] reading the settings mirror failed', err);
+    ev.returnValue = null;
+  }
+});
+ipcMain.on('sgwl:storage-save', (ev, items) => {
+  try {
+    ev.returnValue = mirror().save(items, server ? `http://127.0.0.1:${server.port}` : '');
+  } catch (err) {
+    console.warn('[desktop] writing the settings mirror failed', err);
+    ev.returnValue = 0;
+  }
 });
 
 // one instance: a second launch (double-clicked again) focuses the running window

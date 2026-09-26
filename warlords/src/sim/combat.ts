@@ -22,6 +22,7 @@ import type { DamageRequest, DamageResult, ProjectileSpec, RayHit, SimApi } from
 import { BULLET_EVASION_CAP } from '../data';
 import { armorDef, heroDef, mountDef, usesAmmo, warnOnce, weaponDef } from './defs';
 import type { HitscanOptions } from './ext';
+import { flingGear } from './items/util';
 import { rayCylinder, raycastStatic, raySphere } from './physics';
 import type { StaticHit } from './physics';
 import { findStatus, nullifyEffect, removeStatusIf, statusValue } from './status';
@@ -33,6 +34,9 @@ export const DOWNED_DAMAGE_TO_SECONDS = 0.1;
 export const LAG_COMP_MAX_TICKS = 8;
 const MAX_SHOTS_PER_TICK = 4;
 const BURST_RESET = 0.35;
+/** spread bloom per consecutive shot and its cap (fractions of the base spread) */
+const BLOOM_PER_SHOT = 0.07;
+const BLOOM_MAX = 0.5;
 
 export const DAMAGEABLE: Readonly<Record<Entity['kind'], boolean>> = {
   hero: true,
@@ -387,6 +391,11 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
     }
     if ((src.kind === 'troop' || src.kind === 'turret') && credit?.hero) amount *= w.modifiers(credit.id).troopDmgMul;
     if (req.weaponId) amount *= weaponOutgoingMul(w, weaponDef(req.weaponId), src, target);
+    // 离间: the shots a charm forces onto its target hit softer (params.dmgMul, COMBAT-6)
+    if (req.weaponId && src.statuses.length > 0) {
+      const ch = findStatus(src, 'charm', now);
+      if (ch?.params?.dmgMul !== undefined && ch.params.targetId === target.id) amount *= Math.max(0, ch.params.dmgMul);
+    }
     if (src.kind === 'hero') amount = w.hooks.modifyOutgoing(src, target, req, amount);
   }
   const frame = pushFrame(w, reqIn, req, amount);
@@ -779,7 +788,9 @@ export function currentSpread(w: World, e: Entity, def: WeaponDef): number {
   const moving = Math.hypot(e.vel.x, e.vel.z) > 1;
   if (moving && !h.ads) spread *= 1.35;
   if (!e.onGround) spread *= 1.8;
-  if (def.special !== 'rapid') spread *= 1 + Math.min(1, h.burst * 0.12);
+  // bloom while the trigger stays busy: +7 % per shot, capped at +50 % (was +12 % / ×2 — autos were
+  // useless from the hip beyond a few metres, COMBAT-9); ramping guns and flame streams don't bloom
+  if (def.special !== 'rapid' && def.class !== 'flamer') spread *= 1 + Math.min(BLOOM_MAX, h.burst * BLOOM_PER_SHOT);
   void w;
   return Math.max(0, spread);
 }
@@ -1115,7 +1126,12 @@ export function applyWeaponSpecialOnHit(w: World, src: Entity, def: WeaponDef, t
       if (target.alive) w.applyStatus(target.id, 'burn', p.burnTime ?? 3, { sourceId: src.id, params: { dps: p.burnDps ?? 12 } });
       break;
     case 'dismount':
-      if (target.hero?.mount && (p.dropMount ?? 1) > 0) w.dismount(target.id);
+      if (target.hero?.mount && (p.dropMount ?? 1) > 0) {
+        // the horse bolts 2.5 m off and the rider can't climb back on for dropLock s (COMBAT-2)
+        const mount = target.hero.mount;
+        target.hero.mount = null;
+        flingGear(w, target, src.pos, [mount], { scatter: p.scatter ?? 2.5, lock: p.dropLock ?? 5 });
+      }
       if ((p.slow ?? 0) > 0 && target.alive) w.applyStatus(target.id, 'slow', p.slowTime ?? 1.5, { sourceId: src.id, params: { amount: p.slow } });
       break;
     case 'chainLightning': {

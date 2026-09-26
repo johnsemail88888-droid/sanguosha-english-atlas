@@ -186,7 +186,7 @@ describe('stall-aware connection watchdogs (APP-6)', () => {
     await runToPlaying(h);
     h.net.sever(a.session.myId); // the host goes quiet (frozen host page, stuck relay)
     await waitFor(() => a.session.waitingForHost, 2000, 'waiting status');
-    expect(statuses.at(-1)).toEqual({ zh: '等待主机响应…', en: 'Waiting for host…', key: 'waitingHost' });
+    expect(statuses.at(-1)).toEqual({ zh: '等待房主响应…', en: 'Waiting for host…', key: 'waitingHost' }); // UX-17: 房主, not 主机
     expect(a.session.phase).toBe('playing');
     h.net.restore(a.session.myId);
     await waitFor(() => !a.session.waitingForHost, 3000, 'host back');

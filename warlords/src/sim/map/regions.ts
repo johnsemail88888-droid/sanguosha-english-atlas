@@ -9,6 +9,13 @@ import type { Poi } from './spots';
 import { FORTRESS_Z, PASS_X, type RiverSpec, riverCenterZ, riverHalfWidth, type Terrain, WATER_LEVEL } from './terrain';
 
 export const KINGDOM_COLORS = { wei: '#2e5fa8', shu: '#c0392b', wu: '#2e8b57', qun: '#8a8a8a' } as const;
+/**
+ * 军旗 glyphs the renderer can paint (render/world/banners.ts atlas). A banner prop's `variant`
+ * (1 + index here) picks its glyph explicitly; variant 0 = the glyph nearest the cloth colour.
+ */
+export const BANNER_GLYPHS = ['魏', '蜀', '吴', '群', '黄', '蛮', '汉', '令', '董'] as const;
+export type BannerGlyph = (typeof BANNER_GLYPHS)[number];
+export const bannerVariant = (g: BannerGlyph): number => BANNER_GLYPHS.indexOf(g) + 1;
 const YELLOW = '#c9a227';
 const RED_CLIFF = '#9b3a26';
 
@@ -166,7 +173,8 @@ export function buildHulao(b: MapBuilder, Y: number, pois: Poi[]): void {
     const len = L - 7;
     b.add({ type: 'wall', x: mid, y: Y, z: Z, rot: ROT_FACE_NORTH, sx: len, sy: H, sz: T, variant: 0 }, 1);
     b.add({ type: 'wall', variant: 1, x: mid, y: top, z: Z - T / 2 + PARAPET_T / 2, rot: ROT_FACE_NORTH, sx: len, sy: PARAPET_H, sz: PARAPET_T }, -1);
-    for (const u of [12, 24]) b.add({ type: 'banner', x: s * u, y: top + PARAPET_H, z: Z - T / 2 + PARAPET_T / 2, rot: 0, sx: 1.6, sy: 4.5, sz: 0.1, color: '#3a3a3a' }, -1);
+    // 董卓's pass: black 「董」 flags (explicit glyph — the nearest colour to the dark cloth is 蛮)
+    for (const u of [12, 24]) b.add({ type: 'banner', x: s * u, y: top + PARAPET_H, z: Z - T / 2 + PARAPET_T / 2, rot: 0, sx: 1.6, sy: 4.5, sz: 0.1, color: '#3a3a3a', variant: bannerVariant('董') }, -1);
     // stairs on the inner (south) face, climbing towards the gate
     const run = stairStepCount(H) * STAIR_RUN;
     b.stairs(s * (9 + run / 2), Z + T / 2 + 1.5, rotFacing(-s, 0), 3, Y, H, 0, run);

@@ -9,7 +9,7 @@
 // reads and answers nothing while it is busy, like a frozen browser tab.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { emptyInput, PROTOCOL_VERSION } from '../../../src/core/types';
-import { ClientSession } from '../../../src/net/clientSession';
+import { ClientSession, REJOIN_WINDOW_MS } from '../../../src/net/clientSession';
 import { encodeInputMsg, encodeJson } from '../../../src/net/codec';
 import { FakeSim } from '../../../src/net/fakeSim';
 import { DEFAULT_TIMINGS, HostSession, type FlowTimings } from '../../../src/net/hostSession';
@@ -356,70 +356,108 @@ describe('client: the host warming up after loading (its first frames)', () => {
   });
 });
 
-describe('client: P2P rejoin when the host peer is briefly unavailable', () => {
-  /** A reconnect factory that answers "room not found" `n` times first (PeerJS: host peer unavailable). */
-  function flaky(h: ReturnType<typeof makeHost>, rec: () => ClientRec | undefined, n: number) {
+describe('client: a rejoin that cannot find the host (MP2-2)', () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  /** A reconnect factory that answers "room not found" `n` times first (PeerJS: the frozen host's peer id is gone). */
+  function flaky(h: ReturnType<typeof makeHost>, rec: () => ClientRec | undefined, n: number, err: () => NetError = () => new NetError('roomNotFound')) {
     const real = loopbackReconnect(h, rec);
     let calls = 0;
     const fn = async () => {
       calls++;
-      if (calls <= n) throw new NetError('roomNotFound');
+      if (calls <= n) throw err();
       return real();
     };
     return { fn, calls: () => calls };
   }
 
-  it('retries "room not found" with backoff (without using up its attempts) and gets back in', async () => {
+  it('keeps trying, says the host cannot be reached (status hostUnreachable), and gets back in when the host peer returns', async () => {
     const h = makeHost({ seed: 46 });
     let a: ClientRec | undefined;
-    const f = flaky(h, () => a, 2);
-    // a single attempt: the two "room not found" answers must not count as attempts
-    a = await addClient(h, 'A', { reconnect: f.fn, rejoinDelaysMs: [0], roomNotFoundRetryMs: 10_000 });
-    const statuses: string[] = [];
+    const f = flaky(h, () => a, 3);
+    a = await addClient(h, 'A', { reconnect: f.fn, rejoinDelaysMs: [0, 100], rejoinRetryMs: 150 });
+    const statuses: { en: string; key?: string; clear?: boolean }[] = [];
     const errors: string[] = [];
-    a.session.on('status', (s) => statuses.push(s.en));
+    a.session.on('status', (s) => statuses.push(s));
     a.session.on('error', (e) => errors.push(e.code));
     const oldId = a.session.myId;
     h.net.dropClient(oldId);
-    await waitFor(() => a!.session.myId !== oldId && statuses.includes('Reconnected'), 8000, 'rejoined');
-    expect(f.calls()).toBe(3); // 1 s + 2 s of backoff in between
+    await waitFor(() => a!.session.hostUnreachable, 2000, 'unreachable');
+    expect(statuses.at(-1)).toMatchObject({ key: 'hostUnreachable', en: expect.stringMatching(/^Connection lost/) });
+    await waitFor(() => a!.session.myId !== oldId && !a!.session.reconnecting, 5000, 'rejoined');
+    expect(f.calls()).toBe(4);
+    expect(a.session.hostUnreachable).toBe(false);
+    expect(statuses.find((s) => s.en === 'Reconnected')).toMatchObject({ key: 'hostUnreachable', clear: true });
+    expect(statuses.filter((s) => s.key === 'hostUnreachable' && !s.clear)).toHaveLength(1); // said once, not per attempt
     expect(errors).toEqual([]);
   });
 
-  it('gives up once the retry window is over: the host left', async () => {
+  it('out of time it ends with the lost connection (reconnectable), never "the host left"', async () => {
     const h = makeHost({ seed: 47 });
     let a: ClientRec | undefined;
     const f = flaky(h, () => a, 1000);
-    a = await addClient(h, 'A', { reconnect: f.fn, rejoinDelaysMs: [0, 100], roomNotFoundRetryMs: 1500 });
+    a = await addClient(h, 'A', { reconnect: f.fn, rejoinDelaysMs: [0, 100], rejoinRetryMs: 100, rejoinWindowMs: 1200 });
     const errors: string[] = [];
     a.session.on('error', (e) => errors.push(e.code));
     h.net.dropClient(a.session.myId);
     await waitFor(() => errors.length > 0, 8000, 'gave up');
-    expect(errors).toEqual(['hostLeft']);
-    expect(f.calls()).toBeGreaterThanOrEqual(2);
+    expect(errors).toEqual(['connectionLost']);
+    expect(f.calls()).toBeGreaterThanOrEqual(5);
   });
 
-  it('on the relay (no retry window) "room not found" is final at once, as before', async () => {
+  it('timeouts and an unreachable relay are retried the same way; a final answer (version) ends it at once', async () => {
     const h = makeHost({ seed: 48 });
     let a: ClientRec | undefined;
-    const f = flaky(h, () => a, 1000);
-    a = await addClient(h, 'A', { reconnect: f.fn, rejoinDelaysMs: [0, 100, 200] });
+    const f = flaky(h, () => a, 2, () => new NetError('serverUnreachable'));
+    a = await addClient(h, 'A', { reconnect: f.fn, rejoinDelaysMs: [0, 50], rejoinRetryMs: 50 });
+    const oldId = a.session.myId;
+    h.net.dropClient(oldId);
+    await waitFor(() => a!.session.myId !== oldId && !a!.session.reconnecting, 5000, 'rejoined after 2 failures');
+    expect(f.calls()).toBe(3);
+
+    const g = flaky(h, () => b, 1000, () => new NetError('versionMismatch'));
+    let b: ClientRec | undefined;
+    b = await addClient(h, 'B', { reconnect: g.fn, rejoinDelaysMs: [0, 50], rejoinRetryMs: 50 });
     const errors: string[] = [];
-    a.session.on('error', (e) => errors.push(e.code));
-    h.net.dropClient(a.session.myId);
-    await waitFor(() => errors.length > 0, 3000, 'hostLeft');
-    expect(errors).toEqual(['hostLeft']);
-    expect(f.calls()).toBe(1);
+    b.session.on('error', (e) => errors.push(e.code));
+    h.net.dropClient(b.session.myId);
+    await waitFor(() => errors.length > 0, 3000, 'final');
+    expect(errors).toEqual(['versionMismatch']);
+    expect(g.calls()).toBe(1);
   });
 
-  it('defaults: a P2P session retries for ROOM_NOT_FOUND_RETRY_MS, other transports do not', async () => {
+  it('retryNow() (重试) tries again at once instead of waiting out the pause', async () => {
+    const h = makeHost({ seed: 50 });
+    let a: ClientRec | undefined;
+    const f = flaky(h, () => a, 1);
+    a = await addClient(h, 'A', { reconnect: f.fn, rejoinDelaysMs: [0], rejoinRetryMs: 60_000 });
+    const oldId = a.session.myId;
+    h.net.dropClient(oldId);
+    await waitFor(() => a!.session.hostUnreachable, 2000, 'unreachable');
+    await sleep(200);
+    expect(f.calls()).toBe(1); // waiting a minute before the next attempt
+    a.session.retryNow();
+    await waitFor(() => a!.session.myId !== oldId && !a!.session.reconnecting, 2000, 'rejoined on retryNow');
+    expect(f.calls()).toBe(2);
+  });
+
+  it('leave() during the retries stops them', async () => {
+    const h = makeHost({ seed: 51 });
+    let a: ClientRec | undefined;
+    const f = flaky(h, () => a, 1000);
+    a = await addClient(h, 'A', { reconnect: f.fn, rejoinDelaysMs: [0], rejoinRetryMs: 50 });
+    h.net.dropClient(a.session.myId);
+    await waitFor(() => a!.session.hostUnreachable, 2000, 'unreachable');
+    a.session.leave();
+    const n = f.calls();
+    await sleep(300);
+    expect(f.calls()).toBe(n);
+  });
+
+  it('defaults: every transport retries for REJOIN_WINDOW_MS (2 min)', async () => {
     const h = makeHost({ seed: 49 });
-    const t = await h.net.connect();
-    Object.defineProperty(t, 'kind', { value: 'peer' });
-    const s = await ClientSession.connect({ transport: t, name: 'P', mapFactory: () => flatMap() });
-    expect((s as unknown as { roomNotFoundRetryMs: number }).roomNotFoundRetryMs).toBe(30_000);
     const b = await addClient(h, 'B');
-    expect((b.session as unknown as { roomNotFoundRetryMs: number }).roomNotFoundRetryMs).toBe(0);
-    s.leave();
+    expect(REJOIN_WINDOW_MS).toBe(120_000);
+    expect((b.session as unknown as { rejoinWindowMs: number }).rejoinWindowMs).toBe(REJOIN_WINDOW_MS);
   });
 });

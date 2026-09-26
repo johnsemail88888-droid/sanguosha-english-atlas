@@ -398,6 +398,7 @@ export class Hud {
       this.fpsT = now;
     }
     if (!this.active) return;
+    if (this.guide && this.guideTimer === null && this.overlay === 'none') this.guideTimer = setTimeout(() => this.closeGuide(), 45_000);
     let f: HudFrame;
     try {
       f = this.readFrame(now, dt);
@@ -1030,8 +1031,8 @@ export class Hud {
     this.guide = card;
     this.guideFit = '';
     this.el.appendChild(card);
-    // it never has to be dismissed: it fades out on its own after a while in play
-    this.guideTimer = setTimeout(() => this.closeGuide(), 45_000);
+    // it never has to be dismissed: it fades out on its own 45 s into play — the clock starts
+    // on the first click-in (frame()), not behind 「点击进入战场」 (UX-11)
   }
 
   private closeGuide(): void {

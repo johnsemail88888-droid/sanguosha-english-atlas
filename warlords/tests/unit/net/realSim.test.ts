@@ -42,6 +42,15 @@ describe('real sim over the network layer', () => {
         ctx.skip(`real sim unavailable: ${errors[0]}`);
         return;
       }
+      // MP2-1: the human heroes start shielded in the real sim — invulnerable and untargetable
+      // (bots, troops and turrets ignore them) — until their owners act; bots never are
+      const world = host.simHost as unknown as World;
+      const heroOf = (pid: string) => world.entityOf(pid)!;
+      for (const pid of [client.myId, host.myId]) {
+        expect(world.hasStatus(heroOf(pid), 'invuln')).toBe(true);
+        expect(world.hasStatus(heroOf(pid), 'untargetable')).toBe(true);
+      }
+      for (const s of host.lobby.seats.filter((x) => x.isBot)) expect(world.hasStatus(heroOf(s.playerId), 'invuln')).toBe(false);
       const view = client.view!;
       const end = Date.now() + 1500;
       let last = performance.now();
@@ -52,6 +61,9 @@ describe('real sim over the network layer', () => {
         last = now;
         await new Promise((r) => setTimeout(r, 16));
       }
+      expect(world.hasStatus(heroOf(client.myId), 'invuln')).toBe(false); // the guest walked
+      expect(world.hasStatus(heroOf(client.myId), 'untargetable')).toBe(false);
+      expect(world.hasStatus(heroOf(host.myId), 'invuln')).toBe(true); // the host player did nothing yet
       expect(view.entities().length).toBeGreaterThan(6);
       const me = view.localId();
       expect(me).not.toBeNull();
