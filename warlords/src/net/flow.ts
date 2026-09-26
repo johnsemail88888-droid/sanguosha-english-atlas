@@ -145,18 +145,39 @@ export function heroSuitability(hero: HeroDef, role: RoleId): number {
   }
 }
 
-/** Bot pick: the best-suited option with a little randomness. */
-export function botPickHero(options: readonly string[], role: RoleId, heroesById: Record<string, HeroDef>, rng: Rng): string {
+/** Bot pick: the best-suited option with a little randomness (`noise`: max random bonus). */
+export function botPickHero(options: readonly string[], role: RoleId, heroesById: Record<string, HeroDef>, rng: Rng, noise = 1.5): string {
   if (options.length === 0) throw new Error('botPickHero: no options');
   let best = options[0];
   let bestScore = -Infinity;
   for (const id of options) {
     const def = heroesById[id];
-    const score = (def ? heroSuitability(def, role) : 0) + rng.next() * 1.5;
+    const score = (def ? heroSuitability(def, role) : 0) + rng.next() * noise;
     if (score > bestScore) {
       bestScore = score;
       best = id;
     }
   }
   return best;
+}
+
+/**
+ * Bot pick in 自由选将 (every hero is on offer): like the dealt mode, the bot only weighs a
+ * random handful — a crown bearer 3 of the free lord candidates plus `extra` others, everyone
+ * else `choices` heroes — so the line-ups vary from match to match instead of the same
+ * best-suited heroes every time (COMBAT-1).
+ */
+export function botFreePickHero(
+  options: readonly string[],
+  role: RoleId,
+  heroesById: Record<string, HeroDef>,
+  rng: Rng,
+  o: { crown: boolean; choices: number; extra: number },
+): string {
+  if (options.length === 0) throw new Error('botFreePickHero: no options');
+  const allCands = o.crown ? options.filter((id) => heroesById[id]?.lordCandidate) : [];
+  const rest = options.filter((id) => !allCands.includes(id));
+  const handful = [...takeRandom(allCands, 3, rng), ...takeRandom(rest, o.crown ? o.extra : Math.max(1, o.choices), rng)];
+  // twice the dealt mode's noise: a favourite is not a lock
+  return botPickHero(handful.length > 0 ? handful : options, role, heroesById, rng, 3);
 }

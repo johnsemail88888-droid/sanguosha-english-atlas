@@ -43,6 +43,7 @@ import { NetError, netErrorText } from './errors';
 import { filterEventsFor, hasPrivateEvents } from './eventFilter';
 import { isPageHidden, watchPageFocus } from './focus';
 import {
+  botFreePickHero,
   botPickHero,
   clampPlayerCount,
   crownSeats,
@@ -125,6 +126,8 @@ export const DEFAULT_TIMINGS: FlowTimings = {
 export const MAX_PLAYERS = 8;
 /** extra heroes offered to the lord on top of every lord candidate */
 export const LORD_EXTRA_CHOICES = 3;
+/** 自由选将 in single player: the pick timers run this many times longer (30 heroes to read, UX-10). */
+export const SOLO_FREE_PICK_TIME_MUL = 4;
 const MAX_INPUT_QUEUE = 3;
 /**
  * A client whose input stream has been silent this long (hidden tab, stall,
@@ -1296,11 +1299,11 @@ export class HostSession implements GameSession {
       options: new Map(crowns.map((s) => [s, options[s]])),
       picks: new Map(),
       hints: new Map(),
-      deadlineAt: now() + this.timings.lordPick * 1000,
+      deadlineAt: now() + this.pickSeconds(true) * 1000,
       completing: false,
     };
     this.setPhase('heroSelect');
-    this.runPickPhase(this.timings.lordPick);
+    this.runPickPhase(this.pickSeconds(true));
   }
 
   private beginGeneralPick(): void {
@@ -1319,18 +1322,28 @@ export class HostSession implements GameSession {
       options: new Map(others.map((s) => [s, options[s]])),
       picks: prev.picks,
       hints: new Map(),
-      deadlineAt: now() + this.timings.pick * 1000,
+      deadlineAt: now() + this.pickSeconds(false) * 1000,
       completing: false,
     };
-    this.runPickPhase(this.timings.pick);
+    this.runPickPhase(this.pickSeconds(false));
+  }
+
+  /** Length of a pick phase: 自由选将 in single player gives time to read the whole roster. */
+  private pickSeconds(lordPhase: boolean): number {
+    const s = lordPhase ? this.timings.lordPick : this.timings.pick;
+    return this.settings.freePick && this.transport === null ? s * SOLO_FREE_PICK_TIME_MUL : s;
   }
 
   private runPickPhase(seconds: number): void {
     const token = ++this.flowToken;
     this.after(seconds, () => {
-      if (token !== this.flowToken || !this.pick) return;
-      // time's up: auto-pick for everyone still choosing
-      for (const seat of this.pick.pickers) if (!this.pick.picks.has(seat)) this.autoPick(seat);
+      const pick = this.pick;
+      if (token !== this.flowToken || !pick) return;
+      // time's up: the humans still choosing get the card they were looking at first, then
+      // the bots choose, then anyone left
+      for (const seat of pick.pickers) if (!pick.picks.has(seat) && !this.seatBotControlled(seat)) this.autoPick(seat);
+      this.botPicks(true);
+      for (const seat of pick.pickers) if (!pick.picks.has(seat)) this.autoPick(seat);
       this.broadcastHeroSelect();
       this.checkPickComplete();
     });
@@ -1350,9 +1363,14 @@ export class HostSession implements GameSession {
     return free.length > 0 ? free : opts;
   }
 
-  private botPicks(): void {
+  /**
+   * Bot-controlled seats choose. In 自由选将 the humans choose first (the whole roster is
+   * theirs): the bots wait until every human locked in, or `force` at the deadline (COMBAT-1).
+   */
+  private botPicks(force = false): void {
     const pick = this.pick;
     if (!pick) return;
+    if (this.settings.freePick && !force && [...pick.pickers].some((s) => !pick.picks.has(s) && !this.seatBotControlled(s))) return;
     // real lord first so a bot double never steals from a bot lord's best choice
     const order = [...pick.pickers].sort((a, b) => (a === this.deal?.lordSeat ? -1 : b === this.deal?.lordSeat ? 1 : a - b));
     for (const seat of order) if (!pick.picks.has(seat) && this.seatBotControlled(seat)) this.autoPick(seat);
@@ -1366,7 +1384,14 @@ export class HostSession implements GameSession {
     if (opts.length === 0) return;
     // the hero the player was looking at when the timer ran out, if still free
     const hint = pick.hints.get(seat);
-    const heroId = hint !== undefined && opts.includes(hint) && !this.takenByOther(seat, hint) ? hint : botPickHero(opts, deal.roles[seat], this.heroById, this.rng);
+    if (hint !== undefined && opts.includes(hint) && !this.takenByOther(seat, hint)) {
+      pick.picks.set(seat, hint);
+      return;
+    }
+    const role = deal.roles[seat];
+    const heroId = this.settings.freePick
+      ? botFreePickHero(opts, role, this.heroById, this.rng, { crown: pick.lordPhase, choices: this.settings.heroChoices, extra: LORD_EXTRA_CHOICES })
+      : botPickHero(opts, role, this.heroById, this.rng);
     pick.picks.set(seat, heroId);
   }
 
@@ -1376,6 +1401,7 @@ export class HostSession implements GameSession {
     if (!pick.pickers.has(seat) || pick.picks.has(seat)) return;
     if (!this.availableOptions(seat).includes(heroId)) return;
     pick.picks.set(seat, heroId);
+    this.botPicks(); // 自由选将: the last human locked in → the bots choose now
     this.broadcastHeroSelect();
     this.checkPickComplete();
   }
