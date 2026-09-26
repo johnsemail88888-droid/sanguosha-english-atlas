@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>音律坊 · Audio Lab — 三国杀·枪火乱世</title>
+    <style>
+      :root {
+        --paper: #f3e7cf;
+        --paper2: #eadbbd;
+        --ink: #2a1f16;
+        --ink2: #5a4633;
+        --gold: #b8892e;
+        --red: #a8322a;
+        --shu: #c0392b;
+        --wei: #2e5fa8;
+        --wu: #2e8b57;
+        --qun: #7a7a7a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at 30% 0%, #f8eed9, #e6d3ad 70%) fixed;
+        color: var(--ink);
+        font: 14px/1.45 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 14px 22px;
+        background: linear-gradient(#2a1f16, #3a2a1c);
+        color: #f3e2b8;
+        border-bottom: 3px solid var(--gold);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        flex-wrap: wrap;
+      }
+      header h1 {
+        margin: 0;
+        font: 600 22px "STKaiti", "KaiTi", "Kaiti SC", "楷体", serif;
+        letter-spacing: 2px;
+      }
+      header .sub {
+        opacity: 0.7;
+        font-size: 12px;
+      }
+      #state {
+        margin-left: auto;
+        font: 12px ui-monospace, monospace;
+        opacity: 0.85;
+      }
+      main {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 14px;
+        padding: 16px 22px 40px;
+      }
+      section {
+        background: var(--paper);
+        border: 1px solid #cdb68a;
+        border-radius: 6px;
+        box-shadow: 0 1px 0 #fff8 inset, 0 2px 6px #0002;
+        padding: 10px 12px 12px;
+      }
+      section.wide {
+        grid-column: 1 / -1;
+      }
+      h2 {
+        margin: 0 0 8px;
+        font: 600 16px "STKaiti", "KaiTi", "Kaiti SC", "楷体", serif;
+        color: var(--red);
+        border-bottom: 1px dashed #c9ae7c;
+        padding-bottom: 4px;
+      }
+      h3 {
+        margin: 8px 0 4px;
+        font-size: 12px;
+        color: var(--ink2);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      button {
+        font: inherit;
+        font-size: 12px;
+        padding: 4px 9px;
+        margin: 2px;
+        border: 1px solid #9c7d45;
+        border-radius: 4px;
+        background: linear-gradient(#fff9ec, #eedcb4);
+        color: var(--ink);
+        cursor: pointer;
+      }
+      button:hover {
+        background: linear-gradient(#fffdf6, #f3e3c0);
+      }
+      button:active {
+        transform: translateY(1px);
+      }
+      button.primary {
+        background: linear-gradient(#c9453a, #9c2a22);
+        color: #fff4de;
+        border-color: #6f1d17;
+        font-weight: 600;
+      }
+      button.on {
+        background: linear-gradient(#d9b25a, #b8892e);
+        color: #2a1f16;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 3px 0;
+        font-size: 12px;
+      }
+      label span {
+        min-width: 86px;
+        color: var(--ink2);
+      }
+      input[type="range"] {
+        flex: 1;
+      }
+      output {
+        min-width: 44px;
+        text-align: right;
+        font: 12px ui-monospace, monospace;
+      }
+      .k-shu {
+        border-color: var(--shu);
+      }
+      .k-wei {
+        border-color: var(--wei);
+      }
+      .k-wu {
+        border-color: var(--wu);
+      }
+      .k-qun {
+        border-color: var(--qun);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font: 12px ui-monospace, monospace;
+      }
+      td,
+      th {
+        padding: 2px 6px;
+        border-bottom: 1px solid #d8c49b;
+        text-align: left;
+      }
+      td.bad {
+        color: var(--red);
+        font-weight: 700;
+      }
+      .note {
+        font-size: 12px;
+        color: var(--ink2);
+      }
+      input[type="text"] {
+        flex: 1;
+        font: inherit;
+        padding: 3px 6px;
+        border: 1px solid #b89a63;
+        border-radius: 4px;
+        background: #fffaf0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>音律坊 · Audio Lab</h1>
+      <div class="sub">三国杀·枪火乱世 — procedural WebAudio SFX &amp; music</div>
+      <button id="unlock" class="primary">启用声音 Enable audio</button>
+      <div id="state">audio: locked</div>
+    </header>
+    <main id="app"></main>
+    <script type="module" src="/src/audio/dev.ts"></script>
+  </body>
+</html>

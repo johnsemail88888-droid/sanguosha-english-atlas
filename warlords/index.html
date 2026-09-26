@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#1a1410" />
+    <meta name="description" content="三国杀身份局 × 第三人称枪战 × 带兵：主公、忠臣、反贼、内奸，选武将、带部曲、抢锦囊，浏览器即玩，可联机。" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" type="image/png" href="./favicon.png" />
+    <link rel="apple-touch-icon" href="./favicon.png" />
+    <title>三国杀·枪火乱世</title>
+    <style>
+      /* boot splash: visible until src/main.ts mounts the app (the bundle is ~1.5 MB) */
+      .sgwl-boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+        background: radial-gradient(ellipse at 50% 70%, #5c2c16 0%, #26160f 45%, #100a07 100%); color: #f3d98f;
+        font-family: "STKaiti", "KaiTi", "Kaiti SC", "楷体", serif; text-align: center; }
+      .sgwl-boot .t1 { font-size: 64px; font-weight: 900; letter-spacing: 0.08em; text-shadow: 0 2px 18px rgba(255, 180, 80, 0.35); }
+      .sgwl-boot .t2 { font-size: 26px; letter-spacing: 0.6em; margin-right: -0.6em; color: #f8e7c0; }
+      .sgwl-boot .bar { width: 220px; height: 4px; border-radius: 2px; background: rgba(214, 173, 82, 0.18); overflow: hidden; margin-top: 10px; }
+      .sgwl-boot .bar i { display: block; width: 35%; height: 100%; background: linear-gradient(90deg, transparent, #f3d98f, transparent); animation: sgwl-boot 1.4s ease-in-out infinite; }
+      .sgwl-boot .msg { font: 13px/1.6 system-ui, sans-serif; color: rgba(243, 230, 200, 0.6); letter-spacing: 0.05em; }
+      @keyframes sgwl-boot { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+    </style>
+  </head>
+  <body style="margin:0;background:#140f0b">
+    <div id="app">
+      <div class="sgwl-boot" role="status" aria-live="polite">
+        <div class="t1">三国杀</div>
+        <div class="t2">枪火乱世</div>
+        <div class="bar"><i></i></div>
+        <div class="msg">正在加载… · Loading…</div>
+      </div>
+    </div>
+    <noscript>
+      <p style="color:#f3e6c8;font:16px system-ui,sans-serif;text-align:center;margin-top:40vh">
+        请启用 JavaScript 以运行游戏。 · Please enable JavaScript to play.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

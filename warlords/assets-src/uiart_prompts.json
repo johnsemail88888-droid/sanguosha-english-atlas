@@ -1,0 +1,815 @@
+{
+ "roles": [
+  {
+   "id": "lord",
+   "prompt": "Identity card art for the Lord role in a Three Kingdoms war game: a commanding emperor-warlord in ornate golden dragon-scale armor over a modern tactical collar, crimson cape pooling on the steps, seated on a carved dragon throne with a jeweled sword across his knees. A colossal crimson war banner with a coiled golden dragon rises behind him, rows of kneeling riflemen far below. Radiant gold and crimson light. Painterly semi-realistic premium card-game illustration in the style of official Sanguosha hero art blended with Overwatch splash art, dramatic cinematic rim lighting, ink-wash and gold-leaf accents, centered composition with the subject fully inside the frame, no text, no letters, no logo, no border, no frame.",
+   "aspect_ratio": "3:4"
+  },
+  {
+   "id": "loyalist",
+   "prompt": "Identity card art for the Loyalist role in a Three Kingdoms war game: a steadfast armored general kneeling on one knee in the foreground, raising a battered round shield and a rifle to guard a tall silhouetted lord standing behind him in backlight. Arrows and tracer rounds glance off the shield in bright sparks, his face resolute and unwavering. Warm amber firelight against cool steel blue smoke. Painterly semi-realistic premium card-game illustration in the style of official Sanguosha hero art blended with Overwatch splash art, dramatic cinematic rim lighting, ink-wash and gold-leaf accents, centered composition with the subject fully inside the frame, no text, no letters, no logo, no border, no frame.",
+   "aspect_ratio": "3:4"
+  },
+  {
+   "id": "rebel",
+   "prompt": "Identity card art for the Rebel role in a Three Kingdoms war game: a band of fierce rebels storming up a rubble slope beneath a huge torn green-and-black banner, their leader in scarred lamellar armor and a green headscarf roaring with a raised assault rifle, comrades with rifles and spears surging behind him toward a burning palace gate. Jade green highlights, drifting smoke and embers. Painterly semi-realistic premium card-game illustration in the style of official Sanguosha hero art blended with Overwatch splash art, dramatic cinematic rim lighting, ink-wash and gold-leaf accents, centered composition with the subject fully inside the frame, no text, no letters, no logo, no border, no frame.",
+   "aspect_ratio": "3:4"
+  },
+  {
+   "id": "traitor",
+   "prompt": "Identity card art for the Traitor role in a Three Kingdoms war game: a lone hooded double agent standing half in light and half in deep shadow, holding up a two-faced mask split between a smiling face and a scowling face, a thin dagger hidden behind his back, cold calculating eyes glinting under the hood, a faint empty throne far behind. Deep violet and black palette with one sliver of cold light. Painterly semi-realistic premium card-game illustration in the style of official Sanguosha hero art blended with Overwatch splash art, dramatic cinematic rim lighting, ink-wash and gold-leaf accents, centered composition with the subject fully inside the frame, no text, no letters, no logo, no border, no frame.",
+   "aspect_ratio": "3:4"
+  },
+  {
+   "id": "double",
+   "prompt": "Identity card art for the Body Double role in a Three Kingdoms war game: a decoy warrior in a blank golden face mask, wearing the Lord's ornate golden dragon armor and crimson cape, standing proudly as if he were the emperor. The image is mirror-split down the middle: on the other side his true shadow self in plain black armor holds a drawn pistol. Stark gold and black palette. Painterly semi-realistic premium card-game illustration in the style of official Sanguosha hero art blended with Overwatch splash art, dramatic cinematic rim lighting, ink-wash and gold-leaf accents, centered composition with the subject fully inside the frame, no text, no letters, no logo, no border, no frame.",
+   "aspect_ratio": "3:4"
+  },
+  {
+   "id": "opportunist",
+   "prompt": "Identity card art for the Opportunist role in a Three Kingdoms war game: a relaxed, nonchalant drifter in a straw hat and patched coat sitting casually on top of a crumbling city wall, one leg dangling, chewing a grass stalk, a rifle across his lap. Wild grass on the battlements bends in the wind while two rival armies clash far below on either side. Teal and pale jade palette. Painterly semi-realistic premium card-game illustration in the style of official Sanguosha hero art blended with Overwatch splash art, dramatic cinematic rim lighting, ink-wash and gold-leaf accents, centered composition with the subject fully inside the frame, no text, no letters, no logo, no border, no frame.",
+   "aspect_ratio": "3:4"
+  },
+  {
+   "id": "bounty",
+   "prompt": "Identity card art for the Bounty Hunter role in a Three Kingdoms war game: a weathered bounty hunter in a wide bamboo hat and dusty long coat slamming a knife through a wanted portrait sketch pinned to a wooden post, the sketch showing only a face with no writing. A coiled rope dart hangs over his shoulder, a revolver on his hip, a frontier fort behind at sunset. Rust orange and burnt umber palette. Painterly semi-realistic premium card-game illustration in the style of official Sanguosha hero art blended with Overwatch splash art, dramatic cinematic rim lighting, ink-wash and gold-leaf accents, centered composition with the subject fully inside the frame, no text, no letters, no logo, no border, no frame.",
+   "aspect_ratio": "3:4"
+  }
+ ],
+ "items": [
+  {
+   "id": "sha",
+   "prompt": "Icon for the Strike attack card of a Three Kingdoms shooter: a crimson diagonal slash streak where a glowing bullet and a sword blade fuse into one strike, trailing red energy and sparks, a small brass ammunition box beneath it. Aggressive crimson red and gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "shan",
+   "prompt": "Icon for the Dodge card of a Three Kingdoms shooter: a blurred warrior silhouette sidestepping in motion with ghostly afterimages, a bullet streaking harmlessly past through the gap, a bright white flash burst at the center. Pale cyan and white speed lines. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "tao",
+   "prompt": "Icon for the Peach healing card of a Three Kingdoms shooter: a single glowing ripe peach, pink blushing into cream, with two fresh green leaves on a short twig, soft healing light and tiny sparkles rising from it, a few peach blossom petals drifting. Warm pink and leaf green. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "jiu",
+   "prompt": "Icon for the Wine card of a Three Kingdoms shooter: a round brown clay wine jar with a red cloth lid tied with cord and a blank red paper seal, tipping so rich wine splashes out in a dramatic arc, droplets catching the light, a small bronze cup beside it. Deep red and amber tones. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "wuzhong",
+   "prompt": "Icon for the Something from Nothing card of a Three Kingdoms shooter: blank glowing cards, a peach, a small wine jar and an ammo clip materialising out of empty air from a swirling vortex of golden qi energy, spiral of light particles, a magical conjuring feel. Gold and pale jade. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "guohe",
+   "prompt": "Icon for the Dismantle card of a Three Kingdoms shooter: an old wooden arch bridge over a river blasting apart at its middle, planks and splinters flying outward, an electric blue EMP shockwave ring expanding from the blast. Orange fire and cyan lightning. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "shunshou",
+   "prompt": "Icon for the Steal card of a Three Kingdoms shooter: a quick gloved hand on a grappling cord snatching a tied coin pouch in mid-air, a small cute sheep charm dangling from the pouch strings, a sly motion swoosh. Bronze and warm gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "juedou",
+   "prompt": "Icon for the Duel card of a Three Kingdoms shooter: two crossed blades, a straight Chinese jian sword and a curved saber, clashing at the center with a bright burst of sparks, a faint circle of dust marking a dueling ring below. Blood red and polished steel. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "jiedao",
+   "prompt": "Icon for the Borrowed Blade card of a Three Kingdoms shooter: a sword being handed from one armored hand to another hand reaching out of shadow, the blade glowing with hacked red circuit lines, a sinister scheming mood. Dark red and electric cyan. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "wuxie",
+   "prompt": "Icon for the Impeccable counter card of a Three Kingdoms shooter: an unbreakable golden hexagonal shield of light with a glowing honeycomb lattice, arrows and bolts shattering harmlessly against it, a calm radiant aura. Gold and white. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "nanman",
+   "prompt": "Icon for the Barbarian Invasion card of a Three Kingdoms shooter: a charging armored war elephant with huge ivory tusks and tribal war paint, trunk raised in a trumpet, dust exploding under its feet, a feathered southern barbarian warrior with a spear riding on top. Jungle green and earthy ochre. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "wanjian",
+   "prompt": "Icon for the Arrow Barrage card of a Three Kingdoms shooter: a dense storm of hundreds of arrows raining down diagonally from a darkened sky, glowing fletching, the whole volley converging on one point. Steel grey and fiery orange. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "taoyuan",
+   "prompt": "Icon for the Peach Garden Oath card of a Three Kingdoms shooter: three bronze wine cups raised together in a toast beneath a branch of blooming pink peach blossoms, petals drifting, a warm golden healing glow, the sworn brotherhood of Liu Bei, Guan Yu and Zhang Fei. Pink and gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "wugu",
+   "prompt": "Icon for the Bountiful Harvest card of a Three Kingdoms shooter: golden sheaves of wheat and millet bundled around an overflowing rice bowl, grains spilling over the rim, warm harvest sunlight and a feeling of abundance. Gold and amber. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huogong",
+   "prompt": "Icon for the Fire Attack card of a Three Kingdoms shooter: a flaming arrow and a glowing incendiary grenade plunging into a roaring burst of fire, swirling flames and embers spiraling outward. Blazing orange and red. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "tiesuo",
+   "prompt": "Icon for the Iron Chains card of a Three Kingdoms shooter: heavy interlinked black iron chains wrapped into a tight loop binding three links together, the chains that bound the warships at Red Cliffs, sparks of fire and lightning crackling along them. Dark steel with orange and blue glints. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "lebusishu",
+   "prompt": "Icon for the Indulgence trap card of a Three Kingdoms shooter: an elegant silk dancer's folding fan painted with flowers spread open beside a tipped wine cup, flowing silk ribbons swirling as if dancing, a drowsy pleasure-drunk mood. Soft rose pink and lavender with gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "bingliang",
+   "prompt": "Icon for the Supply Shortage trap card of a Three Kingdoms shooter: a coarse burlap rice sack snapped in half by the steel jaws of a trap, rice grains spilling out in a stream, a broken ammo belt beside it. Earthy brown and dull gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "shandian",
+   "prompt": "Icon for the Lightning card of a Three Kingdoms shooter: a dark swirling storm cloud with a jagged, brilliant lightning bolt striking straight down, crackling electric branches lighting the rain, ominous and dangerous. Electric violet-blue and white. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhengbing",
+   "prompt": "Icon for the Conscription Order of a Three Kingdoms shooter: a bronze tiger tally, a crouching tiger-shaped military token split into two matching halves being joined together, engraved stripe patterns but no inscription, glowing with authority, small soldier helmet silhouettes behind it. Bronze and gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "bagua",
+   "prompt": "Icon for the Bagua Deflector armor of a Three Kingdoms shooter: a glowing circular bagua disk with the eight trigrams as solid and broken bars around a spinning yin-yang center, a translucent energy field deflecting bullets away from it. Mystical jade and gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "renwang",
+   "prompt": "Icon for the Benevolent King Shield of a Three Kingdoms shooter: an ornate black-and-gold ballistic shield, glossy black lacquer face with a golden beast-mask boss and gold filigree rim, bullets flattening harmlessly against its front, noble and immovable. Black, gold and a touch of crimson. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "tengjia",
+   "prompt": "Icon for the Rattan Armor of a Three Kingdoms shooter: a tightly woven rattan armor vest of layered oiled rattan plates, glossy golden-brown weave, bullets bouncing off it, a small flicker of flame licking at its hem to hint at its fatal weakness to fire. Jungle brown and amber. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "baiyin",
+   "prompt": "Icon for the Silver Lion helmet of a Three Kingdoms shooter: a gleaming polished silver helmet shaped like a roaring lion's head with a flowing silver mane crest, heroic and protective, a soft white-silver healing glow around it. Moonlit silver with gold accents. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "chitu",
+   "prompt": "Icon for the Red Hare mount of a Three Kingdoms shooter: heroic head-and-shoulders portrait of the legendary blood-red warhorse of Lü Bu, a fiery flowing mane like living flames, flared nostrils and fierce eyes, ornate gold bridle, embers swirling around. Blazing crimson and gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "dawan",
+   "prompt": "Icon for the Ferghana Steed mount of a Three Kingdoms shooter: a tall, elegant bay warhorse of the western steppes rearing in a proud leaping pose, glossy reddish-brown coat with a black mane and sweat that shines like blood, bronze-studded tack. Warm bay brown and gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zixing",
+   "prompt": "Icon for the Purple Stallion mount of a Three Kingdoms shooter: heroic head-and-shoulders portrait of a powerful violet-brown warhorse with a dusky purple sheen on its coat and a dark flowing mane, purple silk tassels on the bridle, mid-gallop energy. Violet and bronze. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "dilu",
+   "prompt": "Icon for the Dilu mount of a Three Kingdoms shooter: a white horse with a distinctive dark blaze on its forehead leaping heroically across a river chasm, water splashing far below, mane streaming, the famous leap over the Tan Stream that saved Liu Bei. White and river blue. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "jueying",
+   "prompt": "Icon for the Shadowrunner mount of a Three Kingdoms shooter: a jet-black warhorse galloping so fast it dissolves into a shadow blur, trailing dark smoky afterimages, only its eye and gold bridle catching the light, the swift steed of Cao Cao. Black and deep indigo. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhuahuang",
+   "prompt": "Icon for the Flying Lightning mount of a Three Kingdoms shooter: a pure white warhorse with golden-yellow hooves and fetlocks like claws, leaping forward with small lightning bolts crackling around its legs, elegant and swift, the prized steed of Cao Cao. White and bright yellow-gold. Game item icon art: a single bold centered emblem, painterly semi-realistic with strong silhouette and high contrast, glowing gold rim light, on a dark ink-wash vignette background, reads clearly at very small size, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  }
+ ],
+ "weapons": [
+  {
+   "id": "pistol",
+   "prompt": "Side view of the Service Pistol, barrel pointing right: a compact modern semi-automatic sidearm in dark gunmetal with a grey polymer grip, subtle bronze cloud-pattern engraving on the slide and a small red silk tassel hanging from the grip, simple and reliable. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "carbine",
+   "prompt": "Side view of the Service Carbine, barrel pointing right: a balanced modern assault carbine in dark olive gunmetal with a brass-trimmed handguard, a short curved magazine, a compact red-dot optic and a lacquered wooden stock with faint cloud engraving, a standard-issue workhorse. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "smg",
+   "prompt": "Side view of the Service SMG, barrel pointing right: a compact submachine gun in matte dark grey with a folding stock, a short shrouded barrel, a straight box magazine and a small bronze coin charm on a cord, utilitarian close-quarters design. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "zhuge",
+   "prompt": "Side view of the Zhuge Repeater, barrel pointing right: a compact rapid-fire submachine gun shaped like Zhuge Liang's bronze repeating crossbow, a boxy bolt magazine on top, short crossbow limbs folded along the front, lacquered brown wood body, bronze gears and a red tassel. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "qinggang",
+   "prompt": "Side view of the Qinggang Marksman Rifle, barrel pointing right: a long, sleek designated marksman rifle whose barrel shroud is a straight double-edged blue-steel sword blade, the legendary Qinggang sword of Cao Cao, deep teal gunmetal body, pale ice-blue edge glow and a long scope. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "cixiong",
+   "prompt": "Side view of the Yin-Yang Twin Pistols: a matching pair of ornate pistols stacked one above the other, both barrels pointing right, one dark with gold inlay and one pale with silver inlay, each with a short sword blade under the barrel echoing Liu Bei's male-and-female twin swords, yin-yang motifs on the grips. Both weapons fully visible, centered, together filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "hanbing",
+   "prompt": "Side view of the Frostbite Rifle, barrel pointing right: an ice-blue cryo assault rifle with a frosted steel bayonet blade inspired by the ancient Frost Sword, glowing pale-cyan coolant tubes along the body, rime crystals forming on the barrel, cold vapor drifting off it. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "guding",
+   "prompt": "Side view of the Guding Blade Shotgun, barrel pointing right: a heavy combat shotgun with the broad ancient Guding saber of Sun Jian running under the barrel as a blade, bronze-brown receiver with gold rivets, tiger-stripe engraving, blunt and brutal. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "qinglong",
+   "prompt": "Side view of the Green Dragon Rifle, barrel pointing right: an assault rifle fused with Guan Yu's Green Dragon Crescent Blade, a large crescent guandao blade mounted under the muzzle, dark jade-green body with a gold green-dragon engraving coiling along the receiver, a red silk tassel at the blade base. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "zhangba",
+   "prompt": "Side view of the Serpent Spear Shotgun, barrel pointing right: a long pump-action shotgun with Zhang Fei's wavy serpent spear blade fixed as a bayonet, blackened steel body, silver snake-scale engraving along the pump, a snake-head collar around the muzzle. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "guanshi",
+   "prompt": "Side view of the Guanshi Grenade Launcher, barrel pointing right: a stout drum-fed grenade launcher with a huge double-bladed battle axe head, the legendary Stone-Piercing Axe, mounted over the muzzle, rough bronze and gunmetal, heavy rotating grenade drum. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "zhuque",
+   "prompt": "Side view of the Vermilion Phoenix Flamer, nozzle pointing right: a flamethrower styled after the Vermilion Bird feather fan, crimson lacquer fuel tank, golden nozzle with a small pilot flame, a fan of red and gold phoenix feathers sweeping back along the body. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "fangtian",
+   "prompt": "Side view of the Sky Piercer Rocket Pod, pointing right: a triple-tube shoulder rocket launcher fused with Lü Bu's Sky Piercer halberd, a long polearm shaft ending in a spear tip with a crescent halberd blade at the front, dark crimson lacquer and gold, three rocket tubes bundled together. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "qilin",
+   "prompt": "Side view of the Qilin Anti-Materiel Rifle, barrel pointing right: a very long, heavy anti-materiel sniper rifle styled after the Qilin Bow, a carved golden qilin head as the muzzle brake, bow-like curved limbs sweeping back from the barrel, a large scope and bipod, dark bronze and gold. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "longdan",
+   "prompt": "Side view of the Longdan Bayonet Carbine, barrel pointing right: Zhao Yun's gleaming silver carbine with a long silver spear-tip bayonet, polished white-silver body with sapphire blue dragon-scale engraving and a white horsehair tassel, elegant and fast. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "liegong",
+   "prompt": "Side view of the Liegong Sniper Bow in profile, arrow pointing right: veteran archer Huang Zhong's great compound bow, carved dark-wood limbs with brass cams and a red tassel, a telescopic sight on the riser, a long nocked arrow with a steel broadhead spanning most of the frame. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "jinfan",
+   "prompt": "Side view of the Brocade Bell SMGs: a pair of compact twin submachine guns stacked one above the other, both pointing right, dark jade-green lacquer with gold trim, colorful brocade silk tassels and small golden bells hanging from grips and barrels, river-pirate flair of Gan Ning. Both weapons fully visible, centered, together filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "xiaoji",
+   "prompt": "Side view of the Xiaoji Blast Bow in profile, arrow pointing right: Sun Shangxiang's sleek red-lacquered compound bow with cream phoenix-feather ornaments on the limbs, a nocked arrow whose explosive head glows orange, elegant warrior-princess design. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "taiping",
+   "prompt": "Side view of the Taiping Tesla Staff, pointing right: Zhang Jiao's long golden Taoist staff turned energy weapon, copper tesla coils wound along the shaft, blank yellow talisman strips fluttering from it, a crackling pale-blue lightning orb at the tip. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "wushuang",
+   "prompt": "Side view of the Peerless Battle Rifle, barrel pointing right: Lü Bu's massive heavy battle rifle in dark crimson lacquer with gold trim, a snarling golden dragon head forming the muzzle brake, an oversized magazine, arrogant overwhelming power. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "huben",
+   "prompt": "Side view of the Tiger Guard LMG, barrel pointing right: Xu Chu's hulking belt-fed light machine gun, heavy bronze-brown receiver with a tiger-head relief, a long ammunition belt hanging down, folded bipod, thick barrel with cooling fins. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "qingnang",
+   "prompt": "Side view of the Qingnang Dart Pistol, barrel pointing right: healer Hua Tuo's slim medical dart pistol, jade-green body with ivory trim, a glass vial of glowing green herbal serum mounted on top, a needle dart in the chamber, a small green cloth satchel charm. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "yitian",
+   "prompt": "Side view of the Heaven-Reliant DMR, barrel pointing right: a long black semi-automatic marksman rifle whose barrel shroud is Cao Cao's straight double-edged Yitian sword, midnight black body with polished silver-white edges and imperial gold accents, long scope. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "hutou",
+   "prompt": "Side view of the Tiger-Head Lance Rifle, barrel pointing right: Ma Chao's long silver rifle-lance, a golden tiger-head collar gripping a long lance blade at the muzzle, polished silver body with gold inlays and a white horsehair tassel. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "jiguan",
+   "prompt": "Side view of the Clockwork Repeater Crossbow, pointing right: Huang Yueying's intricate wooden crossbow with exposed brass gears, springs and cogwheels, a top-loaded bolt magazine, lacquered walnut body, a precise inventor's mechanism. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "manwang",
+   "prompt": "Side view of the Barbarian King Double-Barrel, barrels pointing right: Meng Huo's heavy side-by-side double-barrel shotgun with an ivory-tusk stock and fore-end, carved tribal patterns, a bone blade under the barrels, dark wood and bronze. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  },
+  {
+   "id": "baiyi",
+   "prompt": "Side view of the White-Robe Suppressed DMR, barrel pointing right: Lü Meng's sleek marksman rifle partly wrapped in white cloth, a long integral suppressor, pale ivory body with emerald green accents and a compact scope, built for stealth. Whole weapon visible, centered, filling about 80% of the frame width. Stylized semi-realistic hero-shooter weapon render, clean side view, PBR materials with brass, lacquer, jade and gunmetal, soft studio rim light, isolated on a pure black background, no hands, no people, no text, no letters, no border.",
+   "aspect_ratio": "16:9"
+  }
+ ],
+ "abilities": [
+  {
+   "id": "liubei_rende",
+   "prompt": "Ability icon for Liu Bei's Benevolence, a Shu kingdom passive skill in a Three Kingdoms hero shooter: two open hands exchanging a glowing peach, a ribbon of warm healing light looping back from the receiving hand to the giving hand, small silhouettes of loyal soldiers gathering beneath them. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "liubei_jimin",
+   "prompt": "Ability icon for Liu Bei's Relief Supplies, a Shu kingdom active skill in a Three Kingdoms hero shooter: a supply bundle tied with red cloth tossed in a high arc, a peach, a small wine gourd and an ammo clip spilling from it, healing sparkles trailing along the arc. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "liubei_banner",
+   "prompt": "Ability icon for Liu Bei's Banner of Han, a Shu kingdom active skill in a Three Kingdoms hero shooter: a tall war banner embroidered with a golden dragon planted firmly into the ground, a circular healing aura pulsing outward from its base, soldiers' spear tips rising around it. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "liubei_jijiang",
+   "prompt": "Ability icon for Liu Bei's Rouse, a Shu kingdom lord skill in a Three Kingdoms hero shooter: a raised imperial sword pointing forward in a rallying command, four charging militia silhouettes with spears and rifles surging around it, flames of fighting spirit. Symbolic emblem rather than a portrait, with a crimson red accent glow and extra radiant gold filigree and a gold halo for a lord skill. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "guanyu_wusheng",
+   "prompt": "Ability icon for Guan Yu's Saint of War, a Shu kingdom passive skill in a Three Kingdoms hero shooter: a green crescent guandao blade radiating a swirling jade-green aura, a battle flame burning along its edge, the saint of war's legendary Green Dragon Crescent Blade. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "guanyu_qinglong",
+   "prompt": "Ability icon for Guan Yu's Green Dragon Cleave, a Shu kingdom active skill in a Three Kingdoms hero shooter: a sweeping crescent arc of green energy slicing horizontally, the ghostly head of a green dragon roaring out of the arc, debris blasted away by the cleave. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "guanyu_yijue",
+   "prompt": "Ability icon for Guan Yu's Righteous Severance, a Shu kingdom active skill in a Three Kingdoms hero shooter: a glowing crosshair sigil pierced by a green crescent blade, a cracked ring of silence around it, a single stern phoenix eye glowing above as a symbol of righteous judgment. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangfei_shemao",
+   "prompt": "Ability icon for Zhang Fei's Serpent Flurry, a Shu kingdom passive skill in a Three Kingdoms hero shooter: a wavy serpent spear blade with a spirit snake of energy coiling around it, shotgun shells spinning around the blade in a rapid flurry. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangfei_paoxiao",
+   "prompt": "Ability icon for Zhang Fei's Roar, a Shu kingdom active skill in a Three Kingdoms hero shooter: an explosive roar shockwave of concentric sound rings bursting from a snarling tiger-whisker war mask, spent shotgun shells flying outward. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangfei_duanqiao",
+   "prompt": "Ability icon for Zhang Fei's Thunder at the Bridge, a Shu kingdom active skill in a Three Kingdoms hero shooter: a lone serpent spear planted at the end of a wooden bridge, a thunderous cone of sound blasting forward across it, planks cracking and enemy dust clouds recoiling, the stand at Changban Bridge. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhugeliang_guanxing",
+   "prompt": "Ability icon for Zhuge Liang's Stargazing, a Shu kingdom passive skill in a Three Kingdoms hero shooter: stars aligning into a glowing constellation above a white crane-feather fan, faint lines of starlight connecting them like a map of fate. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhugeliang_bazhen",
+   "prompt": "Ability icon for Zhuge Liang's Eight Trigrams Maze, a Shu kingdom active skill in a Three Kingdoms hero shooter: a top-down stone maze of eight trigram walls forming a spiraling octagon, drifting mist between the stones, a small feather fan glowing at its center. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhugeliang_kongcheng",
+   "prompt": "Ability icon for Zhuge Liang's Empty Fort, a Shu kingdom active skill in a Three Kingdoms hero shooter: a lone guqin zither on top of an open city gate tower, gentle ripples of music radiating outward, the gate below standing wide open and empty, a serene untouchable glow. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhaoyun_longdan",
+   "prompt": "Ability icon for Zhao Yun's Dragon Courage, a Shu kingdom passive skill in a Three Kingdoms hero shooter: a silver spear tip entwined by a coiling white-silver dragon, three glowing afterimage streaks of dodges trailing behind it. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhaoyun_qijin",
+   "prompt": "Ability icon for Zhao Yun's Seven In, Seven Out, a Shu kingdom active skill in a Three Kingdoms hero shooter: a zigzag trail of silver light weaving in and out through a ring of dark enemy spear points seven times, a white dragon spear tip leading the trail. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhaoyun_jiuzhu",
+   "prompt": "Ability icon for Zhao Yun's Rescue at Changban, a Shu kingdom active skill in a Three Kingdoms hero shooter: a silver spear crossed in front of a small swaddled infant bundle protected inside a glowing round shield bubble, the rescue of the young heir at Changban. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "machao_mashu",
+   "prompt": "Ability icon for Ma Chao's Horsemanship, a Shu kingdom passive skill in a Three Kingdoms hero shooter: the head of a galloping western warhorse with a flowing white mane and a silver bridle, dust and speed lines streaming behind. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "machao_tieji",
+   "prompt": "Ability icon for Ma Chao's Iron Cavalry, a Shu kingdom active skill in a Three Kingdoms hero shooter: an iron-armored horse head in heavy barding charging forward behind a silver lance tip that shatters a shield in front of it. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "machao_charge",
+   "prompt": "Ability icon for Ma Chao's Xiliang Charge, a Shu kingdom active skill in a Three Kingdoms hero shooter: a galloping horse and lance silhouette plowing forward across the desert, a cone-shaped shockwave flinging small figures aside, desert dust. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huangyueying_jizhi",
+   "prompt": "Ability icon for Huang Yueying's Gathering Wisdom, a Shu kingdom passive skill in a Three Kingdoms hero shooter: an open bamboo scroll with brass gears and cogwheels rising from it, a clock-like dial spinning backward, a bright spark of insight above. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huangyueying_muniu",
+   "prompt": "Ability icon for Huang Yueying's Wooden Ox Turret, a Shu kingdom active skill in a Three Kingdoms hero shooter: a wooden ox automaton with brass gears and joints carrying a small mounted gun turret on its back, clockwork details glowing. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huangyueying_qicai",
+   "prompt": "Ability icon for Huang Yueying's Genius Inventor, a Shu kingdom active skill in a Three Kingdoms hero shooter: an overcharged brass clockwork gear spinning with sparks and motion blur, a small turret barrel beside it glowing hot from rapid fire. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huangzhong_liegong",
+   "prompt": "Ability icon for Huang Zhong's Fierce Bow, a Shu kingdom passive skill in a Three Kingdoms hero shooter: a fully drawn great bow with a flaming arrow aimed at a distant target ring far away, the arrow tip glowing with unstoppable force. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huangzhong_chuanyang",
+   "prompt": "Ability icon for Huang Zhong's Hundred-Pace Shot, a Shu kingdom active skill in a Three Kingdoms hero shooter: a single armor-piercing arrow punching through three willow leaves and a steel plate in a straight line, a glowing streak marking its path. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huangzhong_laodang",
+   "prompt": "Ability icon for Huang Zhong's Old Soldier's Vigor, a Shu kingdom active skill in a Three Kingdoms hero shooter: an old gnarled pine tree bursting into vigorous fresh green growth, a longbow leaning against its trunk, surging energy of an aged warrior still strong. Symbolic emblem rather than a portrait, with a crimson red accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "caocao_jianxiong",
+   "prompt": "Ability icon for Cao Cao's Villainous Hero, a Wei kingdom passive skill in a Three Kingdoms hero shooter: a golden jeweled sword hovering over an open grasping hand that absorbs incoming damage shards and turns them into a glowing shield. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "caocao_ningjiao",
+   "prompt": "Ability icon for Cao Cao's Betray the World, a Wei kingdom active skill in a Three Kingdoms hero shooter: a ruthless warlord's cracked ceremonial mask with blood-red lifesteal wisps flowing into it, a wave of charging soldiers' spear tips behind. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "caocao_wangmei",
+   "prompt": "Ability icon for Cao Cao's Plums Quench Thirst, a Wei kingdom active skill in a Three Kingdoms hero shooter: a branch of ripe glowing plums with fresh droplets of water, a column of marching soldiers faintly behind it. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "caocao_hujia",
+   "prompt": "Ability icon for Cao Cao's Escort, a Wei kingdom lord skill in a Three Kingdoms hero shooter: three hulking tiger-guard shields interlocking in front of an imperial golden sword, a tiger emblem on the central shield. Symbolic emblem rather than a portrait, with a royal blue accent glow and extra radiant gold filigree and a gold halo for a lord skill. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "simayi_fankui",
+   "prompt": "Ability icon for Sima Yi's Retaliation, a Wei kingdom passive skill in a Three Kingdoms hero shooter: a shadowy clawed hand snatching an item back along the path of an incoming bullet, a curling feedback loop of light. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "simayi_guicai",
+   "prompt": "Ability icon for Sima Yi's Ghostly Talent, a Wei kingdom active skill in a Three Kingdoms hero shooter: an ethereal cracked ghost mirror with bullets rebounding off it back toward the shooter, sly wisps of spirit smoke. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "simayi_langgu",
+   "prompt": "Ability icon for Sima Yi's Wolf's Glance, a Wei kingdom active skill in a Three Kingdoms hero shooter: a wolf's head turning its gaze fully backward over its shoulder, glowing eyes revealing hidden silhouettes through fog. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "xiahoudun_ganglie",
+   "prompt": "Ability icon for Xiahou Dun's Unyielding, a Wei kingdom passive skill in a Three Kingdoms hero shooter: a battered spiked steel shield with every arrow that strikes it rebounding back as a spark of retribution. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "xiahoudun_bashi",
+   "prompt": "Ability icon for Xiahou Dun's Eat the Eye, a Wei kingdom active skill in a Three Kingdoms hero shooter: a clenched gauntlet snapping a broken arrow, a black eyepatch emblem above it, a surging flame of defiant fury and healing. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "xiahoudun_charge",
+   "prompt": "Ability icon for Xiahou Dun's One-Eyed Charge, a Wei kingdom active skill in a Three Kingdoms hero shooter: a charging horned helmet with an eyepatch and a single glaring eye, a broadsword thrust forward, a stunning shockwave at its tip. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangliao_liaolai",
+   "prompt": "Ability icon for Zhang Liao's Liao Is Coming, a Wei kingdom passive skill in a Three Kingdoms hero shooter: a shadowy crescent halberd looming directly behind a fleeing silhouette's back, a ghostly aura of terror. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangliao_tuxi",
+   "prompt": "Ability icon for Zhang Liao's Surprise Raid, a Wei kingdom active skill in a Three Kingdoms hero shooter: a blink streak of light ending behind a target, two small glowing items being snatched away in its wake. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangliao_weizhen",
+   "prompt": "Ability icon for Zhang Liao's Terror of Xiaoyao Ford, a Wei kingdom active skill in a Three Kingdoms hero shooter: a war halberd planted at a river ford, a massive shockwave of fear rippling across the water, dust clouds of charging riders behind. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "xuchu_huchi",
+   "prompt": "Ability icon for Xu Chu's Tiger Fool, a Wei kingdom passive skill in a Three Kingdoms hero shooter: a massive tiger crouching firmly with its paws rooted into cracked stone, immovable, a shock ring breaking harmlessly around it. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "xuchu_luoyi",
+   "prompt": "Ability icon for Xu Chu's Bare-Chested, a Wei kingdom active skill in a Three Kingdoms hero shooter: a muscular bare torso silhouette tearing off its armor, plates flying apart, a blazing battle aura of reckless strength. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "xuchu_slam",
+   "prompt": "Ability icon for Xu Chu's Tiger Guard Slam, a Wei kingdom active skill in a Three Kingdoms hero shooter: a giant fist slamming into the ground from a leap, a crater shockwave with rubble knocked into the air, tiger claw marks in the dust. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "guojia_tiandu",
+   "prompt": "Ability icon for Guo Jia's Envy of Heaven, a Wei kingdom passive skill in a Three Kingdoms hero shooter: a bolt of heavenly lightning shattering on a scholar's folding fan, glowing items and bullets raining out of the break. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "guojia_yiji",
+   "prompt": "Ability icon for Guo Jia's Legacy Stratagem, a Wei kingdom active skill in a Three Kingdoms hero shooter: a sealed silk letter pouch strapped to a supply crate descending from the sky, beacon smoke trailing behind it. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "guojia_guimou",
+   "prompt": "Ability icon for Guo Jia's Ghostly Scheme, a Wei kingdom active skill in a Three Kingdoms hero shooter: a ghostly flame eye branding a crosshair mark onto a target, a folding fan casting the spectral mark. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhenji_qingguo",
+   "prompt": "Ability icon for Zhen Ji's Nation-Toppling Beauty, a Wei kingdom passive skill in a Three Kingdoms hero shooter: a flowing silk sleeve swirling in motion so that bullets pass through its translucent afterimages, lotus petals drifting. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhenji_luoshen",
+   "prompt": "Ability icon for Zhen Ji's Goddess of the Luo, a Wei kingdom active skill in a Three Kingdoms hero shooter: a graceful river goddess silhouette of mist rising from a moonlit river, four luminous water pearls floating around her hands. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhenji_lingbo",
+   "prompt": "Ability icon for Zhen Ji's Graceful Steps, a Wei kingdom active skill in a Three Kingdoms hero shooter: a pair of silk slippers gliding over rippling water, leaving a trail of frost crystals behind, a blink streak of light. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "xiahouyuan_jixing",
+   "prompt": "Ability icon for Xiahou Yuan's Swift March, a Wei kingdom passive skill in a Three Kingdoms hero shooter: a running armored boot with wind streaks, a steady scope reticle floating in front of it, swift forced-march energy. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "xiahouyuan_shensu",
+   "prompt": "Ability icon for Xiahou Yuan's Godspeed, a Wei kingdom active skill in a Three Kingdoms hero shooter: a blink streak of light ending in five arrows volleyed outward in a tight fan toward the nearest target. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "xiahouyuan_hubu",
+   "prompt": "Ability icon for Xiahou Yuan's Tiger Stride, a Wei kingdom active skill in a Three Kingdoms hero shooter: a trail of leaping tiger paw prints with swirling wind, three glowing dodge charms refilling beside it. Symbolic emblem rather than a portrait, with a royal blue accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "sunquan_quanheng",
+   "prompt": "Ability icon for Sun Quan's Deliberation, a Wu kingdom passive skill in a Three Kingdoms hero shooter: a balanced bronze scale with two gun magazines on its pans, reload gears spinning behind it, calm deliberate power. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "sunquan_zhiheng",
+   "prompt": "Ability icon for Sun Quan's Balance of Power, a Wu kingdom active skill in a Three Kingdoms hero shooter: a whirlwind of cards and items spiraling away while new ones spiral in around a glowing jade balance scale. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "sunquan_zuoduan",
+   "prompt": "Ability icon for Sun Quan's Master of the Southeast, a Wu kingdom active skill in a Three Kingdoms hero shooter: a coiled dragon above a winding river delta, two marksman silhouettes with rifles rising at its flanks, commanding the southeast. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "sunquan_jiuyuan",
+   "prompt": "Ability icon for Sun Quan's Rescue, a Wu kingdom lord skill in a Three Kingdoms hero shooter: a protective dome around a tiger emblem shield, soldiers rallying around it, a pulse of healing light. Symbolic emblem rather than a portrait, with an emerald green accent glow and extra radiant gold filigree and a gold halo for a lord skill. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "ganning_jinfan",
+   "prompt": "Ability icon for Gan Ning's Brocade Sails, a Wu kingdom passive skill in a Three Kingdoms hero shooter: a billowing brocade silk sail on a river raider ship hung with small golden bells, a magazine snapping into place. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "ganning_qixi",
+   "prompt": "Ability icon for Gan Ning's Surprise Raid, a Wu kingdom active skill in a Three Kingdoms hero shooter: a crackling EMP crossbow bolt striking an armor plate that shatters into shards, a horse saddle knocked away. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "ganning_jieying",
+   "prompt": "Ability icon for Gan Ning's Hundred Riders Raid, a Wu kingdom active skill in a Three Kingdoms hero shooter: a night raid of shadowy riders with white feathers on their helmets emerging from darkness, a stealth shimmer across them. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "lumeng_keji",
+   "prompt": "Ability icon for Lü Meng's Self-Restraint, a Wu kingdom passive skill in a Three Kingdoms hero shooter: a closed scholar's book with a sheathed sword lying on top, both slowly fading into stealth mist. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "lumeng_baiyi",
+   "prompt": "Ability icon for Lü Meng's Crossing in White, a Wu kingdom active skill in a Three Kingdoms hero shooter: a merchant boat of white-robed figures gliding through river mist, stealthily approaching a fortress. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "lumeng_gongxin",
+   "prompt": "Ability icon for Lü Meng's Mind Assault, a Wu kingdom active skill in a Three Kingdoms hero shooter: a spectral hand reaching into a glowing heart-shaped mind sigil and drawing out an item, a disarmed blade falling away. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huanggai_chidan",
+   "prompt": "Ability icon for Huang Gai's Burning Loyalty, a Wu kingdom passive skill in a Three Kingdoms hero shooter: a burning heart of loyalty glowing inside a battered breastplate, flames of fire and explosion swirling around it. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huanggai_kurou",
+   "prompt": "Ability icon for Huang Gai's Self-Injury, a Wu kingdom active skill in a Three Kingdoms hero shooter: a snapped flogging rod over a spark of pain, two glowing items rising from the wound, a sacrifice for victory. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huanggai_huochuan",
+   "prompt": "Ability icon for Huang Gai's Fire Ship Gambit, a Wu kingdom active skill in a Three Kingdoms hero shooter: a blazing fire ship drone ramming forward across the river, flames and smoke trailing behind it, a coming explosion. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhouyu_yingzi",
+   "prompt": "Ability icon for Zhou Yu's Heroic Bearing, a Wu kingdom passive skill in a Three Kingdoms hero shooter: a proud white-plumed general's helmet crossed with a jade flute, a swift swirl of feathers around them and a small hourglass whose sand runs visibly faster, radiant youthful confidence. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhouyu_fanjian",
+   "prompt": "Ability icon for Zhou Yu's Sow Discord, a Wu kingdom active skill in a Three Kingdoms hero shooter: a forged sealed letter pierced by a dagger, two blades turning on each other below it, sowing discord. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhouyu_chibi",
+   "prompt": "Ability icon for Zhou Yu's Red Cliffs Inferno, a Wu kingdom active skill in a Three Kingdoms hero shooter: towering red cliffs above a river, a line of warships erupting in fire as the east wind blows the flames forward. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "daqiao_liuli",
+   "prompt": "Ability icon for Da Qiao's Displacement, a Wu kingdom passive skill in a Three Kingdoms hero shooter: a glass prism of colored glaze deflecting an incoming bullet sideways toward another target, shards of rainbow light. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "daqiao_guose",
+   "prompt": "Ability icon for Da Qiao's National Beauty, a Wu kingdom active skill in a Three Kingdoms hero shooter: a peony blossom and an open silk fan, a dancing ribbon of enchantment spiraling around them. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "daqiao_anxian",
+   "prompt": "Ability icon for Da Qiao's Serenity, a Wu kingdom active skill in a Three Kingdoms hero shooter: a calm lotus pond with a healing ripple spreading outward, soft glowing petals floating on the water. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "luxun_qianxun",
+   "prompt": "Ability icon for Lu Xun's Modesty, a Wu kingdom passive skill in a Three Kingdoms hero shooter: a modest scholar's fan behind a jade barrier warding off grasping hands and charm hearts. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "luxun_lianying",
+   "prompt": "Ability icon for Lu Xun's Continuous Camps, a Wu kingdom passive skill in a Three Kingdoms hero shooter: an empty magazine instantly refilling itself with glowing rounds, a row of camp tents faintly behind it. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "luxun_huoshao",
+   "prompt": "Ability icon for Lu Xun's Burning Camps, a Wu kingdom active skill in a Three Kingdoms hero shooter: a long line of five camp tents burning in a row, flames spreading from one to the next, the fire at Yiling. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "luxun_liaoyuan",
+   "prompt": "Ability icon for Lu Xun's Wildfire, a Wu kingdom active skill in a Three Kingdoms hero shooter: a single spark igniting a vast prairie fire spreading outward in a widening ring. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "sunshangxiang_xiaoji",
+   "prompt": "Ability icon for Sun Shangxiang's Warrior Princess, a Wu kingdom passive skill in a Three Kingdoms hero shooter: a fierce owl with spread wings clutching a bow, a warrior princess spirit, a burst of speed lines. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "sunshangxiang_jieyin",
+   "prompt": "Ability icon for Sun Shangxiang's Marriage Bond, a Wu kingdom active skill in a Three Kingdoms hero shooter: two interlinked jade rings tied with a red marriage cord, a warm healing glow around them. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "sunshangxiang_gongyao",
+   "prompt": "Ability icon for Sun Shangxiang's Arrow Fan, a Wu kingdom active skill in a Three Kingdoms hero shooter: five explosive arrows fanning out in a spread from a drawn bow, their heads glowing orange. Symbolic emblem rather than a portrait, with an emerald green accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huatuo_jijiu",
+   "prompt": "Ability icon for Hua Tuo's First Aid, a Qun kingdom passive skill in a Three Kingdoms hero shooter: a pulse of healing light from acupuncture needles hovering over a fallen silhouette, lifting it back up. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huatuo_qingnang",
+   "prompt": "Ability icon for Hua Tuo's Green Satchel, a Qun kingdom active skill in a Three Kingdoms hero shooter: a green cloth medicine satchel glowing with herbs and an old medical book, cleansing light flowing out. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "huatuo_mafei",
+   "prompt": "Ability icon for Hua Tuo's Anesthetic Gas, a Qun kingdom active skill in a Three Kingdoms hero shooter: a herbal gas grenade releasing swirling sleeping mist, drowsy spirals and a soft haze. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "lubu_wushuang",
+   "prompt": "Ability icon for Lü Bu's Peerless, a Qun kingdom passive skill in a Three Kingdoms hero shooter: a war helmet crowned with two long curving pheasant-tail plumes above a diagonal crescent halberd, an overwhelming peerless aura, a shattered shield below. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "lubu_fangtian",
+   "prompt": "Ability icon for Lü Bu's Sky Piercer Sweep, a Qun kingdom active skill in a Three Kingdoms hero shooter: the Sky Piercer crescent halberd spinning in a full circle, a violent 360-degree shockwave around it. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "lubu_sheji",
+   "prompt": "Ability icon for Lü Bu's Shot at the Camp Gate, a Qun kingdom active skill in a Three Kingdoms hero shooter: an arrow striking the small side blade of a halberd planted at a distant camp gate, a precise glowing streak. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "diaochan_biyue",
+   "prompt": "Ability icon for Diaochan's Moon Eclipse, a Qun kingdom passive skill in a Three Kingdoms hero shooter: a full moon veiled by drifting clouds as if hiding in shame before great beauty, a soft regenerating glow. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "diaochan_lijian",
+   "prompt": "Ability icon for Diaochan's Sow Dissension, a Qun kingdom active skill in a Three Kingdoms hero shooter: two warriors' blades turned against each other by a silk ribbon, a charm heart glowing between them. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "diaochan_lianhuan",
+   "prompt": "Ability icon for Diaochan's Chain Stratagem, a Qun kingdom active skill in a Three Kingdoms hero shooter: a chain of linked silk ribbons and iron links binding three silhouettes together, fire and thunder sparks along it. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangjiao_guidao",
+   "prompt": "Ability icon for Zhang Jiao's Ghostly Way, a Qun kingdom passive skill in a Three Kingdoms hero shooter: a crackling yellow paper talisman with red swirl patterns and no writing, surging with lightning arcs. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangjiao_leiji",
+   "prompt": "Ability icon for Zhang Jiao's Lightning Strike, a Qun kingdom active skill in a Three Kingdoms hero shooter: three lightning bolts striking one spot in sequence from a dark sky, a shockwave ring on the ground. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangjiao_taiping",
+   "prompt": "Ability icon for Zhang Jiao's Way of Peace, a Qun kingdom active skill in a Three Kingdoms hero shooter: a storm cloud following a fleeing silhouette, raining lightning on it, a Taoist scripture scroll open beneath the cloud. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "zhangjiao_huangtian",
+   "prompt": "Ability icon for Zhang Jiao's Yellow Heaven, a Qun kingdom lord skill in a Three Kingdoms hero shooter: a yellow turban headband cloth fluttering against a yellow sky, five warrior silhouettes rising beneath it. Symbolic emblem rather than a portrait, with a smoky violet accent glow and extra radiant gold filigree and a gold halo for a lord skill. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "yuanshao_mingmen",
+   "prompt": "Ability icon for Yuan Shao's Noble Lineage, a Qun kingdom passive skill in a Three Kingdoms hero shooter: a noble clan crest of jade and gold resting on a silk cushion, rows of elite soldiers standing behind it. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "yuanshao_luanji",
+   "prompt": "Ability icon for Yuan Shao's Chaotic Volley, a Qun kingdom active skill in a Three Kingdoms hero shooter: arrows raining chaotically from many directions onto a circle on the ground, a storm of fletching. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "yuanshao_sishi",
+   "prompt": "Ability icon for Yuan Shao's Four Generations of Nobility, a Qun kingdom active skill in a Three Kingdoms hero shooter: four ancestral jade tablets stacked in a row with four crossbowmen silhouettes standing before them. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "yuanshao_xueyi",
+   "prompt": "Ability icon for Yuan Shao's Noble Bloodline, a Qun kingdom lord skill in a Three Kingdoms hero shooter: a drop of noble blood falling into a golden goblet, radiant rings of aura spreading outward. Symbolic emblem rather than a portrait, with a smoky violet accent glow and extra radiant gold filigree and a gold halo for a lord skill. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "menghuo_huoshou",
+   "prompt": "Ability icon for Meng Huo's Chief Culprit, a Qun kingdom passive skill in a Three Kingdoms hero shooter: a barbarian king's feathered headdress with war elephants and warriors bowing around it. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "menghuo_zaiqi",
+   "prompt": "Ability icon for Meng Huo's Resurgence, a Qun kingdom passive skill in a Three Kingdoms hero shooter: a fist bursting through seven snapped rope bindings, rising again with defiant strength. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "menghuo_nanman",
+   "prompt": "Ability icon for Meng Huo's Barbarian Invasion, a Qun kingdom active skill in a Three Kingdoms hero shooter: five charging barbarian warriors with shields and spears surging forward in a wedge, tribal war paint. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  },
+  {
+   "id": "menghuo_xiangbing",
+   "prompt": "Ability icon for Meng Huo's Elephant Corps, a Qun kingdom active skill in a Three Kingdoms hero shooter: a massive war elephant charging head-on and trampling, dust and rubble exploding, tusks lowered. Symbolic emblem rather than a portrait, with a smoky violet accent glow. Game ability icon: one bold centered symbolic emblem, painterly semi-realistic with a strong readable silhouette, glowing accent light, deep dark ink-wash background with a soft vignette, high contrast so it reads at 48 px, no text, no letters, no border, no frame.",
+   "aspect_ratio": "1:1"
+  }
+ ]
+}

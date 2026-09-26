@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-single
+release
+test-results
+playwright-report
+*.log
+.DS_Store
+scripts/node_modules
+scripts/package.json
+scripts/package-lock.json
+*.tsbuildinfo

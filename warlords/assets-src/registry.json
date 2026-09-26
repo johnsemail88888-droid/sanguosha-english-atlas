@@ -1,0 +1,1479 @@
+{
+ "concept": {
+  "liubei": {
+   "job": "ba43eaa2-926d-4dac-ab56-84dc22f0e1a6",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_ba43eaa2-926d-4dac-ab56-84dc22f0e1a6.png"
+  },
+  "guanyu": {
+   "job": "52960178-313e-490d-881c-62b195c4ef1c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_52960178-313e-490d-881c-62b195c4ef1c.png"
+  },
+  "zhangfei": {
+   "job": "6e98846b-5a47-46c0-81de-bb62e7aaf419",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_6e98846b-5a47-46c0-81de-bb62e7aaf419.png"
+  },
+  "zhugeliang": {
+   "job": "d8983d19-568e-4b36-b7c3-197226bc4d11",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_d8983d19-568e-4b36-b7c3-197226bc4d11.png"
+  },
+  "zhaoyun": {
+   "job": "2e2ab505-3250-48a3-957a-3d07d9b6c933",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_2e2ab505-3250-48a3-957a-3d07d9b6c933.png"
+  },
+  "machao": {
+   "job": "92323396-744f-4428-81b8-22cd10b8fc81",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_92323396-744f-4428-81b8-22cd10b8fc81.png"
+  },
+  "huangyueying": {
+   "job": "bf39dfa5-5439-474a-b1bd-2438ea657871",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_bf39dfa5-5439-474a-b1bd-2438ea657871.png"
+  },
+  "huangzhong": {
+   "job": "da3526fb-422e-4ec9-8322-7465d9f717b5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_da3526fb-422e-4ec9-8322-7465d9f717b5.png"
+  },
+  "caocao": {
+   "job": "ebdda1c9-6de4-4703-a397-e35519a73609",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_ebdda1c9-6de4-4703-a397-e35519a73609.png"
+  },
+  "simayi": {
+   "job": "17b3fb27-1c18-43e8-844d-c028b6c7484f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_17b3fb27-1c18-43e8-844d-c028b6c7484f.png"
+  },
+  "xiahoudun": {
+   "job": "d70a5d6c-8b81-4de5-a23e-e600d527049c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_d70a5d6c-8b81-4de5-a23e-e600d527049c.png"
+  },
+  "zhangliao": {
+   "job": "a1c1edec-0e1c-4710-bbc8-aa09a420b3aa",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051304_a1c1edec-0e1c-4710-bbc8-aa09a420b3aa.png"
+  },
+  "xuchu": {
+   "job": "780d3155-7e0d-4096-80fe-81fc62d37ad1",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051344_780d3155-7e0d-4096-80fe-81fc62d37ad1.png"
+  },
+  "guojia": {
+   "job": "2169eaf8-7f46-4e29-80ef-65cef26cfd84",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051344_2169eaf8-7f46-4e29-80ef-65cef26cfd84.png"
+  },
+  "zhenji": {
+   "job": "b801bbf8-5b49-4663-86fc-4faf166c2f0a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051343_b801bbf8-5b49-4663-86fc-4faf166c2f0a.png"
+  },
+  "xiahouyuan": {
+   "job": "98529454-d8bd-43a8-a100-872980be5e3f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051343_98529454-d8bd-43a8-a100-872980be5e3f.png"
+  },
+  "sunquan": {
+   "job": "8a684233-dece-48df-bfe3-d930101e278e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051344_8a684233-dece-48df-bfe3-d930101e278e.png"
+  },
+  "ganning": {
+   "job": "f54bf89a-d9ff-46bb-91de-78c11f46bb87",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051343_f54bf89a-d9ff-46bb-91de-78c11f46bb87.png"
+  },
+  "lumeng": {
+   "job": "a6b686ba-4859-43a2-b84f-fef258f25fc0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051344_a6b686ba-4859-43a2-b84f-fef258f25fc0.png"
+  },
+  "huanggai": {
+   "job": "4b7de35e-6eea-4bb6-91da-a01b370690e8",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051343_4b7de35e-6eea-4bb6-91da-a01b370690e8.png"
+  },
+  "zhouyu": {
+   "job": "66168701-9f93-45e2-8338-68f4051931e6",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051343_66168701-9f93-45e2-8338-68f4051931e6.png"
+  },
+  "daqiao": {
+   "job": "523dceb9-0252-4ea9-8d63-1c69a4dd05f5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051343_523dceb9-0252-4ea9-8d63-1c69a4dd05f5.png"
+  },
+  "luxun": {
+   "job": "7fcc600f-f54d-4782-9685-b8e46ecee9f0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051343_7fcc600f-f54d-4782-9685-b8e46ecee9f0.png"
+  },
+  "sunshangxiang": {
+   "job": "eaaad4d7-3fc5-40a5-9fd2-30e1dd7c4107",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051344_eaaad4d7-3fc5-40a5-9fd2-30e1dd7c4107.png"
+  },
+  "huatuo": {
+   "job": "6577e56f-3b57-4067-9a14-f335cdd73b92",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051416_6577e56f-3b57-4067-9a14-f335cdd73b92.png"
+  },
+  "lubu": {
+   "job": "516df9c7-fdb0-4914-9f2a-6a36bf57f171",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051415_516df9c7-fdb0-4914-9f2a-6a36bf57f171.png"
+  },
+  "diaochan": {
+   "job": "0e53081d-3cab-490a-a8ce-79deb38a758d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051415_0e53081d-3cab-490a-a8ce-79deb38a758d.png"
+  },
+  "zhangjiao": {
+   "job": "70c9dcb5-ea18-465e-bcae-b8f953b7b730",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051415_70c9dcb5-ea18-465e-bcae-b8f953b7b730.png"
+  },
+  "yuanshao": {
+   "job": "d753e216-3b9f-461c-bf1f-5b3b731cfe99",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051415_d753e216-3b9f-461c-bf1f-5b3b731cfe99.png"
+  },
+  "menghuo": {
+   "job": "b654c6a0-61fd-4834-9aae-f97d6fe5ed65",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051416_b654c6a0-61fd-4834-9aae-f97d6fe5ed65.png"
+  },
+  "troop_shu": {
+   "job": "6b96dccc-a724-4e77-afbc-d255edf5d7de",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051415_6b96dccc-a724-4e77-afbc-d255edf5d7de.png"
+  },
+  "troop_wei": {
+   "job": "1f161f9e-e253-4f6a-9303-32f47baaabb9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051416_1f161f9e-e253-4f6a-9303-32f47baaabb9.png"
+  },
+  "troop_wu": {
+   "job": "795166bb-4465-4311-a338-69160664b27e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051415_795166bb-4465-4311-a338-69160664b27e.png"
+  },
+  "troop_qun": {
+   "job": "0baf6c9c-c0ae-4cbd-8f88-4321f044f947",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051415_0baf6c9c-c0ae-4cbd-8f88-4321f044f947.png"
+  },
+  "npc_yellowTurban": {
+   "job": "b52b4643-f25f-4049-89d5-3e81140dfe34",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051415_b52b4643-f25f-4049-89d5-3e81140dfe34.png"
+  },
+  "npc_barbarian": {
+   "job": "5174555a-7a6d-42e3-91c6-9069cb64e794",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051415_5174555a-7a6d-42e3-91c6-9069cb64e794.png"
+  }
+ },
+ "portrait": {
+  "liubei": {
+   "job": "0d59ba13-b99f-49eb-87ea-974568c14db9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_0d59ba13-b99f-49eb-87ea-974568c14db9.png"
+  },
+  "guanyu": {
+   "job": "5e164580-e927-4027-b2d4-093f6d76fd5b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_5e164580-e927-4027-b2d4-093f6d76fd5b.png"
+  },
+  "zhangfei": {
+   "job": "822815b7-0b7d-449b-a8a6-695562026301",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_822815b7-0b7d-449b-a8a6-695562026301.png"
+  },
+  "zhugeliang": {
+   "job": "ce439f21-8c09-4bb8-a7bb-7b1d83c1d62c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_ce439f21-8c09-4bb8-a7bb-7b1d83c1d62c.png"
+  },
+  "zhaoyun": {
+   "job": "67dc3fef-ef8b-4fab-9406-b5a8f1500f72",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_67dc3fef-ef8b-4fab-9406-b5a8f1500f72.png"
+  },
+  "machao": {
+   "job": "af14486a-5c2b-47c4-ac1b-1dee8898787e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_af14486a-5c2b-47c4-ac1b-1dee8898787e.png"
+  },
+  "huangyueying": {
+   "job": "72b4d915-ef03-43fc-83aa-d53587bcd117",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_72b4d915-ef03-43fc-83aa-d53587bcd117.png"
+  },
+  "huangzhong": {
+   "job": "3030010d-ebca-456a-882c-68d9fbc954f4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_3030010d-ebca-456a-882c-68d9fbc954f4.png"
+  },
+  "caocao": {
+   "job": "a94eba49-b664-4de1-a7a0-6690064ef52d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_a94eba49-b664-4de1-a7a0-6690064ef52d.png"
+  },
+  "simayi": {
+   "job": "577bfb14-3ce6-476e-9667-b829db6308d1",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_577bfb14-3ce6-476e-9667-b829db6308d1.png"
+  },
+  "xiahoudun": {
+   "job": "8440346f-abac-4e28-8f07-374b047e9304",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051646_8440346f-abac-4e28-8f07-374b047e9304.png"
+  },
+  "zhangliao": {
+   "job": "5977b877-14d2-49df-be1a-5ccc42d936f0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051645_5977b877-14d2-49df-be1a-5ccc42d936f0.png"
+  },
+  "xuchu": {
+   "job": "acffa297-513a-4a25-93b0-8af2e3705157",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_acffa297-513a-4a25-93b0-8af2e3705157.png"
+  },
+  "guojia": {
+   "job": "e83e7d11-1a25-4080-8b47-37c000604892",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_e83e7d11-1a25-4080-8b47-37c000604892.png"
+  },
+  "zhenji": {
+   "job": "2a3c3c93-764d-4c95-a2fc-79400e8682c5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_2a3c3c93-764d-4c95-a2fc-79400e8682c5.png"
+  },
+  "xiahouyuan": {
+   "job": "33a8ffbd-2562-4be8-9728-2b57b5d503ee",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051735_33a8ffbd-2562-4be8-9728-2b57b5d503ee.png"
+  },
+  "sunquan": {
+   "job": "5c6db5a0-8a6a-4e8b-8fe4-d727e4aee4b8",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_5c6db5a0-8a6a-4e8b-8fe4-d727e4aee4b8.png"
+  },
+  "ganning": {
+   "job": "9ea5c3c0-bc05-49c6-ba79-df79392de3c9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051735_9ea5c3c0-bc05-49c6-ba79-df79392de3c9.png"
+  },
+  "lumeng": {
+   "job": "1f62aa65-3e80-44b8-bf51-b39d64e8cb41",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_1f62aa65-3e80-44b8-bf51-b39d64e8cb41.png"
+  },
+  "huanggai": {
+   "job": "5205b373-3919-4904-ad1f-032ca1468c13",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_5205b373-3919-4904-ad1f-032ca1468c13.png"
+  },
+  "zhouyu": {
+   "job": "87e7b3d4-f195-471e-ac61-2067a5bc86d4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_87e7b3d4-f195-471e-ac61-2067a5bc86d4.png"
+  },
+  "daqiao": {
+   "job": "708e15b0-8c83-4081-a783-9fde995e0944",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_708e15b0-8c83-4081-a783-9fde995e0944.png"
+  },
+  "luxun": {
+   "job": "ba09a719-9c13-4c59-ba29-59f7162e2245",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051734_ba09a719-9c13-4c59-ba29-59f7162e2245.png"
+  },
+  "sunshangxiang": {
+   "job": "eed442c3-f67d-47d3-a8ce-46ebcc880679",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051735_eed442c3-f67d-47d3-a8ce-46ebcc880679.png"
+  },
+  "huatuo": {
+   "job": "26451fd7-eb8f-496f-bf91-c0acf3bef354",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051821_26451fd7-eb8f-496f-bf91-c0acf3bef354.png"
+  },
+  "lubu": {
+   "job": "b3fac582-863f-4dd5-aa20-2624195bbcb2",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_b3fac582-863f-4dd5-aa20-2624195bbcb2.png"
+  },
+  "diaochan": {
+   "job": "da154380-7bc7-4a11-8da8-a9dd4606c127",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_da154380-7bc7-4a11-8da8-a9dd4606c127.png"
+  },
+  "zhangjiao": {
+   "job": "df56d998-f126-496e-b5b7-9e213a8d2efe",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_df56d998-f126-496e-b5b7-9e213a8d2efe.png"
+  },
+  "menghuo": {
+   "job": "f6963ac8-d63b-4a58-a334-643ceb61b15e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_f6963ac8-d63b-4a58-a334-643ceb61b15e.png"
+  },
+  "yuanshao": {
+   "job": "b63400d9-8a13-4800-b579-8b27bc619c87",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051821_b63400d9-8a13-4800-b579-8b27bc619c87.png"
+  }
+ },
+ "keyart": {
+  "title": {
+   "job": "b393e0cf-a3a9-45a8-957c-bd937c65e267",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_b393e0cf-a3a9-45a8-957c-bd937c65e267.png"
+  },
+  "loading_shu": {
+   "job": "ab6f9234-5670-492b-8d3a-a3f7040c359f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_ab6f9234-5670-492b-8d3a-a3f7040c359f.png"
+  },
+  "loading_wei": {
+   "job": "b1f28753-6711-4da6-9a2c-3af12c2817c4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_b1f28753-6711-4da6-9a2c-3af12c2817c4.png"
+  },
+  "loading_wu": {
+   "job": "8efd41d4-80a4-4c25-b3d9-6943c4df9e9c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_8efd41d4-80a4-4c25-b3d9-6943c4df9e9c.png"
+  },
+  "loading_qun": {
+   "job": "0b029b47-65b3-45a4-a532-bdf62ba35c3c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_0b029b47-65b3-45a4-a532-bdf62ba35c3c.png"
+  },
+  "sky": {
+   "job": "e78028db-c200-4413-ad2e-39889cd55e4b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051822_e78028db-c200-4413-ad2e-39889cd55e4b.png"
+  }
+ },
+ "model": {
+  "liubei": {
+   "job": "9f02796f-5296-4762-be84-9daec23ed517",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052227_9f02796f-5296-4762-be84-9daec23ed517.glb"
+  },
+  "guanyu": {
+   "job": "a88a5b3a-f6d4-4b62-9309-5e4aef9e596d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052229_a88a5b3a-f6d4-4b62-9309-5e4aef9e596d.glb"
+  },
+  "zhangfei": {
+   "job": "fe36dea9-e773-4a13-bcf5-7f4f724ce898",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052231_fe36dea9-e773-4a13-bcf5-7f4f724ce898.glb"
+  },
+  "zhugeliang": {
+   "job": "9cd74972-d37e-480e-aa3d-11758e80a756",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052233_9cd74972-d37e-480e-aa3d-11758e80a756.glb"
+  },
+  "zhaoyun": {
+   "job": "4fd46319-c34b-4bdf-948b-46465ebe514c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052234_4fd46319-c34b-4bdf-948b-46465ebe514c.glb"
+  },
+  "machao": {
+   "job": "837ea885-1678-4569-a0a7-edf1569f4622",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052236_837ea885-1678-4569-a0a7-edf1569f4622.glb"
+  },
+  "huangyueying": {
+   "job": "97dc1b59-f367-462d-aa22-d5d43054cbbc",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052245_97dc1b59-f367-462d-aa22-d5d43054cbbc.glb"
+  },
+  "huangzhong": {
+   "job": "cb5cfe7b-9fc1-42fa-ae31-aba9620eae02",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052247_cb5cfe7b-9fc1-42fa-ae31-aba9620eae02.glb"
+  },
+  "xiahoudun": {
+   "job": "bcbee759-cbd1-4439-89d0-bc4fd55f4510",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052253_bcbee759-cbd1-4439-89d0-bc4fd55f4510.glb"
+  },
+  "zhangliao": {
+   "job": "36161c22-b211-4bd2-ab8a-ce07417ea44d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052254_36161c22-b211-4bd2-ab8a-ce07417ea44d.glb"
+  },
+  "xuchu": {
+   "job": "6bb85eaa-ffab-47b7-af2e-97890299af68",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052304_6bb85eaa-ffab-47b7-af2e-97890299af68.glb"
+  },
+  "guojia": {
+   "job": "369b61b2-f07c-46bf-b84a-0a49b2d80d94",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052305_369b61b2-f07c-46bf-b84a-0a49b2d80d94.glb"
+  },
+  "zhenji": {
+   "job": "da1318b1-1427-46d9-8123-ae42f5e38c3d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052307_da1318b1-1427-46d9-8123-ae42f5e38c3d.glb"
+  },
+  "xiahouyuan": {
+   "job": "df0d8df2-d63b-4902-bc6a-6d14d1213901",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052309_df0d8df2-d63b-4902-bc6a-6d14d1213901.glb"
+  },
+  "ganning": {
+   "job": "496cabc2-b961-481e-939d-0bb980b58db7",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052313_496cabc2-b961-481e-939d-0bb980b58db7.glb"
+  },
+  "lumeng": {
+   "job": "7fe5f774-b5d2-472a-98ca-ca11bcc225e4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052322_7fe5f774-b5d2-472a-98ca-ca11bcc225e4.glb"
+  },
+  "huanggai": {
+   "job": "4c0c613b-4e73-4d95-bd82-ab400b0def9d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052323_4c0c613b-4e73-4d95-bd82-ab400b0def9d.glb"
+  },
+  "zhouyu": {
+   "job": "7b0a0ac7-b9f5-46a0-b3c7-4bcde2bd79f7",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052325_7b0a0ac7-b9f5-46a0-b3c7-4bcde2bd79f7.glb"
+  },
+  "daqiao": {
+   "job": "5e7591f4-2333-449a-9199-072db21aa60c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052327_5e7591f4-2333-449a-9199-072db21aa60c.glb"
+  },
+  "luxun": {
+   "job": "baa2faa7-91ef-4822-b2a2-ab68c57d0c28",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052329_baa2faa7-91ef-4822-b2a2-ab68c57d0c28.glb"
+  },
+  "sunshangxiang": {
+   "job": "f5e596f8-378c-45c0-a375-4ef952a8d97e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052331_f5e596f8-378c-45c0-a375-4ef952a8d97e.glb"
+  },
+  "diaochan": {
+   "job": "74146ae5-ba86-4150-b941-481e33ddae1d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052343_74146ae5-ba86-4150-b941-481e33ddae1d.glb"
+  },
+  "troop_shu": {
+   "job": "29dfd08b-2a3d-4cd0-9079-e3fecf175e37",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052357_29dfd08b-2a3d-4cd0-9079-e3fecf175e37.glb"
+  },
+  "troop_qun": {
+   "job": "f714dc2d-8b2a-4e36-9b2e-11f275048569",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052402_f714dc2d-8b2a-4e36-9b2e-11f275048569.glb"
+  },
+  "npc_yellowTurban": {
+   "job": "1dbad108-6a18-4ecb-b5ce-836a219b98e9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053858_1dbad108-6a18-4ecb-b5ce-836a219b98e9.glb"
+  },
+  "npc_barbarian": {
+   "job": "6d596330-fb81-435d-9e89-3893370afb0c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053900_6d596330-fb81-435d-9e89-3893370afb0c.glb"
+  },
+  "caocao": {
+   "job": "03b59058-000d-4384-b9c6-67c80a30594c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052249_03b59058-000d-4384-b9c6-67c80a30594c.glb"
+  },
+  "simayi": {
+   "job": "b0abef86-c160-4002-97d2-370377b33764",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052251_b0abef86-c160-4002-97d2-370377b33764.glb"
+  },
+  "sunquan": {
+   "job": "975d8707-f7b2-4eb5-a79e-0b30f47087d9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052311_975d8707-f7b2-4eb5-a79e-0b30f47087d9.glb"
+  },
+  "lubu": {
+   "job": "356a4784-b8f4-4bdd-a1f4-8db8c00e1d40",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052341_356a4784-b8f4-4bdd-a1f4-8db8c00e1d40.glb"
+  },
+  "zhangjiao": {
+   "job": "9f529f4e-37fd-4228-9ac6-e98974d58c15",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052344_9f529f4e-37fd-4228-9ac6-e98974d58c15.glb"
+  },
+  "menghuo": {
+   "job": "e0eefc5d-5ffd-4475-992f-963c744a9777",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052348_e0eefc5d-5ffd-4475-992f-963c744a9777.glb"
+  },
+  "troop_wu": {
+   "job": "64f07e1d-cb07-4f91-8393-1dad097c62a7",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052401_64f07e1d-cb07-4f91-8393-1dad097c62a7.glb"
+  },
+  "huatuo": {
+   "job": "9329f835-1f3a-40c9-8e64-a984c3e5c4a6",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052929_9329f835-1f3a-40c9-8e64-a984c3e5c4a6.glb"
+  },
+  "yuanshao": {
+   "job": "95bb0784-e8cb-4d30-80e9-53d8e78da414",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052931_95bb0784-e8cb-4d30-80e9-53d8e78da414.glb"
+  },
+  "troop_wei": {
+   "job": "335e2a0e-dd72-418f-8b88-79a5534f381e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052932_335e2a0e-dd72-418f-8b88-79a5534f381e.glb"
+  }
+ },
+ "anim": {
+  "idle": {
+   "action": 0,
+   "job": "3cd7b30d-fe8c-4e44-b2d2-15cd7eeb9796",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052658_3cd7b30d-fe8c-4e44-b2d2-15cd7eeb9796.glb"
+  },
+  "walk_gun_fwd": {
+   "action": 690,
+   "job": "f030640f-b55f-455e-8092-780f307e2e38",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052700_f030640f-b55f-455e-8092-780f307e2e38.glb"
+  },
+  "walk_gun_back": {
+   "action": 680,
+   "job": "60bdd2d8-5188-47a3-8d40-2b613323a833",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052701_60bdd2d8-5188-47a3-8d40-2b613323a833.glb"
+  },
+  "walk_gun_left": {
+   "action": 694,
+   "job": "be2cebfd-abc9-4037-a146-cf36c237ac8c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052703_be2cebfd-abc9-4037-a146-cf36c237ac8c.glb"
+  },
+  "sprint": {
+   "action": 644,
+   "job": "366fb6e7-adfd-483c-9800-842345c99aaa",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052707_366fb6e7-adfd-483c-9800-842345c99aaa.glb"
+  },
+  "jump": {
+   "action": 466,
+   "job": "8815e871-0563-4ec2-8b7a-a40cbb74b614",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052709_8815e871-0563-4ec2-8b7a-a40cbb74b614.glb"
+  },
+  "roll": {
+   "action": 158,
+   "job": "985cb411-78ee-4908-a517-35d67d985552",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052720_985cb411-78ee-4908-a517-35d67d985552.glb"
+  },
+  "dance": {
+   "action": 64,
+   "job": "cac559d8-3116-4428-a221-58ffed2261df",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052733_cac559d8-3116-4428-a221-58ffed2261df.glb"
+  },
+  "cast": {
+   "action": 125,
+   "job": "68c8cab9-e207-4499-b482-0f89f6758a1f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052740_68c8cab9-e207-4499-b482-0f89f6758a1f.glb"
+  },
+  "sit": {
+   "action": 33,
+   "job": "bab91b6e-3376-4adb-bcfc-97d07d8bccb1",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052742_bab91b6e-3376-4adb-bcfc-97d07d8bccb1.glb"
+  },
+  "bow_walk": {
+   "action": 691,
+   "job": "1d421bba-75be-4091-8f9f-0ee996fd746f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052747_1d421bba-75be-4091-8f9f-0ee996fd746f.glb"
+  },
+  "run_gun": {
+   "action": 654,
+   "job": "ba31e4fd-cb62-4e20-9e2a-1c95bac44e62",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053050_ba31e4fd-cb62-4e20-9e2a-1c95bac44e62.glb"
+  },
+  "reload": {
+   "action": 170,
+   "job": "6fc8cfff-ef30-4eba-9385-1a003d8ae21f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053102_6fc8cfff-ef30-4eba-9385-1a003d8ae21f.glb"
+  },
+  "hit": {
+   "action": 177,
+   "job": "7b91a0b0-9c27-42c6-b67a-b7efbb869742",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053104_7b91a0b0-9c27-42c6-b67a-b7efbb869742.glb"
+  },
+  "death": {
+   "action": 183,
+   "job": "def9f4f5-fd75-4d11-9abc-6b9ffbf85497",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053106_def9f4f5-fd75-4d11-9abc-6b9ffbf85497.glb"
+  },
+  "melee_heavy": {
+   "action": 128,
+   "job": "7605e3ea-2a4d-4a66-afa0-e2a58dfabe7d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052749_7605e3ea-2a4d-4a66-afa0-e2a58dfabe7d.glb"
+  },
+  "knockdown": {
+   "action": 187,
+   "job": "e4fd0753-541f-4e65-8c37-8db5ee6918fc",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053546_e4fd0753-541f-4e65-8c37-8db5ee6918fc.glb"
+  },
+  "crawl": {
+   "action": 622,
+   "job": "7d6cd661-2d30-4ea8-9d19-5b1a4260128f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053548_7d6cd661-2d30-4ea8-9d19-5b1a4260128f.glb"
+  },
+  "melee_thrust": {
+   "action": 240,
+   "job": "d0e219a8-c01a-4dd4-a287-66daeaa4988c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053551_d0e219a8-c01a-4dd4-a287-66daeaa4988c.glb"
+  },
+  "bow_shot": {
+   "action": 224,
+   "job": "75c19957-e843-4c14-a6ce-eaf630677081",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053553_75c19957-e843-4c14-a6ce-eaf630677081.glb"
+  }
+ },
+ "concept_extra": {
+  "npc_yellowTurban": {
+   "job": "419f724e-775f-482a-a8f4-912a71bb993c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053315_419f724e-775f-482a-a8f4-912a71bb993c.png"
+  },
+  "npc_barbarian": {
+   "job": "4f473943-c6d0-4d09-ac7f-fe7fda9d710c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053315_4f473943-c6d0-4d09-ac7f-fe7fda9d710c.png"
+  },
+  "tent": {
+   "job": "af7dad6a-c53d-4125-aefa-2a80ae614788",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_af7dad6a-c53d-4125-aefa-2a80ae614788.png"
+  },
+  "crateStack": {
+   "job": "1d8c0f5b-7bbe-4876-acb6-8fe957fb2f15",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_1d8c0f5b-7bbe-4876-acb6-8fe957fb2f15.png"
+  },
+  "barricade": {
+   "job": "a51953e1-7348-4aef-94b4-324aa589a6e8",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_a51953e1-7348-4aef-94b4-324aa589a6e8.png"
+  },
+  "rock": {
+   "job": "dd22fa88-e7e2-423a-95ca-e3a854cc4cd5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_dd22fa88-e7e2-423a-95ca-e3a854cc4cd5.png"
+  },
+  "tree": {
+   "job": "8320f7b0-9864-47ce-b2b9-2155df959924",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_8320f7b0-9864-47ce-b2b9-2155df959924.png"
+  },
+  "pine": {
+   "job": "33028856-6cf1-4620-aef0-6eb6c0837ca3",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_33028856-6cf1-4620-aef0-6eb6c0837ca3.png"
+  },
+  "bamboo": {
+   "job": "607e28ba-5aa6-4f5c-a1e8-3ea000b9257d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_607e28ba-5aa6-4f5c-a1e8-3ea000b9257d.png"
+  },
+  "brazier": {
+   "job": "145cb9b3-d54e-47ce-8802-52aab099fa69",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_145cb9b3-d54e-47ce-8802-52aab099fa69.png"
+  },
+  "statue": {
+   "job": "0079582b-ec56-4064-a313-089acec8819e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_0079582b-ec56-4064-a313-089acec8819e.png"
+  }
+ },
+ "texture": {
+  "grass": {
+   "job": "58a0bea9-7612-45d4-9389-e1a25eb34cd8",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_58a0bea9-7612-45d4-9389-e1a25eb34cd8.png"
+  },
+  "dirt": {
+   "job": "eaac3edf-55f6-4150-90f6-af1f47712ee7",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_eaac3edf-55f6-4150-90f6-af1f47712ee7.png"
+  },
+  "cliff": {
+   "job": "2e8d6b58-0a5c-4cd9-af60-5763b5206d7b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053459_2e8d6b58-0a5c-4cd9-af60-5763b5206d7b.png"
+  },
+  "paving": {
+   "job": "065dcafa-2f88-47c3-860d-e38e476417ff",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_065dcafa-2f88-47c3-860d-e38e476417ff.png"
+  },
+  "planks": {
+   "job": "94a6dd7e-629b-4a8d-99c1-2d8e94149395",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_94a6dd7e-629b-4a8d-99c1-2d8e94149395.png"
+  },
+  "rooftiles": {
+   "job": "e1c0e414-9305-483d-b180-65e145d7df62",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_e1c0e414-9305-483d-b180-65e145d7df62.png"
+  },
+  "brick": {
+   "job": "d1d38dce-fa01-4a34-a052-7707d0dce3fa",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_d1d38dce-fa01-4a34-a052-7707d0dce3fa.png"
+  },
+  "plaster": {
+   "job": "9d4fe754-b57c-4d59-b390-b25cf56f3b03",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_9d4fe754-b57c-4d59-b390-b25cf56f3b03.png"
+  },
+  "mud": {
+   "job": "1162ab7d-fb51-437a-ad84-b6882bb74651",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053511_1162ab7d-fb51-437a-ad84-b6882bb74651.png"
+  },
+  "farm": {
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151905_283d2376-08fb-418f-b721-149b12bc7575.png"
+  }
+ },
+ "prop": {
+  "tent": {
+   "job": "b2f11e55-6d17-4b87-ae78-02613abf305d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053902_b2f11e55-6d17-4b87-ae78-02613abf305d.glb"
+  },
+  "crateStack": {
+   "job": "f955b626-c65c-4727-83c3-013962141beb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053904_f955b626-c65c-4727-83c3-013962141beb.glb"
+  },
+  "barricade": {
+   "job": "f8b14153-76ea-45c8-9b0f-6d21ce32df4a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053909_f8b14153-76ea-45c8-9b0f-6d21ce32df4a.glb"
+  },
+  "rock": {
+   "job": "8fe3861e-6d77-4c07-be93-270efb0ee468",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053911_8fe3861e-6d77-4c07-be93-270efb0ee468.glb"
+  },
+  "tree": {
+   "job": "0441cd96-f896-41cf-af27-363786b56e5b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053913_0441cd96-f896-41cf-af27-363786b56e5b.glb"
+  },
+  "pine": {
+   "job": "fbff9180-ef58-4ac5-9f19-54df441ca21f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053914_fbff9180-ef58-4ac5-9f19-54df441ca21f.glb"
+  },
+  "bamboo": {
+   "job": "42bf4268-ca53-4347-a21c-542b7b26f031",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053919_42bf4268-ca53-4347-a21c-542b7b26f031.glb"
+  },
+  "brazier": {
+   "job": "8dcbdab1-6247-4365-8a62-76683057e503",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053921_8dcbdab1-6247-4365-8a62-76683057e503.glb"
+  },
+  "statue": {
+   "job": "03d3dd2b-c81e-43b8-a6f8-550aa2d8d519",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_053923_03d3dd2b-c81e-43b8-a6f8-550aa2d8d519.glb"
+  },
+  "sandbags": {
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151953_cb7902b7-54c9-4c90-86f3-a55dc3ed0e01.glb"
+  },
+  "nanmanTent": {
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151956_ce61a0a7-cd07-486e-b4d8-ef9bb16d6cf6.glb"
+  }
+ },
+ "ui_roles": {
+  "lord": {
+   "job": "898e626a-db34-4661-8f17-54842ce0ae9e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055629_898e626a-db34-4661-8f17-54842ce0ae9e.png"
+  },
+  "loyalist": {
+   "job": "d90db337-da7a-4c78-b34e-572153eafa0d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055629_d90db337-da7a-4c78-b34e-572153eafa0d.png"
+  },
+  "rebel": {
+   "job": "baecacbc-4f0f-4da8-bfb1-a816a6d7263c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055629_baecacbc-4f0f-4da8-bfb1-a816a6d7263c.png"
+  },
+  "traitor": {
+   "job": "1d515d55-8ea5-4660-b41c-85b06f172f9a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055630_1d515d55-8ea5-4660-b41c-85b06f172f9a.png"
+  },
+  "double": {
+   "job": "e3d7d794-c2e7-461e-90e0-9172669ba0ca",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055629_e3d7d794-c2e7-461e-90e0-9172669ba0ca.png"
+  },
+  "opportunist": {
+   "job": "75e3b3d9-f932-40f6-a2c4-32ec8044d5bb",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055629_75e3b3d9-f932-40f6-a2c4-32ec8044d5bb.png"
+  },
+  "bounty": {
+   "job": "478751d1-25fb-49a2-b73a-9b76e232a1e0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055629_478751d1-25fb-49a2-b73a-9b76e232a1e0.png"
+  }
+ },
+ "ui_items": {
+  "sha": {
+   "job": "22eba5e7-a0cc-4c78-849b-4d3a51d1fb3c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_22eba5e7-a0cc-4c78-849b-4d3a51d1fb3c.png"
+  },
+  "shan": {
+   "job": "a6df1cca-e2d8-406d-b597-54d4cf62f9dc",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_a6df1cca-e2d8-406d-b597-54d4cf62f9dc.png"
+  },
+  "tao": {
+   "job": "85e2af97-0274-47c0-bdd4-015077dff0df",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_85e2af97-0274-47c0-bdd4-015077dff0df.png"
+  },
+  "jiu": {
+   "job": "f22a0a2d-2c97-44af-b852-8b71a3ba557b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_f22a0a2d-2c97-44af-b852-8b71a3ba557b.png"
+  },
+  "wuzhong": {
+   "job": "4d61aa02-2ec6-468c-a1b5-38255b9c33f9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_4d61aa02-2ec6-468c-a1b5-38255b9c33f9.png"
+  },
+  "guohe": {
+   "job": "2cbcbb05-b51f-41af-8c05-53e222a425ba",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_2cbcbb05-b51f-41af-8c05-53e222a425ba.png"
+  },
+  "shunshou": {
+   "job": "d8eca036-4175-494d-98f3-d92342a6616d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_d8eca036-4175-494d-98f3-d92342a6616d.png"
+  },
+  "juedou": {
+   "job": "d87b35a4-4157-4465-b453-43efd8f848d0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_d87b35a4-4157-4465-b453-43efd8f848d0.png"
+  },
+  "jiedao": {
+   "job": "e1932545-b581-496d-9a03-d0aac65268e3",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_e1932545-b581-496d-9a03-d0aac65268e3.png"
+  },
+  "wuxie": {
+   "job": "9430a3b4-e5bb-45ad-a8ac-18a7580863be",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055634_9430a3b4-e5bb-45ad-a8ac-18a7580863be.png"
+  },
+  "nanman": {
+   "job": "d315c91e-61c9-40fe-9fe5-1b97ebefe282",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055635_d315c91e-61c9-40fe-9fe5-1b97ebefe282.png"
+  },
+  "wanjian": {
+   "job": "d2363b18-072f-4924-9f33-9fb435387f66",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055635_d2363b18-072f-4924-9f33-9fb435387f66.png"
+  },
+  "taoyuan": {
+   "job": "28205443-955e-413d-b7a5-402350a65d53",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055746_28205443-955e-413d-b7a5-402350a65d53.png"
+  },
+  "wugu": {
+   "job": "e9e75b39-814a-40d3-9fc6-b34a76035cc6",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055744_e9e75b39-814a-40d3-9fc6-b34a76035cc6.png"
+  },
+  "huogong": {
+   "job": "8c5975dd-edd1-4e4d-a170-9729ff10eeec",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055744_8c5975dd-edd1-4e4d-a170-9729ff10eeec.png"
+  },
+  "tiesuo": {
+   "job": "118e4206-c8f1-4139-83bf-dac02a8d60b5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055744_118e4206-c8f1-4139-83bf-dac02a8d60b5.png"
+  },
+  "lebusishu": {
+   "job": "7d4e659f-ef25-4dae-97f4-02c2d9126770",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055744_7d4e659f-ef25-4dae-97f4-02c2d9126770.png"
+  },
+  "bingliang": {
+   "job": "a947e72c-ba3d-434c-93be-f067df1363bc",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055744_a947e72c-ba3d-434c-93be-f067df1363bc.png"
+  },
+  "shandian": {
+   "job": "b8acb325-42f5-402e-b09a-4541638662ca",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055744_b8acb325-42f5-402e-b09a-4541638662ca.png"
+  },
+  "zhengbing": {
+   "job": "5636b196-bcff-4a6f-9e5c-36c6e2184714",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055744_5636b196-bcff-4a6f-9e5c-36c6e2184714.png"
+  },
+  "bagua": {
+   "job": "f2bcf69e-1919-462c-a423-ff1cec853eb9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055744_f2bcf69e-1919-462c-a423-ff1cec853eb9.png"
+  },
+  "renwang": {
+   "job": "0a982641-1f57-4776-b7d4-27d687e664d6",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055744_0a982641-1f57-4776-b7d4-27d687e664d6.png"
+  },
+  "tengjia": {
+   "job": "8a1dfc63-ee05-41b8-a590-fedddb8fa365",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055838_8a1dfc63-ee05-41b8-a590-fedddb8fa365.png"
+  },
+  "baiyin": {
+   "job": "bb62a548-93b4-4e2b-85ed-aadfd8c87726",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055838_bb62a548-93b4-4e2b-85ed-aadfd8c87726.png"
+  },
+  "chitu": {
+   "job": "1f248b5d-8d2b-4a5d-84e9-f5580524a602",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055838_1f248b5d-8d2b-4a5d-84e9-f5580524a602.png"
+  },
+  "dawan": {
+   "job": "2cd425c3-fe3a-450b-a705-feae6e0876fd",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055838_2cd425c3-fe3a-450b-a705-feae6e0876fd.png"
+  },
+  "zixing": {
+   "job": "a2cdde0b-fdb1-47b1-a4b6-81dd330f4fee",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055837_a2cdde0b-fdb1-47b1-a4b6-81dd330f4fee.png"
+  },
+  "dilu": {
+   "job": "9803cf0f-6bba-4384-834f-6e475848b674",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055838_9803cf0f-6bba-4384-834f-6e475848b674.png"
+  },
+  "jueying": {
+   "job": "6dd38e2a-38ba-4e95-be9d-700c610b11a5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055838_6dd38e2a-38ba-4e95-be9d-700c610b11a5.png"
+  },
+  "zhuahuang": {
+   "job": "7cbce795-79c4-4757-bf44-3f7d5b62c1c0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055838_7cbce795-79c4-4757-bf44-3f7d5b62c1c0.png"
+  }
+ },
+ "ui_weapons": {
+  "pistol": {
+   "job": "b430c32d-a0dd-4178-96b6-8481bc146bd7",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055814_b430c32d-a0dd-4178-96b6-8481bc146bd7.png"
+  },
+  "carbine": {
+   "job": "5d7f0d2a-4e60-4639-a96d-d11990ae72c4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_5d7f0d2a-4e60-4639-a96d-d11990ae72c4.png"
+  },
+  "smg": {
+   "job": "5eadb936-7a8c-4814-a195-71d492f58ecd",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_5eadb936-7a8c-4814-a195-71d492f58ecd.png"
+  },
+  "zhuge": {
+   "job": "21f29a2e-0949-4b52-9449-2b3b04428f40",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_21f29a2e-0949-4b52-9449-2b3b04428f40.png"
+  },
+  "qinggang": {
+   "job": "c56910fe-c3aa-4705-b388-d9fbb09e49b4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_c56910fe-c3aa-4705-b388-d9fbb09e49b4.png"
+  },
+  "cixiong": {
+   "job": "c53666ee-194f-414f-8489-19df52c1e034",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_c53666ee-194f-414f-8489-19df52c1e034.png"
+  },
+  "hanbing": {
+   "job": "822cb8ee-420e-4207-ad2c-a23694f9497c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_822cb8ee-420e-4207-ad2c-a23694f9497c.png"
+  },
+  "guding": {
+   "job": "f95f3332-8e3b-4362-bcc8-831870e3da46",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_f95f3332-8e3b-4362-bcc8-831870e3da46.png"
+  },
+  "qinglong": {
+   "job": "58a59da9-91b0-4540-958c-5616dca181b9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_58a59da9-91b0-4540-958c-5616dca181b9.png"
+  },
+  "zhangba": {
+   "job": "40f14a11-44cb-4347-b087-6bc8b99d65c2",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_40f14a11-44cb-4347-b087-6bc8b99d65c2.png"
+  },
+  "guanshi": {
+   "job": "f7be099d-f66f-4725-b4f7-c3ab243aeab4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_f7be099d-f66f-4725-b4f7-c3ab243aeab4.png"
+  },
+  "zhuque": {
+   "job": "23d00995-df49-441c-afdf-69de9198d816",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055813_23d00995-df49-441c-afdf-69de9198d816.png"
+  },
+  "fangtian": {
+   "job": "15362903-1eca-4004-8233-930e1df6eebe",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_15362903-1eca-4004-8233-930e1df6eebe.png"
+  },
+  "qilin": {
+   "job": "8fb514f4-f223-476e-b029-84996b16db04",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_8fb514f4-f223-476e-b029-84996b16db04.png"
+  },
+  "longdan": {
+   "job": "c64d051d-934d-49fc-abab-3517cb437e7d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_c64d051d-934d-49fc-abab-3517cb437e7d.png"
+  },
+  "liegong": {
+   "job": "4092849a-2b32-4b12-b248-6c42605c95f5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_4092849a-2b32-4b12-b248-6c42605c95f5.png"
+  },
+  "jinfan": {
+   "job": "4abc0619-be98-4bdc-94f7-2e87e784f3be",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_4abc0619-be98-4bdc-94f7-2e87e784f3be.png"
+  },
+  "xiaoji": {
+   "job": "e5875b53-0b01-4882-a13e-92f8fd7a8ba5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_e5875b53-0b01-4882-a13e-92f8fd7a8ba5.png"
+  },
+  "taiping": {
+   "job": "6d56008b-67b0-4d69-b886-6494e610cc0b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_6d56008b-67b0-4d69-b886-6494e610cc0b.png"
+  },
+  "wushuang": {
+   "job": "5b772cbf-b506-4f49-a697-cdc8dcb2e417",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_5b772cbf-b506-4f49-a697-cdc8dcb2e417.png"
+  },
+  "huben": {
+   "job": "fb25c587-e002-4f4d-bc38-8b8c6726d72f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_fb25c587-e002-4f4d-bc38-8b8c6726d72f.png"
+  },
+  "qingnang": {
+   "job": "ea1d710d-a8b7-45a8-9a25-9cabb2d0a53f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_ea1d710d-a8b7-45a8-9a25-9cabb2d0a53f.png"
+  },
+  "yitian": {
+   "job": "ee8ae881-99b3-42b8-b61c-bc1e28e70178",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_ee8ae881-99b3-42b8-b61c-bc1e28e70178.png"
+  },
+  "hutou": {
+   "job": "5746c694-02da-41f2-aa9d-981164a362f1",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_055932_5746c694-02da-41f2-aa9d-981164a362f1.png"
+  },
+  "jiguan": {
+   "job": "9881e513-0496-440d-90c5-7334f598f009",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060026_9881e513-0496-440d-90c5-7334f598f009.png"
+  },
+  "manwang": {
+   "job": "ee4b0930-b0ba-444d-aa80-6a7c2e008165",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060026_ee4b0930-b0ba-444d-aa80-6a7c2e008165.png"
+  },
+  "baiyi": {
+   "job": "feb12c74-3e19-48dc-bb96-6a423bbd9c38",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060026_feb12c74-3e19-48dc-bb96-6a423bbd9c38.png"
+  }
+ },
+ "ui_abilities": {
+  "liubei_rende": {
+   "job": "4fb464d4-33a4-4766-83a6-f3af767956a9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_4fb464d4-33a4-4766-83a6-f3af767956a9.png"
+  },
+  "liubei_jimin": {
+   "job": "4cd3ca3b-81fd-4240-a02d-8312d0a91fa3",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_4cd3ca3b-81fd-4240-a02d-8312d0a91fa3.png"
+  },
+  "liubei_banner": {
+   "job": "9c3a47a8-9326-48bc-80ac-419e1eadb12b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_9c3a47a8-9326-48bc-80ac-419e1eadb12b.png"
+  },
+  "liubei_jijiang": {
+   "job": "9011fe3b-36f6-406e-b2d1-6971adadf245",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_9011fe3b-36f6-406e-b2d1-6971adadf245.png"
+  },
+  "guanyu_wusheng": {
+   "job": "24e23c58-2a82-4691-9884-edb47d1f39cd",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_24e23c58-2a82-4691-9884-edb47d1f39cd.png"
+  },
+  "guanyu_qinglong": {
+   "job": "aadb2bb3-429e-486d-bd7f-4998a0817135",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_aadb2bb3-429e-486d-bd7f-4998a0817135.png"
+  },
+  "guanyu_yijue": {
+   "job": "b2b73983-25b9-48d8-a04f-5f3f7999c239",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_b2b73983-25b9-48d8-a04f-5f3f7999c239.png"
+  },
+  "zhangfei_shemao": {
+   "job": "57d2219f-bccf-412b-9b79-989fa97bafbc",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_57d2219f-bccf-412b-9b79-989fa97bafbc.png"
+  },
+  "zhangfei_paoxiao": {
+   "job": "d9a8d1ce-9fe4-4781-8b29-596e444d717c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_d9a8d1ce-9fe4-4781-8b29-596e444d717c.png"
+  },
+  "zhangfei_duanqiao": {
+   "job": "84ff6e09-e2e4-484f-9e46-87c4e47650da",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_84ff6e09-e2e4-484f-9e46-87c4e47650da.png"
+  },
+  "zhugeliang_guanxing": {
+   "job": "eba13da5-b130-4fb2-bff5-c1211405b3e5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_eba13da5-b130-4fb2-bff5-c1211405b3e5.png"
+  },
+  "zhugeliang_bazhen": {
+   "job": "7ce1186b-0169-494f-8619-b6ead845bdbc",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_7ce1186b-0169-494f-8619-b6ead845bdbc.png"
+  },
+  "zhugeliang_kongcheng": {
+   "job": "5103ac68-2fea-483b-886b-c9e6695723f0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060230_5103ac68-2fea-483b-886b-c9e6695723f0.png"
+  },
+  "zhaoyun_longdan": {
+   "job": "349f1a85-4c0f-4964-8549-954710f0b66a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_349f1a85-4c0f-4964-8549-954710f0b66a.png"
+  },
+  "zhaoyun_qijin": {
+   "job": "a096f8ea-3995-48fc-a6d9-990df7727b2f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_a096f8ea-3995-48fc-a6d9-990df7727b2f.png"
+  },
+  "zhaoyun_jiuzhu": {
+   "job": "86e85d8e-d35c-468a-9765-f4522687fe10",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060228_86e85d8e-d35c-468a-9765-f4522687fe10.png"
+  },
+  "machao_mashu": {
+   "job": "3bb34025-ba42-41a2-b062-b14405f61e2a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_3bb34025-ba42-41a2-b062-b14405f61e2a.png"
+  },
+  "machao_tieji": {
+   "job": "3fe0b86e-1808-4770-b67b-04e0aa2739b2",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_3fe0b86e-1808-4770-b67b-04e0aa2739b2.png"
+  },
+  "machao_charge": {
+   "job": "0a9a7795-e839-4266-86ec-23ab6ef1dd63",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_0a9a7795-e839-4266-86ec-23ab6ef1dd63.png"
+  },
+  "huangyueying_jizhi": {
+   "job": "095ffb34-8f48-48a5-861d-fe9e98a22eb4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_095ffb34-8f48-48a5-861d-fe9e98a22eb4.png"
+  },
+  "huangyueying_muniu": {
+   "job": "4078356c-85ec-4056-8d06-f6cfa8bc652a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_4078356c-85ec-4056-8d06-f6cfa8bc652a.png"
+  },
+  "huangyueying_qicai": {
+   "job": "af17c38f-8bd5-4e83-8151-60e0e6f8f6df",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_af17c38f-8bd5-4e83-8151-60e0e6f8f6df.png"
+  },
+  "huangzhong_liegong": {
+   "job": "990042f3-df56-4399-ba30-eab19df19138",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_990042f3-df56-4399-ba30-eab19df19138.png"
+  },
+  "huangzhong_chuanyang": {
+   "job": "a1972e1f-77ce-4632-92d2-26a95fcf267f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060333_a1972e1f-77ce-4632-92d2-26a95fcf267f.png"
+  },
+  "huangzhong_laodang": {
+   "job": "c86922bf-00e1-405b-8fe2-9b7521c8190e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060333_c86922bf-00e1-405b-8fe2-9b7521c8190e.png"
+  },
+  "caocao_jianxiong": {
+   "job": "86ca6bb6-1c52-43d0-9d49-7072393c6162",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060333_86ca6bb6-1c52-43d0-9d49-7072393c6162.png"
+  },
+  "caocao_ningjiao": {
+   "job": "686993c0-c254-4a8a-89f2-f9493d8a3c7a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060333_686993c0-c254-4a8a-89f2-f9493d8a3c7a.png"
+  },
+  "caocao_wangmei": {
+   "job": "f00ba5b2-d623-4fb2-9be1-6a598e850b37",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060333_f00ba5b2-d623-4fb2-9be1-6a598e850b37.png"
+  },
+  "caocao_hujia": {
+   "job": "0d81c6f5-eb53-4f05-9722-23b8e119f4d5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060333_0d81c6f5-eb53-4f05-9722-23b8e119f4d5.png"
+  },
+  "simayi_fankui": {
+   "job": "c35a6c04-c75e-47fc-9cff-3ac531943070",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060333_c35a6c04-c75e-47fc-9cff-3ac531943070.png"
+  },
+  "simayi_guicai": {
+   "job": "9df7cb1e-03e2-4bc9-864a-73f349dddc3c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060333_9df7cb1e-03e2-4bc9-864a-73f349dddc3c.png"
+  },
+  "simayi_langgu": {
+   "job": "16138165-78fc-4890-90ca-9ced9e1b1393",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060333_16138165-78fc-4890-90ca-9ced9e1b1393.png"
+  },
+  "xiahoudun_ganglie": {
+   "job": "e1e01e7b-97c5-49fa-91a0-0184bf0b2fd1",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060434_e1e01e7b-97c5-49fa-91a0-0184bf0b2fd1.png"
+  },
+  "xiahoudun_bashi": {
+   "job": "1b035083-fdb0-4470-a51a-1c42a4292799",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060434_1b035083-fdb0-4470-a51a-1c42a4292799.png"
+  },
+  "xiahoudun_charge": {
+   "job": "529f5990-f0e7-494f-acd0-39c615e36502",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060434_529f5990-f0e7-494f-acd0-39c615e36502.png"
+  },
+  "zhangliao_liaolai": {
+   "job": "89649763-8145-45e6-96b6-1047276738dc",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060434_89649763-8145-45e6-96b6-1047276738dc.png"
+  },
+  "zhangliao_tuxi": {
+   "job": "a1443b4a-4dcd-4f52-a172-4494a6432cb8",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060434_a1443b4a-4dcd-4f52-a172-4494a6432cb8.png"
+  },
+  "zhangliao_weizhen": {
+   "job": "08598e19-42ef-4eac-a901-16d9f6283cf8",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060434_08598e19-42ef-4eac-a901-16d9f6283cf8.png"
+  },
+  "xuchu_huchi": {
+   "job": "4e048135-7e34-4a77-8824-60ef40e70503",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060434_4e048135-7e34-4a77-8824-60ef40e70503.png"
+  },
+  "xuchu_luoyi": {
+   "job": "bf7e0ff0-ad30-4cf2-a869-8f93ba459e80",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060434_bf7e0ff0-ad30-4cf2-a869-8f93ba459e80.png"
+  },
+  "xuchu_slam": {
+   "job": "2ffefaa5-dee0-42b4-b295-df25467e9342",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060534_2ffefaa5-dee0-42b4-b295-df25467e9342.png"
+  },
+  "guojia_tiandu": {
+   "job": "62039ea3-7630-4b39-9495-9c6f53528206",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060533_62039ea3-7630-4b39-9495-9c6f53528206.png"
+  },
+  "guojia_yiji": {
+   "job": "44fc3a22-ba92-4b1f-9923-7694ba0e30ba",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060534_44fc3a22-ba92-4b1f-9923-7694ba0e30ba.png"
+  },
+  "guojia_guimou": {
+   "job": "e92cf971-822b-4c87-a5bd-f339da1b9491",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060534_e92cf971-822b-4c87-a5bd-f339da1b9491.png"
+  },
+  "zhenji_qingguo": {
+   "job": "6f5aae7b-8f69-4683-b63a-3b4c2b72d852",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060534_6f5aae7b-8f69-4683-b63a-3b4c2b72d852.png"
+  },
+  "zhenji_luoshen": {
+   "job": "e43d847f-ef61-42cf-8079-aa9ef9e31117",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060534_e43d847f-ef61-42cf-8079-aa9ef9e31117.png"
+  },
+  "zhenji_lingbo": {
+   "job": "4f7e4f86-1773-4e08-a5bf-cec096db9c50",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060534_4f7e4f86-1773-4e08-a5bf-cec096db9c50.png"
+  },
+  "xiahouyuan_jixing": {
+   "job": "6d89451c-cbc5-4aaa-9b76-ae4815656da5",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060534_6d89451c-cbc5-4aaa-9b76-ae4815656da5.png"
+  },
+  "xiahouyuan_shensu": {
+   "job": "e677d483-4dcd-40f6-999b-8c3bed4f36f1",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060634_e677d483-4dcd-40f6-999b-8c3bed4f36f1.png"
+  },
+  "xiahouyuan_hubu": {
+   "job": "b0132cd5-7233-40be-8544-644469245da6",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060634_b0132cd5-7233-40be-8544-644469245da6.png"
+  },
+  "sunquan_quanheng": {
+   "job": "e9f33e00-0548-4da7-a983-bb113a9ab55b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060635_e9f33e00-0548-4da7-a983-bb113a9ab55b.png"
+  },
+  "sunquan_zhiheng": {
+   "job": "fc1552b7-b247-46a5-a0a8-b65bf6e7e458",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060634_fc1552b7-b247-46a5-a0a8-b65bf6e7e458.png"
+  },
+  "sunquan_zuoduan": {
+   "job": "a6a6f00b-1b0a-494d-8713-0bf719c3946c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060635_a6a6f00b-1b0a-494d-8713-0bf719c3946c.png"
+  },
+  "sunquan_jiuyuan": {
+   "job": "2d1da0e0-7d2a-4e06-9a74-a74c324cdd29",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060634_2d1da0e0-7d2a-4e06-9a74-a74c324cdd29.png"
+  },
+  "ganning_jinfan": {
+   "job": "ea6ef4bf-f6bc-4873-9220-f98a29d1c53c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060634_ea6ef4bf-f6bc-4873-9220-f98a29d1c53c.png"
+  },
+  "ganning_qixi": {
+   "job": "0c4f6c28-3248-4bdf-8d74-91021ce84d0d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060634_0c4f6c28-3248-4bdf-8d74-91021ce84d0d.png"
+  },
+  "ganning_jieying": {
+   "job": "6f40b9c3-f180-4f19-b0a5-575577932de0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060737_6f40b9c3-f180-4f19-b0a5-575577932de0.png"
+  },
+  "lumeng_keji": {
+   "job": "bf62d9a4-4155-4c26-a28c-00eefcf3aa11",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060737_bf62d9a4-4155-4c26-a28c-00eefcf3aa11.png"
+  },
+  "lumeng_baiyi": {
+   "job": "49ddd936-8e1b-47a2-a736-51603ee0afc3",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060737_49ddd936-8e1b-47a2-a736-51603ee0afc3.png"
+  },
+  "lumeng_gongxin": {
+   "job": "85614833-3580-40df-b4e6-c8d2fe4d3ebd",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060737_85614833-3580-40df-b4e6-c8d2fe4d3ebd.png"
+  },
+  "huanggai_chidan": {
+   "job": "b5945455-f0c7-431c-aa3d-48f7dcbbd590",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060737_b5945455-f0c7-431c-aa3d-48f7dcbbd590.png"
+  },
+  "huanggai_kurou": {
+   "job": "f0c3fd8a-27aa-439c-b1c4-07f1e5160f60",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060737_f0c3fd8a-27aa-439c-b1c4-07f1e5160f60.png"
+  },
+  "huanggai_huochuan": {
+   "job": "30345574-93b5-4cbb-99a8-8d85db2780a8",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060737_30345574-93b5-4cbb-99a8-8d85db2780a8.png"
+  },
+  "zhouyu_yingzi": {
+   "job": "7c635a2e-12d6-4deb-9d54-d60aab15d598",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060737_7c635a2e-12d6-4deb-9d54-d60aab15d598.png"
+  },
+  "zhouyu_fanjian": {
+   "job": "0a95bddf-2ba6-40fa-a90e-6ed1e4dfa84a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060737_0a95bddf-2ba6-40fa-a90e-6ed1e4dfa84a.png"
+  },
+  "zhouyu_chibi": {
+   "job": "12afebd9-29aa-4de3-9c68-6627a5824d1b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_12afebd9-29aa-4de3-9c68-6627a5824d1b.png"
+  },
+  "daqiao_liuli": {
+   "job": "98c67465-7d6f-4c26-bb95-3a865b776a95",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_98c67465-7d6f-4c26-bb95-3a865b776a95.png"
+  },
+  "daqiao_guose": {
+   "job": "1bbbce35-12ac-4406-99be-10a29c46fb69",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_1bbbce35-12ac-4406-99be-10a29c46fb69.png"
+  },
+  "daqiao_anxian": {
+   "job": "6f788167-5f5a-4361-af90-0b513c1602dc",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_6f788167-5f5a-4361-af90-0b513c1602dc.png"
+  },
+  "luxun_qianxun": {
+   "job": "068ca41f-1f8d-4925-9de7-518f0e6e9fda",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_068ca41f-1f8d-4925-9de7-518f0e6e9fda.png"
+  },
+  "luxun_lianying": {
+   "job": "2500c803-bbc4-4564-bca6-c488815bcf9d",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_2500c803-bbc4-4564-bca6-c488815bcf9d.png"
+  },
+  "luxun_huoshao": {
+   "job": "f21f8beb-fb91-4741-a126-9134ffe20eb0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_f21f8beb-fb91-4741-a126-9134ffe20eb0.png"
+  },
+  "luxun_liaoyuan": {
+   "job": "f91a6831-819a-4e33-9d86-45e9af1ceba0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_f91a6831-819a-4e33-9d86-45e9af1ceba0.png"
+  },
+  "sunshangxiang_xiaoji": {
+   "job": "611a0e6c-a633-47be-9bfc-6997f8ce19c8",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_611a0e6c-a633-47be-9bfc-6997f8ce19c8.png"
+  },
+  "sunshangxiang_jieyin": {
+   "job": "3deb2468-c0a9-428a-b2a6-5a7c24aae846",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_3deb2468-c0a9-428a-b2a6-5a7c24aae846.png"
+  },
+  "sunshangxiang_gongyao": {
+   "job": "dd6c4060-903c-45bb-92fc-930dc23792d4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060848_dd6c4060-903c-45bb-92fc-930dc23792d4.png"
+  },
+  "huatuo_jijiu": {
+   "job": "687dc0b6-7f3b-4dc8-b385-028588cf86d1",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060959_687dc0b6-7f3b-4dc8-b385-028588cf86d1.png"
+  },
+  "huatuo_qingnang": {
+   "job": "c560adc0-2136-4454-b7fa-6b5ba4d1851c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060959_c560adc0-2136-4454-b7fa-6b5ba4d1851c.png"
+  },
+  "huatuo_mafei": {
+   "job": "ab72c720-05f5-42b8-aa9a-0ec65c4138e0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060958_ab72c720-05f5-42b8-aa9a-0ec65c4138e0.png"
+  },
+  "lubu_wushuang": {
+   "job": "eeddfb2d-bdea-4b52-b5ae-3760de626503",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060959_eeddfb2d-bdea-4b52-b5ae-3760de626503.png"
+  },
+  "lubu_fangtian": {
+   "job": "795b9bd3-17b9-4a83-a5cd-067b4a30e9c0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060958_795b9bd3-17b9-4a83-a5cd-067b4a30e9c0.png"
+  },
+  "lubu_sheji": {
+   "job": "bd322b33-c434-4f9e-9dc3-51c48042b21a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060958_bd322b33-c434-4f9e-9dc3-51c48042b21a.png"
+  },
+  "diaochan_biyue": {
+   "job": "b1a3b81c-3ca1-4e49-b6bb-b8f1c158e0ed",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060959_b1a3b81c-3ca1-4e49-b6bb-b8f1c158e0ed.png"
+  },
+  "diaochan_lijian": {
+   "job": "1c995c82-0c87-458a-ad5f-6140f987da7b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060958_1c995c82-0c87-458a-ad5f-6140f987da7b.png"
+  },
+  "diaochan_lianhuan": {
+   "job": "5092889d-01c3-4214-a125-ce5d3e28520e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060959_5092889d-01c3-4214-a125-ce5d3e28520e.png"
+  },
+  "zhangjiao_guidao": {
+   "job": "16407189-02fd-410d-ab2b-db794f2d43ed",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060959_16407189-02fd-410d-ab2b-db794f2d43ed.png"
+  },
+  "zhangjiao_leiji": {
+   "job": "cb16f2a9-8b0c-4832-b764-9649b7886d87",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060959_cb16f2a9-8b0c-4832-b764-9649b7886d87.png"
+  },
+  "zhangjiao_taiping": {
+   "job": "e4a86a52-fd63-4f4c-8636-1484aae80837",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061103_e4a86a52-fd63-4f4c-8636-1484aae80837.png"
+  },
+  "zhangjiao_huangtian": {
+   "job": "0eb2d45e-11b0-4b9d-a736-3741201917f2",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061103_0eb2d45e-11b0-4b9d-a736-3741201917f2.png"
+  },
+  "yuanshao_mingmen": {
+   "job": "3e051fc5-4652-4849-8c46-c17c4f7645be",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061103_3e051fc5-4652-4849-8c46-c17c4f7645be.png"
+  },
+  "yuanshao_luanji": {
+   "job": "25b36a9d-b202-4b95-ba04-2787e65c8249",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061103_25b36a9d-b202-4b95-ba04-2787e65c8249.png"
+  },
+  "yuanshao_sishi": {
+   "job": "9b873aae-84d9-4ff4-beb8-191c8ebd4095",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061103_9b873aae-84d9-4ff4-beb8-191c8ebd4095.png"
+  },
+  "yuanshao_xueyi": {
+   "job": "95f70785-a370-43ab-aa8d-87d2f2bbd811",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061104_95f70785-a370-43ab-aa8d-87d2f2bbd811.png"
+  },
+  "menghuo_huoshou": {
+   "job": "94da0708-6b35-4d98-b298-e3c7e1341b1b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061103_94da0708-6b35-4d98-b298-e3c7e1341b1b.png"
+  },
+  "menghuo_zaiqi": {
+   "job": "28ea0e88-6fa7-40f9-94f9-914f50dc7da0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061103_28ea0e88-6fa7-40f9-94f9-914f50dc7da0.png"
+  },
+  "menghuo_nanman": {
+   "job": "8868680c-c07d-40ba-99dd-0f28a5365521",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061103_8868680c-c07d-40ba-99dd-0f28a5365521.png"
+  },
+  "menghuo_xiangbing": {
+   "job": "45536672-b0ce-4112-be2c-cda884922008",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061157_45536672-b0ce-4112-be2c-cda884922008.png"
+  }
+ },
+ "weapon3d": {
+  "qinglong": {
+   "job": "c38ffb47-eb4e-4b52-a5d0-4599247f04bd",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061910_c38ffb47-eb4e-4b52-a5d0-4599247f04bd.glb"
+  },
+  "pistol": {
+   "job": "be6664c9-c789-4f95-ad03-dc2070b6a5ad",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_061912_be6664c9-c789-4f95-ad03-dc2070b6a5ad.glb"
+  },
+  "carbine": {
+   "job": "282516f2-418b-417b-acfc-db4fad5eea1c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062139_282516f2-418b-417b-acfc-db4fad5eea1c.glb"
+  },
+  "smg": {
+   "job": "e77219c7-a523-4160-aebc-a50e61ecbc21",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062141_e77219c7-a523-4160-aebc-a50e61ecbc21.glb"
+  },
+  "zhuge": {
+   "job": "de1b8fe3-2ee9-4924-9a0a-46aee6803bb1",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062143_de1b8fe3-2ee9-4924-9a0a-46aee6803bb1.glb"
+  },
+  "qinggang": {
+   "job": "b37e5388-908b-400b-bc7b-702c9c71400a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062146_b37e5388-908b-400b-bc7b-702c9c71400a.glb"
+  },
+  "hanbing": {
+   "job": "e6f25787-8ff4-4daa-ad03-5095f07cdecd",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062151_e6f25787-8ff4-4daa-ad03-5095f07cdecd.glb"
+  },
+  "guding": {
+   "job": "9b25bd8c-c07c-4574-bba8-4a180c908f79",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062202_9b25bd8c-c07c-4574-bba8-4a180c908f79.glb"
+  },
+  "guanshi": {
+   "job": "0f321056-d5d6-4d36-9a14-b4d071d8d87e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062207_0f321056-d5d6-4d36-9a14-b4d071d8d87e.glb"
+  },
+  "zhuque": {
+   "job": "aa404898-103c-4f63-9b1a-a2ffb33ad9b9",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062209_aa404898-103c-4f63-9b1a-a2ffb33ad9b9.glb"
+  },
+  "fangtian": {
+   "job": "ddef9931-dac1-4dfa-8162-bb0d3fd33c36",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062211_ddef9931-dac1-4dfa-8162-bb0d3fd33c36.glb"
+  },
+  "qilin": {
+   "job": "c5d3c048-a24f-4935-9fb6-2f44b5e6e81b",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062213_c5d3c048-a24f-4935-9fb6-2f44b5e6e81b.glb"
+  },
+  "longdan": {
+   "job": "29bcca74-cda7-4902-b3b5-76e528e54e1e",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062218_29bcca74-cda7-4902-b3b5-76e528e54e1e.glb"
+  },
+  "liegong": {
+   "job": "32d87566-fea9-46f7-8802-5c1b58c9c011",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062220_32d87566-fea9-46f7-8802-5c1b58c9c011.glb"
+  },
+  "xiaoji": {
+   "job": "9d782700-712a-45e7-bb8b-c987f9eb0795",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062224_9d782700-712a-45e7-bb8b-c987f9eb0795.glb"
+  },
+  "wushuang": {
+   "job": "414b9475-1d38-4a55-be81-f344cf460f3c",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062228_414b9475-1d38-4a55-be81-f344cf460f3c.glb"
+  },
+  "huben": {
+   "job": "a8480d2c-4c69-4f74-b361-4d05249ee275",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062232_a8480d2c-4c69-4f74-b361-4d05249ee275.glb"
+  },
+  "qingnang": {
+   "job": "cf5b8121-1ad4-45a6-8fe8-d290b110343a",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062234_cf5b8121-1ad4-45a6-8fe8-d290b110343a.glb"
+  },
+  "yitian": {
+   "job": "d3ffef1f-a911-44f5-805e-74422fbccd66",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062236_d3ffef1f-a911-44f5-805e-74422fbccd66.glb"
+  },
+  "hutou": {
+   "job": "18e7f428-b95e-48cb-adee-ffc964456d33",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062238_18e7f428-b95e-48cb-adee-ffc964456d33.glb"
+  },
+  "baiyi": {
+   "job": "4e3909d1-6208-47e1-adef-fa0812e313df",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062246_4e3909d1-6208-47e1-adef-fa0812e313df.glb"
+  },
+  "cixiong": {
+   "job": "e5bc2875-e95a-401c-a8dc-e2961d8071e0",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062315_e5bc2875-e95a-401c-a8dc-e2961d8071e0.glb"
+  },
+  "zhangba": {
+   "job": "507992a6-fe4d-493c-8f99-dc29ee583ea8",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062317_507992a6-fe4d-493c-8f99-dc29ee583ea8.glb"
+  },
+  "jinfan": {
+   "job": "e6fa8e90-0e91-4eac-ab58-f4365c9d43ac",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062324_e6fa8e90-0e91-4eac-ab58-f4365c9d43ac.glb"
+  },
+  "manwang": {
+   "job": "8560df3a-3f4f-4002-907e-adb682ecb4d4",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062331_8560df3a-3f4f-4002-907e-adb682ecb4d4.glb"
+  },
+  "taiping": {
+   "job": "254d293a-ccf2-4d97-8be7-ef4ff43796f2",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062419_254d293a-ccf2-4d97-8be7-ef4ff43796f2.glb"
+  },
+  "jiguan": {
+   "job": "ff8eeca8-9e40-4fef-a0b8-4eca4bb430a3",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_062421_ff8eeca8-9e40-4fef-a0b8-4eca4bb430a3.glb"
+  }
+ },
+ "mount": {
+  "horse": {
+   "job": "8ff07afc-ac1f-45f3-a321-19fa265ab299",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151948_8ff07afc-ac1f-45f3-a321-19fa265ab299.glb"
+  },
+  "elephant": {
+   "job": "a185caba-bdfa-4b94-9f6a-18170ff0973f",
+   "url": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_151950_a185caba-bdfa-4b94-9f6a-18170ff0973f.glb"
+  }
+ },
+ "replaced_pt2": {
+  "public/assets/ui/loading_shu.webp": {
+   "old": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_ab6f9234-5670-492b-8d3a-a3f7040c359f.png",
+   "new": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_234343_3faff563-5da8-4905-9ce1-4ffea3d46113.png",
+   "why": "playtest round 2 (UX-3/5/6): baked-in text / prohibition-sign look"
+  },
+  "public/assets/ui/loading_wu.webp": {
+   "old": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_052858_8efd41d4-80a4-4c25-b3d9-6943c4df9e9c.png",
+   "new": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_234343_6c5b2fa5-99f9-4633-8a95-d862584c584f.png",
+   "why": "playtest round 2 (UX-3/5/6): baked-in text / prohibition-sign look"
+  },
+  "public/assets/portraits/yuanshao.webp": {
+   "old": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_051821_b63400d9-8a13-4800-b579-8b27bc619c87.png",
+   "new": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_234342_e18074e5-3590-4673-a6a7-4f3e92762213.png",
+   "why": "playtest round 2 (UX-3/5/6): baked-in text / prohibition-sign look"
+  },
+  "public/assets/icons/abilities/guanyu_yijue.webp": {
+   "old": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060058_b2b73983-25b9-48d8-a04f-5f3f7999c239.png",
+   "new": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_234342_3307e923-22f8-4d03-8e9d-29125f914659.png",
+   "why": "playtest round 2 (UX-3/5/6): baked-in text / prohibition-sign look"
+  },
+  "public/assets/icons/abilities/zhaoyun_jiuzhu.webp": {
+   "old": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060228_86e85d8e-d35c-468a-9765-f4522687fe10.png",
+   "new": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_234343_f825eab3-e427-49f3-8cab-b67a9d1cc028.png",
+   "why": "playtest round 2 (UX-3/5/6): baked-in text / prohibition-sign look"
+  },
+  "public/assets/icons/abilities/zhaoyun_qijin.webp": {
+   "old": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_a096f8ea-3995-48fc-a6d9-990df7727b2f.png",
+   "new": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260926_000709_f500b897-4770-4329-874f-aecdfb6f7f45.png",
+   "why": "playtest round 2 (UX-6): ring + diagonal read as a prohibition sign"
+  }
+ }
+}
