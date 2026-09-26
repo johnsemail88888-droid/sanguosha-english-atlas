@@ -34,6 +34,8 @@ export interface MockGameOptions {
   locked?: boolean;
   /** drive the handle with the real InputController (src/game/input.ts) */
   realInput?: boolean;
+  /** report a finished staged build (stage 'ready') like the real view does — the loading screen's last line */
+  loadReady?: boolean;
 }
 
 /** A painted battlefield backdrop + a GameHandle that re-emits the view's events each frame. */
@@ -202,6 +204,14 @@ export function mountMockGame(container: HTMLElement, view: ViewSource, opts: Mo
   } as GameHandle['input'];
 
   const handle: MockGameHandle = {
+    ...(opts.loadReady
+      ? {
+          onLoadProgress: (cb: (p: { stage: 'ready'; progress: number }) => void) => {
+            const id = setTimeout(() => cb({ stage: 'ready', progress: 1 }), 50);
+            return () => clearTimeout(id);
+          },
+        }
+      : {}),
     actions,
     spectate,
     realInput: !!real,

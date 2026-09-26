@@ -7,7 +7,7 @@ import type { GameSession } from '../../game/session';
 import { assetListSync } from '../../game/assets';
 import { firstShipped, loadingArtCandidates } from '../art';
 import type { Screen, UiCtx } from '../ctx';
-import { Bag, h } from '../dom';
+import { Bag, h, setClass } from '../dom';
 import { heroName, heroTitle, roleName, t, tx } from '../i18n';
 import { artBackdrop, type ArtBackdrop } from '../keyart';
 import { heroCard, roleSeal } from '../widgets';
@@ -37,6 +37,17 @@ const STAGES: Record<string, [number, string, string]> = {
   failed: [1, '开战！', 'To battle!'],
 };
 
+/**
+ * The stage line under the bar. Built and ready while the host has not started the
+ * clock yet (it — or a slow guest — is still loading; session.awaitingHostStart):
+ * 「等待房主加载…」 instead of a 「开战！」 that would sit there for a minute (MP2-1).
+ */
+export function loadStageText(stage: string, progress: number, awaitingHost: boolean): string {
+  if ((stage === 'ready' || stage === 'failed') && awaitingHost) return t('loading.waitHost');
+  const st = STAGES[stage] ?? STAGES.sim;
+  return `${tx(st[1], st[2])} ${Math.round(progress * 100)}%`;
+}
+
 export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-loading', data: { screen: 'loading' } });
@@ -46,11 +57,12 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
   const bar = h('div', { class: 'brush-bar det', role: 'progressbar', aria: { valuemin: '0', valuemax: '100' } }, barFill);
   const stageEl = h('div', { class: 'load-stage' });
   const showStage = (): void => {
-    const st = STAGES[stage] ?? STAGES.sim;
     barFill.style.width = `${Math.round(progress * 100)}%`;
     bar.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
-    stageEl.textContent = `${tx(st[1], st[2])} ${Math.round(progress * 100)}%`;
+    const waiting = !!session.awaitingHostStart;
+    stageEl.textContent = loadStageText(stage, progress, waiting);
     el.dataset.stage = stage;
+    setClass(el, 'wait-host', waiting && (stage === 'ready' || stage === 'failed'));
   };
   let tipIndex = Math.floor(Math.random() * LOADING_TIPS.length);
   const tipEl = h('p', { class: 'tip-text' });
@@ -126,6 +138,10 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
     tipIndex++;
     showTip();
   }, 5000);
+  // the host starting the clock is no event of its own: look again while the view is ready
+  bag.interval(() => {
+    if (stage === 'ready' || stage === 'failed') showStage();
+  }, 500);
   render();
   showStage();
   return {

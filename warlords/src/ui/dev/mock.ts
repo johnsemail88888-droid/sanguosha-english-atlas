@@ -821,7 +821,8 @@ export class MockSession implements GameSession {
     this.later(1600, () => this.startMatch());
   }
 
-  private startMatch(): void {
+  /** `phase` 'loading': a guest whose view exists while the host's clock has not started (awaitingHostStart) */
+  private startMatch(phase: MatchPhase = 'playing'): void {
     const mine = this.mySeat();
     const hero = this.heroSelect?.picks[mine] ?? heroIdAt(1);
     this.view = new MockView({
@@ -834,11 +835,11 @@ export class MockSession implements GameSession {
       ...this.opts.view,
     });
     this.emit('matchStart', this.view);
-    this.setPhase('playing');
+    this.setPhase(phase);
   }
 
-  /** Harness: jump straight into a phase with fake data (no auto-advance). */
-  jumpTo(phase: MatchPhase, extra: { lordPhase?: boolean } = {}): void {
+  /** Harness: jump straight into a phase with fake data (no auto-advance). `view`: loading with the match view built. */
+  jumpTo(phase: MatchPhase, extra: { lordPhase?: boolean; view?: boolean } = {}): void {
     switch (phase) {
       case 'lobby':
         this.setPhase('lobby');
@@ -857,6 +858,7 @@ export class MockSession implements GameSession {
         this.othersPhase();
         if (this.heroSelect) this.heroSelect.picks[this.mySeat()] ??= this.heroSelect.options[0] ?? heroIdAt(1);
         this.setPhase('loading');
+        if (extra.view) this.startMatch('loading');
         break;
       case 'playing':
         this.dealRoles();
@@ -905,5 +907,17 @@ export class MockSession implements GameSession {
   /** Harness: emit a status line (`extra.key` / `clear`: a keyed condition such as 'waitingHost'). */
   status(zh: string, en: string, extra: { key?: string; clear?: boolean } = {}): void {
     this.emit('status', { zh, en, ...extra });
+  }
+
+  // guest link state (net/clientSession.ts): set from the harness / tests to preview the HUD chip and loading line
+  /** ms the host has been silent (the waiting chip's counter) */
+  hostSilentMs = 0;
+  /** the automatic rejoin cannot reach the host (status key 'hostUnreachable') */
+  hostUnreachable = false;
+  /** the view is ready but the host's clock has not started (loading: 等待房主加载…) */
+  awaitingHostStart = false;
+
+  retryNow(): void {
+    this.calls.push('retryNow');
   }
 }

@@ -37,6 +37,18 @@ export const HUD_CSS = /* css */ `
 .link-chip { padding: ${u(2)} ${u(12)}; border-radius: 999px; font-size: ${fs(13, 10)}; font-weight: 700; white-space: nowrap; background: rgba(120, 80, 10, 0.82); border: 1px solid #f2c14e; color: #ffe6a8; }
 .link-chip[data-tone="bad"] { background: rgba(130, 30, 20, 0.85); border-color: #ff8a6a; color: #ffd9cc; animation: sg-hud-blink 1s ease-in-out infinite alternate; }
 .link-chip[data-tone="ok"] { background: rgba(30, 90, 50, 0.82); border-color: #7fe09a; color: #d8ffe2; }
+/* 重试 / 离开 on a waiting or unreachable chip (MP2-1 / MP2-2): real buttons, the chip stops blinking under them */
+.link-chip { display: inline-flex; align-items: center; gap: ${u(8)}; }
+.link-chip .lk-btns { display: inline-flex; gap: ${u(6)}; }
+.link-chip:has(.lk-btn) { animation: none; padding-right: ${u(4)}; }
+.link-chip .lk-btn { pointer-events: auto; min-height: 1.75em; padding: 0 0.8em; border-radius: 999px; border: 1px solid rgba(255, 230, 168, 0.75); background: rgba(20, 12, 6, 0.8); color: #ffe6a8; font: inherit; font-weight: 800; cursor: pointer; text-shadow: none; }
+.link-chip .lk-btn.retry { background: rgba(46, 125, 72, 0.92); border-color: #c8f0cf; color: #eaffef; }
+.link-chip .lk-btn:disabled { opacity: 0.5; cursor: default; }
+.sg-hud.touch .link-chip .lk-btn { min-height: 30px; padding: 0 12px; }
+/* touch: the top row is full (touch bar, zone banner, weapon panel) — the text wraps, the buttons go under it */
+.sg-hud.touch .link-chip:has(.lk-btn) { flex-direction: column; gap: 4px; max-width: 13.5em; padding: 4px 10px 6px; border-radius: 12px; white-space: normal; text-align: center; line-height: 1.3; }
+/* above the touch overlay's look zone (z 5), below every panel / overlay: only the chip's buttons take touches */
+.hud-topcenter { z-index: 9; }
 .hud-zone .zphase { font-family: var(--font-display); color: var(--gold-hi); font-weight: 800; }
 .hud-zone.shrinking { border-color: #ff7840; }
 .hud-zone.shrinking .ztext { color: #ffb08a; }

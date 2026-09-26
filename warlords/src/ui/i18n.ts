@@ -164,6 +164,7 @@ const DICT = {
   // ── loading ──
   'loading.title': ['战场加载中', 'Preparing the battlefield'],
   'loading.tip': ['提示', 'Tip'],
+  'loading.waitHost': ['等待房主加载…', 'Waiting for the host to load…'],
 
   // ── HUD ──
   'hud.reloading': ['换弹中', 'Reloading'],
@@ -194,6 +195,8 @@ const DICT = {
   'hud.interact.fullHint': ['按住 X 再按 4–7 丢弃锦囊', 'Hold X + 4–7 to discard a card'],
   'hud.interact.fullHintTouch': ['长按锦囊可丢弃', 'Long-press a card to discard it'],
   'hud.interact.revive': ['按住 F 救援 {name}', 'Hold F to revive {name}'],
+  'link.retry': ['重试', 'Retry'],
+  'link.leave': ['离开', 'Leave'],
   'hud.interact.reviveTouch': ['按住「救援」救起 {name}', 'Hold Revive to rescue {name}'],
   'hud.interact.needPeach': ['需要桃', 'Needs a Peach'],
   'hud.interact.selfRevive': ['按 {key} 饮酒自救', 'Press {key} to drink Wine and rise'],

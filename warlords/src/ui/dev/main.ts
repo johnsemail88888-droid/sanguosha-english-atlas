@@ -13,6 +13,7 @@
 //   &art=0 (pretend no painted art ships: the procedural look of the single-file build)
 //   &single=1 (roles / heroSelect / loading / gameOver as a single-player session: 返回 button, 再来一局)
 //   &kind=online (hud / match as an online session: the menu reads 菜单 and never pauses)
+//   &awaitHost=1 (loading: the view is built, the host has not started the clock → 等待房主加载…)
 import type { RoleId, StatusId } from '../../core/types';
 import { setAssetListForTests } from '../../game/assets';
 import { settings } from '../../game/settings';
@@ -47,7 +48,7 @@ settings.update({
 
 const deps = createMockDeps(
   { role, state, freePick: params.get('freePick') === '1', double: params.get('double') === '1' },
-  { realInput: params.get('input') === 'real', locked: params.get('locked') !== '0' },
+  { realInput: params.get('input') === 'real', locked: params.get('locked') !== '0', loadReady: params.get('awaitHost') === '1' },
 );
 // loaded on demand: the harness itself never pulls in three.js
 if (params.get('portraits') === 'real') deps.renderHeroPortrait = async (id, size) => (await import('../../render/portrait')).renderHeroPortrait(id, size);
@@ -112,7 +113,9 @@ switch (screen) {
   }
   case 'loading': {
     const s = newSession();
-    s.jumpTo('loading');
+    const awaitHost = params.get('awaitHost') === '1';
+    s.awaitingHostStart = awaitHost;
+    s.jumpTo('loading', { view: awaitHost });
     opts.initialSession = { session: s, kind: params.get('single') === '1' ? 'single' : 'online' };
     break;
   }

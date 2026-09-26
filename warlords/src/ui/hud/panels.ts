@@ -14,7 +14,7 @@ import { ORDER_GLYPH, ORDER_KEYS, ORDER_SEQUENCE, RARITY_COLOR, ROLE_GLYPH, glyp
 import { magatama, type PortraitCache } from '../widgets';
 import { abilityReady, aliveCount, cooldownFraction, filledTicks, hpTicks, hudAbilities, maxDodgeCharges, zoneStatus, type AbilitySlotView } from './logic';
 import type { HudFrame } from './types';
-import type { LinkChip } from './connstatus';
+import { linkChipText, type LinkAction, type LinkChip } from './connstatus';
 
 const r1 = (v: number): number => Math.round(v * 1000) / 1000;
 
@@ -572,7 +572,13 @@ export class TopBar {
   private readonly matchInfo: HTMLElement;
   /** a guest's link to the host (connstatus.ts): shown in place of the clock row */
   private readonly linkEl: HTMLElement;
+  private readonly linkText: HTMLElement;
+  private readonly linkBtns: HTMLElement;
   private link: LinkChip | null = null;
+  /** the waiting chip's silence counter (s) */
+  private linkSecs = 0;
+  /** 重试 / 离开 on the chip (the HUD wires them to the session) */
+  onLinkAction: ((a: LinkAction) => void) | null = null;
   private roleKey = '';
   private clockSecs = -1;
   private aliveN = -1;
@@ -586,7 +592,9 @@ export class TopBar {
     this.zoneText = h('span', { class: 'ztext' });
     this.zoneBox = h('div', { class: 'hud-zone' }, this.zonePhase, this.zoneText);
     this.matchInfo = h('div', { class: 'match-info' }, this.clock, h('span', { class: 'dot' }, '·'), this.alive);
-    this.linkEl = h('div', { class: 'link-chip sg-hidden', role: 'status', aria: { live: 'polite' } });
+    this.linkText = h('span', { class: 'lk-text' });
+    this.linkBtns = h('span', { class: 'lk-btns' });
+    this.linkEl = h('div', { class: 'link-chip sg-hidden', role: 'status', aria: { live: 'polite' } }, this.linkText, this.linkBtns);
     this.el = h('div', { class: 'hud-top' },
       this.roleChip,
       h('div', { class: 'hud-topcenter' }, this.zoneBox, this.matchInfo, this.linkEl),
@@ -600,7 +608,38 @@ export class TopBar {
     setClass(this.matchInfo, 'sg-hidden', !!chip);
     if (!chip) return;
     this.linkEl.dataset.tone = chip.tone;
-    setText(this.linkEl, `${chip.tone === 'ok' ? '✓' : '⚠'} ${tx(chip.zh, chip.en)}`);
+    this.showLinkText();
+    // 重试 (retry the rejoin now) / 离开 (leave the room) — MP2-1 / MP2-2
+    const acts = chip.actions ?? [];
+    this.linkBtns.replaceChildren(
+      ...acts.map((a) => {
+        const b = h('button', { class: `lk-btn ${a}`, type: 'button', data: { act: a } }, a === 'retry' ? t('link.retry') : t('link.leave'));
+        b.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (a === 'retry') {
+            // one tap per couple of seconds: the session restarts its attempts at once
+            b.disabled = true;
+            setTimeout(() => (b.disabled = false), 2000);
+          }
+          this.onLinkAction?.(a);
+        });
+        return b;
+      }),
+    );
+    setClass(this.linkBtns, 'sg-hidden', !acts.length);
+  }
+
+  /** The waiting chip's counter: whole seconds the host has been silent (session.hostSilentMs). */
+  setLinkSecs(secs: number): void {
+    if (secs === this.linkSecs) return;
+    this.linkSecs = secs;
+    if (this.link?.counter) this.showLinkText();
+  }
+
+  private showLinkText(): void {
+    const chip = this.link;
+    if (!chip) return;
+    setText(this.linkText, `${chip.tone === 'ok' ? '✓' : '⚠'} ${linkChipText(chip, this.linkSecs, getLang())}`);
   }
 
   update(f: HudFrame): void {

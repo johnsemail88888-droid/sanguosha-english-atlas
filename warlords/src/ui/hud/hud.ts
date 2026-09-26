@@ -24,7 +24,7 @@ import { drawMinimap, type MarkerInput } from './minimap';
 import { BigMap, PauseMenu, Scoreboard, Wheel, cardRow, type WheelChoice } from './overlays';
 import { UiKeyDeduper, cycleSpectate, deniedText, entityLabel } from './logic';
 import { KillCauses } from './killcause';
-import { LinkStatus } from './connstatus';
+import { LinkStatus, silentSecs } from './connstatus';
 import { prewarmWeapons } from '../artIcons';
 import type { HudFrame } from './types';
 import { trackViewport } from './viewport';
@@ -151,6 +151,11 @@ export class Hud {
     });
     this.squad = new SquadPanel((o: SquadOrderKind) => this.handle.input.pushAction({ a: 'command', order: o }));
     this.top = new TopBar((id) => entityLabel(this.view, id, getLang())?.name ?? `#${id}`);
+    // the link chip's buttons: 重试 restarts the automatic rejoin now, 离开 leaves the room (MP2-1 / MP2-2)
+    this.top.onLinkAction = (a) => {
+      if (a === 'retry') this.session.retryNow?.();
+      else this.confirmLeave();
+    };
     this.crosshair = new Crosshair(() => settings.get().fov);
     this.dmg = new DamageNumbers(this.handle.worldToScreen ? (p) => this.handle.worldToScreen?.(p) ?? null : undefined);
     this.interact = new InteractPromptView(() => this.handle.input.pushAction({ a: 'interact' }));
@@ -171,13 +176,7 @@ export class Hud {
       {
         resume: () => this.resume(),
         settings: () => this.ctx.openSettings('controls'),
-        leave: () => {
-          // the host's session is the room: leaving closes it for everyone
-          const host = online() && this.session.isHost;
-          void this.ctx.confirm(t(host ? 'pause.hostLeaveConfirm' : 'pause.leaveConfirm')).then((yes) => {
-            if (yes) this.ctx.leaveSession(true);
-          });
-        },
+        leave: () => this.confirmLeave(),
         help: () => this.openOverlay('controls'),
         endMatch: () => {
           void this.ctx.confirm(t('pause.endConfirm')).then((yes) => {
@@ -410,6 +409,8 @@ export class Hud {
     this.readFailed = false;
     const lk = this.link.update(now);
     if (lk.chip) this.top.setLink(this.link.chip);
+    // waiting on a silent host: the chip counts the seconds (responsive time, session.hostSilentMs)
+    if (this.link.state === 'waiting') this.top.setLinkSecs(silentSecs(this.session.hostSilentMs));
     if (lk.chat) this.chat.add({ from: t('chat.system'), text: tx(lk.chat.zh, lk.chat.en), kind: 'system', key: lk.chat.key }, now);
     if (!this.prewarmed && f.players.length) {
       this.prewarmed = true;
@@ -1019,6 +1020,15 @@ export class Hud {
     if (this.cardInfoTimer !== null) clearTimeout(this.cardInfoTimer);
     this.cardInfoTimer = null;
     setClass(this.cardInfo, 'off', true);
+  }
+
+  /** Leave the match (pause menu / the link chip's 离开): confirmed first — for the host it closes the room. */
+  private confirmLeave(): void {
+    // the host's session is the room: leaving closes it for everyone
+    const host = this.ctx.sessionKind === 'online' && this.session.isHost;
+    void this.ctx.confirm(t(host ? 'pause.hostLeaveConfirm' : 'pause.leaveConfirm')).then((yes) => {
+      if (yes) this.ctx.leaveSession(true);
+    });
   }
 
   private showGuide(): void {
