@@ -28,7 +28,7 @@ import { createHelpScreen } from './screens/help';
 import { createSettingsPanel } from './screens/settings';
 import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
-import { clearRejoin, loadRejoin, netFor, saveRejoin } from './invite';
+import { clearRejoin, isReconnectable, loadRejoin, netFor, saveRejoin } from './invite';
 import type { NetServerConfig } from '../game/settings';
 
 export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
@@ -120,11 +120,6 @@ const FATAL_ERROR = /kick|host.?left|disconnect|lost|closed|full|version|not.?fo
 
 export function isFatalSessionError(code: string): boolean {
   return FATAL_CODES.has(code) || FATAL_ERROR.test(code);
-}
-
-/** A lost link to a room that may still be there (not kicked / closed / full): worth a 重新连接 button. */
-export function isReconnectable(code: string): boolean {
-  return code === 'connectionLost' || code === 'timeout' || code === 'closed' || code === 'serverUnreachable' || code === 'networkRestricted';
 }
 
 /** Session endings that are news, not malfunctions: titled 提示 / Notice instead of 出错了. */
@@ -518,7 +513,8 @@ class App implements UiCtx {
     this.unmountMatch();
     if (s) {
       try {
-        s.leave();
+        // coming back (F5, an involuntary drop): the seat token stays so the rejoin reclaims the seat
+        s.leave(keepRejoin ? { keepToken: true } : undefined);
       } catch (err) {
         console.warn('[ui] session.leave failed', err);
       }
@@ -620,18 +616,16 @@ class App implements UiCtx {
   private onSessionError(e: { code: string; zh: string; en: string }): void {
     const msg = tx(e.zh, e.en);
     if (isFatalSessionError(e.code)) {
-      // a guest who lost the host (after the net layer's own retries): offer the way back into the room
+      // a guest who lost the host (after the net layer's own retries): the rejoin record and the seat
+      // token are kept (F5 and the online screen's 重新加入 still work) and the way back is offered (MP2-3)
       const rejoin = this.sessionKind === 'online' && this.session && !this.session.isHost && isReconnectable(e.code) ? loadRejoin() : null;
       this.leaveSession(true, !!rejoin);
       if (rejoin) {
-        void this.confirm(msg, { title: t('error.title'), ok: t('error.reconnect'), cancel: t('over.toTitle') }).then((yes) => {
-          if (!yes) {
-            clearRejoin();
-            return;
-          }
-          // the online screen joins the saved room the normal way (the seat token reclaims the seat)
-          allowRejoin();
-          this.go('online');
+        void this.confirm(msg, { title: t('error.title'), ok: t('online.rejoinCode', { code: rejoin.code }), cancel: t('over.toTitle') }).then((yes) => {
+          // the online screen joins the saved room the normal way, in the room's own mode —
+          // by itself now, or from its 重新加入 button later
+          allowRejoin(yes);
+          if (yes) this.go('online');
         });
         return;
       }

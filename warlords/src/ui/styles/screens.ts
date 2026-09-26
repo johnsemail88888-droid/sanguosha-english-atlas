@@ -153,6 +153,8 @@ export const SCREENS_CSS = /* css */ `
 .lan-url { font-family: ui-monospace, Consolas, monospace; font-size: 1.05em; padding: 0.25em 0.6em; background: rgba(30, 20, 12, 0.08); border: 1px solid rgba(140, 106, 38, 0.4); border-radius: 4px; user-select: all; word-break: break-all; }
 .sg-warn { margin-top: 0.8em; padding: 0.5em 0.8em; border: 1px solid var(--red); background: rgba(179, 38, 30, 0.08); color: var(--red-lo); border-radius: 4px; }
 .sg-invite { margin: 0 0 0.8em; padding: 0.5em 0.8em; border-radius: 4px; background: rgba(214, 173, 82, 0.2); border: 1px solid var(--gold-lo); font-weight: 600; text-align: center; }
+.sg-invite.sg-rejoin { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.4em 0.8em; }
+.sg-rejoin .rejoin-btn { flex: none; }
 
 /* ── lobby ─────────────────────────────────────────────── */
 .sg-lobby { display: flex; flex-direction: column; gap: 0.9em; padding: 1.1em 1.5em; }

@@ -79,6 +79,15 @@ export function parseInvite(search: string): InviteInfo {
 
 // ── reload rejoin ────────────────────────────────────────────────────────────
 
+/**
+ * A lost link to a room that may still be there (not kicked / closed / full / gone):
+ * the rejoin record and the seat token are kept, and the player is offered
+ * 重新加入 {CODE} (MP2-3).
+ */
+export function isReconnectable(code: string | undefined): boolean {
+  return code === 'connectionLost' || code === 'timeout' || code === 'closed' || code === 'serverUnreachable' || code === 'networkRestricted';
+}
+
 const REJOIN_KEY = 'sgwl.rejoin.v1';
 /** a rejoin record older than this is ignored (the match is long over) */
 export const REJOIN_MAX_AGE_MS = 30 * 60_000;

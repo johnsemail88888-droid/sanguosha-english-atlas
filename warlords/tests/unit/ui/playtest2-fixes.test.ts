@@ -15,7 +15,8 @@ import { fitFeedRow } from '../../../src/ui/hud/feed';
 import { deriveInteract } from '../../../src/ui/hud/logic';
 import { interactText } from '../../../src/ui/hud/combat';
 import { hasRemotePlayers } from '../../../src/ui/hud/overlays';
-import { isFatalSessionError, isReconnectable } from '../../../src/ui/app';
+import { isFatalSessionError } from '../../../src/ui/app';
+import { isReconnectable } from '../../../src/ui/invite';
 
 afterEach(() => overrideLang(null));
 

@@ -896,16 +896,32 @@ test('round 2: help tables, card labels, pickup lines, full-bar swap + discard, 
   await expect(sb.page.locator('.hud-scoreboard thead th', { hasText: '延迟' })).toBeHidden();
   await sb.ctx.close();
 
-  // a guest who lost the host gets 重新连接 (the saved room), which opens the online screen
+  // MP2-3: a guest who lost the host is offered 重新加入 {CODE}; the record survives the drop
   const rc = await open('screen=lobby&host=0');
   await expect(rc.page.locator('[data-screen="lobby"]')).toBeVisible({ timeout: 15_000 });
-  await rc.page.evaluate(() => {
-    sessionStorage.setItem('sgwl.rejoin.v1', JSON.stringify({ code: 'BWKQR', mode: 'ws', net: {}, at: Date.now() }));
+  const drop = (): Promise<void> => rc.page.evaluate(() => {
+    sessionStorage.setItem('sgwl.rejoin.v1', JSON.stringify({ code: 'BWKQR', mode: 'peer', net: {}, at: Date.now() }));
     (window as unknown as MockInternals).__ui.deps.lastSession.fail('connectionLost', '与房主的连接已断开', 'Lost connection to the host');
   });
-  await expect(rc.page.locator('.sg-modal-back .sg-btn', { hasText: '重新连接' })).toBeVisible();
-  await rc.page.locator('.sg-modal-back .sg-btn', { hasText: '重新连接' }).click();
-  // the online screen joins the saved room by itself and lands in its lobby
+  await drop();
+  const rejoinBtn = rc.page.locator('.sg-modal-back .sg-btn', { hasText: '重新加入 BWKQR' });
+  await expect(rejoinBtn).toBeVisible();
+  // 返回标题 first: the record is kept, and the online screen offers the rejoin in the room's own mode (no auto join)
+  await rc.page.locator('.sg-modal-back .sg-btn', { hasText: '返回标题' }).click();
+  expect(await rc.page.evaluate(() => sessionStorage.getItem('sgwl.rejoin.v1'))).toContain('BWKQR');
+  await rc.page.locator('[data-screen="title"] .sg-menu-btn', { hasText: '联机对战' }).click();
+  await expect(rc.page.locator('[data-screen="online"] .sg-rejoin .rejoin-btn')).toHaveText('重新加入 BWKQR');
+  await expect(rc.page.locator('[data-screen="online"] .sg-code-input')).toHaveValue('BWKQR');
+  await expect(rc.page.locator('[data-screen="online"] .sg-seg button[data-value="peer"]')).toHaveAttribute('aria-pressed', 'true');
+  await rc.page.waitForTimeout(1500);
+  await expect(rc.page.locator('[data-screen="online"]')).toBeVisible();
+  // the button joins that room, in P2P, and lands in its lobby
+  await rc.page.locator('[data-screen="online"] .sg-rejoin .rejoin-btn').click();
   await expect(rc.page.locator('[data-screen="lobby"] .room-code')).toContainText('BWKQR');
+  // dropped again: 重新加入 in the dialog rejoins by itself
+  await drop();
+  await rejoinBtn.click();
+  await expect(rc.page.locator('[data-screen="lobby"] .room-code')).toContainText('BWKQR', { timeout: 15_000 });
+  expect(rc.errors).toEqual([]);
   await rc.ctx.close();
 });

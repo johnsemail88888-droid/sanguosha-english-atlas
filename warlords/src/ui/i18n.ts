@@ -88,6 +88,8 @@ const DICT = {
   'online.switchRetry': ['切换为「{mode}」并重试', 'Switch to {mode} and retry'],
   'online.rejoin': ['重新加入房间 {code}', 'Rejoin room {code}'],
   'online.rejoinHint': ['刷新前你在房间 {code} 中（{mode}）。', 'Before the reload you were in room {code} ({mode}).'],
+  'online.rejoinCode': ['重新加入 {code}', 'Rejoin {code}'],
+  'online.droppedHint': ['你与房间 {code} 的连接断开了（{mode}），座位仍为你保留。', 'You lost the connection to room {code} ({mode}); your seat is kept for you.'],
 
   // ── lobby ──
   'lobby.title': ['房间大厅', 'Lobby'],
@@ -378,7 +380,6 @@ const DICT = {
 
   // ── errors ──
   'error.title': ['出错了', 'Something went wrong'],
-  'error.reconnect': ['重新连接', 'Reconnect'],
   'notice.title': ['提示', 'Notice'],
   'error.generic': ['发生未知错误', 'An unknown error occurred'],
 } as const satisfies Record<string, readonly [string, string]>;
