@@ -403,6 +403,8 @@ export class GameRenderer {
       fadedRig?.setFade(1);
     };
     try {
+      // the sky layer's own programs (its scene: no lights in their keys)
+      this.forWorldTarget(() => this.renderer.compile(this.sky.scene, this.sky.camera));
       if (this.renderer.extensions.has('KHR_parallel_shader_compile')) {
         await this.forWorldTarget(() => this.renderer.compileAsync(this.scene, this.camera));
         shaderProgress?.(1);
@@ -438,6 +440,9 @@ export class GameRenderer {
       console.warn('[render] shader warm-up failed', err);
     } finally {
       restore();
+      // one hidden draw: the shadow pass's depth programs and every vertex buffer / texture
+      // upload, instead of in the first visible frame
+      if (!this.disposed && !this.contextLost) this.prerender();
     }
   }
 
