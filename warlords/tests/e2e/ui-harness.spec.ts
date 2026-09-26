@@ -617,7 +617,9 @@ type ArtHarness = { __ui: { deps: { lastGame: { emitUiKey(k: string, d: boolean)
 test('card art: HUD, pause, identity card and 玩法说明 use the painted art — without files, not one art element or request', async () => {
   const a = await openArt('screen=hud');
   const pg = a.page;
-  await expect(pg.locator('.hud-abilities .ico.art-on .sg-art.disc img').first()).toBeVisible({ timeout: 15_000 });
+  // art turns on only once its file has loaded (UX-16): the first request of a match's ~130
+  // emblems goes to a cold dev server, which on a loaded machine (full e2e run) can take > 15 s
+  await expect(pg.locator('.hud-abilities .ico.art-on .sg-art.disc img').first()).toBeVisible({ timeout: 60_000 });
   expect(await pg.locator('.hud-abilities .ico.art-on').count()).toBeGreaterThanOrEqual(2);
   await expect(pg.locator('.hud-abilities .item .card.art-on')).toHaveCount(3);
   await expect(pg.locator('.v-gear .gchip.art-on')).toHaveCount(2);
