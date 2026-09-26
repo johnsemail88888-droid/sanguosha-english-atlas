@@ -321,13 +321,17 @@ export class ChatBox {
   }
 
   add(line: HudChatLine, now: number): void {
-    // a keyed line still in the log: its text changes in place (the link episode's "waiting" → "back")
+    // a keyed line still in the log: its text changes (the link episode's "waiting" → "back"), and
+    // it moves to the end — it reports what just happened, below anything said meanwhile (ONL3)
     const kept = line.key ? this.keyed.get(line.key) : undefined;
     if (kept && kept.el.isConnected) {
       kept.text.textContent = line.text;
-      const rec = this.lines.find((l) => l.el === kept.el);
-      if (rec) rec.at = now;
+      const i = this.lines.findIndex((l) => l.el === kept.el);
+      if (i >= 0) this.lines.splice(i, 1);
+      this.lines.push({ el: kept.el, at: now });
+      this.log.appendChild(kept.el);
       kept.el.classList.remove('old');
+      this.log.scrollTop = this.log.scrollHeight;
       return;
     }
     // de-duplicate the same message arriving from both the session and the event stream

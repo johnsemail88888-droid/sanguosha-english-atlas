@@ -1142,6 +1142,8 @@ test('MP2-1 / MP2-2 guest link: the chip counts a silent host, offers 重试 / �
     await page.evaluate(() => {
       const s = (window as unknown as LinkMock).__ui.deps.lastSession;
       s.status('连接中断，正在重新连接…', 'Connection lost — reconnecting…');
+      // (a host notice meanwhile: its own chat line, below the episode's line for now)
+      s.status('关羽 断开连接，由人机接管', 'Guan Yu disconnected — a bot takes over');
       s.status('暂时联系不上房主，正在重试…', 'Connection lost — cannot reach the host, retrying…', { key: 'hostUnreachable' });
     });
     await expect(chip.locator('.lk-text')).toHaveText('⚠ 暂时联系不上房主，正在重试…');
@@ -1156,6 +1158,11 @@ test('MP2-1 / MP2-2 guest link: the chip counts a silent host, offers 重试 / �
     await page.evaluate(() => (window as unknown as LinkMock).__ui.deps.lastSession.status('已重新连接', 'Reconnected', { key: 'hostUnreachable', clear: true }));
     await expect(chip).toHaveAttribute('data-tone', 'ok');
     await expect(chip.locator('.lk-btn')).toHaveCount(0);
+    // ONL3: the episode's one line now says it is over — and sits last (it is the newest news)
+    const lines = page.locator('.hud-chat .line');
+    await expect(lines.last()).toContainText(/已重新连接（中断 \d+ 秒）/);
+    await expect(lines.filter({ hasText: '关羽 断开连接' })).toHaveCount(1);
+    await expect(lines.filter({ hasText: /重新连接|联系不上/ })).toHaveCount(1);
     expect(errors).toEqual([]);
     await ctx.close();
   }
