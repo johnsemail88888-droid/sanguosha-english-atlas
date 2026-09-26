@@ -16,7 +16,11 @@ export type NetErrorCode =
   | 'connectionLost'
   | 'simFailed'
   | 'unsupported'
-  | 'closed';
+  | 'closed'
+  /** this seat was taken over by the same player's newer connection (a duplicated tab): no auto-rejoin (MP2-4) */
+  | 'replacedElsewhere'
+  /** the host lost the relay server and could not get its room back (MP2-8) */
+  | 'relayLost';
 
 const MESSAGES: Record<NetErrorCode, { zh: string; en: string }> = {
   roomNotFound: { zh: '房间不存在', en: 'Room not found' },
@@ -32,7 +36,10 @@ const MESSAGES: Record<NetErrorCode, { zh: string; en: string }> = {
   },
   invalidCode: { zh: '房间号无效', en: 'Invalid room code' },
   roomFull: { zh: '房间已满', en: 'The room is full' },
-  versionMismatch: { zh: '游戏版本不一致，请刷新页面', en: 'Game version mismatch — please refresh' },
+  versionMismatch: {
+    zh: '你与房主的游戏版本不同，请双方刷新到最新版本',
+    en: "Your game version differs from the host's — both of you should refresh to the latest version",
+  },
   inProgress: { zh: '对局进行中，无法加入', en: 'A match is in progress' },
   kicked: { zh: '你已被房主移出房间', en: 'You were removed by the host' },
   hostLeft: { zh: '房主已离开，房间已关闭', en: 'The host left — the room is closed' },
@@ -40,6 +47,8 @@ const MESSAGES: Record<NetErrorCode, { zh: string; en: string }> = {
   simFailed: { zh: '对局创建失败', en: 'Failed to start the match' },
   unsupported: { zh: '当前浏览器不支持联机', en: 'This browser does not support online play' },
   closed: { zh: '连接已关闭', en: 'Connection closed' },
+  replacedElsewhere: { zh: '你已在其他窗口进入该房间', en: 'You entered this room from another window' },
+  relayLost: { zh: '与中转服务器的连接已断开', en: 'Lost the connection to the relay server' },
 };
 
 export class NetError extends Error {

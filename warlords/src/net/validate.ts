@@ -122,6 +122,15 @@ export function sanitizeInputPacket(p: InputPacket): InputPacket {
 }
 
 /**
+ * The player is at the controls: moving, holding a button or pressing something — not
+ * just a view that renders frames (a neutral frame, or only looking around). Ends the
+ * spawn shield (hostSession, MP2-1).
+ */
+export function isActiveInput(f: InputFrame): boolean {
+  return f.moveX !== 0 || f.moveZ !== 0 || f.buttons !== 0 || f.actions.length > 0;
+}
+
+/**
  * "Hands off the controls": no movement, no held buttons, no actions — but the
  * same view direction, so the hero does not snap around. seq 0 marks an
  * unsequenced frame (SimHost accepts it without disturbing input ordering).

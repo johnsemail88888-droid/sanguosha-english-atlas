@@ -8,6 +8,9 @@ export type Channel = 'reliable' | 'unreliable';
 export type Payload = string | Uint8Array;
 
 export type MessageHandler = (from: PeerId, data: Payload, channel: Channel) => void;
+/** State of a transport's own link (the relay socket): 'reconnecting' while it is being re-established. */
+export type LinkState = 'ok' | 'reconnecting';
+export type LinkStateHandler = (state: LinkState) => void;
 export type PeerHandler = (peer: PeerId) => void;
 export type CloseHandler = (err: NetError | null) => void;
 
@@ -31,6 +34,18 @@ export interface Transport {
   disconnect(peer: PeerId): void;
   /** Close everything. Idempotent. Does not fire onClose. */
   close(): void;
+  /**
+   * Optional (client): true while this link itself reports the host's departure — a
+   * relay socket whose relay answers: the relay says 'hostLeft' when the host really
+   * goes, so the host's silence alone (a frozen page) is no reason to give up (MP2-1).
+   */
+  hostPresenceWatched?(): boolean;
+  /**
+   * Optional (host): the transport re-establishes its own link by itself (the relay
+   * keeps the room meanwhile, MP2-8); peers can neither hear nor reach the host while
+   * it is 'reconnecting'. onClose fires only if that fails for good.
+   */
+  onLinkState?(cb: LinkStateHandler): () => void;
 }
 
 /** Listener bookkeeping shared by the concrete transports. */

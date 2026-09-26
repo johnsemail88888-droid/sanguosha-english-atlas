@@ -30,7 +30,9 @@ export type SessionEventMap = {
   /**
    * Connection status line (lobby status, HUD system line). `key` groups
    * lines that replace each other; `clear: true` ends that condition (e.g.
-   * key 'waitingHost': "Waiting for host…" → "Host is responding again").
+   * key 'waitingHost': "Waiting for host…" → "Host is responding again";
+   * key 'hostUnreachable': the auto-rejoin cannot find the host, still retrying →
+   * "Reconnected"; key 'relayLink' on the host: its relay socket is being re-established).
    */
   status: { zh: string; en: string; key?: string; clear?: boolean };
 };
@@ -99,4 +101,24 @@ export interface GameSession {
   setLocalLoading?(ready: Promise<void>): void;
   /** Guests: true while the host has been silent for a few seconds (see status key 'waitingHost'). */
   readonly waitingForHost?: boolean;
+  /**
+   * Guests: how long the host has been silent, in ms this page was responsive (0 while it
+   * talks). For a "等待房主响应… 12 s" counter next to the waitingHost chip (MP2-1). On the
+   * WebSocket relay a silent host is waited for as long as the relay says it is there.
+   */
+  readonly hostSilentMs?: number;
+  /**
+   * Guests: the automatic rejoin cannot reach the host (P2P: its peer id is gone from the
+   * signalling server — a frozen host; relay: the room is not found) and keeps trying for a
+   * while (status key 'hostUnreachable'): offer 重试 (retryNow) / 离开 (leave) (MP2-2).
+   */
+  readonly hostUnreachable?: boolean;
+  /** Guests: during the automatic rejoin, try again right now (and keep trying for the full window again). */
+  retryNow?(): void;
+  /**
+   * Guests: this match's view exists but the host's clock has not started yet (the host,
+   * or a slow guest, is still loading): the phase stays 'loading' until the first snapshot
+   * — the loading screen can say 等待房主加载… once the own view is ready (MP2-1).
+   */
+  readonly awaitingHostStart?: boolean;
 }

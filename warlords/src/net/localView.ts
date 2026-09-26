@@ -39,6 +39,8 @@ export class LocalView implements ViewSource {
     private readonly host: SimHost,
     private readonly playerId: PlayerId,
     private readonly alphaFn: () => number,
+    /** every input frame of the local player, before the sim gets it (the host session's spawn shield) */
+    private readonly onInput?: (frame: InputFrame) => void,
   ) {
     this.map = host.map;
     this.onStep();
@@ -162,6 +164,7 @@ export class LocalView implements ViewSource {
   pushInput(frame: InputFrame): void {
     if (this.disposed || this.suspended) return;
     this.lastInput = frame;
+    this.onInput?.(frame);
     this.host.setInput(this.playerId, frame);
   }
 }

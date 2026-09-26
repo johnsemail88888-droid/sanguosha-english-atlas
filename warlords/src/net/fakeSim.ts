@@ -9,6 +9,7 @@ import {
   BTN_ADS,
   SIM_DT,
   VF_DEAD,
+  VF_INVULN,
   VF_LORD,
   VF_REVEALED,
   emptyInput,
@@ -58,6 +59,7 @@ interface FakeHero {
   lastSeq: number;
   claim?: RoleId;
   dead: boolean;
+  kills: number;
   squad: EntityId[];
 }
 
@@ -84,6 +86,8 @@ export class FakeSim implements SimHost {
   /** every playerId passed to setInput (tests) */
   readonly inputLog: { playerId: PlayerId; seq: number; actions: InputAction[] }[] = [];
   readonly conversions: { kind: 'bot' | 'human'; playerId: PlayerId; seat?: number }[] = [];
+  /** timed statuses per hero (only their presence matters: 'invuln' shows as VF_INVULN): status → until (sim s) */
+  private readonly statuses = new Map<EntityId, Map<string, number>>();
 
   constructor(
     readonly init: MatchInit,
@@ -115,6 +119,7 @@ export class FakeSim implements SimHost {
         actions: [],
         lastSeq: 0,
         dead: false,
+        kills: 0,
         squad: [],
       });
     }
@@ -237,6 +242,7 @@ export class FakeSim implements SimHost {
       if (h.dead) flags |= VF_DEAD;
       if (h.role === 'lord' || h.role === 'double') flags |= VF_LORD;
       if (role !== undefined && h !== viewer) flags |= VF_REVEALED;
+      if (this.hasStatus(h.id, 'invuln')) flags |= VF_INVULN;
       const e: ViewEntity = {
         id: h.id,
         kind: 'hero',
@@ -290,7 +296,7 @@ export class FakeSim implements SimHost {
         kingdom: h.kingdom,
         alive: !h.dead,
         downed: false,
-        kills: 0,
+        kills: h.kills,
       };
       const role = this.visibleRole(h, viewer);
       if (role !== undefined) p.role = role;
@@ -355,6 +361,25 @@ export class FakeSim implements SimHost {
     return this.heroes.find((h) => h.playerId === playerId)?.id ?? null;
   }
 
+  /** Timed status on a hero (the subset of World.applyStatus the host session uses: spawn shield, god mode). */
+  applyStatus(id: EntityId, status: string, duration: number): boolean {
+    const h = this.heroes.find((x) => x.id === id);
+    if (!h || h.dead || !(duration > 0)) return false;
+    let m = this.statuses.get(id);
+    if (!m) this.statuses.set(id, (m = new Map()));
+    m.set(status, Math.max(m.get(status) ?? 0, this.time + duration));
+    return true;
+  }
+
+  removeStatus(id: EntityId, status: string): void {
+    this.statuses.get(id)?.delete(status);
+  }
+
+  hasStatus(id: EntityId, status: string): boolean {
+    const until = this.statuses.get(id)?.get(status);
+    return until !== undefined && until > this.time;
+  }
+
   convertToBot(playerId: PlayerId): void {
     const h = this.heroes.find((x) => x.playerId === playerId);
     if (!h) return;
@@ -382,6 +407,7 @@ export class FakeSim implements SimHost {
     if (!h || h.dead) return;
     h.dead = true;
     const killer = killerSeat === undefined ? undefined : this.heroes.find((x) => x.seat === killerSeat);
+    if (killer) killer.kills++;
     this.events.push({ t: 'death', target: h.id, killer: killer?.id, kind: 'hero', role: h.role, heroId: h.heroId, name: h.name });
     if (killer && !killer.dead && killer.role === 'bounty' && this.init.seats.find((x) => x.seat === killer.seat)?.bountyTargetSeat === seat) {
       this.events.push({ t: 'reward', who: killer.id, kind: 'bounty', items: ['tao'] });

@@ -58,13 +58,24 @@ export type ClientMsg =
   | { t: 'loaded' }
   | { t: 'ping'; id: number; ts: number }
   | { t: 'pong'; id: number; ts: number }
+  /**
+   * Delta baseline acknowledgement without an input frame (unreliable channel): sent
+   * from the receive path when no input packet carried the ack for a while — a guest
+   * rendering at < 1 fps still gets deltas, not full snapshots (MP2-6). Additive.
+   */
+  | { t: 'ack'; tick: number }
   | { t: 'leave' };
 
 // ── host → client ───────────────────────────────────────────────────────────
 export type HostMsg =
   /** `token` is private to this player: presenting it in a later hello reclaims the seat */
   | { t: 'welcome'; v: number; playerId: PlayerId; seat: number; phase: MatchPhase; lobby: LobbyState; token?: string }
-  /** join refused (version, full, in progress…); the connection is closed afterwards */
+  /**
+   * join refused (version, full, in progress…); the connection is closed afterwards.
+   * Also sent to a welcomed connection whose seat was just reclaimed by the same
+   * player's newer one (code 'replacedElsewhere', a duplicated tab): final, the
+   * replaced connection must not rejoin by itself (MP2-4).
+   */
   | { t: 'reject'; code: string; zh: string; en: string }
   | { t: 'lobby'; lobby: LobbyState }
   | { t: 'settings'; settings: MatchSettings }
@@ -125,6 +136,7 @@ const CLIENT_TYPES: ReadonlySet<string> = new Set<ClientMsgType>([
   'loaded',
   'ping',
   'pong',
+  'ack',
   'leave',
 ]);
 
