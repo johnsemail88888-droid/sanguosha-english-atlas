@@ -49,16 +49,28 @@ interface GuideLine {
   touch?: TouchKey;
   zh: string;
   en: string;
+  /** a shorter line for the touch card (it shares a phone screen with the controls) */
+  touchZh?: string;
+  touchEn?: string;
 }
 
 const LINES: readonly GuideLine[] = [
-  { keys: ['Tab'], touch: 'score', zh: '战况：谁活着、谁跳了什么身份', en: 'Scoreboard: who is alive, who claimed what' },
-  { keys: ['M'], touch: 'map', zh: '战场地图：烽火圈、下一圈、天降锦囊', en: 'Battle map: the zone, the next circle, airdrops' },
-  { keys: ['T'], touch: 'wheel', zh: '跳身份 / 快捷喊话轮盘', en: 'Claim a role / quick-chat wheel' },
-  { keys: ['Shift'], zh: '冲刺（触屏：摇杆推到底）', en: 'Sprint (touch: push the stick all the way)' },
-  { keys: ['Ctrl'], touch: 'dodge', zh: '闪避翻滚，短暂无敌（2 次充能）', en: 'Dodge roll with brief invulnerability (2 charges)' },
-  { keys: ['F'], touch: 'interact', zh: '拾取 / 开锦囊 / 按住救起濒死队友', en: 'Pick up / open chests / hold to revive a downed ally' },
+  { keys: ['Tab'], touch: 'score', zh: '战况：谁活着、谁跳了什么身份', en: 'Scoreboard: who is alive, who claimed what', touchEn: 'Scoreboard: who lives, who claimed what' },
+  { keys: ['M'], touch: 'map', zh: '战场地图：烽火圈、下一圈、天降锦囊', en: 'Battle map: the zone, the next circle, airdrops', touchZh: '地图：烽火圈、下一圈、天降锦囊', touchEn: 'Map: the zone, next circle, airdrops' },
+  { keys: ['T'], touch: 'wheel', zh: '跳身份 / 快捷喊话轮盘', en: 'Claim a role / quick-chat wheel', touchEn: 'Claim a role / quick chat' },
+  { keys: ['Shift'], zh: '冲刺（触屏：摇杆推到底）', en: 'Sprint (touch: push the stick all the way)', touchZh: '冲刺：摇杆推到底', touchEn: 'Sprint: push the stick all the way' },
+  { keys: ['Ctrl'], touch: 'dodge', zh: '闪避翻滚，短暂无敌（2 次充能）', en: 'Dodge roll with brief invulnerability (2 charges)', touchEn: 'Roll: brief invulnerability, 2 charges' },
+  { keys: ['F'], touch: 'interact', zh: '拾取 / 开锦囊 / 按住救起濒死队友', en: 'Pick up / open chests / hold to revive a downed ally', touchEn: 'Take / open chests / hold to revive' },
 ];
+
+/** The card's lines as shown (touch: the shorter wording where there is one). */
+export function guideLines(touch: boolean, lang: 'zh' | 'en'): { touch?: TouchKey; keys: string[]; text: string }[] {
+  return LINES.map((l) => ({
+    keys: l.keys,
+    touch: l.touch,
+    text: lang === 'en' ? (touch && l.touchEn) || l.en : (touch && l.touchZh) || l.zh,
+  }));
+}
 
 /**
  * The hint card. `onClose` runs once when it is dismissed (button, ✕ or timeout).
@@ -75,7 +87,7 @@ export function createGuideCard(touch: boolean, onClose: () => void): HTMLElemen
     onClose();
   };
   const en = getLang() === 'en';
-  const keysOf = (l: GuideLine): HTMLElement[] => {
+  const keysOf = (l: { keys: string[]; touch?: TouchKey }): HTMLElement[] => {
     if (!touch) return l.keys.map((k) => keyCap(k));
     return l.touch ? [h('span', { class: 'tb-cap' }, touchLabel(l.touch, en ? 'en' : 'zh'))] : [];
   };
@@ -98,15 +110,17 @@ export function createGuideCard(touch: boolean, onClose: () => void): HTMLElemen
     x,
     h('h3', { class: 'sg-h3' }, t('guide.title')),
     h('ul', { class: 'gd-list' },
-      LINES.map((l) =>
-        h('li', null, h('span', { class: 'keys' }, keysOf(l)), h('span', null, tx(l.zh, l.en))),
+      guideLines(touch, en ? 'en' : 'zh').map((l) =>
+        h('li', null, h('span', { class: 'keys' }, keysOf(l)), h('span', null, l.text)),
       ),
     ),
     h('p', { class: 'gd-claim' },
       h('b', null, tx('自称忠臣？', 'Claiming “Loyalist”?')), ' ',
       tx(
         '跳身份就是公开声明自己的身份，比如「我是忠臣」。声明可以是谎言——反贼和内奸也会假装忠臣，所以要看他打谁、救谁。',
-        'A claim publicly states your role, e.g. “I am a Loyalist”. Claims can be lies — Rebels and the Traitor pose as Loyalists too, so watch whom they shoot and whom they save.',
+        touch
+          ? 'A claim says your role out loud (“I am a Loyalist”). It can be a lie — Rebels and the Traitor pose as Loyalists too: watch whom they shoot and save.'
+          : 'A claim publicly states your role, e.g. “I am a Loyalist”. Claims can be lies — Rebels and the Traitor pose as Loyalists too, so watch whom they shoot and whom they save.',
       ),
     ),
     h('div', { class: 'gd-actions' }, never, dismiss),
@@ -116,4 +130,28 @@ export function createGuideCard(touch: boolean, onClose: () => void): HTMLElemen
   card.addEventListener('pointerdown', (ev) => ev.stopPropagation());
   (card as HTMLElement & { closeGuide?: (never: boolean) => void }).closeGuide = close;
   return card;
+}
+
+/**
+ * Touch layouts tried in turn until the whole card shows (PLATFORM-10): a tighter type, then wider
+ * (over the crosshair), then a little into the stick zone (never over the stick's resting place).
+ */
+export const GUIDE_FIT_STEPS = ['fit-tight', 'fit-wide', 'fit-lean'] as const;
+
+/**
+ * Touch: the card cannot be scrolled (touches pass through it to the look zone), so it
+ * steps through GUIDE_FIT_STEPS until nothing is clipped — the long English lines or a
+ * narrow phone get the tighter / wider layouts, 844×390 in Chinese keeps the default one
+ * right of the crosshair. Returns the steps applied.
+ */
+export function fitGuideCard(card: HTMLElement): string[] {
+  for (const c of GUIDE_FIT_STEPS) card.classList.remove(c);
+  const applied: string[] = [];
+  for (const c of GUIDE_FIT_STEPS) {
+    // reading scrollHeight lays the card out: one short burst when it appears (or the screen turns)
+    if (card.scrollHeight <= card.clientHeight + 1) break;
+    card.classList.add(c);
+    applied.push(c);
+  }
+  return applied;
 }

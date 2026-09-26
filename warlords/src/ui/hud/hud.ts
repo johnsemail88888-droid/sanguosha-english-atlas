@@ -19,7 +19,7 @@ import { CONTROLS } from '../screens/help';
 import { AbilityBar, SquadPanel, TopBar, VitalsPanel, WeaponPanel } from './panels';
 import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, DuelBar, InteractPromptView, KillStamp, Scope, SpectateBar, ZoneWarning } from './combat';
 import { Announcer, ChatBox, KillFeed, PickupStrip, type FeedParty } from './feed';
-import { createGuideCard, guideCount, shouldShowGuide } from './guide';
+import { createGuideCard, fitGuideCard, guideCount, shouldShowGuide } from './guide';
 import { drawMinimap, type MarkerInput } from './minimap';
 import { BigMap, PauseMenu, Scoreboard, Wheel, cardRow, type WheelChoice } from './overlays';
 import { UiKeyDeduper, cycleSpectate, deniedText, entityLabel } from './logic';
@@ -88,6 +88,8 @@ export class Hud {
   private cardInfoTimer: ReturnType<typeof setTimeout> | null = null;
   private guide: HTMLElement | null = null;
   private guideTimer: ReturnType<typeof setTimeout> | null = null;
+  /** the touch guide has been fitted to the current screen (fitGuideCard) */
+  private guideFitted = true;
   private touch: TouchControls | null = null;
   /** portrait phone: the rotate-to-landscape cover is up */
   private rotating = false;
@@ -421,7 +423,7 @@ export class Hud {
     this.crosshair.update(f, scoped);
     this.dmg.update(now);
     this.dmgDir.update(f);
-    this.interact.update(f);
+    const prompt = this.interact.update(f);
     this.channel.update(f);
     this.downed.update(f);
     this.spectate.update(f);
@@ -432,6 +434,12 @@ export class Hud {
     this.pickups.update(now);
     this.chat.update(now);
     this.touch?.update(f.me);
+    this.touch?.setInteract?.(prompt?.kind ?? null);
+    // the guide card can only be measured once the HUD is on screen (it is built during loading)
+    if (this.guide && !this.guideFitted && this.guide.clientHeight > 0) {
+      this.guideFitted = true;
+      if (this.isTouch()) fitGuideCard(this.guide);
+    }
     setClass(this.el, 'no-hero', !f.me);
     setClass(this.el, 'dead', !!f.me?.dead);
     setClass(this.el, 'downed', !!f.me?.downed);
@@ -1009,13 +1017,21 @@ export class Hud {
   }
 
   private showGuide(): void {
+    // touch: the card is fitted (it cannot scroll) once the HUD shows — frame() — and again when the screen changes size
+    const refit = (): void => {
+      this.guideFitted = false;
+    };
     const card = createGuideCard(this.isTouch(), () => {
       if (this.guide === card) this.guide = null;
       if (this.guideTimer !== null) clearTimeout(this.guideTimer);
       this.guideTimer = null;
+      window.removeEventListener('resize', refit);
     });
     this.guide = card;
+    this.guideFitted = false;
     this.el.appendChild(card);
+    window.addEventListener('resize', refit);
+    void globalThis.document?.fonts?.ready.then(refit);
     // it never has to be dismissed: it fades out on its own after a while in play
     this.guideTimer = setTimeout(() => this.closeGuide(), 45_000);
   }

@@ -256,7 +256,8 @@ export class Scope {
 export function interactText(p: InteractPrompt, lang: 'zh' | 'en', touch = false): { key: string; text: string; sub: string } {
   switch (p.kind) {
     case 'revive':
-      return { key: '', text: t('hud.interact.revive', { name: `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}` }), sub: p.needPeach ? t('hud.interact.needPeach') : '' };
+      // touch: no F key — the prompt names the button (which reads 救援 while a revive is in reach)
+      return { key: '', text: t(touch ? 'hud.interact.reviveTouch' : 'hud.interact.revive', { name: `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}` }), sub: p.needPeach ? t('hud.interact.needPeach') : '' };
     case 'airdrop':
       return { key: 'F', text: t('hud.interact.airdrop'), sub: '' };
     case 'crate': {

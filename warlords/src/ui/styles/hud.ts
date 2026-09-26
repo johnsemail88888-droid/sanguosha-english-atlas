@@ -347,6 +347,11 @@ export const HUD_CSS = /* css */ `
 .hud-chat.open .input-row { display: flex; }
 .hud-chat.open .log { overflow-y: auto; max-height: ${u(280)}; background: rgba(0, 0, 0, 0.35); padding: ${u(4)}; border-radius: ${u(4)}; }
 .hud-chat.open .line.old { opacity: 1; }
+/* open: the oldest lines can be scrolled back to (a flex-end column cannot scroll to what overflows its top);
+   the input is opaque — the scene no longer shows through the placeholder (PLATFORM-9) */
+.hud-chat.open .log { justify-content: flex-start; }
+.hud-chat.open .log > :first-child { margin-top: auto; }
+.hud-chat .input-row .sg-input { background: rgba(16, 10, 6, 0.94); }
 
 /* ── overlays ──────────────────────────────────────────── */
 .hud-overlay-slot { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 1em; z-index: 20; font-size: clamp(13px, calc(0.45vw + 0.45vh + 5px), 17px); text-shadow: none; pointer-events: none; }
@@ -488,17 +493,43 @@ export const HUD_CSS = /* css */ `
 .hud-guide .tb-cap { display: inline-grid; place-items: center; min-width: 1.9em; height: 1.9em; padding: 0 0.3em; border-radius: 1em; background: #2a1a10; color: #f5dc98; font-weight: 800; font-size: 0.85em; }
 .hud-guide .gd-claim { margin: 0.6em 0 0.3em; font-size: 0.86em; line-height: 1.4; }
 .hud-guide .gd-actions { display: flex; justify-content: flex-end; gap: 0.5em; }
-.sg-hud.touch .hud-guide { top: calc(${u(16)} + 96px); transform: none; max-height: calc(100% - ${u(16)} - 104px); right: auto; left: ${u(16)}; width: min(19em, 36vw); padding: 0.55em 0.8em 0.5em; font-size: 11px; opacity: 0.94; }
+/* touch (PLATFORM-10): top-centre / right. Never over the stick (it follows the thumb anywhere in the left 42 %),
+   随 / 标 or the right-hand buttons: right of the crosshair when there is room, under the weapon panel (over the
+   kill feed, which is short at the start of a match), down to just above the skill buttons. */
+/* --gl: the card's left edge (the prompts below step left of it) */
+.sg-hud.touch { --gl: max(42%, min(calc(50% + 30px), calc(100% - ${u(250)} - 190px))); }
+.sg-hud.touch .hud-guide { top: calc(${u(16)} + 58px); transform: none; max-height: calc(100% - ${u(16)} - 58px - var(--tb) * 2.6 - 10px); left: var(--gl); right: ${u(250)}; width: auto; padding: 0.5em 0.75em 0.45em; font-size: 11px; opacity: 0.95; }
+/* a Lord's G button stands above E, under the card's right end: the card stops left of its column */
+.sg-hud.touch:has(.sg-touch .ab-lord:not(.sg-hidden)) .hud-guide { right: calc(var(--tb) * 3.7 + 8px); }
+/* the F prompt and the zone warning (centred under the card's left part) step left of it meanwhile */
+/* (not a tap target meanwhile: it may reach into the stick zone — the lit 救援 / 拾取 button does the same) */
+.sg-hud.touch:has(> .hud-guide) :is(.hud-interact, .hud-zonewarn) { left: calc(var(--gl) - 8px); transform: translateX(-100%); pointer-events: none; }
 .sg-hud.touch .hud-guide .gd-list { gap: 0.1em; }
 .sg-hud.touch .hud-guide .gd-list li { font-size: 1em; }
 .sg-hud.touch .hud-guide .keys { min-width: 2.4em; }
+.sg-hud.touch .hud-guide .tb-cap { height: 1.7em; }
 .sg-hud.touch .hud-guide .gd-claim { margin: 0.35em 0 0.25em; font-size: 0.95em; line-height: 1.3; }
+/* fitGuideCard(): still clipped → tighter type (10 px floor), then wider — from the stick zone's edge, over the crosshair */
+.sg-hud.touch .hud-guide.fit-tight { font-size: 10px; padding: 0.4em 0.65em 0.35em; }
+.sg-hud.touch .hud-guide.fit-tight .gd-list { gap: 0; }
+.sg-hud.touch .hud-guide.fit-tight .gd-list li { line-height: 1.22; }
+.sg-hud.touch .hud-guide.fit-tight .gd-claim { margin: 0.25em 0 0.1em; font-size: 1em; line-height: 1.25; }
+.sg-hud.touch .hud-guide.fit-tight .sg-btn { font-size: 10px; padding: 0.2em 0.55em; letter-spacing: 0; }
+.sg-hud.touch .hud-guide.fit-tight h3 { font-size: 1.15em; }
+.sg-hud.touch:has(> .hud-guide.fit-wide) { --gl: 42%; }
+.sg-hud.touch .hud-guide.fit-wide { max-height: calc(100% - ${u(16)} - 58px - var(--tb) * 2.6 - 4px); }
+.sg-hud.touch .hud-guide.fit-wide .tb-cap { height: 1.45em; }
+.sg-hud.touch .hud-guide.fit-wide .gd-list li { line-height: 1.16; }
+/* last resort (640×360 in English): a little into the stick zone — the stick's resting place stays clear */
+.sg-hud.touch:has(> .hud-guide.fit-lean) { --gl: 36%; }
 .sg-hud.touch .hud-guide .sg-btn { font-size: 11px; padding: 0.2em 0.7em; min-height: 0; }
 /* touch: the card cannot be scrolled (touches pass through it) — its buttons come first */
 /* low specificity on purpose: the "covered by a menu / panel" rules above still hide it */
-:where(.sg-hud.touch) .hud-guide { display: flex; flex-direction: column; }
-.sg-hud.touch .hud-guide h3 { order: -2; }
-.sg-hud.touch .hud-guide .gd-actions { order: -1; justify-content: flex-start; margin: 0 0 0.35em; }
+:where(.sg-hud.touch) .hud-guide { display: flex; flex-wrap: wrap; align-items: center; align-content: flex-start; column-gap: 0.6em; }
+.sg-hud.touch .hud-guide :is(.gd-list, .gd-claim) { flex: 1 0 100%; min-width: 0; }
+/* the title and the two buttons share the first line when it is wide enough (room kept for ✕) */
+.sg-hud.touch .hud-guide h3 { order: -2; margin: 0 0 0.3em; }
+.sg-hud.touch .hud-guide .gd-actions { order: -1; justify-content: flex-start; margin: 0 2em 0.3em 0; }
 .sg-rotate { position: absolute; inset: 0; z-index: 60; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 1.2em; padding: 2em; text-align: center; background: #0e0906; color: var(--gold-hi); font-family: var(--font-display); font-size: 1.2em; pointer-events: auto; }
 .sg-rotate .phone { width: 56px; height: 96px; border: 3px solid var(--gold); border-radius: 10px; position: relative; animation: sg-rot 2.4s ease-in-out infinite; }
 .sg-rotate .phone::after { content: ''; position: absolute; left: 50%; bottom: 6px; width: 10px; height: 10px; border-radius: 50%; transform: translateX(-50%); border: 2px solid var(--gold); }
@@ -542,21 +573,33 @@ export const HUD_CSS = /* css */ `
 /* ── touch mode layout tweaks ──────────────────────────── */
 .sg-hud.touch .hud-abilities, .sg-hud.touch .hud-squad, .sg-hud.touch .w-slots, .sg-hud.touch .v-name, .sg-hud.touch .v-portrait { display: none; }
 .sg-hud.touch { --tb: clamp(44px, 12vmin, 62px); }
-.sg-hud.touch .hud-left { left: 50%; transform: translateX(-50%); bottom: calc(var(--tb) * 0.95 + 16px); }
+/* centred — unless the right-hand buttons reach it (667×375: 互动 sat on the vitals): then just left of them */
+.sg-hud.touch .hud-left { left: min(50%, calc(100% - var(--tb) * 5.7 - 8px - min(${u(210)}, 19vw))); transform: translateX(-50%); bottom: calc(var(--tb) * 0.95 + 16px); }
 .sg-hud.touch .hud-vitals { width: min(${u(420)}, 38vw); }
 .sg-hud.touch .v-main { padding: ${u(6)} ${u(10)}; }
 .sg-hud.touch .v-status { justify-content: center; min-height: 0; margin-bottom: ${u(4)}; }
 .sg-hud.touch .hud-weapon { bottom: auto; top: ${u(16)}; right: ${u(250)}; }
 .sg-hud.touch .w-main { min-width: 0; padding: ${u(4)} ${u(12)}; }
-/* long (English) weapon names never push the panel into the zone banner */
-.sg-hud.touch .w-name { display: inline-block; max-width: 22vw; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+/* the panel stays right of the zone banner (≤ 88 px either side of the centre): a long (English) name is cut
+   short, and below 820 px the weapon render goes (the name and the ammo are what count) */
+.sg-hud.touch { --wmax: calc(50vw - ${u(250)} - 88px); }
+.sg-hud.touch .w-name { display: inline-block; max-width: min(22vw, calc(var(--wmax) - ${u(30)})); overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.sg-hud.touch .w-main:has(> .w-art) .w-name { max-width: min(22vw, calc(var(--wmax) - ${u(136)})); }
+@media (max-width: 820px) {
+  .sg-hud.touch .w-main > .w-art { display: none; }
+  .sg-hud.touch .hud-weapon .w-main:has(> .w-art) { padding-left: ${u(12)}; }
+  .sg-hud.touch .w-main:has(> .w-art) .w-name { max-width: min(22vw, calc(var(--wmax) - ${u(30)})); }
+}
 .sg-hud.touch .w-card { display: none; }
 .sg-hud.touch .w-ammo .mag { font-size: ${fs(30, 20)}; }
 .sg-hud.touch .hud-feed { top: calc(${u(16)} + 58px); right: ${u(250)}; max-width: 34vw; }
 .sg-hud.touch .hud-feed .kf:nth-last-child(n + 4) { display: none; }
 .sg-hud.touch .hud-touchbar { left: ${u(16)}; top: calc(${u(16)} + 40px); transform: none; margin-top: 0; }
-.sg-hud.touch .hud-chat { bottom: auto; top: calc(${u(16)} + 92px); width: 30vw; }
-.sg-hud.touch .hud-chat .log { max-height: 72px; }
+.sg-hud.touch .hud-chat { bottom: auto; top: calc(${u(16)} + 92px); width: max(30vw, 260px); }
+/* never down to 随 / 标 (640×360: the third line sat on 随); a line cut by the top edge fades out there
+   instead of reading as tucked under 令聊图战 (PLATFORM-9): the fade is a 14 px top padding, so only a line
+   that overflows into it (or scrolls under it) fades, never a short log's first line */
+.sg-hud.touch .hud-chat .log { max-height: calc(14px + min(72px, calc(100dvh - ${u(16)} - 100px - var(--tb) * 4.45))); margin-top: -14px; padding-top: 14px; -webkit-mask-image: linear-gradient(180deg, transparent, #000 14px); mask-image: linear-gradient(180deg, transparent, #000 14px); }
 .sg-hud.touch .hud-announce { top: 33%; }
 .sg-hud.touch .role-chip .goal { display: none; }
 .sg-hud.touch .hud-interact { top: calc(50% + ${u(56)}); }
@@ -581,7 +624,11 @@ export const HUD_CSS = /* css */ `
 .sg-touch .fire.word .l { font-size: calc(var(--b) * 0.3); }
 .sg-touch .tbtn.ab .l { font-size: calc(var(--b) * 0.27); letter-spacing: -0.04em; white-space: nowrap; }
 .sg-touch .tbtn.ab.word .l { font-size: calc(var(--b) * 0.18); }
-.sg-touch .tbtn .k { position: absolute; top: 5%; left: 50%; transform: translateX(-50%); z-index: 1; font-family: var(--font-body); font-size: calc(var(--b) * 0.16); font-weight: 800; opacity: 0.8; line-height: 1; }
+/* two-glyph labels (装弹 / 切枪 / 互动 · 拾取 …, PLATFORM-5): smaller glyphs, still ≥ 11 px on a phone */
+.sg-touch .tbtn.two .l { font-size: max(12px, calc(var(--b) * 0.3)); letter-spacing: -0.04em; white-space: nowrap; }
+.sg-touch :is(.reload, .swap).two .l { font-size: max(11px, calc(var(--b) * 0.26)); }
+/* the key letter on the skill buttons: ≥ 10 px (it was ~7 px on a phone, PLATFORM-6) */
+.sg-touch .tbtn .k { position: absolute; top: 5%; left: 50%; transform: translateX(-50%); z-index: 1; font-family: var(--font-body); font-size: max(10px, calc(var(--b) * 0.19)); font-weight: 800; opacity: 0.85; line-height: 1; }
 .sg-touch .tbtn .cs { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; font-family: var(--font-body); font-size: calc(var(--b) * 0.34); font-weight: 900; color: #fff; text-shadow: 0 1px 3px #000; }
 .sg-touch .tbtn .cs:empty { display: none; }
 .sg-touch .tbtn.cooling .l { opacity: 0.35; }
@@ -598,14 +645,16 @@ export const HUD_CSS = /* css */ `
 .sg-touch .ab-e { right: calc(var(--b) * 3.5); bottom: calc(var(--b) * 1.6); }
 .sg-touch .ab-lord { right: calc(var(--b) * 2.7); bottom: calc(var(--b) * 2.55); border-color: #f2c14e; }
 .sg-touch .interact { right: calc(var(--b) * 4.7); bottom: calc(var(--b) * 1.0); background: rgba(46, 90, 60, 0.6); }
-.sg-touch .swap { right: calc(var(--b) * 0.45); bottom: calc(var(--b) * 3.45); width: calc(var(--b) * 0.8); height: calc(var(--b) * 0.8); }
+/* something in reach (its label says what: 拾取 / 打开 / 救援): the button lights up */
+.sg-touch .interact.ready { background: rgba(46, 125, 72, 0.85); border-color: #c8f0cf; box-shadow: 0 0 10px rgba(140, 230, 160, 0.45); }
+.sg-touch .swap { right: calc(var(--b) * 0.45); bottom: calc(var(--b) * 3.45); width: calc(var(--b) * 0.85); height: calc(var(--b) * 0.85); }
 .sg-touch .order { left: calc(var(--b) * 0.35); bottom: calc(var(--b) * 3.6); width: calc(var(--b) * 0.85); height: calc(var(--b) * 0.85); background: rgba(46, 139, 87, 0.45); }
 .sg-touch .mark { left: calc(var(--b) * 1.4); bottom: calc(var(--b) * 3.6); width: calc(var(--b) * 0.85); height: calc(var(--b) * 0.85); }
 .sg-touch .item-bar { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); display: flex; gap: 8px; }
 .sg-touch .item { position: relative; width: calc(var(--b) * 0.75); height: calc(var(--b) * 0.95); border-radius: 5px; background: linear-gradient(#fbf3de, #e2cf9f); border: 1.5px solid color-mix(in srgb, var(--ic, #999) 70%, #000 20%); color: var(--ic); font-size: calc(var(--b) * 0.4); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
 .sg-touch .item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; padding: 0 1px; }
 .sg-touch .item .g { font-family: var(--font-display); font-weight: 900; line-height: 1; color: var(--ig, var(--ic)); }
-.sg-touch .item .n { max-width: 100%; font-size: 8px; letter-spacing: -0.03em; font-weight: 700; line-height: 1.1; color: var(--in, #2b1d12); text-shadow: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sg-touch .item .n { max-width: 100%; font-size: 10px; letter-spacing: -0.03em; font-weight: 700; line-height: 1.1; color: var(--in, #2b1d12); text-shadow: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sg-touch .item:not(.art-on) .n.dup { display: none; }
 .sg-touch .item .c { position: absolute; right: 1px; bottom: 0; font-size: 11px; color: #b3261e; font-family: var(--font-body); }
 .sg-touch .item .k { position: absolute; left: 2px; top: 0; transform: none; font-size: 9px; color: #6d5639; font-family: var(--font-body); text-shadow: none; opacity: 1; }

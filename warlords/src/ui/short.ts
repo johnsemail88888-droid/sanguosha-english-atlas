@@ -173,15 +173,20 @@ export function itemLabel(id: string, lang: Lang): { text: string; dup: boolean 
 
 export type TouchKey = 'fire' | 'ads' | 'jump' | 'dodge' | 'reload' | 'swap' | 'interact' | 'mark' | 'wheel' | 'chat' | 'map' | 'score' | 'menu';
 
-/** Touch button labels: one glyph in Chinese, a short word in English. */
+/**
+ * Touch button labels: one glyph in Chinese where it cannot be misread, a short word in
+ * English. Reload / swap / interact read as two glyphs (PLATFORM-5): a lone 「换」 reads
+ * as 换弹 to shooter players (it switches to the pistol mid-fight), 「装」 alone is vague,
+ * and a phone has no F key.
+ */
 export const TOUCH_LABEL: Readonly<Record<TouchKey, readonly [string, string]>> = {
   fire: ['射', 'Fire'],
   ads: ['镜', 'Aim'],
   jump: ['跃', 'Jump'],
   dodge: ['闪', 'Roll'],
-  reload: ['装', 'Reload'],
-  swap: ['换', 'Swap'],
-  interact: ['F', 'F'],
+  reload: ['装弹', 'Reload'],
+  swap: ['切枪', 'Swap'],
+  interact: ['互动', 'Use'],
   mark: ['标', 'Mark'],
   wheel: ['令', 'Call'],
   chat: ['聊', 'Chat'],
@@ -193,4 +198,23 @@ export const TOUCH_LABEL: Readonly<Record<TouchKey, readonly [string, string]>> 
 export function touchLabel(key: TouchKey, lang: Lang): string {
   const l = TOUCH_LABEL[key];
   return lang === 'en' ? l[1] : l[0];
+}
+
+/** What the touch interact button does right now (the HUD's F prompt), null: nothing in reach. */
+export type InteractKind = 'revive' | 'airdrop' | 'crate' | 'pickup' | 'full' | 'selfRevive';
+
+const INTERACT_LABEL: Readonly<Record<InteractKind, readonly [string, string]>> = {
+  pickup: ['拾取', 'Take'],
+  full: ['替换', 'Swap'],
+  crate: ['打开', 'Open'],
+  airdrop: ['打开', 'Open'],
+  revive: ['救援', 'Revive'],
+  // downed: the button does nothing (the card slot drinks the Wine)
+  selfRevive: ['互动', 'Use'],
+};
+
+/** The touch interact button's label: what a tap does now (拾取 / 打开 / 救援 …), else 「互动」. */
+export function interactLabel(kind: InteractKind | null | undefined, lang: Lang): string {
+  const l = kind ? INTERACT_LABEL[kind] : null;
+  return l ? (lang === 'en' ? l[1] : l[0]) : touchLabel('interact', lang);
 }

@@ -106,8 +106,14 @@ export const CARD_ART_CSS = /* css */ `
 
 /* ── touch buttons ─────────────────────────────────────── */
 .sg-touch .tbtn.ab > .tb-art { position: absolute; inset: 0; width: 100%; height: 100%; }
-.sg-touch .tbtn.ab.art-on .l { visibility: hidden; }
-.sg-touch .tbtn.ab.art-on .k { opacity: 1; text-shadow: 0 0 3px #000, 0 1px 2px #000; }
+/* PLATFORM-6: a painted emblem alone is hard to tell apart at 47 px (张飞's two red swirls) — the skill's
+   short name stays on as a caption across the emblem's lower rim, the key letter on a dark pill at the top.
+   The button no longer clips (the emblem, sweep and pressed tint are round on their own) so a long English
+   caption may run past the rim sideways; never down into the next button (the gaps are ≥ 0.15 × --b). */
+.sg-touch .tbtn.ab.art-on { overflow: visible; }
+.sg-touch .tbtn.ab.art-on .l { position: absolute; left: 50%; bottom: -2px; transform: translateX(-50%); z-index: 3; max-width: calc(var(--b) * 1.45); padding: 0 0.4em; border-radius: 999px; background: rgba(14, 9, 5, 0.86); box-shadow: 0 0 0 1px rgba(245, 220, 152, 0.5); font-family: var(--font-body); font-size: max(10px, calc(var(--b) * 0.21)); font-weight: 800; line-height: 1.35; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: none; color: #f5dc98; }
+.sg-touch .tbtn.ab.art-on.cooling .l { opacity: 0.85; color: rgba(245, 220, 152, 0.75); }
+.sg-touch .tbtn.ab.art-on .k { top: -3px; z-index: 3; padding: 0 0.4em; border-radius: 999px; background: rgba(14, 9, 5, 0.8); line-height: 1.3; opacity: 1; text-shadow: none; }
 .sg-touch .tbtn.ab.cooling > .tb-art { filter: grayscale(0.8) brightness(0.72); }
 .sg-touch .tbtn.ab.down > .tb-art { filter: brightness(1.3); }
 .sg-touch .item.art-on { justify-content: flex-end; padding-bottom: 1px; }

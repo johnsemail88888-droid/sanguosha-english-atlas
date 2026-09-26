@@ -171,12 +171,13 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     appendChildren(seatsBox,
       h('div', { class: 'box-head' },
         h('h2', { class: 'sg-h2' }, tx('座次', 'Seats')),
-        h('span', { class: 'sg-mute' }, t('lobby.players', { n: seats.length, max: count }), ' · ', tx(`${humans} 名真人`, `${humans} human${humans === 1 ? '' : 's'}`)),
+        h('span', { class: 'sg-mute count' }, t('lobby.players', { n: seats.length, max: count }), ' · ', tx(`${humans} 名真人`, `${humans} human${humans === 1 ? '' : 's'}`)),
+        // ＋ 添加AI in the heading row: under the list it fell below the fold of a phone's seats panel (PLATFORM-9)
+        isHost
+          ? h('span', { class: 'seat-tools' }, button(`＋ ${t('lobby.addBot')}`, () => session.addBot(), { cls: 'small dark', disabled: seats.length >= count }))
+          : null,
       ),
       list,
-      isHost
-        ? h('div', { class: 'seat-tools' }, button(`＋ ${t('lobby.addBot')}`, () => session.addBot(), { cls: 'small dark', disabled: seats.length >= count }))
-        : null,
     );
   };
 

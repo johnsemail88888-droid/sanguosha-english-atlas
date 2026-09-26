@@ -9,7 +9,7 @@ import { getLang, t, tx, type I18nKey } from './i18n';
 import { ORDER_GLYPH, ORDER_SEQUENCE, glyphInk, inkOn } from './theme';
 import { abilityReady, cooldownFraction } from './hud/logic';
 import { flashDenied } from './hud/panels';
-import { abilityShort, itemLabel, touchLabel, type TouchKey } from './short';
+import { abilityShort, interactLabel, itemLabel, touchLabel, type InteractKind, type TouchKey } from './short';
 import { gearArt } from './cardArt';
 import { abilityArt, setArt } from './artIcons';
 
@@ -53,7 +53,15 @@ export interface TouchControls {
   relabel(): void;
   /** the sim refused this ability: a short red pulse on its button */
   denied?(abilityId: string): void;
+  /** what the interact button does now (the HUD's F prompt): its label reads 拾取 / 打开 / 救援 …, else 互动 */
+  setInteract?(kind: InteractKind | null): void;
   dispose(): void;
+}
+
+/** Label classes of a touch button: `word` (a Latin word, body font), `two` (two glyphs, smaller). */
+export function labelClass(text: string): { word: boolean; two: boolean } {
+  const latin = /^[\x20-\x7e]+$/.test(text);
+  return { word: text.length > 1 && latin, two: !latin && [...text].length === 2 };
 }
 
 export interface TouchOptions {
@@ -100,10 +108,16 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
   // ── buttons ────────────────────────────────────────────────────────────────
   /** static buttons re-labelled on a language change */
   const labelled: { el: HTMLElement; key: TouchKey }[] = [];
-  const labelFor = (el: HTMLElement, key: TouchKey): void => {
-    const text = touchLabel(key, getLang());
+  let interactKind: InteractKind | null = null;
+  const setLabel = (el: HTMLElement, text: string): void => {
     setText(el.firstElementChild as HTMLElement, text);
-    setClass(el, 'word', text.length > 1 && /^[\x20-\x7e]+$/.test(text));
+    const c = labelClass(text);
+    setClass(el, 'word', c.word);
+    setClass(el, 'two', c.two);
+  };
+  const labelFor = (el: HTMLElement, key: TouchKey): void => {
+    // the interact button reads what a tap does now (setInteract)
+    setLabel(el, key === 'interact' ? interactLabel(interactKind, getLang()) : touchLabel(key, getLang()));
   };
   const btn = (cls: string, label: string | TouchKey, onDown: (ev: PointerEvent) => void, onUp?: () => void, title?: string, key?: TouchKey): HTMLElement => {
     const b = h('div', { class: `tbtn ${cls}`, role: 'button', title }, h('span', { class: 'l' }, label));
@@ -430,6 +444,12 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
     },
     denied(abilityId) {
       for (const b of [abQ, abE, abG]) if (b.labelKey.startsWith(`${abilityId}|`)) flashDenied(b.el);
+    },
+    setInteract(kind) {
+      if (kind === interactKind) return;
+      interactKind = kind;
+      labelFor(interact, 'interact');
+      setClass(interact, 'ready', kind !== null && kind !== 'selfRevive');
     },
     relabel() {
       for (const l of labelled) labelFor(l.el, l.key);

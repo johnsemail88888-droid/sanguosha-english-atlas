@@ -190,7 +190,9 @@ export const SCREENS_CSS = /* css */ `
 .sg-chip.host { color: #9a6a14; }
 .sg-chip.bot { color: #6a6a6a; margin-left: 0.4em; font-size: 0.75em; }
 .sg-chip.lordc { color: #9a6a14; }
-.seat-tools { display: flex; justify-content: flex-end; margin-top: 0.7em; }
+.box-head .count { margin-left: auto; }
+.seat-tools { display: flex; justify-content: flex-end; }
+.box-head .seat-tools { align-self: center; }
 .settings-panel .sg-field { grid-template-columns: minmax(6em, 36%) 1fr; }
 .settings-panel .ro { font-weight: 700; }
 /* a guest only reads the settings: two per row, so 身份分配 fits a short screen (MP2-11) */
@@ -351,8 +353,9 @@ export const SCREENS_CSS = /* css */ `
   .sg-select .grid.n-small { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6em; }
   .sg-select .grid.n-mid { grid-template-columns: repeat(auto-fill, minmax(6em, 1fr)); gap: 0.6em; }
   .sg-select .detail { overflow: visible; }
-  .detail-body { overflow: visible; }
-  .detail-actions { position: sticky; bottom: -1em; background: linear-gradient(180deg, rgba(227, 207, 163, 0), #dcc594 30%); margin: 0 -1.2em -1em; padding: 0.8em 1.2em 1em; }
+  .detail-body { overflow: visible; padding-bottom: 0.5em; }
+  /* an opaque bar with an edge: the 专属武器 stats scroll under it instead of showing through a fade (PLATFORM-9) */
+  .detail-actions { position: sticky; bottom: -1em; z-index: 2; background: #dcc594; box-shadow: 0 -6px 10px -4px rgba(60, 40, 15, 0.35); margin: 0 -1.2em -1em; padding: 0.6em 1.2em 1em; }
   .sg-select .sg-hcard .vname { font-size: 1.1em; }
 }
 
@@ -365,7 +368,8 @@ export const SCREENS_CSS = /* css */ `
   .sg-ring { width: 2.9em; height: 2.9em; }
   .sg-ring .num { font-size: 1.1em; }
   .picks-strip { gap: 0.3em; padding: 0 0.1em 0.1em; }
-  .pick { width: 4.2em; font-size: 0.72em; flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 0 0.2em; }
+  /* the seats share the row (8 × ~100 px at 844): 「人机3」「AI·孙仲谋」 in full, not 「人…」 (PLATFORM-9) */
+  .pick { flex: 1 1 0; width: auto; min-width: 4.2em; max-width: 8.6em; font-size: 0.78em; flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 0 0.2em; }
   .pick .thumb { width: 1.7em; }
   .pick .who { max-width: calc(100% - 2em); }
   .pick .what { width: 100%; text-align: center; }
@@ -384,6 +388,26 @@ export const SCREENS_CSS = /* css */ `
 .sel-head .sel-back { position: static; flex: none; align-self: flex-start; }
 .sg-roles > .sg-back { position: absolute; }
 .roles-tip { width: min(40em, 94vw); margin-top: 0.2em; font-size: 0.9em; }
+/* landscape phones (844×390): the card on the left; your role, the lord line, every seat and the tip beside
+   it — nothing below the fold (the seat chips were cut, PLATFORM-9) */
+@media (max-height: 520px) and (min-aspect-ratio: 4/3) {
+  .sg-roles { display: grid; grid-template-columns: auto minmax(0, 36em); align-content: safe center; justify-content: center; column-gap: 1.6em; row-gap: 0.45em; padding: 0.5em 1.2em 0.6em; overflow-y: auto; }
+  .sg-roles > h1 { grid-column: 1 / -1; width: auto; font-size: 1.5em; }
+  .sg-roles .stage { display: contents; }
+  .sg-roles .card-col { grid-column: 1; grid-row: 2 / span 4; align-self: center; gap: 0.35em; }
+  .sg-roles .flip-card { width: min(10em, calc((100vh - 6em) * 0.66)); }
+  .sg-roles :is(.info, .announce, .seat-strip, .roles-tip) { grid-column: 2; }
+  .sg-roles .info { width: auto; padding: 0.55em 1.1em 0.6em; }
+  .sg-roles .info .rn { font-size: 1.3em; margin: 0 0 0.15em; }
+  .sg-roles .info .rn .sg-seal { --sz: 1.7em !important; }
+  .sg-roles .info h3 { margin-top: 0.25em; font-size: 0.95em; }
+  .sg-roles .info p { font-size: 0.9em; }
+  .sg-roles .announce { align-items: flex-start; text-align: left; }
+  .sg-roles .lordline { font-size: 1.05em; }
+  .sg-roles .seat-strip { justify-content: flex-start; gap: 0.3em; max-width: none; }
+  .sg-roles .seat-chip { font-size: 0.78em; padding: 0.12em 0.6em 0.12em 0.25em; }
+  .sg-roles .roles-tip { width: auto; margin-top: 0; font-size: 0.8em; }
+}
 
 /* ── hero detail ───────────────────────────────────────── */
 .sg-hero-detail { display: flex; flex-direction: column; gap: 0.75em; }
