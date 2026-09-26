@@ -596,7 +596,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **英姿**<br>Heroic Bearing<br><sub>三国杀：英姿</sub> | — | 换弹速度 +25%；技能冷却 -20%。<br>Reload 25% faster. Ability cooldowns -20%. |
-| Q | **反间**<br>Sow Discord<br><sub>三国杀：反间</sub> | 18 s | 魅惑准星处敌人 3 秒：它攻击 30 米内离它最近、它看得见的另一名武将（不会是你）；若无则缴械它 3 秒。<br>Charm the crosshair enemy for 3 s: it attacks the nearest other hero it can see within 30 m (never you). None: disarm it 3 s. |
+| Q | **反间**<br>Sow Discord<br><sub>三国杀：反间</sub> | 18 s | 魅惑准星处敌人 2.5 秒：它攻击 30 米内离它最近、它看得见的另一名武将（伤害 ×35%，不会是你）；若无则缴械它 3 秒。<br>Charm the crosshair enemy 2.5 s: it attacks the nearest other hero it sees in 30 m (never you) at ×35% damage. None: disarm 3 s. |
 | E | **火烧赤壁**<br>Red Cliffs Inferno<br><sub>三国杀：英姿</sub><br><sub>火焰伤害 · Fire damage</sub> | 24 s | 1.5 秒后沿前方 25 米直线投下 5 枚凝固汽油弹：110 火焰伤害，燃烧地面 6 秒（每秒 18）。<br>After 1.5 s, 5 napalm bombs hit a 25 m line ahead: 110 fire damage and burning ground for 6 s (18/s). |
 
 **台词 Quotes**

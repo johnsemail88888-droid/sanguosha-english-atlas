@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Entity, GameEvent, RoleId } from '../../../src/core/types';
 import { emptyInput } from '../../../src/core/types';
+import { HERO_BY_ID } from '../../../src/data';
 import { aimAnglesFor } from '../../../src/sim/aim';
 import { HeroBot } from '../../../src/sim/ai/heroBot';
 import type { World } from '../../../src/sim/world';
@@ -187,4 +188,28 @@ describe('C3-1: charm bookkeeping', () => {
     expect(w.focusOf(A.id).id).toBeUndefined();
     expect(w.isHostileTo(sa, B)).toBe(false);
   });
+});
+
+describe('C3-2: 周瑜 反间 matches 离间', () => {
+  it('the forced shots hit at ×0.35 like 离间 (same dmgMul in the data)', () => {
+    const fj = HERO_BY_ID.zhouyu.abilities.find((a) => a.id === 'zhouyu_fanjian')!;
+    const lj = HERO_BY_ID.diaochan.abilities.find((a) => a.id === 'diaochan_lijian')!;
+    expect(fj.params.dmgMul).toBe(lj.params.dmgMul);
+    expect(fj.params.duration).toBeLessThanOrEqual(lj.params.duration);
+  });
+
+  it('反间 on an idle human with a squad next to another idle human: the bystander loses ≤ ~150, no squad war', () => {
+    for (const pair of [
+      ['zhangfei', 'guanyu'],
+      ['machao', 'lubu'],
+    ] as [string, string][]) {
+      const r = duel('zhouyu', pair, true, HERO_BY_ID.zhouyu.abilities.find((a) => a.id === 'zhouyu_fanjian')!.params.duration);
+      process.stdout.write(`[反间 C3-2] ${pair.join('+')}: during ${r.during.map(Math.round)} after ${r.after.map(Math.round)} troop shots ${r.troopShots}/${r.troopShotsAfter} hp ${r.hp.map(Math.round)}\n`);
+      expect(r.troopShotsAfter).toBe(0);
+      for (const k of [0, 1]) {
+        expect(r.during[k] + r.after[k], pair.join('+')).toBeLessThanOrEqual(170);
+        expect(r.hp[k]).toBeGreaterThan(200);
+      }
+    }
+  }, 60000);
 });
