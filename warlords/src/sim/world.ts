@@ -1501,6 +1501,41 @@ export class World implements SimExt, SimHost {
     this.attackLog.get(b)?.delete(a);
   }
 
+  /**
+   * A charm's forced fight between `heroId` and `targetId` ended (status.ts): drop what both
+   * sides remember of it — every unit of the charmed hero's side (hero, troops, turrets,
+   * summons) vs every unit of the target's side — plus each hero's focus on the other side and
+   * soldiers' current targets there, so nobody keeps shooting just because the duel happened
+   * (C3-1: squads kept the fight going for seconds after 离间).
+   */
+  forgetCharmFight(heroId: EntityId, targetId: EntityId): void {
+    this.forgetAttacks(heroId, targetId);
+    const ra = this.creditOf(heroId) ?? heroId;
+    const rb = this.creditOf(targetId) ?? targetId;
+    if (ra === rb) return;
+    const sideA: Entity[] = [];
+    const sideB: Entity[] = [];
+    for (const e of this.ents.values()) {
+      if (e.kind !== 'hero' && e.kind !== 'troop' && e.kind !== 'turret' && e.kind !== 'npc') continue;
+      const c = this.creditOf(e.id) ?? e.id;
+      if (c === ra) sideA.push(e);
+      else if (c === rb) sideB.push(e);
+    }
+    const inB = new Set(sideB.map((e) => e.id));
+    const inA = new Set(sideA.map((e) => e.id));
+    for (const x of sideA) for (const y of sideB) this.forgetAttacks(x.id, y.id);
+    const calm = (side: Entity[], other: Set<EntityId>): void => {
+      for (const e of side) {
+        const rt = e.hero ? this.heroRts.get(e.id) : undefined;
+        if (rt?.focusId !== undefined && other.has(rt.focusId)) rt.focusId = undefined;
+        if (e.troop?.targetId !== undefined && other.has(e.troop.targetId)) e.troop.targetId = undefined;
+        if (e.turret?.targetId !== undefined && other.has(e.turret.targetId)) e.turret.targetId = undefined;
+      }
+    };
+    calm(sideA, inB);
+    calm(sideB, inA);
+  }
+
   /** did `attackerId` damage `victimId` within the memory window? */
   attackedRecently(victimId: EntityId, attackerId: EntityId, window = ATTACK_MEMORY): boolean {
     const t = this.attackLog.get(victimId)?.get(attackerId);

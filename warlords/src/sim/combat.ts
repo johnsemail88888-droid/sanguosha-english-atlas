@@ -1053,6 +1053,9 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
     }
   }
   w.emit({ t: 'shot', src: e.id, weapon: def.id, from: eye, to: firstEnd ?? aim, hit: firstHit });
+  // what a charm (离间 / 反间) forces him to shoot at is not his focus: his squad does not
+  // adopt the charm target (C3-1)
+  const forced = e.statuses.length > 0 && findStatus(e, 'charm', now) !== undefined;
   for (const [tid, a] of acc) {
     const target = w.ents.get(tid);
     if (!target) continue;
@@ -1067,11 +1070,13 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
       canDodge: true,
       ignoreArmor: def.special === 'pierceArmor',
     });
-    rt.focusId = tid;
-    rt.focusAt = now;
+    if (!forced) {
+      rt.focusId = tid;
+      rt.focusAt = now;
+    }
     if (!res.blocked) applyWeaponSpecialOnHit(w, e, def, target, res.dealt + res.absorbed);
   }
-  if (acc.size === 0 && firstHit === undefined) {
+  if (acc.size === 0 && firstHit === undefined && !forced) {
     const tgt = w.inputOf(e).aimTargetId;
     if (tgt !== undefined) {
       rt.focusId = tgt;

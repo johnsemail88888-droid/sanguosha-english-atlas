@@ -9,7 +9,7 @@
 // Neutral NPCs (黄巾 camps) attack heroes/troops in range; summoned NPCs attack
 // everything that is not on their summoner's side (except npcImmune heroes).
 import type { Entity, RoleId } from '../core/types';
-import { hasStatusFrom } from './status';
+import { findStatus, hasStatusFrom } from './status';
 import type { World } from './world';
 
 const FOCUS_MEMORY = 4;
@@ -47,6 +47,23 @@ function npcImmune(w: World, npc: Entity, target: Entity): boolean {
   return w.modifiers(cmd.id).npcImmune.includes(type);
 }
 
+/** Is hero `x` charmed (离间 / 反间) onto `y` or onto one of `y`'s units right now? */
+function charmedOnto(w: World, x: Entity, y: Entity): boolean {
+  if (x.statuses.length === 0) return false;
+  const t = findStatus(x, 'charm', w.time)?.params?.targetId;
+  return t !== undefined && (t === y.id || w.creditOf(t) === y.id);
+}
+
+/**
+ * Are commanders `x` and `y` locked in a charm duel right now — one forced onto the other (or
+ * onto one of the other's units) by 离间 / 反间? Neither the hits nor the aim of that fight are
+ * anyone's intent, so their troops and turrets sit it out (C3-1: both squads used to join and
+ * double-kill human victims, and kept fighting after the charm).
+ */
+export function charmBound(w: World, x: Entity, y: Entity): boolean {
+  return charmedOnto(w, x, y) || charmedOnto(w, y, x);
+}
+
 export function isHostile(w: World, a: Entity, b: Entity): boolean {
   if (a === b || !b.alive || b.hero?.dead) return false;
   if (b.kind !== 'hero' && b.kind !== 'troop' && b.kind !== 'npc' && b.kind !== 'turret') return false;
@@ -66,18 +83,22 @@ export function isHostile(w: World, a: Entity, b: Entity): boolean {
   if (!ca) return w.attackedRecently(a.id, b.id);
 
   const bRoot = cb ?? b;
+  // a unit of a commander in a charm duel with `b`'s side ignores that fight's hits and aim
+  // (orders, marks and known roles still count)
+  const duel = a !== ca && charmBound(w, ca, bRoot);
   // (a) damage memory
   if (
-    w.attackedRecently(ca.id, b.id) ||
-    w.attackedRecently(ca.id, bRoot.id) ||
-    w.attackedRecently(a.id, b.id) ||
-    w.attackedRecently(a.id, bRoot.id)
+    !duel &&
+    (w.attackedRecently(ca.id, b.id) ||
+      w.attackedRecently(ca.id, bRoot.id) ||
+      w.attackedRecently(a.id, b.id) ||
+      w.attackedRecently(a.id, bRoot.id))
   ) {
     return true;
   }
   // (b) commander focus / order / mark
   const focus = w.focusOf(ca.id);
-  if (focus.id !== undefined && now - focus.at <= FOCUS_MEMORY && (focus.id === b.id || (b.kind === 'hero' && focus.id === bRoot.id && bRoot === b))) return true;
+  if (!duel && focus.id !== undefined && now - focus.at <= FOCUS_MEMORY && (focus.id === b.id || (b.kind === 'hero' && focus.id === bRoot.id && bRoot === b))) return true;
   const order = ca.hero?.order;
   if (order && order.kind === 'attack' && order.targetId === b.id) return true;
   if (b.statuses.length > 0 && hasStatusFrom(b, 'marked', ca.id, now)) return true;

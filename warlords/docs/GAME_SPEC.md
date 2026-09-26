@@ -296,7 +296,9 @@ removed). Mounts: offensive −1 马 赤兔/大宛/紫骍 (+30–40 % speed); de
   the last 10 s, (b) whatever their commander is shooting at / marked, (c) NPCs that aggro,
   (d) heroes whose **known** role is hostile to the commander's role (e.g. revealed rebels for the
   Lord's troops). They never attack heroes they have no reason to — this keeps the hidden-role
-  tension. Troops don't respawn; recruit with 征兵令 / abilities.
+  tension. A charm duel (离间 / 反间) is no reason: the hits and aim it forces don't count, both
+  heroes' squads (and turrets) sit it out, and both sides forget it when the charm ends.
+  Troops don't respawn; recruit with 征兵令 / abilities.
 - 黄巾 camps (4–6 bandits + bronze crate) guard the best early loot; they leash back home.
 
 ## 9. Map — 虎牢·赤壁 (`src/sim/map/`)
