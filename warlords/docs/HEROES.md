@@ -886,7 +886,7 @@ DPS = one trigger pull × fire rate (no reloads); TTK counts from the first shot
 |---|---|---|---|
 | 杀 | **杀** Strike (Ammo Box) | 基本牌 Basic | 弹药箱：为两把武器补充 50% 最大备弹。<br>Ammo box: refills 50% of max reserve ammo for both weapons. |
 | 闪 | **闪** Dodge | 基本牌 Basic | 立即获得 1 次闪避（可超出上限，最多 3 次）。<br>Instantly gain 1 dodge charge (can exceed your normal max, up to 3). |
-| 桃 | **桃** Peach (Medkit) | 基本牌 Basic | 回复 120 生命；对濒死角色按住 F 1.5 秒可将其以 100 生命救起。<br>Restore 120 HP. Hold F on a downed hero for 1.5 s to revive them with 100 HP. |
+| 桃 | **桃** Peach (Medkit) | 基本牌 Basic | 回复 120 生命；对濒死角色按住 F 1.5 秒可将其以 100 生命救起；自己濒死时也可使用（1.5 秒）自救。<br>Restore 120 HP. Hold F on a downed hero for 1.5 s to revive them with 100 HP — or use it on yourself while downed (1.5 s). |
 | 酒 | **酒** Wine | 基本牌 Basic | 8 秒内你的下一次武器命中伤害 ×2（技能与锦囊伤害不受影响）；濒死时可饮用，以 50 生命自救。<br>Your next weapon hit within 8 s deals ×2 (ability and item damage are unaffected). While downed, drink it to revive with 50 HP. |
 | 无 | **无中生有** Something from Nothing | 锦囊 Trick | 立即获得 2 个随机锦囊。<br>Instantly gain 2 random items. |
 | 拆 | **过河拆桥** Dismantle (EMP Grenade) | 锦囊 Trick | 投掷电磁手雷（1.2 秒后于 4 米内生效）：敌人的护甲与坐骑被震落到 2.5 米外（本人 5 秒内无法拾回），护盾清空。<br>Throw an EMP grenade (4 m, 1.2 s fuse): enemies lose all shield, and their armor and mount are knocked 2.5 m away (they cannot pick them back up for 5 s). |

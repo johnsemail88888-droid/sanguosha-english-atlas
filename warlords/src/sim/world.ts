@@ -201,7 +201,7 @@ export interface HeroRuntime {
   lastArmor: string | null;
   lastMount: string | null;
   /** item being channelled (id + target point; revive = started on a downed hero) */
-  channelItem?: { id: string; point?: Vec3; revive: boolean };
+  channelItem?: { id: string; point?: Vec3; revive: boolean; selfRevive?: boolean };
   /** locomotion state wrapper (shares pos/vel with the entity) */
   move: MoveState;
   /** tick of the last movement step (dashes / knockbacks started later in a tick begin next tick) */

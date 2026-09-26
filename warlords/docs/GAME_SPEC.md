@@ -134,7 +134,7 @@ since both crowns carry the lord's bonus), swapping in:
 - No passive regen. Healing comes from 桃 / abilities.
 - **濒死 (downed)** at 0 HP: 12 s bleed-out, crawling at 25 % speed, cannot shoot. Anyone can
   revive with a 桃 (hold F on them, 1.5 s → 100 HP); the downed hero may drink 酒 to self-revive
-  (50 HP). Damage while downed shortens bleed-out. Bleed-out or finishing → **death**.
+  (50 HP) or play his own 桃 (a 1.5 s channel → 100 HP — 三国杀: a dying player may save himself). Damage while downed shortens bleed-out. Bleed-out or finishing → **death**.
 - **Death reveals the role** to everyone (kill feed: "张飞(反贼) 被 曹操 击杀"). Dead players spectate
   (cycle alive heroes). Their squad disbands (troops become neutral NPCs that flee/fight 20 s, then vanish).
 - **Rewards/penalties** (official): whoever kills a **Rebel** draws **3 random items**

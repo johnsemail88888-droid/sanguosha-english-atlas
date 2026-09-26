@@ -95,6 +95,8 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
     }
   }
   const reviving = target !== undefined && target !== e && target.hero?.downed === true;
+  // downed, getting back up with his own 桃: as long as reviving someone else (C3-6)
+  const selfRevive = h.downed && impl.canRevive === true;
   // can it be used at all right now (桃 at full HP, 闪 at the cap…)? Refuse before the 使用中
   // channel starts instead of after it (APP-7)
   if (impl.canUse) {
@@ -109,11 +111,11 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
       return;
     }
   }
-  const useTime = reviving ? (def.params.reviveTime ?? def.useTime ?? REVIVE_TIME) * rt.mods.reviveTimeMul : def.useTime;
+  const useTime = reviving || selfRevive ? (def.params.reviveTime ?? def.useTime ?? REVIVE_TIME) * rt.mods.reviveTimeMul : def.useTime;
   if (useTime > 0) {
     h.channel = { kind: 'item', start: w.time, until: w.time + useTime, targetId: target?.id, itemSlot: slot };
     h.reloadUntil = 0;
-    rt.channelItem = { id: stack.id, point, revive: reviving };
+    rt.channelItem = { id: stack.id, point, revive: reviving, selfRevive };
     return;
   }
   completeItem(w, e, rt, slot, stack.id, target, point);
@@ -558,6 +560,11 @@ export function updateChannel(w: World, e: Entity, rt: HeroRuntime, cs: ControlS
     const stack = ch.itemSlot !== undefined ? h.items[ch.itemSlot] : null;
     const impl = stack ? (getItem(stack.id) as ItemImplEx | undefined) : undefined;
     if (!stack || !impl || (h.downed && !impl.usableWhileDowned) || cs.silenced) {
+      w.cancelChannel(e.id);
+      return;
+    }
+    // getting back up on his own: someone else revived him first → keep the card
+    if (rt.channelItem?.selfRevive && !h.downed) {
       w.cancelChannel(e.id);
       return;
     }

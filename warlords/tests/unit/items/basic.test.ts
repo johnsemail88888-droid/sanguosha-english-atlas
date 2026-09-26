@@ -51,14 +51,17 @@ describe('桃 tao', () => {
     expect(slotCount(a)).toBe(1);
   });
 
-  it('a downed player cannot eat their own 桃 (only 酒 works while downed)', () => {
+  it('a downed player may eat their own 桃: a 1.5 s channel, back up with 100 HP (C3-6, 三国杀 自救)', () => {
     const { w, a } = setup();
     a.hero!.items = [{ id: 'tao', count: 1 }, null, null, null];
     w.dealDamage({ targetId: a.id, amount: 1e4, type: 'true' });
     useSlot(w, a, 0, chest(a));
-    hold(w, a, ticks(1.6), chest(a));
-    expect(a.hero!.downed).toBe(true);
-    expect(slotCount(a)).toBe(1);
+    hold(w, a, ticks(1.2), chest(a));
+    expect(a.hero!.downed).toBe(true); // still channelling
+    hold(w, a, ticks(0.4), chest(a));
+    expect(a.hero!.downed).toBe(false);
+    expect(a.hp).toBe(100);
+    expect(slotCount(a)).toBe(0);
   });
 });
 
