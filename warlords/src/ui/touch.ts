@@ -194,6 +194,8 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
   const abQ = abilityBtn('q', 'Q');
   const abE = abilityBtn('e', 'E');
   const abG = abilityBtn('lord', 'G');
+  // hidden until update() knows you are the Lord (nothing flashes in, the HUD lays out around the real buttons)
+  setClass(abG.el, 'sg-hidden', true);
 
   const order = btn('order', ORDER_GLYPH.follow, () => {
     orderIdx = (orderIdx + 1) % ORDER_SEQUENCE.length;
