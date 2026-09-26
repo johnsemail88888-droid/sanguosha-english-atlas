@@ -323,6 +323,8 @@ export class World implements SimExt, SimHost {
   private turretAis = new Map<EntityId, { nextScan: number }>();
   /** loot that a given hero may not auto/F pick up until a time (voluntary drops, penalties) */
   readonly lootLocks = new Map<EntityId, { heroId: EntityId; until: number }>();
+  /** loot → the hero who put it down by choice (discard / swap): never auto-picked back up by him (NP-1) */
+  readonly lootDiscards = new Map<EntityId, EntityId>();
   private resultValue: GameResult | null = null;
   private winCheckRequested = true;
   private readonly troopBrain: TroopBrain;
@@ -1963,6 +1965,7 @@ export class World implements SimExt, SimHost {
     this.removals.delete(id);
     this.freezeStacks.delete(id);
     this.lootLocks.delete(id);
+    this.lootDiscards.delete(id);
     forgetPath(this, id);
     this.unitMovedTick.delete(id);
     if (e.troop) {

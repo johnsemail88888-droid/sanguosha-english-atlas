@@ -1,6 +1,7 @@
 // Gear swaps at a loot pile: the replaced weapon / armor / mount lands ~1.35 m
-// behind the hero, clear of the rest of the pile (so the next F takes the next
-// piece, not the one just dropped), locked for the dropper for 1.5 s.
+// beside the hero (never behind him, between him and the camera: NP-2), clear of
+// the rest of the pile (so the next F takes the next piece, not the one just
+// dropped), locked for the dropper for 1.5 s.
 import { describe, expect, it } from 'vitest';
 import type { Entity, RoleId } from '../../../src/core/types';
 import { emptyInput } from '../../../src/core/types';
@@ -47,7 +48,7 @@ describe('gear swap drop', () => {
     const rest = loots(w).filter((l) => l !== dropped);
     expect(rest.length).toBe(2);
     for (const r of rest) expect(flat(dropped!.pos, r.pos)).toBeGreaterThanOrEqual(1);
-    // behind the hero (1.2–1.5 m), not under his feet
+    // beside the hero (1.2–1.5 m), not under his feet
     const d = flat(dropped!.pos, me.pos);
     expect(d).toBeGreaterThan(1.1);
     expect(d).toBeLessThan(1.6);

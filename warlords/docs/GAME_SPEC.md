@@ -175,7 +175,9 @@ Zone damage is type `zone` (ignores armor/dodge/shields; troops/NPCs take it too
 - **天降锦囊 airdrop** every 100 s from 2:00, announced and marked on the minimap; lands after a
   12 s fall (visible smoke + flare): 1 legendary/epic weapon + armor or mount + 2 items.
 - Picking up: walk over ammo/items auto-pickup if a slot is free; weapons/armor/mounts need F
-  (swaps with current, dropping the old one). Items stack up to `maxStack`.
+  (swaps with current, dropping the old one beside you — never behind you, in front of the camera).
+  Items stack up to `maxStack`. A card you discarded (X + slot) or swapped out with F is never
+  auto-picked back up by you — only an explicit F takes it (anyone else picks it up as usual).
 
 ## 5. Heroes (30) — design intent
 
