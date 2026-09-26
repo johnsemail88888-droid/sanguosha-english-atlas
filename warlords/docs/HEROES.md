@@ -755,7 +755,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **闭月**<br>Moon Eclipse<br><sub>三国杀：闭月</sub> | — | 5 秒未受伤后，每秒回复 5 生命。<br>After 5 s without taking damage, regenerate 5 HP/s. |
-| Q | **离间**<br>Sow Dissension<br><sub>三国杀：离间</sub> | 22 s | 魅惑准星处敌人及其 15 米内最近的另一名武将 2.5 秒，令二者互相攻击（伤害 ×40%）。<br>Charm the crosshair enemy and the nearest other hero within 15 m of it for 2.5 s; they attack each other (×40% damage). |
+| Q | **离间**<br>Sow Dissension<br><sub>三国杀：离间</sub> | 22 s | 魅惑准星处敌人及其 15 米内最近的另一名武将 2.5 秒，令二者互相攻击（伤害 ×35%）。<br>Charm the crosshair enemy and the nearest other hero within 15 m of it for 2.5 s; they attack each other (×35% damage). |
 | E | **连环计**<br>Chain Stratagem<br><sub>三国杀：离间</sub> | 20 s | 连环准星处敌人及其 8 米内至多 2 名敌人 8 秒：减速 25%，火焰与雷电伤害相互传导。<br>Chain the crosshair enemy and up to 2 enemies within 8 m for 8 s: slowed 25%; fire and thunder damage spreads. |
 
 **台词 Quotes**
@@ -861,23 +861,23 @@ DPS = one trigger pull × fire rate (no reloads); TTK counts from the first shot
 | **寒冰** Frostbite Rifle<br><sub>司马懿</sub> | 寒冰剑 | 步枪 | 稀有 Rare | 158 | 1.87 / 2.53 s | 低温步枪：每次命中叠加 6% 减速，叠满 8 层冻结目标 1.2 秒。<br>Cryo rifle: each hit stacks 6% slow; at 8 stacks the target freezes for 1.2 s. |
 | **古锭** Guding Blade Shotgun<br><sub>孙权</sub> | 古锭刀 | 霰弹枪 | 稀有 Rare | 154 | 1.88 / 2.50 s | 带刃战斗霰弹枪：对没有装备护甲的目标伤害 +50%。<br>Bladed combat shotgun: +50% damage against targets without armor. |
 | **青龙偃月** Green Dragon Rifle<br><sub>关羽</sub> | 青龙偃月刀 | 步枪 | 史诗 Epic | 180 | 1.60 / 2.13 s | 偃月刃突击步枪：子弹被闪避或格挡时返还弹药，2 秒内下一次命中伤害 +50%。<br>Crescent-bayonet assault rifle: dodged or blocked rounds are refunded and your next hit within 2 s deals +50%. |
-| **丈八蛇矛** Serpent Spear Shotgun<br><sub>张飞</sub> | 丈八蛇矛 | 霰弹枪 | 史诗 Epic | 156 | 1.67 / 2.50 s | 蛇刃泵动霰弹枪：10 颗弹丸大范围散射，近身几乎弹无虚发。<br>Serpent-blade pump shotgun: 10 pellets in a very wide spread — nearly impossible to miss up close. |
+| **丈八蛇矛** Serpent Spear Shotgun<br><sub>张飞</sub> | 丈八蛇矛 | 霰弹枪 | 史诗 Epic | 196 | 1.43 / 1.43 s | 蛇刃泵动霰弹枪：10 颗弹丸大范围散射，近身几乎弹无虚发。<br>Serpent-blade pump shotgun: 10 pellets in a wide spread — nearly impossible to miss up close. |
 | **贯石** Guanshi Grenade Launcher<br><sub>黄盖</sub> | 贯石斧 | 发射器 | 史诗 Epic | 116 | 1.82 / 2.73 s | 斧刃榴弹发射器：榴弹爆炸（3.5 米，80 伤害）无视闪避。<br>Axe-bladed grenade launcher: grenade blasts (3.5 m, 80 dmg) cannot be dodged. |
-| **朱雀羽扇** Vermilion Phoenix Flamer<br><sub>周瑜</sub> | 朱雀羽扇 | 喷火器 | 史诗 Epic | 144 | 2.06 / 2.75 s | 凤羽火焰喷射器：造成火焰伤害并点燃目标（每秒 12，3 秒）。<br>Phoenix-feather flamethrower: deals fire damage and ignites targets (12/s for 3 s). |
+| **朱雀羽扇** Vermilion Phoenix Flamer<br><sub>周瑜</sub> | 朱雀羽扇 | 喷火器 | 史诗 Epic | 240 | 1.19 / 1.63 s | 凤羽火焰喷射器：造成火焰伤害并点燃目标（每秒 12，3 秒）。<br>Phoenix-feather flamethrower: deals fire damage and ignites targets (12/s for 3 s). |
 | **方天画戟** Sky Piercer Rocket Pod | 方天画戟 | 发射器 | 传说 Legendary | 204 | 1.25 / 1.25 s | 三联装火箭发射器：每次齐射 3 枚火箭，自动追向准星附近至多 3 个不同目标。<br>Triple rocket pod: every volley fires 3 rockets that home onto up to 3 different targets near the aim point. |
 | **麒麟弓** Qilin Anti-Materiel Rifle | 麒麟弓 | 狙击枪 | 传说 Legendary | 94 | 3.08 / 3.08 s | 反器材狙击枪（3.5 倍镜）：命中骑乘者将其击落下马（坐骑惊逃 2.5 米，5 秒内无法再骑）并减速 30%。<br>Anti-materiel sniper (3.5× scope): hits knock riders off their mount (it bolts 2.5 m away; no remounting for 5 s) and slow them 30%. |
 | **龙胆亮银枪** Longdan Bayonet Carbine<br><sub>赵云</sub> | — | 步枪 | 专属 Signature | 168 | 1.75 / 2.38 s | 赵云的亮银刺刀卡宾枪，射速快、腰射稳定。<br>Zhao Yun's silver bayonet carbine: fast-firing and steady from the hip. |
 | **烈弓** Liegong Sniper Bow<br><sub>黄忠</sub> | — | 弓 | 专属 Signature | 95 | 2.22 / 3.33 s | 黄忠的复合狙击弓：箭矢飞行下坠小，远距离一击重创。<br>Huang Zhong's compound sniper bow: flat-flying arrows that hit hard at long range. |
 | **锦帆双铃** Brocade Bell SMGs<br><sub>甘宁</sub> | — | 冲锋枪 | 专属 Signature | 168 | 1.71 / 2.36 s | 甘宁的双持冲锋枪，枪身系铃，未见其人先闻其声。<br>Gan Ning's twin SMGs hung with bells — you hear him before you see him. |
 | **枭姬弓** Xiaoji Blast Bow<br><sub>孙尚香</sub> | — | 弓 | 专属 Signature | 120 | 2.00 / 2.67 s | 孙尚香的复合弓：箭矢命中后爆炸（2.2 米，35 伤害）。<br>Sun Shangxiang's compound bow: arrows explode on impact (2.2 m, 35 dmg). |
-| **太平雷杖** Taiping Tesla Staff<br><sub>张角</sub> | — | 步枪 | 专属 Signature | 120 | 2.33 / 3.17 s | 张角的特斯拉法杖：雷电伤害，可跳跃至 7 米内 2 个额外目标（50% 伤害）。<br>Zhang Jiao's tesla staff: thunder damage that arcs to 2 extra targets within 7 m (50% damage). |
+| **太平雷杖** Taiping Tesla Staff<br><sub>张角</sub> | — | 步枪 | 专属 Signature | 160 | 1.75 / 2.38 s | 张角的特斯拉法杖：雷电伤害，可跳跃至 7 米内 2 个额外目标（50% 伤害）。<br>Zhang Jiao's tesla staff: thunder damage that arcs to 2 extra targets within 7 m (50% damage). |
 | **无双战铳** Peerless Battle Rifle<br><sub>吕布</sub> | — | 步枪 | 专属 Signature | 180 | 1.60 / 2.20 s | 吕布的重型战斗步枪：单发威力巨大，后坐力凶猛。<br>Lü Bu's heavy battle rifle: brutal per-shot damage and fierce recoil. |
 | **虎贲机枪** Tiger Guard LMG<br><sub>许褚</sub> | — | 轻机枪 | 专属 Signature | 171 | 1.67 / 2.33 s | 许褚的轻机枪：百发弹链火力压制，但换弹缓慢、移动笨重。<br>Xu Chu's LMG: a 100-round belt of suppression, but slow to reload and heavy to carry. |
 | **青囊药镖** Qingnang Dart Pistol<br><sub>华佗</sub> | — | 手枪 | 专属 Signature | 105 | 2.57 / 3.71 s | 华佗的药镖手枪：回复自身所造成伤害的 40%。<br>Hua Tuo's dart pistol: heals you for 40% of the damage it deals. |
-| **倚天** Heaven-Reliant DMR<br><sub>曹操</sub> | — | 射手步枪 | 专属 Signature | 160 | 1.75 / 2.25 s | 曹操的倚天剑刃精确射手步枪：半自动，爆头伤害极高。<br>Cao Cao's Yitian sword-bladed DMR: semi-automatic with a punishing headshot multiplier. |
+| **倚天** Heaven-Reliant DMR<br><sub>曹操</sub> | — | 射手步枪 | 专属 Signature | 152 | 1.75 / 2.50 s | 曹操的倚天剑刃精确射手步枪：半自动，爆头伤害极高。<br>Cao Cao's Yitian sword-bladed DMR: semi-automatic with a punishing headshot multiplier. |
 | **虎头湛金枪** Tiger-Head Lance Rifle<br><sub>马超</sub> | — | 步枪 | 专属 Signature | 169 | 1.69 / 2.31 s | 马超的骑枪步枪：马上射击依旧精准。<br>Ma Chao's lance rifle: stays accurate from the saddle. |
-| **机关连弩** Clockwork Repeater Crossbow<br><sub>黄月英</sub> | — | 弩 | 专属 Signature | 135 | 2.00 / 2.89 s | 黄月英亲手打造的机关弩：半自动快速连发，弩矢精准。<br>Huang Yueying's clockwork crossbow: fast semi-auto bolts with pin-point accuracy. |
-| **蛮王双管** Barbarian King Double-Barrel<br><sub>孟获</sub> | — | 霰弹枪 | 专属 Signature | 378 | 2.67 / 3.00 s | 孟获的象牙双管霰弹枪：两发连射威力惊人，随后需要装填。<br>Meng Huo's ivory double-barrel: two devastating blasts back to back, then a reload. |
+| **机关连弩** Clockwork Repeater Crossbow<br><sub>黄月英</sub> | — | 弩 | 专属 Signature | 165 | 1.80 / 2.40 s | 黄月英亲手打造的机关弩：半自动快速连发，弩矢精准。<br>Huang Yueying's clockwork crossbow: fast semi-auto bolts with pin-point accuracy. |
+| **蛮王双管** Barbarian King Double-Barrel<br><sub>孟获</sub> | — | 霰弹枪 | 专属 Signature | 432 | 2.07 / 2.07 s | 孟获的象牙双管霰弹枪：两发连射威力惊人，随后需要装填。<br>Meng Huo's ivory double-barrel: two devastating blasts back to back, then a reload. |
 | **白衣** White-Robe Suppressed DMR<br><sub>吕蒙</sub> | — | 射手步枪 | 专属 Signature | 151 | 1.90 / 2.62 s | 吕蒙的消音射手步枪：后坐力极低，适合潜行狙杀。<br>Lü Meng's suppressed DMR: minimal recoil, made for stealthy picks. |
 
 ### 锦囊 · Items

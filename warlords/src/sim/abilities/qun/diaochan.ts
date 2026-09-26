@@ -58,7 +58,7 @@ registerAbility({
       .filter((h) => standing(h) && flatDist(h.pos, a.pos) <= radius + h.radius && pickable(sim, self, h));
     // the forced shots hit softer (COMBAT-6: a double near-kill otherwise); the pair forgets
     // the fight when the charm ends (status.ts)
-    const dmgMul = param(ctx, 'dmgMul', 0.4);
+    const dmgMul = param(ctx, 'dmgMul', 0.35);
     let b: Entity | undefined = nearestTo(heroes, a.pos);
     if (b) {
       sim.applyStatus(a.id, 'charm', duration, { sourceId: self.id, params: { targetId: b.id, dmgMul } });

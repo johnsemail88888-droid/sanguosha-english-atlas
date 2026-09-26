@@ -34,6 +34,9 @@ export const DOWNED_DAMAGE_TO_SECONDS = 0.1;
 export const LAG_COMP_MAX_TICKS = 8;
 const MAX_SHOTS_PER_TICK = 4;
 const BURST_RESET = 0.35;
+/** spread bloom per consecutive shot and its cap (fractions of the base spread) */
+const BLOOM_PER_SHOT = 0.07;
+const BLOOM_MAX = 0.5;
 
 export const DAMAGEABLE: Readonly<Record<Entity['kind'], boolean>> = {
   hero: true,
@@ -785,7 +788,9 @@ export function currentSpread(w: World, e: Entity, def: WeaponDef): number {
   const moving = Math.hypot(e.vel.x, e.vel.z) > 1;
   if (moving && !h.ads) spread *= 1.35;
   if (!e.onGround) spread *= 1.8;
-  if (def.special !== 'rapid') spread *= 1 + Math.min(1, h.burst * 0.12);
+  // bloom while the trigger stays busy: +7 % per shot, capped at +50 % (was +12 % / ×2 — autos were
+  // useless from the hip beyond a few metres, COMBAT-9); ramping guns and flame streams don't bloom
+  if (def.special !== 'rapid' && def.class !== 'flamer') spread *= 1 + Math.min(BLOOM_MAX, h.burst * BLOOM_PER_SHOT);
   void w;
   return Math.max(0, spread);
 }

@@ -484,7 +484,7 @@ describe('貂蝉 Diaochan', () => {
     expect(lingering).toBeLessThan(30);
   });
 
-  it('离间 on two idle players (the charm aims and fires for them): ≤ 150 each, ~40 % of the uncapped fight (COMBAT-6)', () => {
+  it('离间 on two idle players (the charm aims and fires for them): ≤ 150 each, about a third of the uncapped fight (COMBAT-6)', () => {
     const run = (dmgMul: number): [number, number] => {
       const def = abilityOf('diaochan', 'q');
       const old = def.params.dmgMul;

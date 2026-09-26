@@ -5,8 +5,14 @@
 // ≈ 2.5 s (21 dmg × 7.5 rps = 157.5 DPS → 20 hits → 2.53 s). Everything else is
 // tuned around that anchor: specials trade raw DPS for utility, no weapon
 // kills a full-HP hero with a single shot (qilin headshot = 290 < 300), no
-// weapon deals 300+ headshot damage inside 0.5 s (manwang 2 shells = 252), and
+// weapon deals 300+ headshot damage inside 0.5 s (manwang 2 shells = 288), and
 // within a lootable class higher rarity never has lower base DPS.
+//
+// Practical output (spread, bloom, reloads) is measured by tests/unit/items/weaponsDps.test.ts:
+// perfect aim at a rooted dummy, one magazine + reload at hip 6 m / hip 15 m / ADS 15 m / ADS 40 m.
+// Rules it keeps (COMBAT-9): every epic / signature clearly (≥ ×1.08) beats the commons at the
+// range its class is built for, shotguns beat every common gun at 6 m, and no gun is top 3 at
+// every range.
 //
 // Body-shot numbers, perfect accuracy, inside falloffStart, before specials and
 // passives. DPS = one trigger pull × fire rate (no reloads); TTK counts from the
@@ -24,23 +30,23 @@
 // | hanbing   | rifle    | rare      | 158 | 1.87 s  | 2.53 s  | = carbine DPS + slow stacks → freeze   |
 // | guding    | shotgun  | rare      | 154 | 1.88 s  | 2.50 s  | ×1.5 vs unarmored (230 DPS)            |
 // | qinglong  | rifle    | epic      | 180 | 1.60 s  | 2.13 s  | dodged shots refunded, next hit ×1.5   |
-// | zhangba   | shotgun  | epic      | 156 | 1.67 s  | 2.50 s  | 10 pellets, very wide spread           |
+// | zhangba   | shotgun  | epic      | 196 | 1.43 s  | 1.43 s  | 10 pellets, wide spread                |
 // | guanshi   | launcher | epic      | 116 | 1.82 s  | 2.73 s  | splash ignores dodge                   |
-// | zhuque    | flamer   | epic      | 144 | 2.06 s  | 2.75 s  | + burn 12/s; fire ×2 vs 藤甲           |
+// | zhuque    | flamer   | epic      | 240 | 1.19 s  | 1.63 s  | + burn 12/s; fire ×2 vs 藤甲; 16 m     |
 // | fangtian  | launcher | legendary | 204 | 1.25 s  | 1.25 s  | all 6 rockets landing (theoretical)    |
 // | qilin     | sniper   | legendary |  94 | 3.08 s  | 3.08 s  | 3 body shots / 2 headshots vs 400      |
 // | longdan   | rifle    | sig       | 168 | 1.75 s  | 2.38 s  | 赵云                                   |
 // | liegong   | bow      | sig       |  95 | 2.22 s  | 3.33 s  | 黄忠: +25 % beyond 30 m (passive)      |
 // | jinfan    | smg      | sig       | 168 | 1.71 s  | 2.36 s  | 甘宁                                   |
 // | xiaoji    | bow      | sig       | 120 | 2.00 s  | 2.67 s  | 孙尚香: explosive arrows               |
-// | taiping   | rifle    | sig       | 120 | 2.33 s  | 3.17 s  | 张角: +30 % thunder (passive) + arcs   |
+// | taiping   | rifle    | sig       | 160 | 1.75 s  | 2.38 s  | 张角: +30 % thunder (passive) + arcs   |
 // | wushuang  | rifle    | sig       | 180 | 1.60 s  | 2.20 s  | 吕布: undodgeable (passive)            |
 // | huben     | lmg      | sig       | 171 | 1.67 s  | 2.33 s  | 许褚: 100-round belt, slow reload      |
 // | qingnang  | pistol   | sig       | 105 | 2.57 s  | 3.71 s  | 华佗: 40 % lifesteal                   |
-// | yitian    | dmr      | sig       | 160 | 1.75 s  | 2.25 s  | 曹操                                   |
+// | yitian    | dmr      | sig       | 152 | 1.75 s  | 2.50 s  | 曹操                                   |
 // | hutou     | rifle    | sig       | 169 | 1.69 s  | 2.31 s  | 马超                                   |
-// | jiguan    | crossbow | sig       | 135 | 2.00 s  | 2.89 s  | 黄月英 (turrets add DPS)               |
-// | manwang   | shotgun  | sig       | 378 | 2.67 s  | 3.00 s  | 孟获: 2-shell burst 252, no headshots  |
+// | jiguan    | crossbow | sig       | 165 | 1.80 s  | 2.40 s  | 黄月英 (turrets add DPS), mid range    |
+// | manwang   | shotgun  | sig       | 432 | 2.07 s  | 2.07 s  | 孟获: 2-shell burst 288, no headshots  |
 // | baiyi     | dmr      | sig       | 151 | 1.90 s  | 2.62 s  | 吕蒙                                   |
 //
 // Troop / NPC weapons are multiplied by TroopTypeDef.accuracy in play, so a
@@ -119,7 +125,7 @@ export const WEAPONS: WeaponDef[] = [
     reloadTime: 2.0,
     falloffStart: 30,
     maxRange: 110,
-    spreadHip: 3.0,
+    spreadHip: 3.8,
     spreadAds: 0.8,
     pellets: 1,
     recoil: 0.9,
@@ -146,11 +152,11 @@ export const WEAPONS: WeaponDef[] = [
     auto: true,
     magSize: 32,
     reserveMags: 4,
-    reloadTime: 1.8,
+    reloadTime: 1.5,
     falloffStart: 12,
     maxRange: 60,
-    spreadHip: 3.5,
-    spreadAds: 1.6,
+    spreadHip: 2.4,
+    spreadAds: 1.3,
     pellets: 1,
     recoil: 0.6,
     adsZoom: 1.3,
@@ -181,7 +187,7 @@ export const WEAPONS: WeaponDef[] = [
     reloadTime: 2.4,
     falloffStart: 10,
     maxRange: 45,
-    spreadHip: 5.0,
+    spreadHip: 4.0,
     spreadAds: 2.5,
     pellets: 1,
     recoil: 0.5,
@@ -241,8 +247,8 @@ export const WEAPONS: WeaponDef[] = [
     reloadTime: 2.0,
     falloffStart: 12,
     maxRange: 50,
-    spreadHip: 3.0,
-    spreadAds: 1.8,
+    spreadHip: 2.6,
+    spreadAds: 1.1,
     pellets: 1,
     recoil: 0.9,
     adsZoom: 1.2,
@@ -271,7 +277,7 @@ export const WEAPONS: WeaponDef[] = [
     reloadTime: 2.2,
     falloffStart: 28,
     maxRange: 100,
-    spreadHip: 3.0,
+    spreadHip: 3.3,
     spreadAds: 0.9,
     pellets: 1,
     recoil: 0.9,
@@ -301,8 +307,8 @@ export const WEAPONS: WeaponDef[] = [
     reloadTime: 2.4,
     falloffStart: 8,
     maxRange: 30,
-    spreadHip: 6,
-    spreadAds: 4,
+    spreadHip: 5.2,
+    spreadAds: 3.5,
     pellets: 8,
     recoil: 3.5,
     adsZoom: 1.15,
@@ -349,20 +355,20 @@ export const WEAPONS: WeaponDef[] = [
     nameEn: 'Serpent Spear Shotgun',
     sgsCard: '丈八蛇矛',
     descZh: '蛇刃泵动霰弹枪：10 颗弹丸大范围散射，近身几乎弹无虚发。',
-    descEn: 'Serpent-blade pump shotgun: 10 pellets in a very wide spread — nearly impossible to miss up close.',
+    descEn: 'Serpent-blade pump shotgun: 10 pellets in a wide spread — nearly impossible to miss up close.',
     class: 'shotgun',
     rarity: 'epic',
-    damage: 13,
+    damage: 14,
     headshotMul: 1.2,
-    fireRate: 1.2,
+    fireRate: 1.4,
     auto: false,
     magSize: 6,
     reserveMags: 4,
-    reloadTime: 2.6,
+    reloadTime: 2.2,
     falloffStart: 8,
     maxRange: 28,
-    spreadHip: 9,
-    spreadAds: 6,
+    spreadHip: 4.0,
+    spreadAds: 3.8,
     pellets: 10,
     recoil: 4,
     adsZoom: 1.1,
@@ -413,7 +419,7 @@ export const WEAPONS: WeaponDef[] = [
     descEn: 'Phoenix-feather flamethrower: deals fire damage and ignites targets (12/s for 3 s).',
     class: 'flamer',
     rarity: 'epic',
-    damage: 3,
+    damage: 5,
     headshotMul: 1.0,
     fireRate: 16,
     auto: true,
@@ -422,7 +428,7 @@ export const WEAPONS: WeaponDef[] = [
     reloadTime: 2.8,
     falloffStart: 8,
     maxRange: 16,
-    spreadHip: 6,
+    spreadHip: 5.5,
     spreadAds: 4,
     pellets: 3,
     recoil: 0.2,
@@ -512,7 +518,7 @@ export const WEAPONS: WeaponDef[] = [
     auto: true,
     magSize: 30,
     reserveMags: 4,
-    reloadTime: 1.8,
+    reloadTime: 1.7,
     falloffStart: 32,
     maxRange: 110,
     spreadHip: 2.4,
@@ -573,11 +579,11 @@ export const WEAPONS: WeaponDef[] = [
     auto: true,
     magSize: 50,
     reserveMags: 4,
-    reloadTime: 2.2,
+    reloadTime: 1.8,
     falloffStart: 12,
     maxRange: 55,
-    spreadHip: 4.0,
-    spreadAds: 2.2,
+    spreadHip: 2.3,
+    spreadAds: 1.4,
     pellets: 1,
     recoil: 0.55,
     adsZoom: 1.25,
@@ -630,11 +636,11 @@ export const WEAPONS: WeaponDef[] = [
     rarity: 'epic',
     damage: 20,
     headshotMul: 1.3,
-    fireRate: 6,
+    fireRate: 8,
     auto: true,
     magSize: 40,
     reserveMags: 4,
-    reloadTime: 2.2,
+    reloadTime: 1.7,
     falloffStart: 25,
     maxRange: 60,
     spreadHip: 2.0,
@@ -664,7 +670,7 @@ export const WEAPONS: WeaponDef[] = [
     auto: true,
     magSize: 20,
     reserveMags: 4,
-    reloadTime: 2.4,
+    reloadTime: 2.2,
     falloffStart: 40,
     maxRange: 130,
     spreadHip: 3.2,
@@ -694,11 +700,11 @@ export const WEAPONS: WeaponDef[] = [
     auto: true,
     magSize: 100,
     reserveMags: 2,
-    reloadTime: 4.5,
+    reloadTime: 4.0,
     falloffStart: 35,
     maxRange: 110,
-    spreadHip: 4.5,
-    spreadAds: 1.6,
+    spreadHip: 3.4,
+    spreadAds: 0.9,
     pellets: 1,
     recoil: 0.7,
     adsZoom: 1.4,
@@ -724,7 +730,7 @@ export const WEAPONS: WeaponDef[] = [
     auto: false,
     magSize: 14,
     reserveMags: 4,
-    reloadTime: 1.6,
+    reloadTime: 1.3,
     falloffStart: 20,
     maxRange: 70,
     spreadHip: 1.8,
@@ -748,7 +754,7 @@ export const WEAPONS: WeaponDef[] = [
     descEn: "Cao Cao's Yitian sword-bladed DMR: semi-automatic with a punishing headshot multiplier.",
     class: 'dmr',
     rarity: 'epic',
-    damage: 40,
+    damage: 38,
     headshotMul: 1.9,
     fireRate: 4,
     auto: false,
@@ -757,7 +763,7 @@ export const WEAPONS: WeaponDef[] = [
     reloadTime: 2.2,
     falloffStart: 45,
     maxRange: 140,
-    spreadHip: 2.2,
+    spreadHip: 3.6,
     spreadAds: 0.35,
     pellets: 1,
     recoil: 1.6,
@@ -784,7 +790,7 @@ export const WEAPONS: WeaponDef[] = [
     auto: true,
     magSize: 24,
     reserveMags: 4,
-    reloadTime: 2.0,
+    reloadTime: 1.7,
     falloffStart: 30,
     maxRange: 100,
     spreadHip: 2.6,
@@ -808,17 +814,17 @@ export const WEAPONS: WeaponDef[] = [
     descEn: "Huang Yueying's clockwork crossbow: fast semi-auto bolts with pin-point accuracy.",
     class: 'crossbow',
     rarity: 'epic',
-    damage: 30,
+    damage: 33,
     headshotMul: 1.7,
-    fireRate: 4.5,
+    fireRate: 5,
     auto: false,
     magSize: 20,
     reserveMags: 4,
-    reloadTime: 2.0,
-    falloffStart: 35,
-    maxRange: 110,
+    reloadTime: 1.6,
+    falloffStart: 25,
+    maxRange: 90,
     spreadHip: 2.0,
-    spreadAds: 0.5,
+    spreadAds: 0.8,
     pellets: 1,
     recoil: 0.8,
     adsZoom: 1.6,
@@ -838,17 +844,17 @@ export const WEAPONS: WeaponDef[] = [
     descEn: "Meng Huo's ivory double-barrel: two devastating blasts back to back, then a reload.",
     class: 'shotgun',
     rarity: 'epic',
-    damage: 14,
+    damage: 16,
     headshotMul: 1.0,
     fireRate: 3,
     auto: false,
     magSize: 2,
     reserveMags: 12,
-    reloadTime: 2.0,
+    reloadTime: 1.4,
     falloffStart: 7,
     maxRange: 25,
-    spreadHip: 7,
-    spreadAds: 5,
+    spreadHip: 3.8,
+    spreadAds: 3.6,
     pellets: 9,
     recoil: 5,
     adsZoom: 1.1,
