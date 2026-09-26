@@ -1024,20 +1024,25 @@ test('PLATFORM-5/6/9/10 phones: touch labels, emblem captions, card captions, th
     // PLATFORM-6: painted emblems keep the skill's name and a ≥ 10 px key letter; card captions ≥ 10 px, 桃 / 酒 / 杀 / 闪 too
     await expect(page.locator('.sg-touch .ab-q.art-on')).toHaveCount(1, { timeout: 15_000 });
     await expect(page.locator('.sg-touch .item.art-on')).toHaveCount(4, { timeout: 15_000 });
-    const labels = await page.locator('.sg-touch :is(.ab-q, .ab-e), .sg-touch .item').evaluateAll((els) =>
-      els.map((b) => {
-        const l = b.querySelector<HTMLElement>(':scope > .l, :scope > .n')!;
-        const k = b.querySelector<HTMLElement>(':scope > .k')!;
-        const cs = getComputedStyle(l);
-        return { cls: b.className, text: l.textContent ?? '', shown: cs.visibility === 'visible' && cs.display !== 'none' && l.getBoundingClientRect().height > 0, fs: parseFloat(cs.fontSize), kfs: parseFloat(getComputedStyle(k).fontSize) };
-      }),
-    );
+    const readLabels = () =>
+      page.locator('.sg-touch :is(.ab-q, .ab-e), .sg-touch .item').evaluateAll((els) =>
+        els.map((b) => {
+          const l = b.querySelector<HTMLElement>(':scope > .l, :scope > .n')!;
+          const k = b.querySelector<HTMLElement>(':scope > .k')!;
+          const cs = getComputedStyle(l);
+          return { cls: b.className, text: l.textContent ?? '', shown: cs.visibility === 'visible' && cs.display !== 'none' && l.getBoundingClientRect().height > 0, fs: parseFloat(cs.fontSize), kfs: parseFloat(getComputedStyle(k).fontSize) };
+        }),
+      );
+    // (reduced motion gives every style change a 1 ms transition: read once the art-on sizes have settled)
+    const problems = async (): Promise<string[]> =>
+      (await readLabels()).flatMap((l) => [
+        ...(l.shown && l.text.length > 0 ? [] : [`${l.cls}: "${l.text}" hidden`]),
+        ...(l.fs >= 10 ? [] : [`${l.cls}: ${l.fs}px`]),
+        ...(!/\bab\b/.test(l.cls) || l.kfs >= 10 ? [] : [`${l.cls} key: ${l.kfs}px`]),
+      ]);
+    await expect.poll(problems, { message: at }).toEqual([]);
+    const labels = await readLabels();
     expect(labels).toHaveLength(6);
-    for (const l of labels) {
-      expect(l.shown && l.text.length > 0, `${at} ${l.cls}: "${l.text}"`).toBe(true);
-      expect(l.fs, `${at} ${l.cls}`).toBeGreaterThanOrEqual(10);
-      if (/\bab\b/.test(l.cls)) expect(l.kfs, `${at} ${l.cls} key`).toBeGreaterThanOrEqual(10);
-    }
     if (lang === 'zh') expect(labels.slice(2).map((l) => l.text)).toEqual(['桃', '酒', '杀', '闪']);
     await guide.locator('.gd-x').click();
     await expect(guide).toHaveCount(0);
@@ -1084,13 +1089,63 @@ test('PLATFORM-5/6/9/10 phones: touch labels, emblem captions, card captions, th
   await lb.ctx.close();
   // (e) hero select: every seat's name in full (「AI·孙仲谋」, not 「A…」)
   const hs = await open('screen=heroSelect', 844, 390);
-  await expect(hs.page.locator('.pick .nm').first()).toBeVisible({ timeout: 15_000 });
-  const cut = await hs.page.locator('.pick .nm').evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent));
+  await expect(hs.page.locator('.pick .who .nm').first()).toBeVisible({ timeout: 15_000 });
+  const cut = await hs.page.locator('.pick .who .nm').evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent));
   expect(cut).toEqual([]);
   await hs.ctx.close();
   // (f) portrait select: 选定 sits on an opaque bar (the 专属武器 stats no longer show through a fade)
+  // (a guest's link chip / loading line: see the MP2-1 / MP2-2 test below)
   const ps = await open('screen=heroSelect', 390, 844);
   await expect(ps.page.locator('.detail-actions')).toBeVisible({ timeout: 15_000 });
   expect(await ps.page.locator('.detail-actions').evaluate((e) => getComputedStyle(e).backgroundColor)).toMatch(/^rgb\(/);
   await ps.ctx.close();
+});
+
+type LinkMock = { __ui: { deps: { lastSession: { hostSilentMs: number; calls: string[]; status(zh: string, en: string, extra?: { key?: string; clear?: boolean }): void } } } };
+
+test('MP2-1 / MP2-2 guest link: the chip counts a silent host, offers 重试 / 离开, loading waits for the host', async () => {
+  // a phone (the chip sits above the touch look zone: its buttons take the tap) and a desktop window
+  for (const [w, hgt, touch] of [[844, 390, true], [1280, 720, false]] as const) {
+    const { ctx, page, errors } = await open(`screen=hud&kind=online${touch ? '&touch=1' : ''}`, w, hgt);
+    await expect(page.locator('.hud-top .role-chip')).toBeVisible({ timeout: 15_000 });
+    await page.evaluate(() => {
+      const s = (window as unknown as LinkMock).__ui.deps.lastSession;
+      s.hostSilentMs = 12_400;
+      s.status('等待主机响应…', 'Waiting for host…', { key: 'waitingHost' });
+    });
+    const chip = page.locator('.link-chip');
+    await expect(chip.locator('.lk-text')).toHaveText('⚠ 等待房主响应… 12 秒');
+    await expect(chip.locator('.lk-btn')).toHaveText(['离开']);
+    await page.evaluate(() => {
+      (window as unknown as LinkMock).__ui.deps.lastSession.hostSilentMs = 15_000;
+    });
+    await expect(chip.locator('.lk-text')).toHaveText('⚠ 等待房主响应… 15 秒');
+    await page.evaluate(() => {
+      const s = (window as unknown as LinkMock).__ui.deps.lastSession;
+      s.status('连接中断，正在重新连接…', 'Connection lost — reconnecting…');
+      s.status('暂时联系不上房主，正在重试…', 'Connection lost — cannot reach the host, retrying…', { key: 'hostUnreachable' });
+    });
+    await expect(chip.locator('.lk-text')).toHaveText('⚠ 暂时联系不上房主，正在重试…');
+    await expect(chip.locator('.lk-btn')).toHaveText(['重试', '离开']);
+    await chip.locator('.lk-btn.retry').click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as LinkMock).__ui.deps.lastSession.calls.filter((c) => c === 'retryNow').length)).toBe(1);
+    // 离开 asks first (the pause menu's own confirmation)
+    await chip.locator('.lk-btn.leave').click();
+    await expect(page.locator('.sg-modal-back')).toBeVisible();
+    await page.locator('.sg-modal-back .sg-btn').first().click();
+    // back: the green chip, no buttons
+    await page.evaluate(() => (window as unknown as LinkMock).__ui.deps.lastSession.status('已重新连接', 'Reconnected', { key: 'hostUnreachable', clear: true }));
+    await expect(chip).toHaveAttribute('data-tone', 'ok');
+    await expect(chip.locator('.lk-btn')).toHaveCount(0);
+    expect(errors).toEqual([]);
+    await ctx.close();
+  }
+  // loading: the view is ready but the host's clock has not started → 等待房主加载…, not 开战！
+  const ld = await open('screen=loading&awaitHost=1', 1280, 720);
+  await expect(ld.page.locator('.load-stage')).toHaveText('等待房主加载…', { timeout: 15_000 });
+  await ld.page.evaluate(() => {
+    (window as unknown as { __ui: { deps: { lastSession: { awaitingHostStart: boolean } } } }).__ui.deps.lastSession.awaitingHostStart = false;
+  });
+  await expect(ld.page.locator('.load-stage')).toHaveText('开战！ 100%');
+  await ld.ctx.close();
 });

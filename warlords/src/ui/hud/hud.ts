@@ -45,6 +45,9 @@ export const ROTATE_QUERY = '(orientation: portrait) and (max-width: 820px)';
 
 const MINIMAP_RADIUS = 85;
 
+/** The touch guide is fitted again this many times, 0.5 s apart, after it first shows (layout / fonts settling). */
+const GUIDE_SETTLE_REFITS = 6;
+
 export class Hud {
   readonly el: HTMLElement;
   private readonly bag = new Bag();
@@ -90,6 +93,9 @@ export class Hud {
   private guideTimer: ReturnType<typeof setTimeout> | null = null;
   /** what the touch guide was last fitted to (screen size, the Lord's G button): refit when it changes */
   private guideFit = '';
+  /** when it was last fitted, and how many settle-in refits it has had (text metrics can still move right after it shows) */
+  private guideFitAt = 0;
+  private guideRefits = 0;
   private touch: TouchControls | null = null;
   /** portrait phone: the rotate-to-landscape cover is up */
   private rotating = false;
@@ -440,10 +446,19 @@ export class Hud {
     // touch: the guide is fitted once the HUD is on screen (it is built during loading), and again
     // when what it shares the screen with changes — the size, the Lord's G button appearing
     if (this.guide && this.isTouch() && this.guide.clientHeight > 0) {
-      const key = `${window.innerWidth}x${window.innerHeight}|${this.el.querySelector('.sg-touch .ab-lord:not(.sg-hidden)') ? 'G' : ''}`;
-      if (key !== this.guideFit) {
+      // (the HUD's own box: it can be laid out at a stub size for a frame while its layer mounts)
+      const lordBtn = !!this.el.querySelector('.sg-touch .ab-lord:not(.sg-hidden)');
+      const key = `${this.el.clientWidth}x${this.el.clientHeight}|${lordBtn ? 'G' : ''}`;
+      const settle = this.guideRefits < GUIDE_SETTLE_REFITS && now - this.guideFitAt >= 0.5;
+      if (key !== this.guideFit || settle) {
+        if (key === this.guideFit) this.guideRefits++;
         this.guideFit = key;
-        fitGuideCard(this.guide);
+        this.guideFitAt = now;
+        if (lordBtn) this.el.dataset.lordBtn = '';
+        else delete this.el.dataset.lordBtn;
+        this.el.dataset.guide = 'on';
+        const steps = fitGuideCard(this.guide);
+        this.el.dataset.guide = steps.at(-1) ?? 'on';
       }
     }
     setClass(this.el, 'no-hero', !f.me);
@@ -1035,11 +1050,14 @@ export class Hud {
     // touch: the card is fitted (it cannot scroll) by frame()
     const card = createGuideCard(this.isTouch(), () => {
       if (this.guide === card) this.guide = null;
+      delete this.el.dataset.guide;
       if (this.guideTimer !== null) clearTimeout(this.guideTimer);
       this.guideTimer = null;
     });
     this.guide = card;
     this.guideFit = '';
+    this.guideRefits = 0;
+    this.el.dataset.guide = 'on';
     this.el.appendChild(card);
     // it never has to be dismissed: it fades out on its own 45 s into play — the clock starts
     // on the first click-in (frame()), not behind 「点击进入战场」 (UX-11)

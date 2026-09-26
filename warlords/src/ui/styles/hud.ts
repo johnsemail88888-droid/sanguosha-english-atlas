@@ -508,14 +508,15 @@ export const HUD_CSS = /* css */ `
 /* touch (PLATFORM-10): top-centre / right. Never over the stick (it follows the thumb anywhere in the left 42 %),
    随 / 标 or the right-hand buttons: right of the crosshair when there is room, under the weapon panel (over the
    kill feed, which is short at the start of a match), down to just above the skill buttons. */
-/* --gl: the card's left edge (the prompts below step left of it) */
+/* --gl: the card's left edge (the prompts below step left of it; the fit steps set the card's own edge directly).
+   The HUD mirrors the card's state and the Lord's G button in data-guide / data-lord-btn (hud.ts). */
 .sg-hud.touch { --gl: max(42%, min(calc(50% + 30px), calc(100% - ${u(250)} - 190px))); }
-.sg-hud.touch .hud-guide { top: calc(${u(16)} + 58px); transform: none; max-height: calc(100% - ${u(16)} - 58px - var(--tb) * 2.6 - 10px); left: var(--gl); right: ${u(250)}; width: auto; padding: 0.5em 0.75em 0.45em; font-size: 11px; opacity: 0.95; }
+.sg-hud.touch .hud-guide { top: calc(${u(16)} + 58px); transform: none; max-height: calc(100% - ${u(16)} - 58px - var(--tb) * 2.6 - 10px); left: var(--gl); right: ${u(250)}; width: auto; padding: 0.5em 0.75em 0.45em; font-size: 11px; opacity: 0.95; animation: none; }
 /* a Lord's G button stands above E, under the card's right end: the card stops left of its column */
-.sg-hud.touch:has(.sg-touch .ab-lord:not(.sg-hidden)) .hud-guide { right: calc(var(--tb) * 3.7 + 8px); }
+.sg-hud.touch[data-lord-btn] .hud-guide { right: calc(var(--tb) * 3.7 + 8px); }
 /* the F prompt and the zone warning (centred under the card's left part) step left of it meanwhile */
 /* (not a tap target meanwhile: it may reach into the stick zone — the lit 救援 / 拾取 button does the same) */
-.sg-hud.touch:has(> .hud-guide) :is(.hud-interact, .hud-zonewarn) { left: calc(var(--gl) - 8px); transform: translateX(-100%); pointer-events: none; }
+.sg-hud.touch[data-guide] :is(.hud-interact, .hud-zonewarn) { left: calc(var(--gl) - 8px); transform: translateX(-100%); pointer-events: none; }
 .sg-hud.touch .hud-guide .gd-list { gap: 0.1em; }
 .sg-hud.touch .hud-guide .gd-list li { font-size: 1em; }
 .sg-hud.touch .hud-guide .keys { min-width: 2.4em; }
@@ -528,12 +529,17 @@ export const HUD_CSS = /* css */ `
 .sg-hud.touch .hud-guide.fit-tight .gd-claim { margin: 0.25em 0 0.1em; font-size: 1em; line-height: 1.25; }
 .sg-hud.touch .hud-guide.fit-tight .sg-btn { font-size: 10px; padding: 0.2em 0.55em; letter-spacing: 0; }
 .sg-hud.touch .hud-guide.fit-tight h3 { font-size: 1.15em; }
-.sg-hud.touch:has(> .hud-guide.fit-wide) { --gl: 42%; }
+/* fitGuideCard() measures right after switching a step: nothing on the card may transition (the reduced-motion
+   rule in base.ts gives every element a 1 ms transition — a read in between still sees the previous layout) */
+.sg-hud .hud-guide, .sg-hud .hud-guide * { transition-property: none !important; }
+.sg-hud.touch .hud-guide.fit-wide { left: 42%; }
+.sg-hud.touch[data-guide="fit-wide"] { --gl: 42%; }
 .sg-hud.touch .hud-guide.fit-wide { max-height: calc(100% - ${u(16)} - 58px - var(--tb) * 2.6 - 4px); }
 .sg-hud.touch .hud-guide.fit-wide .tb-cap { height: 1.45em; }
 .sg-hud.touch .hud-guide.fit-wide .gd-list li { line-height: 1.16; }
 /* last resort (640×360 in English): a little into the stick zone — the stick's resting place stays clear */
-.sg-hud.touch:has(> .hud-guide.fit-lean) { --gl: 36%; }
+.sg-hud.touch .hud-guide.fit-lean { left: 36%; }
+.sg-hud.touch[data-guide="fit-lean"] { --gl: 36%; }
 .sg-hud.touch .hud-guide .sg-btn { font-size: 11px; padding: 0.2em 0.7em; min-height: 0; }
 /* touch: the card cannot be scrolled (touches pass through it) — its buttons come first */
 /* low specificity on purpose: the "covered by a menu / panel" rules above still hide it */
