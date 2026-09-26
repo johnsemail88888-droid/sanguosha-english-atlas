@@ -64,6 +64,8 @@ export const HUD_CSS = /* css */ `
 @keyframes sg-kf-in { from { opacity: 0; transform: translateX(${u(20)}); } }
 .kf .who { color: color-mix(in srgb, var(--kc, #ccc) 50%, #fff 50%); font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
 .kf .who small { font-weight: 400; opacity: 0.75; margin-left: ${u(4)}; font-size: 0.85em; }
+/* a row that does not fit drops the player names (killer's first): hero names + the victim's role stay (feed.ts fitFeedRow) */
+.kf.tight-k .who.k small, .kf.tight .who small { display: none; }
 .kf .who.zone { color: #ff9a6a; }
 .kf .verb { display: inline-grid; place-items: center; min-width: ${u(20)}; height: ${u(20)}; padding: 0 ${u(3)}; border-radius: ${u(3)}; background: var(--red); color: #fbeedd; font-family: var(--font-display); font-size: ${fs(13, 10)}; font-weight: 800; text-shadow: none; flex: none; }
 .kf .verb.small { background: transparent; color: #e8d8b0; font-family: var(--font-body); font-weight: 400; }
@@ -152,6 +154,8 @@ export const HUD_CSS = /* css */ `
 /* ── scope ─────────────────────────────────────────────── */
 .hud-scope { position: absolute; inset: 0; display: none; background: radial-gradient(circle at 50% 50%, transparent 0 min(38vw, 42vh), rgba(0, 0, 0, 0.92) calc(min(38vw, 42vh) + 3px)); }
 .hud-scope.on { display: block; }
+/* looking through a scope: no F prompt inside the lens under the reticle (COMBAT-11) */
+.hud-scope.on ~ .hud-interact { visibility: hidden; }
 .hud-scope .lens { position: absolute; left: 50%; top: 50%; width: calc(min(38vw, 42vh) * 2); height: calc(min(38vw, 42vh) * 2); transform: translate(-50%, -50%); border-radius: 50%; box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6), 0 0 0 3px #111; }
 .hud-scope .h { position: absolute; left: 0; right: 0; top: 50%; height: 1.5px; background: rgba(0, 0, 0, 0.9); }
 .hud-scope .v { position: absolute; top: 0; bottom: 0; left: 50%; width: 1.5px; background: rgba(0, 0, 0, 0.9); }
@@ -162,6 +166,12 @@ export const HUD_CSS = /* css */ `
 .hud-interact.off { opacity: 0; visibility: hidden; }
 .hud-interact .sub { font-size: ${fs(12, 10)}; color: #ffc9a8; }
 .hud-interact.warn { border-color: #d98a5a; }
+/* full item bar: "F take 桃, drop slot 7's 无懈可击" over the discard hint */
+.hud-interact.swapcard { display: grid; grid-template-columns: auto auto auto; column-gap: ${u(8)}; row-gap: ${u(1)}; border-color: #d9a85a; }
+.hud-interact.swapcard > .sg-key { grid-column: 1; grid-row: 1 / span 2; align-self: center; justify-self: start; }
+.hud-interact.swapcard > .ip-art { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.hud-interact.swapcard > .txt { grid-column: 3; grid-row: 1; }
+.hud-interact.swapcard > .sub { grid-column: 3; grid-row: 2; line-height: 1.2; }
 .hud-channel { position: absolute; left: 50%; top: calc(50% + ${u(40)}); transform: translateX(-50%); width: ${u(240)}; text-align: center; font-size: ${fs(13, 10)}; }
 .hud-channel.off { display: none; }
 .hud-channel .track { height: ${u(6)}; margin-top: ${u(3)}; background: rgba(0, 0, 0, 0.55); border: 1px solid var(--hud-line); border-radius: ${u(3)}; overflow: hidden; }
@@ -280,6 +290,21 @@ export const HUD_CSS = /* css */ `
 .hud-abilities .item .card:not(.art-on) .nm.dup { display: none; }
 .hud-abilities .item .cnt { position: absolute; right: ${u(-6)}; bottom: ${u(-6)}; min-width: ${u(18)}; height: ${u(18)}; padding: 0 ${u(4)}; border-radius: ${u(9)}; display: grid; place-items: center; background: #b3261e; color: #fff; font-size: ${fs(11, 9)}; font-weight: 900; text-shadow: none; }
 .hud-abilities .item .cnt:empty { display: none; }
+/* what you just got: compact lines right above the item bar, newest at the bottom (feed.ts PickupStrip) */
+.hud-pickups { position: absolute; left: 50%; bottom: ${u(108)}; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: ${u(4)}; pointer-events: none; }
+.pk-row { display: inline-flex; align-items: center; gap: ${u(7)}; padding: ${u(2)} ${u(12)} ${u(2)} ${u(3)}; border-radius: 999px; background: rgba(18, 12, 7, 0.72); border: 1px solid var(--hud-line); font-size: ${fs(13, 11)}; white-space: nowrap; animation: sg-pk-in 0.2s ease-out; transition: opacity 0.3s; }
+.pk-row.out { opacity: 0; }
+.pk-row .pk-t { font-weight: 700; color: #f5ead0; }
+.pk-row .pk-n { color: var(--gold-hi); font-size: 0.9em; }
+.pk-row .pk-n:empty { display: none; }
+.pk-ico { position: relative; flex: none; display: inline-grid; place-items: center; width: ${u(24)}; height: ${u(24)}; border-radius: 50%; font-family: var(--font-display); font-size: ${fs(13, 10)}; font-weight: 900; color: var(--ic); background: linear-gradient(#fbf3de, #e2cf9f); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ic) 65%, #000 25%); text-shadow: none; overflow: hidden; }
+.pk-ico > .sg-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pk-ico.art-on { color: transparent; background: #140d08; }
+.pk-row .pk-w { width: ${u(46)}; margin: ${u(-4)} 0; }
+.pk-row:not(:has(> .pk-ico, > .pk-w)) { padding-left: ${u(12)}; }
+@keyframes sg-pk-in { from { opacity: 0; transform: translateY(${u(8)}); } }
+.sg-hud.dead .hud-pickups { display: none; }
+.sg-hud.touch .hud-pickups { bottom: calc(clamp(44px, 12vmin, 62px) * 0.95 + 16px); }
 .hud-abilities .item.empty .card { background: rgba(0, 0, 0, 0.35); border: 1.5px dashed rgba(214, 173, 82, 0.4); box-shadow: none; }
 
 /* ── weapon ────────────────────────────────────────────── */
@@ -442,6 +467,7 @@ export const HUD_CSS = /* css */ `
 .hud-cardinfo { position: absolute; left: 50%; bottom: calc(clamp(44px, 12vmin, 62px) * 1.15 + 16px); transform: translateX(-50%); width: min(24em, 80vw); z-index: 24; pointer-events: auto; font-size: ${fs(14, 12)}; text-shadow: none; animation: sg-fade 0.15s ease-out; }
 .hud-cardinfo.off { display: none; }
 .hud-cardinfo .pc-card { background: rgba(250, 242, 222, 0.96); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55); }
+.hud-cardinfo .pc-discard { display: flex; margin: 0.4em auto 0; min-height: 2.2em; font-size: 0.95em; }
 .sg-hud { --guide-w: min(clamp(250px, 26vw, 330px), 42vw); }
 .hud-guide { position: absolute; right: ${u(16)}; top: 50%; transform: translateY(-50%); width: var(--guide-w); max-height: calc(100% - 2em); overflow: auto; z-index: 22; pointer-events: none; padding: 0.9em 1.1em 0.8em; font-size: clamp(12px, calc(0.4vw + 0.4vh + 5px), 15px); text-shadow: none; color: var(--paper-ink); animation: sg-pop 0.2s ease-out; }
 /* the card itself lets touches through to the stick / look zone: only its buttons are targets */

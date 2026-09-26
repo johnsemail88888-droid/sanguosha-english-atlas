@@ -253,7 +253,7 @@ export class Scope {
 
 // ── Interaction prompt + channel bar ─────────────────────────────────────────
 
-export function interactText(p: InteractPrompt, lang: 'zh' | 'en'): { key: string; text: string; sub: string } {
+export function interactText(p: InteractPrompt, lang: 'zh' | 'en', touch = false): { key: string; text: string; sub: string } {
   switch (p.kind) {
     case 'revive':
       return { key: '', text: t('hud.interact.revive', { name: `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}` }), sub: p.needPeach ? t('hud.interact.needPeach') : '' };
@@ -265,8 +265,12 @@ export function interactText(p: InteractPrompt, lang: 'zh' | 'en'): { key: strin
     }
     case 'pickup':
       return { key: 'F', text: p.swap ? t('hud.interact.swap', { name: gearName(p.itemId) }) : t('hud.interact.pickup', { name: gearName(p.itemId) }), sub: '' };
-    case 'full':
-      return { key: '', text: gearName(p.itemId), sub: tx('锦囊栏已满', 'Item slots full') };
+    case 'full': {
+      // COMBAT-7: F swaps the card for slot 4–7's (dropped at your feet); the discard binding for any other slot
+      const hint = t(touch ? 'hud.interact.fullHintTouch' : 'hud.interact.fullHint');
+      if (p.swapSlot < 0) return { key: '', text: gearName(p.itemId), sub: t('hud.interact.full') };
+      return { key: 'F', text: t('hud.interact.swapCard', { name: gearName(p.itemId), slot: String(4 + p.swapSlot), old: gearName(p.swapId) }), sub: `${t('hud.interact.full')} · ${hint}` };
+    }
     case 'selfRevive':
       return { key: '', text: t('hud.interact.selfRevive', { key: String(4 + p.slot) }), sub: '' };
   }
@@ -294,19 +298,20 @@ export class InteractPromptView {
     const derived = deriveInteract(f.me, f.myEnt, f.ents);
     // the downed overlay already explains self-revive
     const p = derived?.kind === 'selfRevive' ? null : derived;
-    const k = p ? `${p.kind}|${'targetId' in p ? p.targetId : ''}|${'itemId' in p ? p.itemId : ''}|${p.kind === 'revive' ? p.needPeach : ''}|${f.lang}|${f.touch}` : '';
+    const k = p ? `${p.kind}|${'targetId' in p ? p.targetId : ''}|${'itemId' in p ? p.itemId : ''}|${p.kind === 'revive' ? p.needPeach : ''}|${p.kind === 'full' ? `${p.swapSlot}:${p.swapId}` : ''}|${f.lang}|${f.touch}` : '';
     if (k !== this.key) {
       this.key = k;
       setClass(this.el, 'off', !p);
       if (p) {
-        const txt = interactText(p, f.lang);
+        const txt = interactText(p, f.lang, f.touch);
         const keyLabel = f.touch ? '' : txt.key;
         setText(this.keyEl, keyLabel);
         setClass(this.keyEl, 'sg-hidden', !keyLabel);
         setText(this.textEl, txt.text);
         setText(this.subEl, txt.sub);
         setClass(this.subEl, 'sg-hidden', !txt.sub);
-        setClass(this.el, 'warn', p.kind === 'full' || (p.kind === 'revive' && p.needPeach));
+        setClass(this.el, 'warn', (p.kind === 'full' && p.swapSlot < 0) || (p.kind === 'revive' && p.needPeach));
+        setClass(this.el, 'swapcard', p.kind === 'full' && p.swapSlot >= 0);
         const ref = p.kind === 'pickup' || p.kind === 'full' ? gearArt(p.itemId) : null;
         setArt(this.artEl, ref);
         setClass(this.artEl, 'weapon', ref?.shape === 'weapon');

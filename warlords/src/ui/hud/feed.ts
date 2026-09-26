@@ -1,10 +1,12 @@
 // Kill feed (with role-reveal colors), center announcements, and chat log.
 import type { Kingdom, RoleId } from '../../core/types';
 import { h } from '../dom';
-import { colon, getLang, heroName, roleName, t } from '../i18n';
+import { colon, gearName, getLang, heroName, roleName, t, tx } from '../i18n';
 import { ROLE_GLYPH, kingdomColor, roleColor } from '../theme';
 import type { PortraitCache } from '../widgets';
-import { abilityIcon, gearIcon } from '../artIcons';
+import { abilityIcon, gearIcon, setArt } from '../artIcons';
+import { gearArt } from '../cardArt';
+import { ARMOR_BY_ID, ITEM_BY_ID, MOUNT_BY_ID } from '../../data';
 import type { KillCause } from './killcause';
 
 /** The painted weapon / ability / card a kill was made with (null without art: the feed looks as before). */
@@ -21,6 +23,25 @@ export interface FeedParty {
 }
 
 // ── Kill feed ────────────────────────────────────────────────────────────────
+
+/**
+ * A row too long for the feed (English names: "Zhou Yu · Nameless 288 killed Lü Bu ·
+ * Bot 2 [Rebel]") first drops the killer's player name, then the victim's: hero names
+ * and the victim's revealed role always stay whole (UX-15). `clipped` is injectable for tests.
+ */
+export function fitFeedRow(row: HTMLElement, clipped: (row: HTMLElement) => boolean = namesClipped): void {
+  if (!clipped(row)) return;
+  row.classList.add('tight-k');
+  if (!clipped(row)) return;
+  row.classList.add('tight');
+}
+
+/** Any name in the row cut by an ellipsis (its content is wider than its box)? */
+function namesClipped(row: HTMLElement): boolean {
+  if (typeof row.querySelectorAll !== 'function') return false;
+  for (const w of Array.from(row.querySelectorAll<HTMLElement>('.who'))) if (w.scrollWidth > w.clientWidth + 1) return true;
+  return false;
+}
 
 export class KillFeed {
   readonly el: HTMLElement;
@@ -56,6 +77,7 @@ export class KillFeed {
       roleEl,
     );
     this.el.appendChild(el);
+    fitFeedRow(el);
     this.entries.push({ el, until: opts.now + (opts.mine || opts.aboutMe ? 10 : 7) });
     while (this.entries.length > this.max) this.entries.shift()?.el.remove();
   }
@@ -68,6 +90,7 @@ export class KillFeed {
       h('span', { class: 'rseal claim', style: `--seal:${roleColor(role)}` }, ROLE_GLYPH[role], h('small', null, roleName(role))),
     );
     this.el.appendChild(el);
+    fitFeedRow(el);
     this.entries.push({ el, until: now + 6 });
     while (this.entries.length > this.max) this.entries.shift()?.el.remove();
   }
@@ -156,6 +179,77 @@ export class Announcer {
       e?.el.remove();
     }
   }
+}
+
+// ── Pickups ──────────────────────────────────────────────────────────────────
+
+/**
+ * What you just got, as compact lines (emblem + name) stacked just above the item bar —
+ * never over the crosshair, and without the card text (that stays in the card's
+ * tooltip, the long-press info and the 锦囊说明 in the menu) (COMBAT-8). The same
+ * card again within a few seconds counts up on its line (×2) instead of a new one.
+ */
+export class PickupStrip {
+  readonly el: HTMLElement;
+  private rows: { id: string; el: HTMLElement; n: number; count: HTMLElement; until: number }[] = [];
+
+  constructor(
+    private readonly max = 4,
+    /** seconds a line stays */
+    private readonly ttl = 3.2,
+  ) {
+    this.el = h('div', { class: 'hud-pickups', aria: { live: 'polite' } });
+  }
+
+  push(id: string, now: number): void {
+    const same = this.rows.find((r) => r.id === id && r.until > now);
+    if (same) {
+      same.n++;
+      same.count.textContent = `×${same.n}`;
+      same.until = now + this.ttl;
+      // newest at the bottom, next to the bar
+      this.el.appendChild(same.el);
+      this.rows = [...this.rows.filter((r) => r !== same), same];
+      return;
+    }
+    const count = h('b', { class: 'pk-n' });
+    const el = h('div', { class: 'pk-row', data: { item: id } }, pickupIcon(id), h('span', { class: 'pk-t' }, t('hud.pickup', { name: pickupLabel(id) })), count);
+    this.el.appendChild(el);
+    this.rows.push({ id, el, n: 1, count, until: now + this.ttl });
+    while (this.rows.length > this.max) this.rows.shift()?.el.remove();
+  }
+
+  update(now: number): void {
+    while (this.rows.length && this.rows[0].until < now) {
+      const r = this.rows.shift();
+      if (!r) break;
+      r.el.classList.add('out');
+      setTimeout(() => r.el.remove(), 300);
+    }
+  }
+
+  /** the lines shown now (tests / harness) */
+  lines(): string[] {
+    return this.rows.map((r) => r.el.textContent ?? '');
+  }
+}
+
+/** A card / armor / mount / weapon name for the pickup line. */
+function pickupLabel(id: string): string {
+  const it = ITEM_BY_ID[id];
+  return it ? tx(it.nameZh, it.nameEn) : gearName(id);
+}
+
+/** The emblem (its glyph until the art loads, or without art), or a weapon's render when it ships. */
+function pickupIcon(id: string): HTMLElement | null {
+  const ref = gearArt(id);
+  if (ref?.shape === 'weapon') return gearIcon(id, 'pk-w');
+  const def = ITEM_BY_ID[id] ?? ARMOR_BY_ID[id] ?? MOUNT_BY_ID[id];
+  if (!def) return null;
+  const glyph = ITEM_BY_ID[id]?.icon ?? def.nameZh.slice(0, 1);
+  const tile = h('span', { class: 'pk-ico', style: `--ic:${def.color}` }, glyph);
+  setArt(tile, ref, { first: true });
+  return tile;
 }
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
