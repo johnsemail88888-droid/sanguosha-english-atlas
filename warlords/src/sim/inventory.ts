@@ -718,8 +718,9 @@ export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boole
     else if (s.id === id) room += max - s.count;
   }
   if (room <= 0) {
-    // full bar: an explicit F swaps the card for the last slot's (dropped behind you like swapped gear)
-    const slot = explicit ? itemSwapSlot(h.items, id) : -1;
+    // full bar: a player's explicit F swaps the card for the last slot's (dropped behind you like swapped
+    // gear). Bots never pick cards they have no room for — their F at a pile is meant for the gear.
+    const slot = explicit && !h.isBot ? itemSwapSlot(h.items, id) : -1;
     if (slot < 0) return false;
     const old = h.items[slot]!;
     const n = Math.min(max, lo.count);

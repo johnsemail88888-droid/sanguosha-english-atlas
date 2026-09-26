@@ -96,6 +96,14 @@ describe('COMBAT-7: F on a card with a full bar swaps it for the last slot', () 
     expect(loots(w)).toHaveLength(1);
   });
 
+  it('a bot’s F never swaps a card (its F at a pile is meant for the gear; bot pacing unchanged)', () => {
+    const { w, me, card } = scene({ itemId: 'tao' });
+    me.hero!.isBot = true;
+    press(w, [{ a: 'interact' }], card.id);
+    expect(ids(me.hero!.items)).toEqual(['wugux1', 'jiedaox1', 'tiesuox1', 'wuxiex1']);
+    expect(card.alive).toBe(true);
+  });
+
   it('walking over a card with a full bar never swaps (only an explicit F does)', () => {
     const { w, me, card } = scene({ itemId: 'tao' });
     place(w, me, card.pos.x, card.pos.z, 0);
