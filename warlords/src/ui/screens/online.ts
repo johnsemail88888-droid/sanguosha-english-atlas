@@ -47,6 +47,11 @@ function applyNet(over: InviteNet): void {
 /** One automatic rejoin per page load (a failed one leaves the screen to the player). */
 let rejoinTried = false;
 
+/** The player asked to reconnect (重新连接 after a lost link): the next online screen rejoins the saved room. */
+export function allowRejoin(): void {
+  rejoinTried = false;
+}
+
 export function createOnlineScreen(ctx: UiCtx): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-menu-screen sg-online', data: { screen: 'online' } });

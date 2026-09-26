@@ -17,7 +17,7 @@ import { heroAbilityArt, matchCardArt, prefetchArt } from './artIcons';
 import { HEROES } from '../data';
 import { createTitleScreen } from './screens/title';
 import { createSingleScreen } from './screens/single';
-import { createOnlineScreen } from './screens/online';
+import { allowRejoin, createOnlineScreen } from './screens/online';
 import { LobbyChatLog, createLobbyScreen } from './screens/lobby';
 import { createRolesScreen, mySeat } from './screens/roles';
 import { createHeroSelectScreen } from './screens/heroSelect';
@@ -120,6 +120,11 @@ const FATAL_ERROR = /kick|host.?left|disconnect|lost|closed|full|version|not.?fo
 
 export function isFatalSessionError(code: string): boolean {
   return FATAL_CODES.has(code) || FATAL_ERROR.test(code);
+}
+
+/** A lost link to a room that may still be there (not kicked / closed / full): worth a 重新连接 button. */
+export function isReconnectable(code: string): boolean {
+  return code === 'connectionLost' || code === 'timeout' || code === 'closed' || code === 'serverUnreachable' || code === 'networkRestricted';
 }
 
 /** Session endings that are news, not malfunctions: titled 提示 / Notice instead of 出错了. */
@@ -614,7 +619,21 @@ class App implements UiCtx {
   private onSessionError(e: { code: string; zh: string; en: string }): void {
     const msg = tx(e.zh, e.en);
     if (isFatalSessionError(e.code)) {
-      this.leaveSession(true);
+      // a guest who lost the host (after the net layer's own retries): offer the way back into the room
+      const rejoin = this.sessionKind === 'online' && this.session && !this.session.isHost && isReconnectable(e.code) ? loadRejoin() : null;
+      this.leaveSession(true, !!rejoin);
+      if (rejoin) {
+        void this.confirm(msg, { title: t('error.title'), ok: t('error.reconnect'), cancel: t('over.toTitle') }).then((yes) => {
+          if (!yes) {
+            clearRejoin();
+            return;
+          }
+          // the online screen joins the saved room the normal way (the seat token reclaims the seat)
+          allowRejoin();
+          this.go('online');
+        });
+        return;
+      }
       // being kicked or the host closing the room is news, not a malfunction
       void this.alert(isNoticeCode(e.code) ? t('notice.title') : t('error.title'), msg);
     } else {

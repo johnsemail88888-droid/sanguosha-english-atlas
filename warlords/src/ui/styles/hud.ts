@@ -374,6 +374,8 @@ export const HUD_CSS = /* css */ `
 .hud-scoreboard { width: min(64em, 96vw); max-height: 88vh; overflow: auto; padding: 1em 1.4em 1.2em; animation: sg-pop 0.15s ease-out; }
 .hud-scoreboard .sb-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6em 1em; flex-wrap: wrap; margin-bottom: 0.5em; }
 .hud-scoreboard .sb-head h2 { color: var(--red-lo); }
+/* 延迟 column only with remote players (overlays.ts hasRemotePlayers) */
+.hud-scoreboard .no-ping :is(th, td):nth-child(8) { display: none; }
 .hud-scoreboard .sb-stats { display: flex; gap: 1em; flex-wrap: wrap; font-size: 0.9em; color: var(--paper-mute); }
 .hud-scoreboard .sb-stats b { color: var(--paper-ink); margin-right: 0.25em; font-size: 1.15em; }
 .hud-scoreboard tr.me td { background: rgba(179, 38, 30, 0.08); }

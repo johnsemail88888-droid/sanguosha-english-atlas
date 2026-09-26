@@ -14,6 +14,8 @@ import { isGeneratedName, nameFieldModel } from '../../../src/ui/widgets';
 import { fitFeedRow } from '../../../src/ui/hud/feed';
 import { deriveInteract } from '../../../src/ui/hud/logic';
 import { interactText } from '../../../src/ui/hud/combat';
+import { hasRemotePlayers } from '../../../src/ui/hud/overlays';
+import { isFatalSessionError, isReconnectable } from '../../../src/ui/app';
 
 afterEach(() => overrideLang(null));
 
@@ -172,5 +174,25 @@ describe('COMBAT-7: the full-bar prompt says what F swaps and how to discard', (
 
   it('the controls list teaches the discard chord', () => {
     expect(CONTROLS.some((c) => c.keys.join(' ').includes('X') && c.keys.join(' ').includes('4–7') && c.zh.includes('丢弃'))).toBe(true);
+  });
+});
+
+describe('UX-19: the scoreboard ping column only with remote players', () => {
+  const p = (entityId: number, isBot: boolean) => ({ playerId: `p${entityId}`, name: 'x', isBot, seat: entityId, entityId, heroId: HEROES[0].id, kingdom: HEROES[0].kingdom, alive: true, downed: false, kills: 0 });
+  it('single player (you + bots): no 延迟 column; a second human: the column is back', () => {
+    expect(hasRemotePlayers([p(1, false), p(2, true), p(3, true)], 1)).toBe(false);
+    expect(hasRemotePlayers([p(1, false), p(2, true), p(3, false)], 1)).toBe(true);
+    // spectating before your entity is known: other humans still count
+    expect(hasRemotePlayers([p(1, false), p(2, true)], null)).toBe(true);
+  });
+});
+
+describe('a guest who lost the host is offered 重新连接', () => {
+  it('lost links are reconnectable; being kicked / the room closing / a full room are not', () => {
+    for (const c of ['connectionLost', 'timeout', 'closed', 'serverUnreachable', 'networkRestricted']) {
+      expect(isReconnectable(c), c).toBe(true);
+      expect(isFatalSessionError(c), c).toBe(true);
+    }
+    for (const c of ['kicked', 'hostLeft', 'roomNotFound', 'roomFull', 'versionMismatch', 'inProgress', 'simFailed']) expect(isReconnectable(c), c).toBe(false);
   });
 });

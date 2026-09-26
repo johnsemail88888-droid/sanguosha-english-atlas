@@ -378,6 +378,7 @@ const DICT = {
 
   // ── errors ──
   'error.title': ['出错了', 'Something went wrong'],
+  'error.reconnect': ['重新连接', 'Reconnect'],
   'notice.title': ['提示', 'Notice'],
   'error.generic': ['发生未知错误', 'An unknown error occurred'],
 } as const satisfies Record<string, readonly [string, string]>;
