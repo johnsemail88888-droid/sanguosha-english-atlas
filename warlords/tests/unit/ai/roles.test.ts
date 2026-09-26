@@ -7,7 +7,8 @@ import { DIFFICULTY_PROFILES } from '../../../src/sim/ai/difficulty';
 import { HeroBot } from '../../../src/sim/ai/heroBot';
 import { teamPushAt } from '../../../src/sim/ai/strategy';
 import type { World } from '../../../src/sim/world';
-import { hero, makeWorld, place, stepN } from '../sim/helpers';
+import { createWorld } from '../../../src/sim/world';
+import { hero, makeInit, makeTestMap, makeWorld, place, stepN } from '../sim/helpers';
 
 const STD5: RoleId[] = ['lord', 'loyalist', 'rebel', 'rebel', 'traitor'];
 const DOUBLE5: RoleId[] = ['lord', 'double', 'rebel', 'rebel', 'traitor'];
@@ -343,6 +344,32 @@ describe('claims and quick-chat', () => {
     const evs = run(w, 30 * 100);
     expect(evs.some((e) => e.t === 'claim' && e.who === hero(w, 1).id && e.role === 'loyalist')).toBe(true);
   }, 30_000);
+
+  it('rebels mostly 跳反 (or stay silent) — only a few bluff 忠; the 内奸 bluffs 忠 (COMBAT-4)', () => {
+    const STD8: RoleId[] = ['lord', 'loyalist', 'loyalist', 'rebel', 'rebel', 'rebel', 'rebel', 'traitor'];
+    const first = new Map<string, number>();
+    for (let k = 0; k < 6; k++) {
+      const init = makeInit(STD8, ['caocao', 'guanyu', 'zhangfei', 'lubu', 'machao', 'zhaoyun', 'huangzhong', 'xuchu'], {}, [0]);
+      init.seed = 900 + k * 7;
+      const w = createWorld(init, { map: makeTestMap(), ambient: false, zone: false, airdrops: false, squads: false, nav: false, onWarn: () => {}, botFactory: (seat, d, seed) => new HeroBot(seat, d, seed) });
+      STD8.forEach((_, i) => {
+        tough(hero(w, i));
+        place(w, hero(w, i), Math.cos(i * 0.785) * 50, 30 + Math.sin(i * 0.785) * 50);
+      });
+      const seen = new Set<number>();
+      for (const e of run(w, 30 * 300)) {
+        if (e.t !== 'claim' || seen.has(e.who)) continue;
+        seen.add(e.who);
+        const role = w.get(e.who)!.hero!.role;
+        first.set(`${role}>${e.role}`, (first.get(`${role}>${e.role}`) ?? 0) + 1);
+      }
+    }
+    const n = (k: string): number => first.get(k) ?? 0;
+    process.stdout.write(`[ai] first claims in 6 tables × 5 min: ${[...first].map(([k, c]) => `${k} ${c}`).join(', ')}\n`);
+    expect(n('rebel>rebel')).toBeGreaterThanOrEqual(12); // of 24 rebels
+    expect(n('rebel>loyalist')).toBeLessThanOrEqual(6);
+    expect(n('traitor>loyalist')).toBeGreaterThanOrEqual(4); // of 6
+  }, 120_000);
 
   it('the first rebel to reach its push time calls 跟我来; a rebel who hears a call joins that push', () => {
     const { w, bot } = world(STD5, [2, 3], ['caocao', 'guanyu', 'guanyu', 'guanyu', 'guanyu']);

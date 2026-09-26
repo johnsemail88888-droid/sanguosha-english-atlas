@@ -10,7 +10,8 @@
 //                    hunts suspected rebels seen near him, fights over airdrops
 //                    with likely rebels; claims 忠 when it helps.
 //  影武者 Double  — escorts the real lord as a decoy crown.
-//  反贼 Rebel     — loots, keeps away from the crowns; mid-game (by temper, not in
+//  反贼 Rebel     — mostly 跳反 early (some keep quiet, a few bluff 忠);
+//                    loots, keeps away from the crowns; mid-game (by temper, not in
 //                    small tables) goes skirmishing — hit-and-run fights with
 //                    heroes that show real loyal signs, away from the crowns,
 //                    that wound but do not execute — and fights over airdrops.
@@ -122,6 +123,9 @@ const TRAITOR_SHADOW = 36;
 const CROWN_WEIGHT = 1.4;
 /** 主公: two or more untrusted heroes seen this close (m) → brace (cover, close to the escort) */
 const LORD_WARY = 70;
+/** rebels' claim temperaments (COMBAT-4): share that bluff 忠 / that 跳反 early (the rest keep quiet until the push) */
+const REBEL_BLUFF = 0.15;
+const REBEL_EARLY = 0.6;
 /** a 跟我来 heard this long ago (s) still counts as the push call */
 const CALL_MEMORY = STAGE_TIME + 5;
 
@@ -218,7 +222,12 @@ export class RoleStrategy {
   private downedChat = false;
   private lastRevivedAt = -99;
   private spawn: Vec3 | null = null;
-  private readonly fakeLoyal: boolean;
+  /**
+   * rebels' claim temperament (COMBAT-4): most 跳反 early to find each other, some keep quiet
+   * until the push, an occasional one bluffs 忠 (a table where no rebel ever lies would make
+   * every 忠 claim the truth)
+   */
+  private readonly rebelClaim: 'early' | 'silent' | 'bluff';
   /** seeded temperament: how readily this bot picks a fight with a stranger met in the field */
   private readonly temper: number;
   private readonly claimRebelAtPush: boolean;
@@ -274,8 +283,8 @@ export class RoleStrategy {
     this.escortAngle = ((seat * 2.39996) % (Math.PI * 2)) + rng.next() * 0.4;
     this.nextClaimAt = 35 + rng.next() * 60;
     this.claimEagerness = rng.next();
-    // half the rebels fake a 忠 claim at some point (a table of honest claims would single them out)
-    this.fakeLoyal = rng.next() < 0.5;
+    const rc = rng.next();
+    this.rebelClaim = rc < REBEL_BLUFF ? 'bluff' : rc < REBEL_BLUFF + REBEL_EARLY ? 'early' : 'silent';
     this.temper = rng.next();
     this.claimRebelAtPush = rng.next() < 0.5;
     // hit-and-run probes on the lord between the skirmishes and the push
@@ -1416,8 +1425,11 @@ export class RoleStrategy {
           if (now > 45 + 120 * (1 - eager) && this.rng.next() < 0.45 + 0.35 * eager) claim = 'loyalist';
           break;
         case 'rebel':
-          if (this.pushing(v) && this.claimRebelAtPush) claim = 'rebel';
-          else if (!this.pushing(v) && this.fakeLoyal && now > 40 + 110 * (1 - eager)) claim = 'loyalist';
+          // 跳反: the early ones admit it after the opening loot (0:50–2:30, by temperament) — the
+          // lord side knows whom to hunt, the rebels whom not to shoot; the quiet ones at the push
+          if (this.pushing(v) && (this.claimRebelAtPush || this.rebelClaim === 'early')) claim = 'rebel';
+          else if (this.rebelClaim === 'early' && now > 50 + 100 * (1 - eager)) claim = 'rebel';
+          else if (!this.pushing(v) && this.rebelClaim === 'bluff' && now > 40 + 110 * (1 - eager)) claim = 'loyalist';
           break;
         case 'opportunist':
         case 'bounty':
