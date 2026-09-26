@@ -402,10 +402,19 @@ export class DownedOverlay {
     }
     this.ring.setAttribute('stroke-dashoffset', ((2 * Math.PI * 26) * (1 - Math.min(1, rem / BLEED_TOTAL))).toFixed(1));
     const jiu = me.items.findIndex((it) => it?.id === 'jiu');
-    const hk = `${jiu}|${f.lang}`;
+    // a dying hero may play his own 桃 too (a short channel, C3-6); 酒 is instant, so it's offered first
+    const tao = me.items.findIndex((it) => it?.id === 'tao');
+    const hk = `${jiu}|${tao}|${f.lang}`;
     if (hk !== this.hintKey) {
       this.hintKey = hk;
-      setText(this.hint, jiu >= 0 ? t('hud.interact.selfRevive', { key: String(4 + jiu) }) : t('hud.downedHint'));
+      setText(
+        this.hint,
+        jiu >= 0
+          ? t('hud.interact.selfRevive', { key: String(4 + jiu) })
+          : tao >= 0
+            ? t('hud.interact.selfTao', { key: String(4 + tao) })
+            : t('hud.downedHint'),
+      );
       setText(this.title, t('hud.downed'));
     }
   }
