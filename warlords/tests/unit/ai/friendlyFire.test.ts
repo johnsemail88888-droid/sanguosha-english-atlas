@@ -132,3 +132,49 @@ describe('C3-3: a human loyalist’s friendly fire on the bot lord', () => {
     }
   }, 120000);
 });
+
+describe('C3-3: the lord bot forgives fire from a hero who just killed a revealed rebel', () => {
+  function scene(killFirst: boolean): { harm: number; hostility: number } {
+    let lordBot: HeroBot | undefined;
+    const w: World = makeWorld(ROLES, {
+      heroes: ['caocao', 'guanyu', 'dummy', 'dummy', 'dummy'],
+      humans: [1, 2, 3, 4],
+      botFactory: (seat, d, s) => {
+        const b = new HeroBot(seat, d, s);
+        if (seat === 0) lordBot = b;
+        return b;
+      },
+    });
+    const lord = hero(w, 0);
+    const loyal = hero(w, 1);
+    lord.maxHp = lord.hp = 1e4;
+    place(w, lord, 0, 30);
+    place(w, loyal, 0, 18, Math.PI);
+    place(w, hero(w, 2), 3, 12);
+    place(w, hero(w, 3), -50, -50);
+    place(w, hero(w, 4), -45, -50);
+    w.tick = 200 * 30;
+    w.time = 200;
+    for (let i = 0; i < 30; i++) w.step();
+    // the loyalist (no claim) guns down the rebel next to the lord…
+    if (killFirst) w.killHero(hero(w, 2), loyal.id, loyal.id);
+    for (let i = 0; i < 15; i++) w.step();
+    // …and his next sweep / 火攻 splash catches the lord: 4 × 20
+    for (let k = 0; k < 4; k++) {
+      w.dealDamage({ targetId: lord.id, sourceId: loyal.id, amount: 20, type: 'fire', canDodge: false });
+      for (let i = 0; i < 5; i++) w.step();
+    }
+    for (let i = 0; i < 30; i++) w.step();
+    return { harm: lordBot!.beliefs.lordSideHarmOf(loyal.id), hostility: lordBot!.hostility(loyal) };
+  }
+
+  it('the same 80 damage counts ~10× less right after the rebel kill, and the lord does not turn on him', () => {
+    const fresh = scene(true);
+    const cold = scene(false);
+    process.stdout.write(`[C3-3 grace] after a rebel kill: harm ${fresh.harm.toFixed(1)} hostility ${fresh.hostility.toFixed(2)} · without: harm ${cold.harm.toFixed(1)} hostility ${cold.hostility.toFixed(2)}\n`);
+    expect(cold.harm).toBeGreaterThan(40);
+    expect(fresh.harm).toBeLessThan(cold.harm * 0.2);
+    expect(fresh.hostility).toBeLessThan(0.5);
+    expect(fresh.hostility).toBeLessThan(cold.hostility);
+  });
+});

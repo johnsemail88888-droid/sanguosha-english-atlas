@@ -179,7 +179,8 @@ export class Beliefs {
         }
         // a hero who just killed a revealed rebel is fighting the rebels: fire that catches the lord
         // side now is collateral (C3-3: a loyalist's 火攻 splash on the lord right after his kill)
-        if (ev.time - (this.rebelKillAt.get(ev.actor) ?? -1e9) <= REBEL_KILL_GRACE) collateral = Math.min(collateral, 0.1);
+        const onLordSide = wearsCrown(sim, target) || (target === self && LORD_SIDE.has(ownRole(self)));
+        if (onLordSide && ev.time - (this.rebelKillAt.get(ev.actor) ?? -1e9) <= REBEL_KILL_GRACE) collateral = Math.min(collateral, 0.1);
         retaliation *= collateral;
         const e = this.evOf(ev.actor);
         if (ev.amount > 0 && this.harmsLordSide(sim, self, obs, ev.actor, target)) {
