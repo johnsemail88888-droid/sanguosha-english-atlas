@@ -1469,6 +1469,11 @@
    "old": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060228_86e85d8e-d35c-468a-9765-f4522687fe10.png",
    "new": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_234343_f825eab3-e427-49f3-8cab-b67a9d1cc028.png",
    "why": "playtest round 2 (UX-3/5/6): baked-in text / prohibition-sign look"
+  },
+  "public/assets/icons/abilities/zhaoyun_qijin.webp": {
+   "old": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260925_060229_a096f8ea-3995-48fc-a6d9-990df7727b2f.png",
+   "new": "https://d8j0ntlcm91z4.cloudfront.net/user_3GG0g46UiAgoiK4t0TNmlyraulP/hf_20260926_000709_f500b897-4770-4329-874f-aecdfb6f7f45.png",
+   "why": "playtest round 2 (UX-6): ring + diagonal read as a prohibition sign"
   }
  }
 }
