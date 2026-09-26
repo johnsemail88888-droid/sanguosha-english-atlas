@@ -712,28 +712,282 @@ test('hero select: the "♛ Lord chose X" toast never covers a hero card (1280×
   }
 });
 
-test('online HUD: a host freeze is one live chip (replaced in place, green, gone) and one chat line per change', async () => {
+test('online HUD: a host freeze is one live chip (replaced in place, green, gone); only a lasting one gets a chat line, updated in place', async () => {
   const { ctx, page, errors } = await open('screen=hud&kind=online', 1280, 720);
   await expect(page.locator('.sg-hud .hud-vitals')).toBeVisible({ timeout: 15_000 });
   const status = (zh: string, en: string, extra: { key?: string; clear?: boolean } = {}): Promise<void> =>
     page.evaluate(([a, b, c]) => (window as unknown as ArtHarness).__ui.deps.lastSession.status(a, b, c), [zh, en, extra] as const);
   const sysLines = (): Promise<number> => page.locator('.hud-chat .line.k-system').count();
   const before = await sysLines();
+  // (the net layer says 主机; the HUD reads 房主 like every other online string — UX-17)
   for (let i = 0; i < 3; i++) await status('等待主机响应…', 'Waiting for host…', { key: 'waitingHost' });
-  await expect(page.locator('.link-chip')).toHaveText('⚠ 等待主机响应…');
+  await expect(page.locator('.link-chip')).toHaveText('⚠ 等待房主响应…');
   await expect(page.locator('.link-chip')).toHaveAttribute('data-tone', 'warn');
   await expect(page.locator('.hud-top .match-info')).toBeHidden();
-  expect(await sysLines()).toBe(before + 1);
   await status('主机已恢复响应', 'Host is responding again', { key: 'waitingHost', clear: true });
-  await expect(page.locator('.link-chip')).toHaveText('✓ 主机已恢复响应');
-  expect(await sysLines()).toBe(before + 2);
+  await expect(page.locator('.link-chip')).toHaveText('✓ 房主已恢复响应');
+  // a short freeze is the chip alone (MP2-7)
+  expect(await sysLines()).toBe(before);
   // no announcement for the link, and the chip clears itself
-  await expect(page.locator('.hud-announce')).not.toContainText('主机');
+  await expect(page.locator('.hud-announce')).not.toContainText('房主');
   await expect(page.locator('.link-chip')).toBeHidden({ timeout: 10_000 });
   await expect(page.locator('.hud-top .match-info')).toBeVisible();
+  // a freeze that lasts: one line after ~10 s, and the same line says when the host is back
+  await status('等待主机响应…', 'Waiting for host…', { key: 'waitingHost' });
+  await expect.poll(sysLines, { timeout: 25_000 }).toBe(before + 1);
+  await expect(page.locator('.hud-chat .line.k-system').last()).toContainText('等待房主响应…');
+  await status('主机已恢复响应', 'Host is responding again', { key: 'waitingHost', clear: true });
+  await expect(page.locator('.hud-chat .line.k-system').last()).toContainText('房主已恢复响应（中断');
+  expect(await sysLines()).toBe(before + 1);
   // a host notice still reads as a chat line + an announcement
   await status('玩家离开了', 'A player left');
   await expect(page.locator('.hud-announce .ann-info')).toContainText('玩家离开了');
   expect(errors).toEqual([]);
   await ctx.close();
+});
+
+// ── playtest round 2 (UX-1…19, COMBAT-7/8/11) ─────────────────────────────────
+
+/** The mock view's internals (private in TS): your items, the entity list, events. */
+type MockInternals = {
+  __ui: {
+    deps: {
+      lastSession: {
+        view: { me: { items: unknown[] }; myId: number; ents: Map<number, { x: number; y: number; z: number; yaw: number }>; list: unknown[]; playerList: { entityId: number; isBot: boolean }[]; emit(e: unknown): void };
+        finish(w: string): void;
+        fail(code: string, zh: string, en: string): void;
+      };
+    };
+  };
+};
+
+/** Four different cards in your bar and a 桃 (or `sub`) lying just in front of you. */
+async function fullBarWithLoot(page: Page, sub = 'tao'): Promise<void> {
+  await page.evaluate((id) => {
+    const v = (window as unknown as MockInternals).__ui.deps.lastSession.view;
+    v.me.items = [{ id: 'wugu', count: 1 }, { id: 'jiedao', count: 1 }, { id: 'tiesuo', count: 1 }, { id: 'wuxie', count: 1 }];
+    const loot = { id: 9001, kind: 'loot', sub: id, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, speed: 0, hp: 1, maxHp: 1, shield: 0, flags: 0 };
+    const follow = (): void => {
+      const m = v.ents.get(v.myId)!;
+      loot.x = m.x - Math.sin(m.yaw) * 1.1;
+      loot.z = m.z - Math.cos(m.yaw) * 1.1;
+      loot.y = m.y;
+    };
+    follow();
+    v.ents.set(loot.id, loot as never);
+    v.list.push(loot);
+    setInterval(follow, 30);
+  }, sub);
+}
+
+test('round 2: help tables, card labels, pickup lines, full-bar swap + discard, scope, draw, name field, ping column, reconnect', async () => {
+  // UX-1 / UX-2 / UX-8: 玩法说明
+  const hp = await open('screen=help');
+  await expect(hp.page.locator('.help-body .role-row').first()).toBeVisible({ timeout: 15_000 });
+  await hp.page.locator('.sg-tab[data-tab="items"]').click();
+  // 杀 (common) in the dark parchment ink, not the pale HUD grey
+  await expect(hp.page.locator('.sg-table.items tbody tr').first().locator('b').first()).toHaveCSS('color', 'rgb(66, 59, 48)');
+  await hp.page.locator('.sg-tab[data-tab="weapons"]').click();
+  const weap = await hp.page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.sg-table.weapons tbody tr')];
+    let overlaps = 0;
+    for (const r of rows) {
+      const name = r.querySelector('td.wname > b')!.getBoundingClientRect();
+      const chip = r.querySelector('td.wname .sg-chip')?.getBoundingClientRect();
+      if (chip && chip.top < name.bottom - 1 && chip.left < name.right) overlaps++;
+    }
+    return { rows: rows.length, overlaps, text: document.querySelector('.sg-table.weapons')!.textContent };
+  });
+  expect(weap.rows).toBe(27);
+  expect(weap.overlaps).toBe(0);
+  expect(weap.text).not.toContain('力士巨锤');
+  expect(weap.text).not.toContain('象牙冲撞');
+  await hp.page.locator('.sg-tab[data-tab="squad"]').click();
+  // every troop name on one line (黄巾力士 / 南蛮勇士 used to break mid-word)
+  // (an inline box has one client rect per line it spans)
+  const lines = await hp.page.evaluate(() => [...document.querySelectorAll('.sg-table.troops tbody td:first-child > b')].map((b) => b.getClientRects().length));
+  expect(lines.length).toBeGreaterThan(5);
+  expect(lines.every((n) => n === 1)).toBe(true);
+  expect(hp.errors).toEqual([]);
+  await hp.ctx.close();
+
+  // UX-9 labels + COMBAT-8 pickup lines (never over the crosshair)
+  const hud = await open('screen=hud');
+  const pg = hud.page;
+  await expect(pg.locator('.sg-hud .hud-vitals')).toBeVisible({ timeout: 15_000 });
+  await pg.evaluate(() => {
+    const v = (window as unknown as MockInternals).__ui.deps.lastSession.view;
+    v.me.items = [{ id: 'sha', count: 2 }, { id: 'tao', count: 1 }, { id: 'wuzhong', count: 1 }, { id: 'jiedao', count: 1 }];
+  });
+  await expect(pg.locator('.hud-abilities .item .card.art-on')).toHaveCount(4);
+  expect(await pg.locator('.hud-abilities .item .nm').allTextContents()).toEqual(['杀', '桃', '无中', '借刀']);
+  for (const nm of await pg.locator('.hud-abilities .item .nm').all()) await expect(nm).toBeVisible();
+  const infoLines = await pg.locator('.hud-announce .ann-info .line').count();
+  await pg.evaluate(() => {
+    const v = (window as unknown as MockInternals).__ui.deps.lastSession.view;
+    for (const item of ['nanman', 'nanman', 'tiesuo', 'qinglong']) v.emit({ t: 'pickup', who: v.myId, item });
+  });
+  await expect(pg.locator('.hud-pickups .pk-row')).toHaveCount(3);
+  await expect(pg.locator('.hud-pickups .pk-row').first()).toContainText('×2');
+  const strip = await pg.locator('.hud-pickups').boundingBox();
+  expect(strip!.y).toBeGreaterThan((720 * 2) / 3);
+  expect(await pg.locator('.hud-announce .ann-info .line').count()).toBe(infoLines);
+  await expect(pg.locator('.hud-pickups .pk-row')).toHaveCount(0, { timeout: 10_000 });
+  expect(hud.errors).toEqual([]);
+  await hud.ctx.close();
+
+  // COMBAT-7: F swaps with slot 7 — the prompt says which card goes and how to discard another
+  const fb = await open('screen=hud');
+  await expect(fb.page.locator('.sg-hud .hud-vitals')).toBeVisible({ timeout: 15_000 });
+  await fullBarWithLoot(fb.page);
+  await expect(fb.page.locator('.hud-interact.swapcard:not(.off)')).toBeVisible();
+  await expect(fb.page.locator('.hud-interact .sg-key')).toHaveText('F');
+  await expect(fb.page.locator('.hud-interact .txt')).toContainText('7');
+  await expect(fb.page.locator('.hud-interact .txt')).toContainText('无懈可击');
+  await expect(fb.page.locator('.hud-interact .sub')).toContainText('X');
+  expect(fb.errors).toEqual([]);
+  await fb.ctx.close();
+  // …and X + 6 on the real InputController drops slot 6 (no squad "hold" order on X's release)
+  const rk = await open('screen=hud&input=real');
+  await expect(rk.page.locator('.sg-hud .hud-vitals')).toBeVisible({ timeout: 15_000 });
+  await rk.page.evaluate(() => (window as unknown as { __ui: { deps: { lastGame: { input: { setEnabled(b: boolean): void } } } } }).__ui.deps.lastGame.input.setEnabled(true));
+  await rk.page.keyboard.down('x');
+  await rk.page.keyboard.press('6');
+  await rk.page.keyboard.up('x');
+  await expect.poll(() => simActions(rk.page)).toContain('drop:2');
+  expect((await simActions(rk.page)).filter((a) => a.startsWith('command') || a.startsWith('item'))).toEqual([]);
+  expect(rk.errors).toEqual([]);
+  await rk.ctx.close();
+
+  // COMBAT-11: looking through a scope, no F prompt in the lens
+  const sc = await open('screen=hud&weapon=qilin&ads=1');
+  await expect(sc.page.locator('.hud-scope.on')).toBeVisible({ timeout: 15_000 });
+  await fullBarWithLoot(sc.page, 'zhuge');
+  await expect(sc.page.locator('.hud-interact:not(.off)')).toHaveCount(1);
+  await expect(sc.page.locator('.hud-interact')).toHaveCSS('visibility', 'hidden');
+  await sc.ctx.close();
+
+  // UX-13: a draw is 平 on every row
+  const go = await open('screen=gameOver&single=1');
+  await expect(go.page.locator('[data-screen="gameOver"] .over-banner')).toBeVisible({ timeout: 15_000 });
+  await go.page.evaluate(() => (window as unknown as MockInternals).__ui.deps.lastSession.finish('draw'));
+  await expect(go.page.locator('.over-table .res.d')).toHaveCount(8);
+  await expect(go.page.locator('.over-table .res.l')).toHaveCount(0);
+  await go.ctx.close();
+
+  // UX-14: a generated name is the placeholder ("Nameless 885"), the field is empty
+  const nm = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  await nm.addInitScript(() => localStorage.setItem('sgwl.settings.v1', JSON.stringify({ playerName: '无名885' })));
+  const np = await nm.newPage();
+  await np.goto(`${URL}?screen=settings&lang=en`);
+  const field = np.locator('.sg-settings input.sg-input').first();
+  await expect(field).toHaveAttribute('placeholder', 'Nameless 885', { timeout: 15_000 });
+  await expect(field).toHaveValue('');
+  await nm.close();
+
+  // UX-19: single player (you + bots): no 延迟 column; a remote human brings it back
+  const sb = await open('screen=scoreboard');
+  await expect(sb.page.locator('.sg-hud.show-score .hud-scoreboard')).toBeVisible({ timeout: 15_000 });
+  await expect(sb.page.locator('.hud-scoreboard thead th', { hasText: '延迟' })).toBeVisible();
+  await sb.page.evaluate(() => {
+    const v = (window as unknown as MockInternals).__ui.deps.lastSession.view;
+    for (const p of v.playerList) if (p.entityId !== v.myId) p.isBot = true;
+  });
+  await expect(sb.page.locator('.hud-scoreboard thead th', { hasText: '延迟' })).toBeHidden();
+  await sb.ctx.close();
+
+  // MP2-3: a guest who lost the host is offered 重新加入 {CODE}; the record survives the drop
+  const rc = await open('screen=lobby&host=0');
+  await expect(rc.page.locator('[data-screen="lobby"]')).toBeVisible({ timeout: 15_000 });
+  const drop = (): Promise<void> => rc.page.evaluate(() => {
+    sessionStorage.setItem('sgwl.rejoin.v1', JSON.stringify({ code: 'BWKQR', mode: 'peer', net: {}, at: Date.now() }));
+    (window as unknown as MockInternals).__ui.deps.lastSession.fail('connectionLost', '与房主的连接已断开', 'Lost connection to the host');
+  });
+  await drop();
+  const rejoinBtn = rc.page.locator('.sg-modal-back .sg-btn', { hasText: '重新加入 BWKQR' });
+  await expect(rejoinBtn).toBeVisible();
+  // 返回标题 first: the record is kept, and the online screen offers the rejoin in the room's own mode (no auto join)
+  await rc.page.locator('.sg-modal-back .sg-btn', { hasText: '返回标题' }).click();
+  expect(await rc.page.evaluate(() => sessionStorage.getItem('sgwl.rejoin.v1'))).toContain('BWKQR');
+  await rc.page.locator('[data-screen="title"] .sg-menu-btn', { hasText: '联机对战' }).click();
+  await expect(rc.page.locator('[data-screen="online"] .sg-rejoin .rejoin-btn')).toHaveText('重新加入 BWKQR');
+  await expect(rc.page.locator('[data-screen="online"] .sg-code-input')).toHaveValue('BWKQR');
+  await expect(rc.page.locator('[data-screen="online"] .sg-seg button[data-value="peer"]')).toHaveAttribute('aria-pressed', 'true');
+  await rc.page.waitForTimeout(1500);
+  await expect(rc.page.locator('[data-screen="online"]')).toBeVisible();
+  // the button joins that room, in P2P, and lands in its lobby
+  await rc.page.locator('[data-screen="online"] .sg-rejoin .rejoin-btn').click();
+  await expect(rc.page.locator('[data-screen="lobby"] .room-code')).toContainText('BWKQR');
+  // dropped again: 重新加入 in the dialog rejoins by itself
+  await drop();
+  await rejoinBtn.click();
+  await expect(rc.page.locator('[data-screen="lobby"] .room-code')).toContainText('BWKQR', { timeout: 15_000 });
+  expect(rc.errors).toEqual([]);
+  await rc.ctx.close();
+});
+
+/** Two boxes overlap (by more than a pixel)? */
+const overlaps = (a: { x: number; y: number; width: number; height: number } | null, b: { x: number; y: number; width: number; height: number } | null): boolean =>
+  !!a && !!b && a.x < b.x + b.width - 1 && b.x < a.x + a.width - 1 && a.y < b.y + b.height - 1 && b.y < a.y + a.height - 1;
+
+test('MP2-11 small screens: lord HUD row, game over, online error, role seals, guest settings, wheel hint, loading card', async () => {
+  // a lord's four emblems + four cards between the vitals and the weapon panel (640×360, 800×450)
+  for (const [w, hgt] of [[640, 360], [800, 450]]) {
+    const { ctx, page, errors } = await open('screen=hud&role=lord', w, hgt);
+    await expect(page.locator('.hud-abilities .ab')).toHaveCount(4, { timeout: 15_000 });
+    const bar = await page.locator('.hud-abilities').boundingBox();
+    expect(overlaps(bar, await page.locator('.hud-weapon .w-main').boundingBox()), `${w}×${hgt} weapon`).toBe(false);
+    expect(overlaps(bar, await page.locator('.hud-vitals').boundingBox()), `${w}×${hgt} vitals`).toBe(false);
+    expect(bar!.x + bar!.width).toBeLessThanOrEqual(w);
+    expect(errors).toEqual([]);
+    await ctx.close();
+  }
+  // game over 640×360: your four stats above the sticky button bar
+  const go = await open('screen=gameOver&single=1', 640, 360);
+  await expect(go.page.locator('.stat-row .stat')).toHaveCount(4, { timeout: 15_000 });
+  const actions = await go.page.locator('.over-actions').boundingBox();
+  for (const st of await go.page.locator('.stat-row .stat').all()) {
+    const b = await st.boundingBox();
+    expect(b!.y + b!.height).toBeLessThanOrEqual(actions!.y + 1);
+  }
+  await go.ctx.close();
+  // online 800×450: the join error and the switch-mode retry sit inside the panel
+  const on = await open('screen=online', 800, 450);
+  await on.page.locator('.sg-code-input').fill('FAIL0');
+  await on.page.locator('.join-row .sg-btn').click();
+  await expect(on.page.locator('.sg-online-status .switch-mode')).toBeVisible({ timeout: 15_000 });
+  const sheet = await on.page.locator('.sg-online .sg-sheet').boundingBox();
+  const retry = await on.page.locator('.sg-online-status .switch-mode').boundingBox();
+  expect(retry!.y + retry!.height).toBeLessThanOrEqual(sheet!.y + sheet!.height - 8);
+  await on.ctx.close();
+  // lobby 1280×720, 乱世 8 players: every variant's seals on one line; a guest at 800×450 sees 身份分配 without scrolling
+  const lb = await open('screen=lobby', 1280, 720);
+  await expect(lb.page.locator('[data-screen="lobby"] .settings-panel')).toBeVisible({ timeout: 15_000 });
+  for (const n of [6, 8]) {
+    await lb.page.evaluate((c) => (window as unknown as { __ui: { deps: { lastSession: { updateSettings(p: object): void } } } }).__ui.deps.lastSession.updateSettings({ mode: 'chaos', playerCount: c }), n);
+    await expect(lb.page.locator('.settings-panel .sg-role-preview .variant').first().locator('.cell')).toHaveCount(n);
+    const tops = await lb.page.evaluate(() => [...document.querySelectorAll('.settings-panel .sg-role-preview .variant')].map((v) => new Set([...v.querySelectorAll('.cell')].map((c) => Math.round(c.getBoundingClientRect().top))).size));
+    expect(tops.every((k) => k === 1), `chaos ${n}: ${tops}`).toBe(true);
+  }
+  await lb.ctx.close();
+  const gs = await open('screen=lobby&host=0', 800, 450);
+  await expect(gs.page.locator('[data-screen="lobby"]')).toBeVisible({ timeout: 15_000 });
+  await gs.page.evaluate(() => (window as unknown as { __ui: { deps: { lastSession: { updateSettings(p: object): void } } } }).__ui.deps.lastSession.updateSettings({ mode: 'chaos', playerCount: 8 }));
+  await gs.page.locator('.lobby-tabs .lt[data-tab="settings"]').click();
+  const panel = await gs.page.locator('.settings-panel').boundingBox();
+  const preview = await gs.page.locator('.settings-panel .sg-role-preview').boundingBox();
+  expect(preview!.y + preview!.height).toBeLessThanOrEqual(panel!.y + panel!.height);
+  await gs.ctx.close();
+  // the claim wheel at 640×360: its hint is not drawn over the (hidden) item bar
+  const wh = await open('screen=hud&overlay=wheel', 640, 360);
+  await expect(wh.page.locator('.sg-hud[data-overlay="wheel"] .wh-hint')).toBeVisible({ timeout: 15_000 });
+  await expect(wh.page.locator('.hud-abilities')).toHaveCSS('visibility', 'hidden');
+  await wh.ctx.close();
+  // loading 640×360: the hero card is not cut at the top
+  const ld = await open('screen=loading', 640, 360);
+  await expect(ld.page.locator('.load-card .sg-hcard')).toBeVisible({ timeout: 15_000 });
+  const card = await ld.page.locator('.load-card').boundingBox();
+  expect(card!.y).toBeGreaterThanOrEqual(0);
+  expect(card!.y + card!.height).toBeLessThanOrEqual(360);
+  await ld.ctx.close();
 });

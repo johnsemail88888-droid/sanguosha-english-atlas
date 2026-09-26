@@ -6,10 +6,10 @@ import { HERO_BY_ID, ITEM_BY_ID, isPassiveAbility } from '../data';
 import type { AbilityDef } from '../data/types';
 import { h, setClass, setText } from './dom';
 import { getLang, t, tx, type I18nKey } from './i18n';
-import { ORDER_GLYPH, ORDER_SEQUENCE } from './theme';
+import { ORDER_GLYPH, ORDER_SEQUENCE, glyphInk, inkOn } from './theme';
 import { abilityReady, cooldownFraction } from './hud/logic';
 import { flashDenied } from './hud/panels';
-import { abilityShort, itemShort, touchLabel, type TouchKey } from './short';
+import { abilityShort, itemLabel, touchLabel, type TouchKey } from './short';
 import { gearArt } from './cardArt';
 import { abilityArt, setArt } from './artIcons';
 
@@ -395,9 +395,12 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
         setArt(it.el, gearArt(st?.id), { first: true, cls: 'tb-art' });
         const idef = st ? ITEM_BY_ID[st.id] : undefined;
         setText(it.g, st ? idef?.icon ?? st.id.slice(0, 1) : '');
-        // the short name under the glyph (not repeated when it IS the glyph: 桃, 酒 …)
-        const short = st ? itemShort(st.id, lang) : '';
-        setText(it.n, short && short !== idef?.icon ? short : '');
+        // the short name under the glyph / emblem (with the glyph on the card, not repeated when it IS the glyph: 桃, 酒 …)
+        const label = st ? itemLabel(st.id, lang) : { text: '', dup: false };
+        setText(it.n, label.text);
+        setClass(it.n, 'dup', label.dup);
+        it.el.style.setProperty('--in', inkOn(idef?.color ?? '#6d5639'));
+        it.el.style.setProperty('--ig', glyphInk(idef?.color ?? '#6d5639'));
         setText(it.c, st && st.count > 1 ? String(st.count) : '');
         it.el.title = idef ? `${tx(idef.nameZh, idef.nameEn)} · ${t('hud.cardHint')}` : '';
         it.el.style.setProperty('--ic', idef?.color ?? '#e8d8b0');

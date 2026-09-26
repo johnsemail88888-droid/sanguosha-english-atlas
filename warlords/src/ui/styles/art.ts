@@ -107,6 +107,12 @@ export const ART_CSS = /* css */ `
   .sg-loading.art .load-text { width: 100%; }
   .sg-loading.art .load-hero .nm { font-size: 2.4em; }
 }
+/* 640×360: the stacked phone layout is taller than the screen — the card goes back beside the text (MP2-11) */
+@media (max-height: 420px) {
+  .sg-loading.art .load-inner { flex-direction: row; align-items: flex-end; }
+  .sg-loading.art .load-card { width: 7.4em; }
+  .sg-loading.art .load-text { width: auto; }
+}
 @media (max-height: 520px) {
   .sg-loading.art .load-inner { padding: 1em 1.6em 1.2em; gap: 1.4em; }
   .sg-loading.art .load-hero .nm { font-size: 2.2em; }

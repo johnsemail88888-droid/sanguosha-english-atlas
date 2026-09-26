@@ -666,7 +666,17 @@ export function swapDropPos(w: World, e: Entity, pile: Entity): Vec3 {
   return best ?? { x: e.pos.x, y: e.pos.y, z: e.pos.z };
 }
 
-/** Pick up a loot entity. Equipment only when `explicit` (F). */
+/**
+ * The item slot an explicit F on a card swaps out when the bar is full: the last slot
+ * holding another card (a full stack is never swapped for the same card); -1 if none.
+ * The HUD's F prompt names the same slot (ui/hud/logic.ts itemSwapSlot).
+ */
+export function itemSwapSlot(items: readonly ({ id: string } | null)[], itemId: string): number {
+  for (let i = items.length - 1; i >= 0; i--) if (items[i] && items[i]!.id !== itemId) return i;
+  return -1;
+}
+
+/** Pick up a loot entity. Equipment only when `explicit` (F); a card on a full bar swaps only then. */
 export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boolean {
   const h = e.hero!;
   const lo = l.loot;
@@ -707,7 +717,20 @@ export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boole
     if (!s) room += max;
     else if (s.id === id) room += max - s.count;
   }
-  if (room <= 0) return false;
+  if (room <= 0) {
+    // full bar: a player's explicit F swaps the card for the last slot's (dropped behind you like swapped
+    // gear). Bots never pick cards they have no room for — their F at a pile is meant for the gear.
+    const slot = explicit && !h.isBot ? itemSwapSlot(h.items, id) : -1;
+    if (slot < 0) return false;
+    const old = h.items[slot]!;
+    const n = Math.min(max, lo.count);
+    h.items[slot] = { id, count: n };
+    lo.count -= n;
+    if (lo.count <= 0) w.removeEntity(l.id);
+    w.spawnLoot(swapDropPos(w, e, l), { itemId: old.id, count: old.count }, undefined, { heroId: e.id, seconds: SWAP_LOCK });
+    w.emit({ t: 'pickup', who: e.id, item: id });
+    return true;
+  }
   const take = Math.min(room, lo.count);
   giveItem(w, e.id, id, take);
   lo.count -= take;

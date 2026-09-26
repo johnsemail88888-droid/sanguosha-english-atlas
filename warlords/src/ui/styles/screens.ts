@@ -119,12 +119,16 @@ export const SCREENS_CSS = /* css */ `
   .sg-sheet > h1 { margin-bottom: 0.2em; font-size: 1.5em; }
   .sg-single .sg-field { padding-top: 0.35em; padding-bottom: 0.35em; }
   .sg-single .sg-sheet-actions { position: sticky; bottom: 0; z-index: 2; margin: 0.4em -2em 0; padding: 0.5em 1em 0.7em; background: linear-gradient(180deg, rgba(227, 207, 163, 0), var(--paper-2) 35%); }
+  /* the join error + "switch mode and retry" stay inside the panel (MP2-11) */
+  .sg-online .sg-sheet { padding-bottom: 1em; }
+  .sg-online-status { margin-top: 0.7em; }
 }
 .sg-sheet .sg-field .sg-hint, .sg-sheet .sg-field > span:not(.sg-label) { font-size: 0.88em; }
-.sg-role-preview { display: flex; flex-direction: column; gap: 0.35em; }
-.sg-role-preview .variant { display: flex; gap: 0.3em; align-items: center; flex-wrap: wrap; }
-.sg-role-preview .vlabel { font-weight: 700; color: var(--paper-mute); width: 1.2em; }
-.sg-role-preview .cell { display: inline-flex; }
+/* one row per variant: the seals shrink to fit the column instead of leaving 内 alone on a second line (MP2-11) */
+.sg-role-preview { display: flex; flex-direction: column; gap: 0.35em; container-type: inline-size; min-width: 0; }
+.sg-role-preview .variant { --n: 5; display: flex; gap: 0.3em; align-items: center; flex-wrap: nowrap; }
+.sg-role-preview .vlabel { flex: none; font-weight: 700; color: var(--paper-mute); width: 1.2em; }
+.sg-role-preview .cell { display: inline-flex; flex: none; font-size: min(1em, calc((100cqw - 1.6em) / (var(--n) * 2.25))); }
 .sg-stars { letter-spacing: 0.05em; }
 .sg-stars .on { color: #c0392b; }
 .sg-stars .off { color: rgba(140, 106, 38, 0.35); }
@@ -153,6 +157,8 @@ export const SCREENS_CSS = /* css */ `
 .lan-url { font-family: ui-monospace, Consolas, monospace; font-size: 1.05em; padding: 0.25em 0.6em; background: rgba(30, 20, 12, 0.08); border: 1px solid rgba(140, 106, 38, 0.4); border-radius: 4px; user-select: all; word-break: break-all; }
 .sg-warn { margin-top: 0.8em; padding: 0.5em 0.8em; border: 1px solid var(--red); background: rgba(179, 38, 30, 0.08); color: var(--red-lo); border-radius: 4px; }
 .sg-invite { margin: 0 0 0.8em; padding: 0.5em 0.8em; border-radius: 4px; background: rgba(214, 173, 82, 0.2); border: 1px solid var(--gold-lo); font-weight: 600; text-align: center; }
+.sg-invite.sg-rejoin { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.4em 0.8em; }
+.sg-rejoin .rejoin-btn { flex: none; }
 
 /* ── lobby ─────────────────────────────────────────────── */
 .sg-lobby { display: flex; flex-direction: column; gap: 0.9em; padding: 1.1em 1.5em; }
@@ -187,6 +193,11 @@ export const SCREENS_CSS = /* css */ `
 .seat-tools { display: flex; justify-content: flex-end; margin-top: 0.7em; }
 .settings-panel .sg-field { grid-template-columns: minmax(6em, 36%) 1fr; }
 .settings-panel .ro { font-weight: 700; }
+/* a guest only reads the settings: two per row, so 身份分配 fits a short screen (MP2-11) */
+.settings-panel .ro-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.4em; }
+.settings-panel .ro-grid .sg-field { grid-template-columns: minmax(0, 1fr) auto; }
+/* 身份分配: the label above, the seals across the whole panel */
+.settings-panel .sg-field:has(> .sg-role-preview) { grid-template-columns: minmax(0, 1fr); gap: 0.35em; }
 .chat { display: flex; flex-direction: column; }
 .chat-log { flex: 1; min-height: 8em; overflow-y: auto; padding: 0.5em; background: rgba(0, 0, 0, 0.3); border-radius: 4px; font-size: 0.92em; display: flex; flex-direction: column; gap: 0.2em; user-select: text; }
 .chat-line b { color: var(--gold-hi); font-weight: 600; }
@@ -425,6 +436,10 @@ export const SCREENS_CSS = /* css */ `
 .sg-loading { display: flex; align-items: center; justify-content: center; }
 .load-inner { display: flex; align-items: center; gap: 3em; flex-wrap: wrap; justify-content: center; padding: 2em 1em; max-width: 62em; }
 .load-card { width: clamp(9em, 24vmin, 15em); flex: none; }
+@media (max-height: 420px) {
+  .load-inner { flex-wrap: nowrap; gap: 1.2em; padding: 0.8em 1em; }
+  .load-card { width: 7.4em; }
+}
 .load-card .sg-hcard { cursor: default; }
 .load-text { display: flex; flex-direction: column; gap: 1em; flex: 1 1 22em; max-width: 30em; }
 .load-text h1 { color: var(--gold-hi); }
@@ -461,6 +476,7 @@ export const SCREENS_CSS = /* css */ `
 .res { font-weight: 800; }
 .res.w { color: #1f7a3a; }
 .res.l { color: #8a3a2a; }
+.res.d { color: #6d5639; }
 .mvp { margin-left: 0.4em; padding: 0.05em 0.4em; background: linear-gradient(#f6d886, #c89b3c); color: #3a220e; font-weight: 800; border-radius: 3px; font-size: 0.75em; }
 .over-side { display: flex; flex-direction: column; gap: 1em; }
 .over-mvp { display: flex; gap: 0.8em; align-items: center; }
@@ -487,6 +503,25 @@ export const SCREENS_CSS = /* css */ `
   .over-body { grid-template-columns: minmax(0, 1fr) 13em; }
   .over-table :is(td, th) { padding-top: 0.15em; padding-bottom: 0.15em; }
   .over-actions { position: sticky; bottom: 0; z-index: 2; margin: 0.4em -1.1em 0; padding: 0.5em 1em 0.6em; background: linear-gradient(180deg, rgba(227, 207, 163, 0), var(--paper-2) 35%); }
+}
+/* 640×360: everything above the button bar — a slimmer banner, your four stats in one row (MP2-11) */
+@media (max-height: 420px) {
+  .over-banner { margin-bottom: 0.2em; }
+  .over-banner .sg-seal { --sz: 2.4em !important; }
+  .ob-title { font-size: 1.5em; }
+  .ob-reason { font-size: 0.9em; }
+  .ob-meta { font-size: 0.8em; }
+  .over-table :is(td, th) { padding-top: 0.05em; padding-bottom: 0.05em; }
+  .over-side { gap: 0.4em; }
+  .mvp-card { width: 3.4em; }
+  .over-mvp .nm { font-size: 1.15em; }
+  .over-stats h3 { font-size: 1em; margin-bottom: 0.2em; }
+  .stat-row { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25em; }
+  .stat-row .stat { padding: 0.15em 0.3em; }
+  .stat-row .stat b { font-size: 1.05em; }
+  .stat-row .stat span { font-size: 0.7em; white-space: nowrap; }
+  .over-actions { padding: 0.3em 1em 0.4em; margin-top: 0.2em; }
+  .over-actions .sg-btn { min-height: 2em; padding-top: 0.25em; padding-bottom: 0.25em; }
 }
 
 /* ── gallery ───────────────────────────────────────────── */
@@ -529,11 +564,21 @@ export const SCREENS_CSS = /* css */ `
 .rr-head .sg-chip { font-family: var(--font-body); font-size: 0.7em; color: var(--paper-mute); }
 .seal-row { display: inline-flex; gap: 0.2em; flex-wrap: wrap; }
 .variants { display: flex; flex-direction: column; gap: 0.3em; }
-.item-glyph { display: inline-grid; place-items: center; width: 2em; height: 2.6em; border-radius: 4px; font-family: var(--font-display); font-weight: 900; color: var(--ic); background: linear-gradient(#fbf3de, #e9d7ae); border: 1px solid color-mix(in srgb, var(--ic) 70%, #000 20%); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
+.item-glyph { position: relative; display: inline-grid; place-items: center; width: 2em; height: 2.6em; border-radius: 4px; font-family: var(--font-display); font-weight: 900; color: var(--ig, var(--ic)); background: linear-gradient(#fbf3de, #e9d7ae); border: 1px solid color-mix(in srgb, var(--ic) 70%, #000 20%); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
 .sg-table.controls .keys { white-space: nowrap; width: 1%; }
 .help-sec .sg-table td.num:first-child, .help-sec .sg-table th:first-child { width: 4.5em; text-align: center; }
 .keys .sg-key { margin-right: 0.25em; }
 .sg-table.weapons td.desc, .sg-table.items td:nth-child(4) { font-size: 0.88em; min-width: 14em; }
+/* names never break mid-word: 黄巾力士 / 南蛮勇士, 无双战铳, 「专属」 below the name */
+.sg-table.weapons td.wname { width: auto; text-align: left; }
+.sg-table.weapons td.wname > b, .sg-table.items td > b { white-space: nowrap; }
+.sg-table.weapons td.wname .sg-chip { margin-top: 0.2em; font-size: 0.78em; }
+.sg-table.troops { width: auto; min-width: min(100%, 34em); }
+.help-sec .sg-table.troops th:first-child { width: auto; text-align: left; }
+.sg-table.troops :is(td, th):nth-child(-n + 2) { white-space: nowrap; }
+.sg-table.troops td:last-child, .sg-table.troops th:last-child { white-space: nowrap; }
+.sg-table.orders { width: auto; }
+.sg-table.orders td:nth-child(-n + 2) { white-space: nowrap; width: 1%; }
 @media (max-width: 640px) {
   .sg-help { padding: 0.7em; }
   .help-body { padding: 1em; }

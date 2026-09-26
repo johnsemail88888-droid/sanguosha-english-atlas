@@ -3,10 +3,10 @@
 import type { MapData } from '../../core/map';
 import type { EntityId, ItemStack, PrivateHeroView, PublicPlayerView, RoleId } from '../../core/types';
 import { ITEMS, ITEM_BY_ID, ROLE_BY_ID } from '../../data';
-import { h, setText } from '../dom';
+import { h, setClass, setText } from '../dom';
 import { getLang, heroName, roleName, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
-import { CLAIMABLE_ROLES, CLAIM_TEXT, QUICKCHAT, ROLE_GLYPH, roleColor, roleInk } from '../theme';
+import { CLAIMABLE_ROLES, CLAIM_TEXT, QUICKCHAT, ROLE_GLYPH, cardTileVars, roleColor, roleInk } from '../theme';
 import { itemShort } from '../short';
 import { button, heroIcon, kingdomBadge, roleSeal, type PortraitCache } from '../widgets';
 import { gearArt, roleCardPath } from '../cardArt';
@@ -31,11 +31,17 @@ export function overlayClose(key: string, onClose: () => void, cls = ''): HTMLBu
 
 // ── Scoreboard ───────────────────────────────────────────────────────────────
 
+/** Is anyone but you and the bots in the match (someone whose ping means something)? */
+export function hasRemotePlayers(players: readonly PublicPlayerView[], myEntity: EntityId | null): boolean {
+  return players.some((p) => !p.isBot && p.entityId !== myEntity);
+}
+
 export class Scoreboard {
   readonly el: HTMLElement;
   private readonly body: HTMLElement;
   private readonly statsEl: HTMLElement;
   private readonly titleEl: HTMLElement;
+  private readonly table: HTMLElement;
   private lastKey = '';
   /** hero icons per player + hero, reused across rebuilds so avatars never re-decode / flicker */
   private readonly icons = new Map<string, HTMLElement>();
@@ -48,9 +54,10 @@ export class Scoreboard {
     this.body = h('tbody');
     this.statsEl = h('div', { class: 'sb-stats' });
     this.titleEl = h('h2', { class: 'sg-h2' }, t('score.title'));
+    this.table = h('table', { class: 'sg-table no-ping' }, this.headRow(), this.body);
     this.el = h('div', { class: 'hud-scoreboard sg-panel sg-corners', role: 'dialog', aria: { label: t('score.title') } },
       h('div', { class: 'sb-head' }, this.titleEl, this.statsEl, overlayClose('Tab', onClose, 'sb-close')),
-      h('div', { class: 'sg-table-wrap' }, h('table', { class: 'sg-table' }, this.headRow(), this.body)),
+      h('div', { class: 'sg-table-wrap' }, this.table),
     );
   }
 
@@ -68,6 +75,8 @@ export class Scoreboard {
   }
 
   update(players: readonly PublicPlayerView[], me: PrivateHeroView | null, myEntity: EntityId | null): void {
+    // 延迟 only means something with other people on the line: no column in single player / alone with bots (UX-19)
+    setClass(this.table, 'no-ping', !hasRemotePlayers(players, myEntity));
     const key = JSON.stringify([players.map((p) => [p.entityId, p.alive, p.downed, p.role, p.claim, p.kills, p.ping, p.name, p.heroId]), me?.stats, me?.role, me?.knownAllies, getLang()]);
     if (key === this.lastKey) return;
     this.lastKey = key;
@@ -297,7 +306,7 @@ export interface PauseContext {
 /** One card row of the 锦囊说明 list: glyph, name (+ count), one-line effect. */
 export function cardRow(id: string, count?: number): HTMLElement {
   const def = ITEM_BY_ID[id];
-  const glyph = h('span', { class: 'item-glyph', style: `--ic:${def?.color ?? '#999'}` }, def?.icon ?? id.slice(0, 1));
+  const glyph = h('span', { class: 'item-glyph', style: cardTileVars(def?.color ?? '#999999') }, def?.icon ?? id.slice(0, 1));
   // the card's painted emblem in a round frame when the art ships
   setArt(glyph, gearArt(id), { lazy: true });
   const el = h('li', { class: 'pc-card', data: { item: id } },

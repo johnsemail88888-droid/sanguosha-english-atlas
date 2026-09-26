@@ -6,7 +6,7 @@ import { Bag, copyText, h } from '../dom';
 import { t, tx } from '../i18n';
 import { button, segmented } from '../widgets';
 import { desktopInfo, detectLocalServer, refreshLanUrls, servedByLocalServer } from '../desktop';
-import { clearRejoin, loadRejoin, markModeChosen, modeChosen, netPatch, parseInvite, type InviteNet, type NetMode } from '../invite';
+import { clearRejoin, isReconnectable, loadRejoin, markModeChosen, modeChosen, netPatch, parseInvite, type InviteNet, type NetMode, type RejoinInfo } from '../invite';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
 export function normalizeRoomCode(raw: string): string {
@@ -47,6 +47,15 @@ function applyNet(over: InviteNet): void {
 /** One automatic rejoin per page load (a failed one leaves the screen to the player). */
 let rejoinTried = false;
 
+/**
+ * After a lost link: `true` — the player asked to rejoin, the next online screen joins the
+ * saved room by itself; `false` — they went to the title instead: the online screen only
+ * offers 重新加入 {CODE}.
+ */
+export function allowRejoin(auto = true): void {
+  rejoinTried = !auto;
+}
+
 export function createOnlineScreen(ctx: UiCtx): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-menu-screen sg-online', data: { screen: 'online' } });
@@ -58,19 +67,21 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   // an invite link says how the host is reachable: that beats the saved default
   const link = invited ? parseInvite(globalThis.location?.search ?? '') : null;
   const urlMode: NetMode | null = link?.mode ?? null;
-  // F5 mid-session: rejoin the same room the same way (once per page load)
-  const rj = !rejoinTried ? loadRejoin() : null;
-  const rejoin = rj && (!invited || normalizeRoomCode(invited) === rj.code) ? rj : null;
-  if (rejoin) {
-    rejoinTried = true;
-    code = rejoin.code;
-    applyNet(rejoin.net);
+  // the room this tab was in (F5 mid-session, or a dropped link — kept ≤ 30 min): its code and its own mode
+  const rj = loadRejoin();
+  const saved: RejoinInfo | null = rj && (!invited || normalizeRoomCode(invited) === rj.code) ? rj : null;
+  // F5 / 重新加入 after a drop: rejoin the same room the same way (once per page load, or when asked)
+  const rejoin = saved && !rejoinTried ? saved : null;
+  if (saved) {
+    code = saved.code;
+    applyNet(saved.net);
   } else if (link && urlMode) applyNet(link.net);
+  if (rejoin) rejoinTried = true;
   // the desktop app (embedded server) and pages served by `npm run server` relay on
   // the same origin: default to server mode there (the player can still pick P2P)
-  let mode: NetMode = rejoin?.mode ?? urlMode ?? (desktop && !modeChosen() ? 'ws' : settings.get().net.mode);
-  // a mode from the URL / a rejoin, or one the player picked, is never auto-switched
-  let modeTouched = !!rejoin || !!urlMode || modeChosen();
+  let mode: NetMode = saved?.mode ?? urlMode ?? (desktop && !modeChosen() ? 'ws' : settings.get().net.mode);
+  // a mode from the URL / the saved room (a P2P room stays P2P on a self-hosted page), or one the player picked, is never auto-switched
+  let modeTouched = !!saved || !!urlMode || modeChosen();
   let busy: 'host' | 'join' | null = null;
   let errorText = '';
   /** after 房间不存在: offer the other connection mode */
@@ -138,7 +149,9 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         errorText = t('online.failed', { msg: errorMessage(err) });
         // the room may be on the other network: P2P rooms and relay rooms are separate
         if (kind === 'join' && isRoomNotFound(err)) suggest = mode === 'peer' ? 'ws' : 'peer';
-        if (kind === 'join') clearRejoin();
+        // a room that is gone / full / refuses us is forgotten; a link that timed out can be retried (重新加入)
+        const errCode = err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined;
+        if (kind === 'join' && !isReconnectable(typeof errCode === 'string' ? errCode : undefined)) clearRejoin();
         ctx.sfx('error');
       } finally {
         busy = null;
@@ -155,7 +168,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       h('div', { class: 'sg-sheet sg-panel sg-corners' },
         h('h1', { class: 'sg-h1 sg-title-bar' }, t('online.title')),
         invited ? h('div', { class: 'sg-invite' }, t('online.invited', { code: normalizeRoomCode(invited) }), urlMode ? h('span', { class: 'via' }, ` · ${t('online.invitedMode', { mode: modeName(urlMode) })}`) : null) : null,
-        rejoin && !invited ? h('div', { class: 'sg-invite' }, t('online.rejoinHint', { code: rejoin.code, mode: modeName(rejoin.mode) })) : null,
+        saved && !invited ? rejoinBox(saved) : null,
         h('div', { class: 'sg-online-mode' },
           h('span', { class: 'sg-label' }, t('online.via')),
           segmented([
@@ -196,6 +209,22 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     );
     if (invited && !busy) queueMicrotask(() => codeInput.focus());
   };
+
+  /** The saved room: where you were, and 重新加入 {CODE} in the room's own mode (MP2-3). */
+  function rejoinBox(r: RejoinInfo): HTMLElement {
+    const modeName = (m: NetMode): string => (m === 'peer' ? t('online.peer') : t('online.ws'));
+    const again = (): void => {
+      code = r.code;
+      mode = r.mode;
+      modeTouched = true;
+      applyNet(r.net);
+      void runJoin();
+    };
+    return h('div', { class: 'sg-invite sg-rejoin' },
+      h('span', null, t(rejoin ? 'online.rejoinHint' : 'online.droppedHint', { code: r.code, mode: modeName(r.mode) })),
+      busy ? null : button(t('online.rejoinCode', { code: r.code }), again, { cls: 'small gold rejoin-btn', sfx: 'confirm' }),
+    );
+  }
 
   /** Desktop app: the LAN addresses friends open in their browser, with copy buttons. */
   function lanBox(): HTMLElement | null {

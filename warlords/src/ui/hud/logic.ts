@@ -148,7 +148,8 @@ export type InteractPrompt =
   | { kind: 'airdrop'; targetId: EntityId }
   | { kind: 'crate'; targetId: EntityId; tier: 1 | 2 | 3 }
   | { kind: 'pickup'; targetId: EntityId; itemId: string; swap: boolean }
-  | { kind: 'full'; targetId: EntityId; itemId: string }
+  /** a card while the item bar is full: F swaps it for slot `swapSlot`'s card (`swapSlot` -1: nothing to swap, F does nothing) */
+  | { kind: 'full'; targetId: EntityId; itemId: string; swapSlot: number; swapId: string }
   | { kind: 'selfRevive'; slot: number };
 
 export const REVIVE_RANGE = 3;
@@ -163,6 +164,15 @@ function hasFreeSlotFor(me: PrivateHeroView, itemId: string): boolean {
     if (it.id === itemId && (!def || it.count < def.maxStack)) return true;
   }
   return false;
+}
+
+/**
+ * The slot a card on a full bar is swapped into by F: the last slot holding another
+ * card (mirrors sim/inventory.ts itemSwapSlot — the prompt must name what F drops).
+ */
+export function itemSwapSlot(items: readonly ({ id: string } | null)[], itemId: string): number {
+  for (let i = items.length - 1; i >= 0; i--) if (items[i] && items[i]!.id !== itemId) return i;
+  return -1;
 }
 
 /** Facing weight of the sim's interact pick (sim/inventory.ts interact(): score = d + (1 − cos) × 1.5). */
@@ -188,10 +198,10 @@ export function deriveInteract(me: PrivateHeroView | null, pos: { x: number; y: 
   const fx = facing ? -Math.sin(pos.yaw as number) : 0;
   const fz = facing ? -Math.cos(pos.yaw as number) : 0;
   let best: { p: InteractPrompt; score: number } | null = null;
-  // a full item bar cannot take a card: only warn when nothing else is in reach
+  // a card a full bar cannot even swap for (every slot holds a full stack of it): only warn when nothing else is in reach
   let full: { p: InteractPrompt; score: number } | null = null;
   const consider = (p: InteractPrompt, score: number): void => {
-    if (p.kind === 'full') {
+    if (p.kind === 'full' && p.swapSlot < 0) {
       if (!full || score < full.score) full = { p, score };
     } else if (!best || score < best.score) best = { p, score };
   };
@@ -232,7 +242,9 @@ export function deriveInteract(me: PrivateHeroView | null, pos: { x: number; y: 
         } else if (MOUNT_BY_ID[id]) {
           consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!me.mount }, score);
         } else if (!hasFreeSlotFor(me, id)) {
-          consider({ kind: 'full', targetId: e.id, itemId: id }, score);
+          // F swaps it for the last other card (sim pickUp): a real choice, ranked like any other pickup
+          const swapSlot = itemSwapSlot(me.items, id);
+          consider({ kind: 'full', targetId: e.id, itemId: id, swapSlot, swapId: swapSlot >= 0 ? me.items[swapSlot]!.id : '' }, score);
         }
         break;
       }

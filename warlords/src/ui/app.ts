@@ -13,10 +13,11 @@ import { applyRootVars, injectStyles } from './styles';
 import { PortraitCache, button, type SfxName } from './widgets';
 import { TITLE_ART } from './art';
 import { artBackdrop, type ArtBackdrop } from './keyart';
+import { heroAbilityArt, matchCardArt, prefetchArt } from './artIcons';
 import { HEROES } from '../data';
 import { createTitleScreen } from './screens/title';
 import { createSingleScreen } from './screens/single';
-import { createOnlineScreen } from './screens/online';
+import { allowRejoin, createOnlineScreen } from './screens/online';
 import { LobbyChatLog, createLobbyScreen } from './screens/lobby';
 import { createRolesScreen, mySeat } from './screens/roles';
 import { createHeroSelectScreen } from './screens/heroSelect';
@@ -27,7 +28,7 @@ import { createHelpScreen } from './screens/help';
 import { createSettingsPanel } from './screens/settings';
 import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
-import { clearRejoin, loadRejoin, netFor, saveRejoin } from './invite';
+import { clearRejoin, isReconnectable, loadRejoin, netFor, saveRejoin } from './invite';
 import type { NetServerConfig } from '../game/settings';
 
 export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
@@ -512,7 +513,8 @@ class App implements UiCtx {
     this.unmountMatch();
     if (s) {
       try {
-        s.leave();
+        // coming back (F5, an involuntary drop): the seat token stays so the rejoin reclaims the seat
+        s.leave(keepRejoin ? { keepToken: true } : undefined);
       } catch (err) {
         console.warn('[ui] session.leave failed', err);
       }
@@ -546,6 +548,8 @@ class App implements UiCtx {
       s.on('heroSelect', (v) => {
         const hero = v.picks[mySeat(s)];
         if (hero) this.pickedHero = hero;
+        // the offered heroes' ability emblems: the detail panel shows them without a blank wait
+        prefetchArt(heroAbilityArt(v.options));
       }),
     );
     bag.add(s.on('phase', (p) => this.onPhase(p)));
@@ -584,9 +588,12 @@ class App implements UiCtx {
         break;
       case 'roles':
         this.pickedHero = null;
+        // every card emblem of the match while the identities are dealt: pickups show their art at once
+        prefetchArt(matchCardArt());
         this.go('roles');
         break;
       case 'heroSelect':
+        if (s.heroSelect) prefetchArt(heroAbilityArt(s.heroSelect.options));
         this.go('heroSelect');
         break;
       case 'loading':
@@ -609,7 +616,19 @@ class App implements UiCtx {
   private onSessionError(e: { code: string; zh: string; en: string }): void {
     const msg = tx(e.zh, e.en);
     if (isFatalSessionError(e.code)) {
-      this.leaveSession(true);
+      // a guest who lost the host (after the net layer's own retries): the rejoin record and the seat
+      // token are kept (F5 and the online screen's 重新加入 still work) and the way back is offered (MP2-3)
+      const rejoin = this.sessionKind === 'online' && this.session && !this.session.isHost && isReconnectable(e.code) ? loadRejoin() : null;
+      this.leaveSession(true, !!rejoin);
+      if (rejoin) {
+        void this.confirm(msg, { title: t('error.title'), ok: t('online.rejoinCode', { code: rejoin.code }), cancel: t('over.toTitle') }).then((yes) => {
+          // the online screen joins the saved room the normal way, in the room's own mode —
+          // by itself now, or from its 重新加入 button later
+          allowRejoin(yes);
+          if (yes) this.go('online');
+        });
+        return;
+      }
       // being kicked or the host closing the room is news, not a malfunction
       void this.alert(isNoticeCode(e.code) ? t('notice.title') : t('error.title'), msg);
     } else {

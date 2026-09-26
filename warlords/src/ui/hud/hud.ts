@@ -2,7 +2,7 @@
 // through GameHandle.onEvents (never drains the view itself). Owns the in-match
 // overlays (scoreboard, big map, wheel, chat, pause) and the touch overlay.
 import type { EntityId, GameEvent, SquadOrderKind, ViewEntity } from '../../core/types';
-import { ARMOR_BY_ID, HERO_BY_ID, ITEM_BY_ID, MOUNT_BY_ID } from '../../data';
+import { HERO_BY_ID, ITEM_BY_ID } from '../../data';
 import type { GameSession } from '../../game/session';
 import { displayName } from '../../game/names';
 import { settings } from '../../game/settings';
@@ -17,23 +17,17 @@ import { mountTouchControls, shouldUseTouch, type TouchControls } from '../touch
 import { button, keyCap } from '../widgets';
 import { CONTROLS } from '../screens/help';
 import { AbilityBar, SquadPanel, TopBar, VitalsPanel, WeaponPanel } from './panels';
-import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, DuelBar, InteractPromptView, KillStamp, Scope, SpectateBar, ZoneWarning, pickupName } from './combat';
-import { Announcer, ChatBox, KillFeed, type FeedParty } from './feed';
+import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, DuelBar, InteractPromptView, KillStamp, Scope, SpectateBar, ZoneWarning } from './combat';
+import { Announcer, ChatBox, KillFeed, PickupStrip, type FeedParty } from './feed';
 import { createGuideCard, guideCount, shouldShowGuide } from './guide';
 import { drawMinimap, type MarkerInput } from './minimap';
 import { BigMap, PauseMenu, Scoreboard, Wheel, cardRow, type WheelChoice } from './overlays';
 import { UiKeyDeduper, cycleSpectate, deniedText, entityLabel } from './logic';
 import { KillCauses } from './killcause';
 import { LinkStatus } from './connstatus';
-import { gearIcon, prewarmWeapons } from '../artIcons';
+import { prewarmWeapons } from '../artIcons';
 import type { HudFrame } from './types';
 import { trackViewport } from './viewport';
-
-/** One-line effect of a card / armor / mount in the current language ('' for anything else). */
-export function pickupDesc(id: string): string {
-  const d = ITEM_BY_ID[id] ?? ARMOR_BY_ID[id] ?? MOUNT_BY_ID[id];
-  return d ? tx(d.descZh, d.descEn) : '';
-}
 
 /** `setPaused` of a local single-player session (GameSession G2 extension; optional). */
 type PausableSession = GameSession & { setPaused?(paused: boolean): void };
@@ -77,6 +71,8 @@ export class Hud {
   private readonly duel: DuelBar;
   private readonly feed: KillFeed;
   private readonly announcer = new Announcer();
+  /** what you just got: compact lines above the item bar (COMBAT-8) */
+  readonly pickups = new PickupStrip();
   private readonly chat: ChatBox;
   private readonly scoreboard: Scoreboard;
   private readonly bigmap: BigMap;
@@ -232,6 +228,7 @@ export class Hud {
       this.chat.el,
       h('div', { class: 'hud-left' }, this.squad.el, this.vitals.el),
       this.abilities.el,
+      this.pickups.el,
       this.weapon.el,
       this.spectate.el,
       this.fpsEl,
@@ -272,11 +269,11 @@ export class Hud {
     this.bag.add(
       this.session.on('status', (st) => {
         const now = performance.now() / 1000;
-        // the link to the host: the chip (+ one chat line per change), no announcement
+        // the link to the host: the chip (+ one chat line for a lasting trouble, updated in place), no announcement
         const ln = this.link.push(st, now);
         if (ln.handled) {
           this.top.setLink(this.link.chip);
-          if (ln.chat) this.chat.add({ from: t('chat.system'), text: tx(ln.chat.zh, ln.chat.en), kind: 'system' }, now);
+          if (ln.chat) this.chat.add({ from: t('chat.system'), text: tx(ln.chat.zh, ln.chat.en), kind: 'system', key: ln.chat.key }, now);
           return;
         }
         const text = tx(st.zh, st.en);
@@ -408,7 +405,9 @@ export class Hud {
       return;
     }
     this.readFailed = false;
-    if (this.link.update(now)) this.top.setLink(this.link.chip);
+    const lk = this.link.update(now);
+    if (lk.chip) this.top.setLink(this.link.chip);
+    if (lk.chat) this.chat.add({ from: t('chat.system'), text: tx(lk.chat.zh, lk.chat.en), kind: 'system', key: lk.chat.key }, now);
     if (!this.prewarmed && f.players.length) {
       this.prewarmed = true;
       prewarmWeapons([...f.players.map((p) => HERO_BY_ID[p.heroId]?.signatureWeapon), 'pistol']);
@@ -430,6 +429,7 @@ export class Hud {
     this.duel.update(f);
     this.feed.update(now);
     this.announcer.update(now);
+    this.pickups.update(now);
     this.chat.update(now);
     this.touch?.update(f.me);
     setClass(this.el, 'no-hero', !f.me);
@@ -586,15 +586,15 @@ export class Hud {
             this.chat.add({ from: this.speaker(ev.from), text: ev.text }, now);
             break;
           case 'reward':
-            if (ev.who === myId) {
-              const loot = (ev.items ?? []).map((id) => gearIcon(id, 'ann-ico'));
-              if (ev.kind === 'rebelKill') this.announcer.push(t('hud.reward.rebelKill'), 'big', ev.items?.map(pickupName).join(tx('、', ', ')), now, loot);
-              else if (ev.kind === 'bounty') this.announcer.push(t('hud.reward.bounty'), 'big', ev.items?.map(pickupName).join(tx('、', ', ')), now, loot);
+            if (ev.who === myId && (ev.kind === 'rebelKill' || ev.kind === 'bounty')) {
+              // the headline only; the cards themselves go to the pickup lines above the item bar
+              this.announcer.push(t(ev.kind === 'rebelKill' ? 'hud.reward.rebelKill' : 'hud.reward.bounty'), 'big', undefined, now);
+              for (const id of ev.items ?? []) this.pickups.push(id, now);
             }
             break;
           case 'pickup':
-            // the card's name plus its one-line effect: players learn what a card does as they get it
-            if (ev.who === myId) this.announcer.push(t('hud.pickup', { name: pickupName(ev.item) }), 'info', pickupDesc(ev.item) || undefined, now, [gearIcon(ev.item, 'ann-ico')]);
+            // a compact line by the item bar, never over the crosshair (the card's effect: tooltip / long-press / 锦囊说明)
+            if (ev.who === myId) this.pickups.push(ev.item, now);
             break;
           case 'sfx':
             // the sim refused a card / ability of ours: say why when the sim tells us, else stay neutral
@@ -984,10 +984,18 @@ export class Hud {
 
   // ── card info (touch long-press) / first-match guide ─────────────────────
 
-  private showCardInfo(itemId: string): void {
+  private showCardInfo(itemId: string, slot?: number): void {
     const def = ITEM_BY_ID[itemId];
     if (!def) return;
-    this.cardInfo.replaceChildren(h('ul', { class: 'pc-list' }, cardRow(itemId)));
+    // COMBAT-7: a full bar is managed here on touch — discard drops the card at your feet
+    const discard = slot === undefined ? null : button(t('hud.discard'), (ev) => {
+      ev.stopPropagation();
+      this.handle.input.pushAction({ a: 'drop', slot, what: 'item' });
+      this.hideCardInfo();
+    }, { cls: 'small dark pc-discard', sfx: 'back' });
+    const row = cardRow(itemId);
+    if (discard) row.appendChild(discard);
+    this.cardInfo.replaceChildren(h('ul', { class: 'pc-list' }, row));
     setClass(this.cardInfo, 'off', false);
     if (this.cardInfoTimer !== null) clearTimeout(this.cardInfoTimer);
     this.cardInfoTimer = setTimeout(() => this.hideCardInfo(), 4500);
@@ -1051,7 +1059,7 @@ export class Hud {
     if (wantTouch && !this.touch) {
       this.touch = mountTouchControls(this.el, this.handle.input, {
         onInteract: () => undefined,
-        onItemInfo: (_slot, itemId) => this.showCardInfo(itemId),
+        onItemInfo: (slot, itemId) => this.showCardInfo(itemId, slot),
       });
       this.touch.setVisible(this.inputEnabled !== false && !this.gameOver);
       if (this.overlay === 'pause' && this.pauseMode === 'click') this.closeOverlay('pause', true);

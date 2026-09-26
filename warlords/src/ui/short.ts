@@ -125,28 +125,32 @@ export function abilityShort(def: Pick<AbilityDef, 'id' | 'nameZh' | 'nameEn'>, 
   return def.nameZh.slice(0, 2);
 }
 
-/** Item (card) id → short label under the card glyph. */
+/**
+ * Item (card) id → short label under the card glyph / painted emblem: at most two
+ * glyphs in Chinese (a 44 px card fits two at the HUD's smallest size — 无中, 借刀 —
+ * where 「无中生有」 was cut to 「无中…」), a short word in English.
+ */
 export const ITEM_SHORT: Readonly<Record<string, readonly [string, string]>> = {
   sha: ['杀', 'Ammo'],
   shan: ['闪', 'Dodge'],
   tao: ['桃', 'Peach'],
   jiu: ['酒', 'Wine'],
-  wuzhong: ['无中生有', 'Draw 2'],
-  guohe: ['过河拆桥', 'EMP'],
-  shunshou: ['顺手牵羊', 'Steal'],
+  wuzhong: ['无中', 'Draw 2'],
+  guohe: ['过河', 'EMP'],
+  shunshou: ['顺手', 'Steal'],
   juedou: ['决斗', 'Duel'],
-  jiedao: ['借刀杀人', 'Hack'],
-  wuxie: ['无懈可击', 'Negate'],
-  nanman: ['南蛮入侵', 'Barbar.'],
-  wanjian: ['万箭齐发', 'Arrows'],
-  taoyuan: ['桃园结义', 'Oath'],
-  wugu: ['五谷丰登', 'Harvest'],
+  jiedao: ['借刀', 'Hack'],
+  wuxie: ['无懈', 'Negate'],
+  nanman: ['南蛮', 'Barbar.'],
+  wanjian: ['万箭', 'Arrows'],
+  taoyuan: ['桃园', 'Oath'],
+  wugu: ['五谷', 'Harvest'],
   huogong: ['火攻', 'Fire'],
-  tiesuo: ['铁索连环', 'Chains'],
-  lebusishu: ['乐不思蜀', 'Dance'],
-  bingliang: ['兵粮寸断', 'Starve'],
+  tiesuo: ['铁索', 'Chains'],
+  lebusishu: ['乐不', 'Dance'],
+  bingliang: ['兵粮', 'Starve'],
   shandian: ['闪电', 'Storm'],
-  zhengbing: ['征兵令', 'Recruit'],
+  zhengbing: ['征兵', 'Recruit'],
 };
 
 export function itemShort(id: string, lang: Lang): string {
@@ -154,7 +158,17 @@ export function itemShort(id: string, lang: Lang): string {
   if (s) return lang === 'en' ? s[1] : s[0];
   const def = ITEM_BY_ID[id];
   if (!def) return id;
-  return lang === 'en' ? shortEnglish(def.nameEn.replace(/\s*\(.*\)\s*/, '')) : def.nameZh;
+  return lang === 'en' ? shortEnglish(def.nameEn.replace(/\s*\(.*\)\s*/, '')) : def.nameZh.slice(0, 2);
+}
+
+/**
+ * The label under a card when its painted emblem hides the glyph: always shown then.
+ * Without the art the big glyph is on the card, and a label that only repeats it
+ * (桃 under 桃) is `dup` — CSS hides it.
+ */
+export function itemLabel(id: string, lang: Lang): { text: string; dup: boolean } {
+  const text = itemShort(id, lang);
+  return { text, dup: text === ITEM_BY_ID[id]?.icon };
 }
 
 export type TouchKey = 'fire' | 'ads' | 'jump' | 'dodge' | 'reload' | 'swap' | 'interact' | 'mark' | 'wheel' | 'chat' | 'map' | 'score' | 'menu';

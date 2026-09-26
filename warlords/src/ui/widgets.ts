@@ -3,6 +3,7 @@
 import type { Kingdom, RoleId } from '../core/types';
 import { HERO_BY_ID } from '../data';
 import { assetList, assetListSync } from '../game/assets';
+import { displayName } from '../game/names';
 import { portraitArtPath, portraitCropStyle, type PortraitCrop } from './art';
 import { h, s, type Child } from './dom';
 import { heroName, heroTitle, roleName, tx } from './i18n';
@@ -504,6 +505,25 @@ export function slider(
     onChange(v);
   });
   return h('div', { class: 'sg-range' }, input, out);
+}
+
+/** The name the app generated for a player who never typed one (stored as 无名N, game/names.ts). */
+export function isGeneratedName(name: string): boolean {
+  return /^无名\s*\d+$/.test(name.trim());
+}
+
+/**
+ * A player-name field: a generated 无名N is shown as the placeholder in the viewer's
+ * language ("Nameless 885") and the field stays empty until a name is typed.
+ * `toStored(v)` is what to save for the typed text (clearing it keeps the generated name).
+ */
+export function nameFieldModel(stored: string, lang: 'zh' | 'en', emptyPlaceholder: string): { value: string; placeholder: string; toStored: (v: string) => string } {
+  const generated = isGeneratedName(stored) ? stored.trim() : '';
+  return {
+    value: generated ? '' : stored,
+    placeholder: generated ? displayName(generated, lang) : emptyPlaceholder,
+    toStored: (v) => (v.trim() ? v.slice(0, 16) : generated),
+  };
 }
 
 export function textInput(value: string, onChange: (v: string) => void, opts: { placeholder?: string; maxlength?: number; cls?: string; type?: string; label?: string } = {}): HTMLInputElement {

@@ -3,8 +3,8 @@
 import { DEFAULT_SETTINGS, defaultQuality, settings, type Lang, type Quality, type UserSettings } from '../../game/settings';
 import type { Screen, SettingsTab, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
-import { t, tx } from '../i18n';
-import { button, field, segmented, slider, tabs, textInput, toggle } from '../widgets';
+import { getLang, t, tx } from '../i18n';
+import { button, field, nameFieldModel, segmented, slider, tabs, textInput, toggle } from '../widgets';
 import { markModeChosen } from '../invite';
 
 /** localhost, 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, ::1, fc00::/7, *.local: nobody has a TLS certificate there */
@@ -49,7 +49,9 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
   const net = (patch: Partial<UserSettings['net']>): void => settings.update({ net: { ...settings.get().net, ...patch } });
 
   const nameInput = (): HTMLInputElement => {
-    const input = textInput(settings.get().playerName, (v) => upd({ playerName: v.slice(0, 16) }), { maxlength: 16, placeholder: t('title.namePh'), label: t('settings.name') });
+    // a generated 无名N is the placeholder ("Nameless 885" in English), not a value to edit
+    const m = nameFieldModel(settings.get().playerName, getLang(), t('title.namePh'));
+    const input = textInput(m.value, (v) => upd({ playerName: m.toStored(v) }), { maxlength: 16, placeholder: m.placeholder, label: t('settings.name') });
     input.addEventListener('change', commitName);
     return input;
   };

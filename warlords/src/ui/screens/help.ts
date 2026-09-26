@@ -6,10 +6,10 @@ import { ARMORS, ITEMS, ITEM_KIND_INFO, MOUNTS, ROLES, ROLE_DISTRIBUTION, TROOPS
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, type Child } from '../dom';
 import { colon, kingdomName, t, tx, type I18nKey } from '../i18n';
-import { ORDER_KEYS, RARITY_COLOR, roleInk } from '../theme';
+import { ORDER_KEYS, RARITY_INK, cardTileVars, roleInk } from '../theme';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
 import { weaponClassName } from './heroDetail';
-import { gearArt } from '../cardArt';
+import { gearArt, isUnitWeapon } from '../cardArt';
 import { artKnown, gearIcon, roleCardBadge, setArt, whenArtKnown } from '../artIcons';
 import { ZONE_PHASES } from '../../sim/zone';
 
@@ -37,6 +37,7 @@ export const CONTROLS: readonly { keys: string[]; zh: string; en: string }[] = [
   { keys: ['F'], zh: '拾取 / 打开锦囊 / 按住救援', en: 'Pick up / open chest / hold to revive' },
   { keys: ['1', '2'], zh: '切换主 / 副武器（或滚轮）', en: 'Primary / secondary weapon (or wheel)' },
   { keys: ['4', '5', '6', '7'], zh: '使用锦囊栏', en: 'Use item slots' },
+  { keys: ['X + 4–7'], zh: '丢弃该栏锦囊（按住 X 再按数字键）', en: 'Discard that card (hold X, then press the slot key)' },
   { keys: ['Z', 'X', 'C', 'V'], zh: '部曲：跟随 / 驻守 / 进攻 / 冲锋', en: 'Squad: follow / hold / attack / charge' },
   { keys: ['B', '中键'], zh: '标记准星处目标', en: 'Mark the target under the crosshair' },
   { keys: ['T'], zh: '跳身份 & 快捷喊话轮盘', en: 'Claim & quick-chat wheel' },
@@ -78,7 +79,7 @@ function para(zh: string, en: string): HTMLElement {
 
 /** A card / armor / mount glyph tile: its painted emblem in a round frame when the art ships. */
 function gearGlyph(id: string, color: string, glyph: string): HTMLElement {
-  const el = h('span', { class: 'item-glyph', style: `--ic:${color}` }, glyph);
+  const el = h('span', { class: 'item-glyph', style: cardTileVars(color) }, glyph);
   setArt(el, gearArt(id), { lazy: true });
   return el;
 }
@@ -188,7 +189,7 @@ function squadTab(): HTMLElement {
     section(tx('带兵', 'Squad command'),
       para('每位武将统领本国士兵（基础 4 人，主公 +2）。士兵不会复活，可用「征兵令」或技能补充。', 'Every hero leads soldiers of their kingdom (4 base, Lord +2). Troops do not respawn; recruit more with Conscription orders or abilities.'),
       h('div', { class: 'sg-table-wrap' },
-        h('table', { class: 'sg-table' },
+        h('table', { class: 'sg-table orders' },
           h('tbody', null, orders.map(([o, key, zh, en]) => h('tr', null, h('td', null, keyCap(ORDER_KEYS[o])), h('td', null, h('b', null, t(key))), h('td', null, tx(zh, en))))),
           h('tbody', null, h('tr', null, h('td', null, keyCap('B')), h('td', null, h('b', null, tx('标记', 'Mark'))), h('td', null, tx('标记准星处的敌人，部曲会集火它。', 'Mark the enemy under the crosshair; your troops focus it.')))),
         ),
@@ -197,7 +198,7 @@ function squadTab(): HTMLElement {
     ),
     section(tx('兵种', 'Troop types'),
       h('div', { class: 'sg-table-wrap' },
-        h('table', { class: 'sg-table' },
+        h('table', { class: 'sg-table troops' },
           h('thead', null, h('tr', null, h('th', null, tx('兵种', 'Troop')), h('th', null, tx('势力', 'Kingdom')), h('th', { class: 'num' }, t('common.hp')), h('th', null, tx('作战', 'Combat')))),
           h('tbody', null, TROOPS.map((tr) =>
             h('tr', null,
@@ -238,7 +239,7 @@ function itemsTab(): HTMLElement {
           h('tbody', null, ITEMS.map((it) =>
             h('tr', null,
               h('td', null, gearGlyph(it.id, it.color, it.icon)),
-              h('td', null, h('b', { style: `color:${RARITY_COLOR[it.rarity] ?? 'inherit'}` }, tx(it.nameZh, it.nameEn)), it.sgsCard && it.sgsCard !== it.nameZh ? h('div', { class: 'sg-mute' }, `〔${it.sgsCard}〕`) : null),
+              h('td', null, h('b', { style: `color:${RARITY_INK[it.rarity] ?? 'inherit'}` }, tx(it.nameZh, it.nameEn)), it.sgsCard && it.sgsCard !== it.nameZh ? h('div', { class: 'sg-mute' }, `〔${it.sgsCard}〕`) : null),
               h('td', null, itemKindName(it.kind)),
               h('td', null, tx(it.descZh, it.descEn)),
               h('td', { class: 'num' }, String(it.maxStack)),
@@ -274,8 +275,14 @@ function gearTab(): HTMLElement {
   );
 }
 
+/** The 玩法说明 weapon table: every weapon a hero can carry (lootable first), no unit-only guns. */
+export function playerWeapons(): typeof WEAPONS {
+  return WEAPONS.filter((w) => !isUnitWeapon(w.id)).sort((a, b) => Number(b.lootable) - Number(a.lootable));
+}
+
 function weaponsTab(): HTMLElement {
-  const sorted = [...WEAPONS].filter((w) => !w.id.startsWith('troop_') && !w.id.startsWith('turret_')).sort((a, b) => Number(b.lootable) - Number(a.lootable));
+  // what a player can hold: troop / NPC (黄巾力士's hammer, the elephant's tusks) / turret guns are never in reach
+  const sorted = playerWeapons();
   return h('div', null,
     section(tx('武器：古兵器 → 现代枪械', 'Weapons: ancient → modern'),
       para('每位武将携带一把主武器（专属或拾取）与一把副武器（手枪）。伤害在衰减距离后逐渐降低，最远射程处为 50%。', 'Every hero carries a primary (signature or looted) and a secondary (pistol). Damage falls off after the falloff distance down to 50% at max range.'),
@@ -292,7 +299,13 @@ function weaponsTab(): HTMLElement {
           )),
           h('tbody', null, sorted.map((w) =>
             h('tr', null,
-              h('td', null, gearIcon(w.id, 'wt-art', true), h('b', { style: `color:${RARITY_COLOR[w.rarity] ?? 'inherit'}` }, tx(w.nameZh, w.nameEn)), w.sgsCard ? h('div', { class: 'sg-mute' }, `〔${w.sgsCard}〕`) : null, !w.lootable ? h('span', { class: 'sg-chip' }, tx('专属', 'Signature')) : null),
+              h('td', { class: 'wname' },
+                gearIcon(w.id, 'wt-art', true),
+                h('b', { style: `color:${RARITY_INK[w.rarity] ?? 'inherit'}` }, tx(w.nameZh, w.nameEn)),
+                w.sgsCard ? h('div', { class: 'sg-mute' }, `〔${w.sgsCard}〕`) : null,
+                // on its own line: never over the end of a long name
+                !w.lootable ? h('div', null, h('span', { class: 'sg-chip' }, tx('专属', 'Signature'))) : null,
+              ),
               h('td', null, weaponClassName(w.class)),
               h('td', { class: 'num' }, w.pellets > 1 ? `${w.damage}×${w.pellets}` : String(w.damage)),
               h('td', { class: 'num' }, `${w.fireRate}/s`),

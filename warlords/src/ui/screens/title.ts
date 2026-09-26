@@ -7,8 +7,7 @@ import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, s } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { artBackdrop } from '../keyart';
-import { displayName } from '../../game/names';
-import { button, seal } from '../widgets';
+import { button, nameFieldModel, seal } from '../widgets';
 
 /** Periodic ridge line (period = width/2) so the layer can scroll seamlessly. */
 function ridgePath(width: number, height: number, base: number, amps: readonly [number, number, number][], seed: number): string {
@@ -122,17 +121,18 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
 
   const render = (): void => {
     el.replaceChildren(bg);
+    // a generated 无名N is the placeholder ("Nameless N" in English): the field stays empty until a name is typed
+    const m = nameFieldModel(settings.get().playerName, getLang(), t('title.namePh'));
     const name = h('input', {
       class: 'sg-input dark',
-      // a generated 无名N reads "Nameless N" in English (stored unchanged until edited)
-      value: displayName(settings.get().playerName, getLang()),
-      placeholder: t('title.namePh'),
+      value: m.value,
+      placeholder: m.placeholder,
       maxlength: 16,
       autocomplete: 'off',
       aria: { label: t('title.name') },
     });
-    name.addEventListener('change', () => settings.update({ playerName: name.value.trim().slice(0, 16) }));
-    name.addEventListener('input', () => settings.update({ playerName: name.value.slice(0, 16) }));
+    name.addEventListener('change', () => settings.update({ playerName: m.toStored(name.value.trim()) }));
+    name.addEventListener('input', () => settings.update({ playerName: m.toStored(name.value) }));
 
     const langBtn = button(t('common.lang'), () => settings.update({ lang: getLang() === 'zh' ? 'en' : 'zh' }), {
       cls: 'ghost small sg-lang-btn',

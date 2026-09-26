@@ -187,8 +187,7 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     const ro = (text: string): HTMLElement => h('span', { class: 'ro' }, text);
     const modeLabel = (m: GameMode): string => (m === 'chaos' ? t('single.modeChaos') : t('single.modeStandard'));
     const diffLabel = (d: BotDifficulty): string => t(d === 'easy' ? 'single.easy' : d === 'hard' ? 'single.hard' : 'single.normal');
-    settingsBox.replaceChildren(
-      h('div', { class: 'box-head' }, h('h2', { class: 'sg-h2' }, t('lobby.settings'))),
+    const rows = [
       field(t('single.players'), isHost
         ? segmented([5, 6, 7, 8].map((n) => ({ value: n as 5 | 6 | 7 | 8, label: String(n) })), st.playerCount, (v) => upd({ playerCount: v }))
         : ro(String(st.playerCount))),
@@ -203,6 +202,11 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
       field(t('lobby.troops'), isHost
         ? segmented([2, 3, 4, 5, 6].map((n) => ({ value: n, label: String(n) })), st.troopsPerHero, (v) => upd({ troopsPerHero: v }))
         : ro(String(st.troopsPerHero))),
+    ];
+    settingsBox.replaceChildren(
+      h('div', { class: 'box-head' }, h('h2', { class: 'sg-h2' }, t('lobby.settings'))),
+      // a guest only reads them: two per row (short screens keep 身份分配 in view)
+      ...(isHost ? rows : [h('div', { class: 'ro-grid' }, rows)]),
       field(t('single.roles'), rolePreview(st.mode, st.playerCount)),
     );
   };

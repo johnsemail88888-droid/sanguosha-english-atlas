@@ -217,9 +217,14 @@ describe('interaction prompt', () => {
     expect(deriveInteract(me(), pos, ents)?.kind).toBe('revive');
   });
 
-  it('a full item bar only warns when nothing else is in reach', () => {
+  it('a full item bar: F swaps the card (COMBAT-7), so it competes like any pickup; an unswappable one only warns when nothing else is in reach', () => {
+    // (was: the card only warned — F could not take it; the sim now swaps it for slot 7's card)
     const full = me({ items: [1, 2, 3, 4].map(() => ({ id: 'zzz', count: 1 })) });
-    expect(deriveInteract(full, facing, [ent(3, 'loot', 'tao', 0, -0.5), ent(4, 'crate', '1', 0, -2.5)])?.kind).toBe('crate');
+    expect(deriveInteract(full, facing, [ent(3, 'loot', 'tao', 0, -0.5), ent(4, 'crate', '1', 0, -2.5)])).toMatchObject({ kind: 'full', itemId: 'tao', swapSlot: 3, swapId: 'zzz' });
+    expect(deriveInteract(full, facing, [ent(3, 'loot', 'tao', 0, -2.4), ent(4, 'crate', '1', 0, -0.8)])?.kind).toBe('crate');
+    const peaches = me({ items: [1, 2, 3, 4].map(() => ({ id: 'tao', count: 3 })) });
+    expect(deriveInteract(peaches, facing, [ent(3, 'loot', 'tao', 0, -0.5), ent(4, 'crate', '1', 0, -2.5)])?.kind).toBe('crate');
+    expect(deriveInteract(peaches, facing, [ent(3, 'loot', 'tao', 0, -0.5)])).toMatchObject({ kind: 'full', swapSlot: -1 });
   });
 
   it('knows when you carry a peach', () => {

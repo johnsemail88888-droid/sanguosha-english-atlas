@@ -207,10 +207,9 @@ test('single player: full flow, controls, HUD, pause, cards, bots fight, leave',
     await page.locator('.pm-box .sg-btn.gold').click();
     await enterGame(page);
 
-    // a card you get explains itself: pickup toast with its effect, and the 锦囊说明 in the menu
+    // a card you get: a compact line by the item bar (COMBAT-8: never over the crosshair), its effect in the 锦囊说明 in the menu
     expect(await page.evaluate(() => (window as SgwlWindow).__sgwl!.cheats.give('shandian'))).toBe(true);
-    await expect(page.locator('.hud-announce .ann-info .line.has-sub').last()).toContainText('闪电', { timeout: 15_000 });
-    await expect(page.locator('.hud-announce .ann-info .line.has-sub .sub').last()).toContainText('雷云');
+    await expect(page.locator('.hud-pickups .pk-row[data-item="shandian"]')).toContainText('闪电', { timeout: 15_000 });
     await shot('06-card-toast-zh');
     await page.keyboard.press('Escape');
     await expect(page.locator('.pm-cards .pc-list.held .pc-card[data-item="shandian"] .desc')).toContainText('雷云');
@@ -225,7 +224,7 @@ test('single player: full flow, controls, HUD, pause, cards, bots fight, leave',
     await page.locator('.pm-box .sg-btn.gold').click();
     await enterGame(page);
     expect(await page.evaluate(() => (window as SgwlWindow).__sgwl!.cheats.give('wuzhong'))).toBe(true);
-    await expect(page.locator('.hud-announce .ann-info .line.has-sub .sub').last()).toContainText('random', { timeout: 15_000 });
+    await expect(page.locator('.hud-pickups .pk-row[data-item="wuzhong"]')).toContainText('Got', { timeout: 15_000 });
     await shot('08-card-toast-en');
 
     // bots fight: god mode for us, sim sped up, every bot brought next to the Lord (the

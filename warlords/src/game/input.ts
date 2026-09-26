@@ -79,6 +79,19 @@ export const KEY_MAP: Readonly<Record<string, ActionKey>> = {
   KeyT: { kind: 'ui', key: 'quickchat' },
 };
 
+/**
+ * Discard chord (COMBAT-7): hold X and press 4–7 to drop that slot's card at your feet
+ * (sim `{ a: 'drop', what: 'item' }`). X alone is still the squad "hold" order — it is
+ * sent when X is released without a slot key having been pressed meanwhile.
+ */
+export const DISCARD_KEY = 'KeyX';
+
+/** Item slot (0–3) of a slot key (4–7 / numpad 4–7), else null. */
+export function itemSlotOfKey(code: string): number | null {
+  const b = KEY_MAP[code];
+  return b?.kind === 'action' && b.action.a === 'item' ? b.action.slot : null;
+}
+
 const MOVE_KEYS: Readonly<Record<string, [number, number]>> = {
   KeyW: [0, 1],
   ArrowUp: [0, 1],
@@ -140,6 +153,8 @@ export class InputState {
   private fireLatch = false;
   private touchMove = { x: 0, z: 0 };
   private actions: InputAction[] = [];
+  /** a slot key was pressed while X was held: X's own order is not sent on release */
+  private discardChord = false;
   enabled = true;
 
   addLook(dx: number, dy: number): void {
@@ -155,11 +170,27 @@ export class InputState {
     if (code === 'ShiftLeft' || code === 'ShiftRight') this.held.sprint = true;
     if (code === 'KeyF') this.held.interact = true;
     if (code === 'Space') this.held.jump = true;
+    // X waits for its release (it may become the discard modifier); X + slot key drops that card
+    if (code === DISCARD_KEY) {
+      this.discardChord = false;
+      return;
+    }
+    const slot = itemSlotOfKey(code);
+    if (slot !== null && this.keys.has(DISCARD_KEY)) {
+      this.discardChord = true;
+      this.pushAction({ a: 'drop', slot, what: 'item' });
+      return;
+    }
     const b = KEY_MAP[code];
     if (b?.kind === 'action') this.pushAction(b.action);
   }
 
   keyUp(code: string): void {
+    if (code === DISCARD_KEY && this.keys.has(code) && !this.discardChord) {
+      const b = KEY_MAP[code];
+      if (b?.kind === 'action') this.pushAction(b.action);
+    }
+    if (code === DISCARD_KEY) this.discardChord = false;
     this.keys.delete(code);
     if (code === 'ShiftLeft' || code === 'ShiftRight') this.held.sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
     if (code === 'KeyF') this.held.interact = false;
@@ -193,6 +224,7 @@ export class InputState {
   /** Release everything (focus lost, chat opened...). */
   releaseAll(): void {
     this.keys.clear();
+    this.discardChord = false;
     this.held.fire = this.held.ads = this.held.sprint = this.held.interact = this.held.jump = false;
     this.touchHeld.fire = this.touchHeld.ads = this.touchHeld.sprint = this.touchHeld.interact = false;
     this.fireLatch = false;
