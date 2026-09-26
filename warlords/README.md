@@ -23,7 +23,7 @@ English section below → [English](#english).*
 - **带兵**：每名武将带 4 名本势力士兵（主公再 +2），可下令跟随 / 驻守 / 进攻 / 冲锋、标记目标。
 - **锦囊与装备**：杀（弹药）、闪、桃、酒、无中生有、过河拆桥、万箭齐发、乐不思蜀……还有八卦阵、藤甲、赤兔、的卢。
 - **烽火圈 + 天降锦囊**：地图 320 × 320 米（洛阳宫城、虎牢关、赤壁、官渡大营、长坂坡），安全区逐步缩小，空投里有传说武器。
-- 一局 5–8 人（真人 + AI），约 8–12 分钟。所有美术、模型、音效、音乐均为程序生成，无需下载任何素材。
+- 一局 5–8 人（真人 + AI），约 8–12 分钟。武将、兵卒、武器、战马的 3D 模型，立绘、身份牌、锦囊与技能图标、加载画面和地形贴图为 AI 生成的美术（随网页版一起下载，约 30 MB）；音效与音乐由代码实时合成。离线单文件版不含这些美术，自动改用程序化生成的模型与图案，玩法完全相同。
 
 ## 怎么玩
 
@@ -185,7 +185,7 @@ warlords/
 │  ├─ data/                内容：30 武将、武器、锦囊 / 装备、士兵、身份、状态、掉落表
 │  ├─ sim/                 无头权威模拟（物理、战斗、状态、规则、烽火圈、掉落、士兵、AI、地图生成）
 │  ├─ net/                 会话与传输：本地回环、PeerJS、WebSocket；主机权威 + 客户端预测 / 插值
-│  ├─ render/              three.js 渲染：地形、建筑、程序化角色与武器、动画、特效、第三人称相机
+│  ├─ render/              three.js 渲染：地形、建筑、角色与武器（AI 美术模型 + 程序化后备）、动画、特效、第三人称相机
 │  ├─ ui/                  DOM 界面：各个画面、HUD、触屏操作、中英双语
 │  ├─ audio/               程序化 WebAudio 音效与音乐
 │  └─ game/                输入、用户设置、会话契约、调试钩子
@@ -199,7 +199,7 @@ warlords/
 ## 致谢与许可
 
 - 本项目为**粉丝自制、非商业**作品，与 **游卡桌游（Yoka Games）** 及「三国杀」官方**没有任何关联**，也未获其授权或认可。「三国杀」名称及相关规则归其权利人所有，此处仅用于识别与致敬。
-- 游戏内所有美术（模型、贴图、界面图案）、音效与音乐均由代码**程序化生成**，未使用任何官方素材。
+- 游戏内美术为原创：3D 模型、立绘、卡牌与图标、贴图由 AI 工具（Higgsfield）生成后收录于 `public/assets/`（来源清单见 `assets-src/manifest.json`），其余模型、界面图案、音效与音乐由代码**程序化生成**；未使用任何官方素材。
 - 源代码许可见仓库根目录 [`LICENSE.md`](../LICENSE.md)（允许个人、学习与非商业用途）。第三方依赖：three.js、PeerJS、ws、peer（均为 MIT 许可）。
 
 ---
@@ -212,7 +212,10 @@ warlords/
 the Lord is public, Loyalists, Rebels and the Traitor are hidden until they die. 30 heroes turn their card skills
 into action abilities (passive + Q + E, lord skill on G), ancient weapons become modern guns, every hero leads a
 squad of soldiers, and a shrinking beacon-fire zone plus airdrops keep 5–8 player matches (humans + bots) to about
-8–12 minutes. Everything — models, textures, sound, music — is generated procedurally in code.
+8–12 minutes. Hero, troop, weapon and mount models, portraits, identity cards, item and skill emblems,
+loading screens and terrain textures are AI-generated art (downloaded with the web version, ~30 MB); sound and music
+are synthesised in code. The offline single-file build ships without that art and falls back to procedural models
+and glyphs — gameplay is identical.
 
 ### How to play
 - **Web:** <https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/> (latest Chrome / Edge / Firefox; phones in landscape get touch controls).
@@ -306,6 +309,8 @@ headless authoritative simulation + AI + map generator · `src/net` sessions & t
 ### Credits & licence
 Fan-made and non-commercial. **Not affiliated with, endorsed or sponsored by Yoka Games (游卡桌游)**; 三国杀 /
 Sanguosha names and rules belong to their respective owners and are referenced for identification only. All art,
-sound and music in the game are generated procedurally — no official assets are used. Source code: see
+sound and music are original: models, portraits, cards, icons and textures were generated with AI tools (Higgsfield)
+and ship in `public/assets/` (sources listed in `assets-src/manifest.json`); everything else, including sound and
+music, is generated procedurally in code — no official assets are used. Source code: see
 [`LICENSE.md`](../LICENSE.md) (personal, educational and non-commercial use). Dependencies: three.js, PeerJS, ws,
 peer (MIT).
