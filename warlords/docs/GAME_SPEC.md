@@ -87,7 +87,8 @@ electron/, .github/workflows, scripts/  packaging + CI                  (PACKAGI
    (in 乱世 mode with 影武者, two crowns are announced — see §4).
 4. **选将 (hero select)**: the Lord first picks from the 5 lord candidates + 3 random heroes (15 s);
    the Lord's pick is shown to everyone; then all others pick simultaneously from 3 random
-   heroes (20 s; `freePick` shows all). Duplicate heroes are not allowed. Bots pick instantly —
+   heroes (20 s; `freePick` shows all). Duplicate heroes are not allowed. Bots pick instantly (a bot
+   Lord takes one of the lord candidates at random, the others by role suitability) —
    except with `freePick`: the humans choose first (bots pick once every human locked in, or at
    the deadline), each bot from a random handful of the roster; single player gets 4× the time.
    When the timer runs out a human gets the card shown selected (clicked or default).
@@ -151,7 +152,11 @@ Players may publicly claim a role at any time (T wheel: 我是忠臣 / 我是反
 集火此人 / 需要桃 / 跟我来). Claims show as a small tag above the nameplate and in the scoreboard.
 Lies are allowed. Bots claim too: most bot rebels 跳反 after the opening loot (a few bluff 忠,
 the rest keep quiet until the push), the 内奸 bluffs 忠. Loyalists hunt a rebel who admitted it
-and rebels stand by one who is being shot.
+and rebels stand by one who is being shot. A bot standing in for a dropped player never claims
+(or sends identity quick-chat) in his name. A bot Lord holds his post: before the endgame he
+leaves a hero farther than 40 m that is not hurting the lord side to his loyalists. A field /
+burn someone laid is not read as an attack on whoever walks into it, and nobody is executed over
+a scuffle in the opening minute (bots stop at 35 % on a hero whose role they don't know).
 
 ### Zone 烽火圈 (`sim/zone.ts`)
 

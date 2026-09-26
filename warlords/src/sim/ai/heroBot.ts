@@ -55,6 +55,12 @@ const DEG = Math.PI / 180;
 const RETREAT_MAX = 10;
 /** how far the lord strays from his anchor (loyalists / squad) in a fight */
 const LORD_LEASH = 12;
+/**
+ * The 主公 holds his post (C3-4): before the endgame, a hero farther than this that is not hurting
+ * the lord side is his loyalists' business — he was the top killer (1.2–1.8 kills a match, 38 of
+ * the rebels killed at 4–6 min) and the lord side won 62–66 % of bot matches.
+ */
+const LORD_GUARD_R = 40;
 /** how far an escort chases an attacker away from the crown it guards */
 const ESCORT_LEASH = 38;
 /** seconds at an objective before drifting around it */
@@ -558,6 +564,7 @@ export class HeroBot implements BotBrain, BotView {
       if (hst < 0.3) continue;
       const pos = visible ? c.pos : (this.seen.get(c.id)?.pos ?? this.posOf(c) ?? c.pos);
       const d = dist2d(self.pos, pos);
+      if (this.role === 'lord' && c.kind === 'hero' && d > LORD_GUARD_R && !attackers.has(c.id) && pressure(now) < 0.6 && !this.hurtingLordSide(c)) continue;
       const kindW = c.kind === 'hero' ? 1 : c.kind === 'turret' ? 0.6 : c.kind === 'npc' ? 0.5 : 0.45;
       const hpFrac = c.kind === 'hero' ? this.hpFrac(c) : c.hp / Math.max(1, c.maxHp);
       let s = hst * kindW * (1 + 0.6 * (1 - hpFrac)) * (1 / (1 + d / 30));
@@ -605,6 +612,20 @@ export class HeroBot implements BotBrain, BotView {
       this.targetLos = best?.los ?? false;
       if (next && best!.los) this.seen.set(next.id, { pos: { ...next.pos }, t: now });
     }
+  }
+
+  /**
+   * Has hero `x` been seen hurting the lord side in the last 6 s: a crown (or his soldiers), a
+   * believed ally, or anyone standing at the lord's post?
+   */
+  private hurtingLordSide(x: Entity): boolean {
+    const { sim, self } = this;
+    for (const a of sim.heroes()) {
+      if (a === x || !a.hero || a.hero.dead || this.obs.sinceAttack(sim, x.id, a.id) >= 6) continue;
+      const ap = a === self ? self.pos : this.posOf(a, 3);
+      if (wearsCrown(sim, a) || this.allyScore(a) >= 0.5 || (ap && dist2d(ap, self.pos) <= LORD_GUARD_R)) return true;
+    }
+    return false;
   }
 
   // ── decisions ───────────────────────────────────────────────────────────
