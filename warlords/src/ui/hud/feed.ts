@@ -262,6 +262,8 @@ export interface HudChatLine {
   text: string;
   kind?: 'chat' | 'quick' | 'system' | 'claim';
   color?: string;
+  /** a line that is updated in place: a later line with the same key replaces its text */
+  key?: string;
 }
 
 export class ChatBox {
@@ -270,6 +272,7 @@ export class ChatBox {
   private readonly log: HTMLElement;
   private lines: { el: HTMLElement; at: number }[] = [];
   private recent: { key: string; at: number }[] = [];
+  private readonly keyed = new Map<string, { el: HTMLElement; text: HTMLElement }>();
   private open = false;
 
   private readonly sendBtn: HTMLButtonElement;
@@ -318,13 +321,24 @@ export class ChatBox {
   }
 
   add(line: HudChatLine, now: number): void {
+    // a keyed line still in the log: its text changes in place (the link episode's "waiting" → "back")
+    const kept = line.key ? this.keyed.get(line.key) : undefined;
+    if (kept && kept.el.isConnected) {
+      kept.text.textContent = line.text;
+      const rec = this.lines.find((l) => l.el === kept.el);
+      if (rec) rec.at = now;
+      kept.el.classList.remove('old');
+      return;
+    }
     // de-duplicate the same message arriving from both the session and the event stream
     const key = `${line.from}|${line.text}`;
     this.recent = this.recent.filter((r) => now - r.at < 1.5);
     if (this.recent.some((r) => r.key === key)) return;
     this.recent.push({ key, at: now });
-    const el = h('div', { class: `line k-${line.kind ?? 'chat'}` }, line.from ? h('b', { style: line.color ? `color:${line.color}` : '' }, `${line.from}${colon()}`) : null, h('span', null, line.text));
+    const text = h('span', null, line.text);
+    const el = h('div', { class: `line k-${line.kind ?? 'chat'}` }, line.from ? h('b', { style: line.color ? `color:${line.color}` : '' }, `${line.from}${colon()}`) : null, text);
     this.log.appendChild(el);
+    if (line.key) this.keyed.set(line.key, { el, text });
     this.lines.push({ el, at: now });
     while (this.lines.length > 40) this.lines.shift()?.el.remove();
     this.log.scrollTop = this.log.scrollHeight;

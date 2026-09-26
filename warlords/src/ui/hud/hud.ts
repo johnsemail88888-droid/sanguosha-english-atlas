@@ -269,11 +269,11 @@ export class Hud {
     this.bag.add(
       this.session.on('status', (st) => {
         const now = performance.now() / 1000;
-        // the link to the host: the chip (+ one chat line per change), no announcement
+        // the link to the host: the chip (+ one chat line for a lasting trouble, updated in place), no announcement
         const ln = this.link.push(st, now);
         if (ln.handled) {
           this.top.setLink(this.link.chip);
-          if (ln.chat) this.chat.add({ from: t('chat.system'), text: tx(ln.chat.zh, ln.chat.en), kind: 'system' }, now);
+          if (ln.chat) this.chat.add({ from: t('chat.system'), text: tx(ln.chat.zh, ln.chat.en), kind: 'system', key: ln.chat.key }, now);
           return;
         }
         const text = tx(st.zh, st.en);
@@ -405,7 +405,9 @@ export class Hud {
       return;
     }
     this.readFailed = false;
-    if (this.link.update(now)) this.top.setLink(this.link.chip);
+    const lk = this.link.update(now);
+    if (lk.chip) this.top.setLink(this.link.chip);
+    if (lk.chat) this.chat.add({ from: t('chat.system'), text: tx(lk.chat.zh, lk.chat.en), kind: 'system', key: lk.chat.key }, now);
     if (!this.prewarmed && f.players.length) {
       this.prewarmed = true;
       prewarmWeapons([...f.players.map((p) => HERO_BY_ID[p.heroId]?.signatureWeapon), 'pistol']);

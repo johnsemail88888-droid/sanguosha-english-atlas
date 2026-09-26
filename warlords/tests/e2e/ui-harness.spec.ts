@@ -712,25 +712,33 @@ test('hero select: the "♛ Lord chose X" toast never covers a hero card (1280×
   }
 });
 
-test('online HUD: a host freeze is one live chip (replaced in place, green, gone) and one chat line per change', async () => {
+test('online HUD: a host freeze is one live chip (replaced in place, green, gone); only a lasting one gets a chat line, updated in place', async () => {
   const { ctx, page, errors } = await open('screen=hud&kind=online', 1280, 720);
   await expect(page.locator('.sg-hud .hud-vitals')).toBeVisible({ timeout: 15_000 });
   const status = (zh: string, en: string, extra: { key?: string; clear?: boolean } = {}): Promise<void> =>
     page.evaluate(([a, b, c]) => (window as unknown as ArtHarness).__ui.deps.lastSession.status(a, b, c), [zh, en, extra] as const);
   const sysLines = (): Promise<number> => page.locator('.hud-chat .line.k-system').count();
   const before = await sysLines();
+  // (the net layer says 主机; the HUD reads 房主 like every other online string — UX-17)
   for (let i = 0; i < 3; i++) await status('等待主机响应…', 'Waiting for host…', { key: 'waitingHost' });
-  await expect(page.locator('.link-chip')).toHaveText('⚠ 等待主机响应…');
+  await expect(page.locator('.link-chip')).toHaveText('⚠ 等待房主响应…');
   await expect(page.locator('.link-chip')).toHaveAttribute('data-tone', 'warn');
   await expect(page.locator('.hud-top .match-info')).toBeHidden();
-  expect(await sysLines()).toBe(before + 1);
   await status('主机已恢复响应', 'Host is responding again', { key: 'waitingHost', clear: true });
-  await expect(page.locator('.link-chip')).toHaveText('✓ 主机已恢复响应');
-  expect(await sysLines()).toBe(before + 2);
+  await expect(page.locator('.link-chip')).toHaveText('✓ 房主已恢复响应');
+  // a short freeze is the chip alone (MP2-7)
+  expect(await sysLines()).toBe(before);
   // no announcement for the link, and the chip clears itself
-  await expect(page.locator('.hud-announce')).not.toContainText('主机');
+  await expect(page.locator('.hud-announce')).not.toContainText('房主');
   await expect(page.locator('.link-chip')).toBeHidden({ timeout: 10_000 });
   await expect(page.locator('.hud-top .match-info')).toBeVisible();
+  // a freeze that lasts: one line after ~10 s, and the same line says when the host is back
+  await status('等待主机响应…', 'Waiting for host…', { key: 'waitingHost' });
+  await expect.poll(sysLines, { timeout: 25_000 }).toBe(before + 1);
+  await expect(page.locator('.hud-chat .line.k-system').last()).toContainText('等待房主响应…');
+  await status('主机已恢复响应', 'Host is responding again', { key: 'waitingHost', clear: true });
+  await expect(page.locator('.hud-chat .line.k-system').last()).toContainText('房主已恢复响应（中断');
+  expect(await sysLines()).toBe(before + 1);
   // a host notice still reads as a chat line + an announcement
   await status('玩家离开了', 'A player left');
   await expect(page.locator('.hud-announce .ann-info')).toContainText('玩家离开了');

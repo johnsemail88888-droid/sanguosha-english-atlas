@@ -2,7 +2,7 @@
 // announcement per status event). NET-1: the desktop app's LAN addresses are
 // refreshed, not frozen at window start.
 import { afterEach, describe, expect, it } from 'vitest';
-import { LinkStatus, OK_CHIP_SECS, TROUBLE_LOG_GAP, WAITING_HOST, linkStateOf, type StatusMsg } from '../../../src/ui/hud/connstatus';
+import { LinkStatus, OK_CHIP_SECS, TROUBLE_LOG_AFTER, WAITING_HOST, hostWording, linkStateOf, type StatusMsg } from '../../../src/ui/hud/connstatus';
 import { cleanUrls, desktopInfo, refreshLanUrls, resetLanUrlsForTests, shareBase } from '../../../src/ui/desktop';
 import { WAITING_HOST_KEY } from '../../../src/net/clientSession';
 
@@ -31,7 +31,7 @@ describe('NET-2 link status', () => {
     expect(s.chip).toBeNull();
   });
 
-  it('a host freeze: one chip replaced in place, one chat line per change, green then hidden', () => {
+  it('a short host freeze: one chip replaced in place, green then hidden — and no chat line (MP2-7)', () => {
     const s = new LinkStatus();
     const lines: string[] = [];
     const push = (st: StatusMsg, now: number): void => {
@@ -40,47 +40,65 @@ describe('NET-2 link status', () => {
       if (r.chat) lines.push(r.chat.zh);
     };
     push(WAITING, 10);
-    expect(s.chip).toEqual({ zh: WAITING.zh, en: WAITING.en, tone: 'warn' });
-    // the session repeats itself while frozen: no new lines
+    // UX-17: the chip says 房主 like every other online string
+    expect(s.chip).toEqual({ zh: '等待房主响应…', en: WAITING.en, tone: 'warn' });
+    // the session repeats itself while frozen: nothing new
     push(WAITING, 11);
+    expect(s.update(12)).toEqual({ chip: false, chat: null });
     push(WAITING, 12);
     push(BACK, 14);
+    expect(s.chip).toEqual({ zh: '房主已恢复响应', en: BACK.en, tone: 'ok' });
+    expect(lines).toEqual([]);
+    expect(s.update(14 + OK_CHIP_SECS - 0.1)).toEqual({ chip: false, chat: null });
     expect(s.chip?.tone).toBe('ok');
-    expect(lines).toEqual([WAITING.zh, BACK.zh]);
-    expect(s.update(14 + OK_CHIP_SECS - 0.1)).toBe(false);
-    expect(s.chip?.tone).toBe('ok');
-    expect(s.update(14 + OK_CHIP_SECS)).toBe(true);
+    expect(s.update(14 + OK_CHIP_SECS)).toEqual({ chip: true, chat: null });
     expect(s.chip).toBeNull();
-    expect(s.update(30)).toBe(false);
+    expect(s.update(30)).toEqual({ chip: false, chat: null });
   });
 
-  it('a lost link escalates in place: waiting → reconnecting → reconnected', () => {
+  it('a freeze that lasts gets ONE chat line, updated in place when the host is back', () => {
     const s = new LinkStatus();
-    const lines: string[] = [];
+    s.push(WAITING, 10);
+    expect(s.update(10 + TROUBLE_LOG_AFTER - 0.1).chat).toBeNull();
+    const line = s.update(10 + TROUBLE_LOG_AFTER).chat;
+    expect(line).toEqual({ key: 'link-1', zh: '等待房主响应…', en: WAITING.en });
+    expect(s.update(21).chat).toBeNull();
+    const back = s.push(BACK, 24);
+    expect(back.chat).toEqual({ key: 'link-1', zh: '房主已恢复响应（中断 14 秒）', en: `${BACK.en} (after 14 s)` });
+    // the next episode is a new line
+    s.push(WAITING, 40);
+    expect(s.update(40 + TROUBLE_LOG_AFTER).chat?.key).toBe('link-2');
+  });
+
+  it('a lost link escalates in place: waiting → reconnecting (logged at once) → reconnected (same line)', () => {
+    const s = new LinkStatus();
+    const lines: { key: string; zh: string }[] = [];
     for (const [st, t] of [[WAITING, 1], [LOST, 6], [LOST, 7], [REJOINED, 9]] as const) {
       const r = s.push(st, t);
-      if (r.chat) lines.push(r.chat.zh);
+      if (r.chat) lines.push({ key: r.chat.key, zh: r.chat.zh });
       if (t === 6) expect(s.chip?.tone).toBe('bad');
     }
-    expect(lines).toEqual([WAITING.zh, LOST.zh, REJOINED.zh]);
+    expect(lines).toEqual([
+      { key: 'link-1', zh: LOST.zh },
+      { key: 'link-1', zh: '已重新连接（中断 8 秒）' },
+    ]);
     expect(s.state).toBe('ok');
     expect(s.chip?.tone).toBe('ok');
   });
 
-  it('a flapping link logs one pair per TROUBLE_LOG_GAP (the chip still follows every change)', () => {
+  it('a flapping link (short freezes) never fills the chat; the chip still follows every change', () => {
     const s = new LinkStatus();
-    const lines: string[] = [];
+    let chat = 0;
     for (let i = 0; i < 6; i++) {
       const t = i * 3;
-      const a = s.push(WAITING, t);
+      if (s.push(WAITING, t).chat) chat++;
       expect(s.chip?.tone).toBe('warn');
-      const b = s.push(BACK, t + 1);
+      if (s.update(t + 0.5).chat) chat++;
+      if (s.push(BACK, t + 1).chat) chat++;
       expect(s.chip?.tone).toBe('ok');
-      for (const r of [a, b]) if (r.chat) lines.push(r.chat.zh);
     }
-    expect(lines).toEqual([WAITING.zh, BACK.zh]);
-    const late = s.push(WAITING, 5 * 3 + TROUBLE_LOG_GAP);
-    expect(late.chat?.zh).toBe(WAITING.zh);
+    expect(chat).toBe(0);
+    expect(hostWording('等待主机响应…')).toBe('等待房主响应…');
   });
 
   it('the first "connected" of a session shows nothing', () => {
