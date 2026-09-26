@@ -322,6 +322,8 @@ export class World implements SimExt, SimHost {
   private scheduled: Scheduled[] = [];
   private schedSeq = 0;
   private attackLog = new Map<EntityId, Map<EntityId, number>>();
+  /** victim → attacker → time of his last hit that was not a lingering effect (hitByHandRecently) */
+  private handLog = new Map<EntityId, Map<EntityId, number>>();
   /** victim hero → attacker hero → decaying damage he dealt by his own hand (heroHarm) */
   private harmLog = new Map<EntityId, Map<EntityId, { amt: number; at: number }>>();
   private expiries = new Map<EntityId, number>();
@@ -1421,6 +1423,10 @@ export class World implements SimExt, SimHost {
         for (const [att, t] of m) if (now - t > ATTACK_MEMORY) m.delete(att);
         if (m.size === 0) this.attackLog.delete(victim);
       }
+      for (const [victim, m] of this.handLog) {
+        for (const [att, t] of m) if (now - t > ATTACK_MEMORY) m.delete(att);
+        if (m.size === 0) this.handLog.delete(victim);
+      }
       for (const [victim, m] of this.harmLog) {
         for (const [att, r] of m) if (now - r.at > HARM_HALF_LIFE * 6) m.delete(att);
         if (m.size === 0) this.harmLog.delete(victim);
@@ -1549,6 +1555,21 @@ export class World implements SimExt, SimHost {
     };
     calm(sideA, inB);
     calm(sideB, inA);
+  }
+
+  /** A hit on `victimId` credited to `creditId` that was not a lingering effect (combat.ts). */
+  noteHandHit(victimId: EntityId, creditId: EntityId): void {
+    let m = this.handLog.get(victimId);
+    if (!m) {
+      m = new Map();
+      this.handLog.set(victimId, m);
+    }
+    m.set(creditId, this.time);
+  }
+
+  hitByHandRecently(victimId: EntityId, creditId: EntityId, window: number): boolean {
+    const t = this.handLog.get(victimId)?.get(creditId);
+    return t !== undefined && this.time - t <= window;
   }
 
   /** Tally damage hero `attackerId` dealt hero `victimId` by his own hand (combat.ts; not his troops'). */

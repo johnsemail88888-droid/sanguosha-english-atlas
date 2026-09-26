@@ -134,12 +134,13 @@ export function isHostile(w: World, a: Entity, b: Entity): boolean {
   if (!ca) return w.attackedRecently(a.id, b.id);
 
   const bRoot = cb ?? b;
-  // a unit of a commander in a charm duel with `b`'s side ignores that fight's hits and aim, and so
-  // does one whose commander only grazed a hero on his side (orders, marks and known roles still count)
-  const duel = a !== ca && (charmBound(w, ca, bRoot) || spareSide(w, ca, bRoot) || openingCalm(w, ca, bRoot));
+  // a unit ignores the hits and aim between its commander and `b`'s side when they are a charm duel
+  // (C3-1), a graze between heroes on one side (C3-3) or an opening scuffle (C3-5) — orders, marks
+  // and known roles still count
+  const ignoreFight = a !== ca && (charmBound(w, ca, bRoot) || spareSide(w, ca, bRoot) || openingCalm(w, ca, bRoot));
   // (a) damage memory
   if (
-    !duel &&
+    !ignoreFight &&
     (w.attackedRecently(ca.id, b.id) ||
       w.attackedRecently(ca.id, bRoot.id) ||
       w.attackedRecently(a.id, b.id) ||
@@ -149,7 +150,7 @@ export function isHostile(w: World, a: Entity, b: Entity): boolean {
   }
   // (b) commander focus / order / mark
   const focus = w.focusOf(ca.id);
-  if (!duel && focus.id !== undefined && now - focus.at <= FOCUS_MEMORY && (focus.id === b.id || (b.kind === 'hero' && focus.id === bRoot.id && bRoot === b))) return true;
+  if (!ignoreFight && focus.id !== undefined && now - focus.at <= FOCUS_MEMORY && (focus.id === b.id || (b.kind === 'hero' && focus.id === bRoot.id && bRoot === b))) return true;
   const order = ca.hero?.order;
   if (order && order.kind === 'attack' && order.targetId === b.id) return true;
   if (b.statuses.length > 0 && hasStatusFrom(b, 'marked', ca.id, now)) return true;

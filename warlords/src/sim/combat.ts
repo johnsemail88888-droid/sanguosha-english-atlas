@@ -338,7 +338,13 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   const chained = (type === 'fire' || type === 'thunder') && findStatus(target, 'chained', now) !== undefined;
   const chainKey = chained ? chainDedupKey(req, creditId) : undefined;
   if (chainKey !== undefined && !w.chainSpreading && w.chainStrikeThisTick(chainKey)?.spread.has(target.id)) return res;
-  if (creditId !== undefined && creditId !== target.id) w.recordAttack(target.id, creditId, req.sourceId);
+  // a lingering effect ticking (a field laid earlier, a burn / poison): credited to whoever laid it,
+  // but not his hand — the victim may just have walked into it (observer.ts, hostility.ts)
+  const lingering = w.periodicDepth > 0 || (req.abilityId?.startsWith('status:') ?? false);
+  if (creditId !== undefined && creditId !== target.id) {
+    w.recordAttack(target.id, creditId, req.sourceId);
+    if (!lingering) w.noteHandHit(target.id, creditId);
+  }
 
   // attacker pre-hook (may mutate req: canDodge, ignoreArmor, amount)
   if (src && src.kind === 'hero' && src !== target && !passThrough) w.hooks.beforeDamageDealt(src, target, req);
@@ -489,8 +495,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
     credit !== target &&
     total > 0 &&
     w.isDirectSource(req.sourceId, credit) &&
-    src?.kind !== 'hazard' &&
-    !req.abilityId?.startsWith('status:') &&
+    !lingering &&
     !charmedOnto(credit, target, now)
   ) {
     w.noteHeroHarm(credit.id, target.id, total);

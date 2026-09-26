@@ -132,3 +132,69 @@ describe('C3-5: soldiers stay out of opening scuffles', () => {
     expect(later.afterBurn).toBe(true);
   });
 });
+
+// Field ticks and burns are credited to the hero who laid them, so the attack log alone made a
+// hero who walked into a stranger's fire look shot by him: the bot answered, and in the opening that
+// was the brawl. Now they read as lingering (observer 'field'): no provocation.
+describe('C3-5: walking into a stranger’s fire is no attack', () => {
+  it('the sim tells a field tick from a hit by hand', () => {
+    const w: World = makeWorld(STD5);
+    STD5.forEach((_, i) => place(w, hero(w, i), i * 8 - 40, 58));
+    const owner = hero(w, 1);
+    const victim = hero(w, 2);
+    place(w, victim, 0, 30);
+    w.spawnHazard({ kind: 'fire', ownerId: owner.id, pos: { x: 0, y: 0, z: 30 }, radius: 3, duration: 2, tickEvery: 0.5, params: { damage: 10 }, dtype: 'fire' });
+    for (let i = 0; i < 20; i++) w.step();
+    expect(victim.hp).toBeLessThan(victim.maxHp);
+    expect(w.attackedRecently(victim.id, owner.id)).toBe(true);
+    expect(w.hitByHandRecently(victim.id, owner.id, 1)).toBe(false);
+    expect(w.heroHarm(owner.id, victim.id)).toBe(0);
+    w.dealDamage({ targetId: victim.id, sourceId: owner.id, amount: 10, type: 'normal' });
+    expect(w.hitByHandRecently(victim.id, owner.id, 1)).toBe(true);
+  });
+
+  it('a bot standing in a stranger’s fire field does not turn on him; shot by him, it does', () => {
+    const run = (field: boolean): { hits: number; maxHst: number; felt: number } => {
+      let bot: HeroBot | undefined;
+      const w: World = makeWorld(STD5, {
+        heroes: ['dummy', 'dummy', 'dummy', 'dummy', 'dummy'],
+        humans: [0, 1, 3, 4],
+        botFactory: (seat, d, s) => {
+          const b = new HeroBot(seat, d, s);
+          if (seat === 2) bot = b;
+          return b;
+        },
+      });
+      STD5.forEach((_, i) => place(w, hero(w, i), i * 8 - 40, 58));
+      const me = hero(w, 2);
+      const other = hero(w, 1);
+      place(w, me, 0, 30, 0);
+      place(w, other, 0, 16, Math.PI);
+      other.maxHp = other.hp = 5000;
+      w.tick = 150 * 30;
+      w.time = 150;
+      w.step();
+      if (field) w.spawnHazard({ kind: 'fire', ownerId: other.id, pos: { x: 0, y: 0, z: 30 }, radius: 4, duration: 4, tickEvery: 0.5, params: { damage: 30 }, dtype: 'fire' });
+      let hits = 0;
+      let maxHst = 0;
+      let felt = 0;
+      for (let i = 0; i < 30 * 5; i++) {
+        if (!field && i < 120 && i % 15 === 0) w.dealDamage({ targetId: me.id, sourceId: other.id, amount: 30, type: 'normal', canDodge: false });
+        w.step();
+        maxHst = Math.max(maxHst, bot!.hostility(other));
+        // what the bot counts as damage he did to it (its provocation memory)
+        felt = Math.max(felt, bot!.obs.recentDamage(w, other.id, me.id));
+        for (const ev of w.drainEvents() as GameEvent[]) if (ev.t === 'hit' && ev.target === other.id && ev.src === me.id && ev.amount > 0) hits++;
+      }
+      return { hits, maxHst, felt };
+    };
+    const burnt = run(true);
+    const shot = run(false);
+    process.stdout.write(`[C3-5 field] the field's owner: felt ${burnt.felt.toFixed(0)}, max hostility ${burnt.maxHst.toFixed(2)}, ${burnt.hits} hits · a hero who shot it (same damage): felt ${shot.felt.toFixed(0)}, ${shot.maxHst.toFixed(2)}, ${shot.hits} hits\n`);
+    expect(burnt.felt).toBe(0);
+    expect(burnt.hits).toBe(0);
+    expect(burnt.maxHst).toBeLessThan(0.5);
+    expect(shot.felt).toBeGreaterThan(30);
+    expect(shot.maxHst).toBeGreaterThan(0.9);
+  }, 60000);
+});
