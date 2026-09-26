@@ -6,7 +6,7 @@ import { ITEMS, ITEM_BY_ID, ROLE_BY_ID } from '../../data';
 import { h, setClass, setText } from '../dom';
 import { getLang, heroName, roleName, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
-import { CLAIMABLE_ROLES, CLAIM_TEXT, QUICKCHAT, ROLE_GLYPH, roleColor, roleInk } from '../theme';
+import { CLAIMABLE_ROLES, CLAIM_TEXT, QUICKCHAT, ROLE_GLYPH, cardTileVars, roleColor, roleInk } from '../theme';
 import { itemShort } from '../short';
 import { button, heroIcon, kingdomBadge, roleSeal, type PortraitCache } from '../widgets';
 import { gearArt, roleCardPath } from '../cardArt';
@@ -306,7 +306,7 @@ export interface PauseContext {
 /** One card row of the 锦囊说明 list: glyph, name (+ count), one-line effect. */
 export function cardRow(id: string, count?: number): HTMLElement {
   const def = ITEM_BY_ID[id];
-  const glyph = h('span', { class: 'item-glyph', style: `--ic:${def?.color ?? '#999'}` }, def?.icon ?? id.slice(0, 1));
+  const glyph = h('span', { class: 'item-glyph', style: cardTileVars(def?.color ?? '#999999') }, def?.icon ?? id.slice(0, 1));
   // the card's painted emblem in a round frame when the art ships
   setArt(glyph, gearArt(id), { lazy: true });
   const el = h('li', { class: 'pc-card', data: { item: id } },

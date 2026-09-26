@@ -102,11 +102,21 @@ export const PARCHMENT_DARK = '#d6bd8a';
 
 /** Rarity inks for text on parchment (玩法说明 tables): ≥ 4.5:1 even on the panel's darkest tone. */
 export const RARITY_INK: Record<Rarity, string> = {
-  common: '#524b3f',
+  common: '#423b30',
   rare: '#1a4f86',
   epic: '#6a2f94',
   legendary: '#7a3e00',
 };
+
+/** A card glyph (杀 / 懈 / 锁 … on parchment, large bold text): its colour darkened to ≥ 3:1 — pale 无懈 / 铁索 stay legible. */
+export function glyphInk(color: string): string {
+  return inkOn(color, PARCHMENT_DARK, 3);
+}
+
+/** Inline style of a card glyph tile: its colour (frame) and the glyph ink. */
+export function cardTileVars(color: string): string {
+  return `--ic:${color};--ig:${glyphInk(color)}`;
+}
 
 /**
  * `color` darkened just enough to read as text on `bg` (≥ `min`:1), keeping its hue:

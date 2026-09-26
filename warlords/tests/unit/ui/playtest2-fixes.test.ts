@@ -4,9 +4,9 @@
 // prompt / discard hint (COMBAT-7).
 import { afterEach, describe, expect, it } from 'vitest';
 import type { GameResult, PrivateHeroView, ViewEntity } from '../../../src/core/types';
-import { HEROES, ITEMS, WEAPONS } from '../../../src/data';
+import { ARMORS, HEROES, ITEMS, MOUNTS, WEAPONS } from '../../../src/data';
 import { overrideLang } from '../../../src/ui/i18n';
-import { PARCHMENT_DARK, RARITY_COLOR, RARITY_INK, contrastRatio, inkOn } from '../../../src/ui/theme';
+import { PARCHMENT_DARK, RARITY_COLOR, RARITY_INK, cardTileVars, contrastRatio, glyphInk, inkOn } from '../../../src/ui/theme';
 import { ITEM_SHORT, itemLabel, itemShort } from '../../../src/ui/short';
 import { CONTROLS, playerWeapons } from '../../../src/ui/screens/help';
 import { buildOverRows, rowResult } from '../../../src/ui/screens/gameOver';
@@ -72,6 +72,11 @@ describe('UX-9: HUD card labels', () => {
     for (const it of ITEMS) {
       const ink = inkOn(it.color);
       for (const bg of PARCHMENTS) expect(contrastRatio(ink, bg), `${it.id} ${ink} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+    }
+    // the big glyph (shown until the emblem loads, and in the single-file build): large text, ≥ 3:1
+    for (const x of [...ITEMS, ...ARMORS, ...MOUNTS]) {
+      expect(contrastRatio(glyphInk(x.color), PARCHMENT_DARK), x.id).toBeGreaterThanOrEqual(3);
+      expect(cardTileVars(x.color)).toBe(`--ic:${x.color};--ig:${glyphInk(x.color)}`);
     }
     // already dark enough: unchanged
     expect(inkOn('#2b1d12')).toBe('#2b1d12');

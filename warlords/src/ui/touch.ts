@@ -6,7 +6,7 @@ import { HERO_BY_ID, ITEM_BY_ID, isPassiveAbility } from '../data';
 import type { AbilityDef } from '../data/types';
 import { h, setClass, setText } from './dom';
 import { getLang, t, tx, type I18nKey } from './i18n';
-import { ORDER_GLYPH, ORDER_SEQUENCE, inkOn } from './theme';
+import { ORDER_GLYPH, ORDER_SEQUENCE, glyphInk, inkOn } from './theme';
 import { abilityReady, cooldownFraction } from './hud/logic';
 import { flashDenied } from './hud/panels';
 import { abilityShort, itemLabel, touchLabel, type TouchKey } from './short';
@@ -400,6 +400,7 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
         setText(it.n, label.text);
         setClass(it.n, 'dup', label.dup);
         it.el.style.setProperty('--in', inkOn(idef?.color ?? '#6d5639'));
+        it.el.style.setProperty('--ig', glyphInk(idef?.color ?? '#6d5639'));
         setText(it.c, st && st.count > 1 ? String(st.count) : '');
         it.el.title = idef ? `${tx(idef.nameZh, idef.nameEn)} · ${t('hud.cardHint')}` : '';
         it.el.style.setProperty('--ic', idef?.color ?? '#e8d8b0');

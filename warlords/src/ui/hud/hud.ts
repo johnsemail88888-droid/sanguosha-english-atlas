@@ -997,7 +997,9 @@ export class Hud {
       this.handle.input.pushAction({ a: 'drop', slot, what: 'item' });
       this.hideCardInfo();
     }, { cls: 'small dark pc-discard', sfx: 'back' });
-    this.cardInfo.replaceChildren(h('ul', { class: 'pc-list' }, cardRow(itemId)), ...(discard ? [discard] : []));
+    const row = cardRow(itemId);
+    if (discard) row.appendChild(discard);
+    this.cardInfo.replaceChildren(h('ul', { class: 'pc-list' }, row));
     setClass(this.cardInfo, 'off', false);
     if (this.cardInfoTimer !== null) clearTimeout(this.cardInfoTimer);
     this.cardInfoTimer = setTimeout(() => this.hideCardInfo(), 4500);

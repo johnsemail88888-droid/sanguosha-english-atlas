@@ -1,8 +1,9 @@
 // Kill feed (with role-reveal colors), center announcements, and chat log.
 import type { Kingdom, RoleId } from '../../core/types';
 import { h } from '../dom';
+import { displayName } from '../../game/names';
 import { colon, gearName, getLang, heroName, roleName, t, tx } from '../i18n';
-import { ROLE_GLYPH, kingdomColor, roleColor } from '../theme';
+import { ROLE_GLYPH, cardTileVars, kingdomColor, roleColor } from '../theme';
 import type { PortraitCache } from '../widgets';
 import { abilityIcon, gearIcon, setArt } from '../artIcons';
 import { gearArt } from '../cardArt';
@@ -58,7 +59,9 @@ export class KillFeed {
   private party(p: FeedParty | null, cls: string): HTMLElement {
     if (!p) return h('span', { class: `who ${cls} zone` }, t('feed.zone'));
     const face = p.heroId && this.portraits?.hasArt(p.heroId) ? this.portraits.avatar(p.heroId, 'kf-ava') : null;
-    const el = h('span', { class: `who ${cls}${face ? ' has-ava' : ''}` }, face, p.heroId ? heroName(p.heroId) : p.name, p.heroId && p.name ? h('small', null, p.name) : null);
+    // (a death event carries the raw seat name: 人机2 / 无名288 read "Bot 2" / "Nameless 288" in English)
+    const name = displayName(p.name, getLang());
+    const el = h('span', { class: `who ${cls}${face ? ' has-ava' : ''}` }, face, p.heroId ? heroName(p.heroId) : name, p.heroId && p.name ? h('small', null, name) : null);
     el.style.setProperty('--kc', kingdomColor(p.kingdom));
     return el;
   }
@@ -247,7 +250,7 @@ function pickupIcon(id: string): HTMLElement | null {
   const def = ITEM_BY_ID[id] ?? ARMOR_BY_ID[id] ?? MOUNT_BY_ID[id];
   if (!def) return null;
   const glyph = ITEM_BY_ID[id]?.icon ?? def.nameZh.slice(0, 1);
-  const tile = h('span', { class: 'pk-ico', style: `--ic:${def.color}` }, glyph);
+  const tile = h('span', { class: 'pk-ico', style: cardTileVars(def.color) }, glyph);
   setArt(tile, ref, { first: true });
   return tile;
 }

@@ -10,7 +10,7 @@ import { displayName } from '../../game/names';
 import { abilityShort, itemLabel } from '../short';
 import { gearArt } from '../cardArt';
 import { abilityArt, roleCardBadge, setArt } from '../artIcons';
-import { ORDER_GLYPH, ORDER_KEYS, ORDER_SEQUENCE, RARITY_COLOR, ROLE_GLYPH, inkOn, kingdomColor, roleColor, statusInfo } from '../theme';
+import { ORDER_GLYPH, ORDER_KEYS, ORDER_SEQUENCE, RARITY_COLOR, ROLE_GLYPH, glyphInk, inkOn, kingdomColor, roleColor, statusInfo } from '../theme';
 import { magatama, type PortraitCache } from '../widgets';
 import { abilityReady, aliveCount, cooldownFraction, filledTicks, hpTicks, hudAbilities, maxDodgeCharges, zoneStatus, type AbilitySlotView } from './logic';
 import type { HudFrame } from './types';
@@ -424,6 +424,7 @@ export class AbilityBar {
         setClass(rec.name, 'dup', label.dup);
         rec.root.style.setProperty('--ic', def?.color ?? '#e8d8b0');
         rec.root.style.setProperty('--in', inkOn(def?.color ?? '#6d5639'));
+        rec.root.style.setProperty('--ig', glyphInk(def?.color ?? '#6d5639'));
         rec.root.title = def ? `${tx(def.nameZh, def.nameEn)}\n${tx(def.descZh, def.descEn)}` : it.id;
         setText(rec.count, it.count > 1 ? String(it.count) : '');
       } else {

@@ -530,7 +530,7 @@ export const SCREENS_CSS = /* css */ `
 .rr-head .sg-chip { font-family: var(--font-body); font-size: 0.7em; color: var(--paper-mute); }
 .seal-row { display: inline-flex; gap: 0.2em; flex-wrap: wrap; }
 .variants { display: flex; flex-direction: column; gap: 0.3em; }
-.item-glyph { position: relative; display: inline-grid; place-items: center; width: 2em; height: 2.6em; border-radius: 4px; font-family: var(--font-display); font-weight: 900; color: var(--ic); background: linear-gradient(#fbf3de, #e9d7ae); border: 1px solid color-mix(in srgb, var(--ic) 70%, #000 20%); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
+.item-glyph { position: relative; display: inline-grid; place-items: center; width: 2em; height: 2.6em; border-radius: 4px; font-family: var(--font-display); font-weight: 900; color: var(--ig, var(--ic)); background: linear-gradient(#fbf3de, #e9d7ae); border: 1px solid color-mix(in srgb, var(--ic) 70%, #000 20%); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
 .sg-table.controls .keys { white-space: nowrap; width: 1%; }
 .help-sec .sg-table td.num:first-child, .help-sec .sg-table th:first-child { width: 4.5em; text-align: center; }
 .keys .sg-key { margin-right: 0.25em; }

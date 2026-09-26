@@ -6,7 +6,7 @@ import { ARMORS, ITEMS, ITEM_KIND_INFO, MOUNTS, ROLES, ROLE_DISTRIBUTION, TROOPS
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, type Child } from '../dom';
 import { colon, kingdomName, t, tx, type I18nKey } from '../i18n';
-import { ORDER_KEYS, RARITY_INK, roleInk } from '../theme';
+import { ORDER_KEYS, RARITY_INK, cardTileVars, roleInk } from '../theme';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
 import { weaponClassName } from './heroDetail';
 import { gearArt, isUnitWeapon } from '../cardArt';
@@ -79,7 +79,7 @@ function para(zh: string, en: string): HTMLElement {
 
 /** A card / armor / mount glyph tile: its painted emblem in a round frame when the art ships. */
 function gearGlyph(id: string, color: string, glyph: string): HTMLElement {
-  const el = h('span', { class: 'item-glyph', style: `--ic:${color}` }, glyph);
+  const el = h('span', { class: 'item-glyph', style: cardTileVars(color) }, glyph);
   setArt(el, gearArt(id), { lazy: true });
   return el;
 }

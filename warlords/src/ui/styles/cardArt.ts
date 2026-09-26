@@ -66,7 +66,7 @@ export const CARD_ART_CSS = /* css */ `
 .hud-abilities.silenced .ab:not(.slot-passive) .ico.art-on::after { background: rgba(60, 20, 80, 0.45); }
 
 /* ── HUD: item cards ───────────────────────────────────── */
-.hud-abilities .item .card > .sg-art { position: absolute; left: 50%; top: ${u(4)}; width: ${u(38)}; transform: translateX(-50%); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ic, #999) 65%, #000 25%), 0 1px 3px rgba(0, 0, 0, 0.45); }
+.hud-abilities .item .card > .sg-art { position: absolute; left: 50%; top: ${u(3)}; width: ${u(36)}; transform: translateX(-50%); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ic, #999) 65%, #000 25%), 0 1px 3px rgba(0, 0, 0, 0.45); }
 .hud-abilities .item .card.art-on .g { visibility: hidden; }
 
 /* armor / mount chips */
