@@ -171,6 +171,34 @@ export class ProjectileView implements EntityView {
 }
 
 // ── loot ────────────────────────────────────────────────────────────────────
+/**
+ * Loot light-beams fade by each fragment's distance to the camera: gone closer
+ * than LOOT_BEAM_HIDE, full from LOOT_BEAM_FULL. A beam 1–2 m from the lens
+ * (walking past loot, standing on it) would otherwise draw as a big additive
+ * slab across the screen and over the HUD; per fragment, so the far part of a
+ * beam you stand next to still glows.
+ */
+export const LOOT_BEAM_HIDE = 1.6;
+export const LOOT_BEAM_FULL = 5;
+
+/** CPU twin of the beam shader's near-camera factor (0..1). */
+export function lootBeamNearFade(dist: number): number {
+  const t = Math.min(1, Math.max(0, (dist - LOOT_BEAM_HIDE) / (LOOT_BEAM_FULL - LOOT_BEAM_HIDE)));
+  return t * t * (3 - 2 * t);
+}
+
+function nearFadeBeam(m: THREE.MeshBasicMaterial): void {
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBeamView;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvBeamView = mvPosition.xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBeamView;')
+      .replace('#include <opaque_fragment>', `diffuseColor.a *= smoothstep(${LOOT_BEAM_HIDE.toFixed(2)}, ${LOOT_BEAM_FULL.toFixed(2)}, length(vBeamView));\n#include <opaque_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'lootBeamNearFade';
+}
+
 const pillarMats = new Map<string, THREE.MeshBasicMaterial>();
 let pillarGeo: THREE.CylinderGeometry | null = null;
 function lootPillar(rarity: Rarity): THREE.Mesh {
@@ -196,6 +224,7 @@ function lootPillar(rarity: Rarity): THREE.Mesh {
       depthWrite: false,
       side: THREE.DoubleSide,
     });
+    nearFadeBeam(m);
     pillarMats.set(rarity, m);
   }
   const mesh = new THREE.Mesh(pillarGeo, m);

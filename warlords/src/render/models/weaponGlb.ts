@@ -22,6 +22,9 @@ import { buildLod, loadGltf, modelUrl, modelUrlSync } from './glb';
 import { assetList, assetListSync } from '../../game/assets';
 import { CHARACTER_FOG_MAX } from '../core/materials';
 import { useSkyArtFog } from '../core/skyArtFog';
+import { capTexture } from '../core/gltfLoader';
+import { worldArtQuality } from '../core/worldArt';
+import { qualityPreset } from '../quality';
 import { HERO_BY_ID, LOOTABLE_WEAPON_IDS } from '../../data';
 
 export const weaponModelPath = (weaponId: string): string => `assets/models/weapons/${weaponId}.glb`;
@@ -322,7 +325,8 @@ export function prepareWeaponArt(id: string, cal: WeaponGlbCal, scene: THREE.Obj
   if (!merged) return null;
   const c = calibrateWeaponGeometry(merged.geo, cal);
   merged.geo.dispose();
-  const map = merged.map;
+  // sized for the quality tier in use (phones: 256²)
+  const map = merged.map ? capTexture(merged.map, qualityPreset(worldArtQuality()).weaponTexture) : null;
   if (map) map.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.MeshStandardMaterial({ map, roughness: WEAPON_ROUGHNESS, metalness: WEAPON_METALNESS });
   material.name = 'weaponArt';

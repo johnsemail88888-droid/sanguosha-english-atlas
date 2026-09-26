@@ -5,6 +5,10 @@
 //   ?map=showcase   hand-made showcase map (default: the real generated map)
 //   ?at=x,z         lineup origin override
 //   ?far=<m>        a hero standing <m> metres straight ahead (hero visibility at range)
+//   ?texcap=off     AI-art character / weapon textures at their shipped size on every tier (A/B)
+//   ?qstaged=0      a mid-match quality switch applies all at once (A/B of the staged switch)
+//   ?adaptive=0     fixed pixel ratio (no adaptive resolution: stable measurements)
+//   ?warm=0         no loading warm-up: programs compile on first use, bodies swap in live
 import { generateMap } from '../../sim/map/generate';
 import type { MapData } from '../../core/map';
 import { terrainHeight } from '../../core/map';
@@ -14,10 +18,13 @@ import { InputController } from '../../game/input';
 import { DevView } from './devView';
 import { buildShowcaseMap } from './showcase';
 import { colliderAabb } from '../camera/pick';
+import { QUALITY_PRESETS } from '../quality';
 
 declare global {
   interface Window {
     __ready?: boolean;
+    /** time the loading-screen warm-up took (ms) */
+    __warmMs?: number;
     __info?: unknown;
     __renderer?: GameRenderer;
     __dev?: DevView;
@@ -63,13 +70,15 @@ export function startDevGame(canvas: HTMLCanvasElement, params: URLSearchParams)
   const qp = params.get('quality');
   // dev override only: do not persist into the player's stored settings
   const quality: Quality | undefined = qp === 'low' || qp === 'medium' || qp === 'high' ? qp : undefined;
+  // measurement A/B only: the per-tier GLB texture caps off
+  if (params.get('texcap') === 'off') for (const p of Object.values(QUALITY_PRESETS)) Object.assign(p, { charTexture: 1 << 14, weaponTexture: 1 << 14 });
   const t0 = performance.now();
   const showcase = params.get('map') === 'showcase';
   const map = showcase ? buildShowcaseMap() : generateMap(Number(params.get('seed') ?? 20260924));
   const at = params.get('at')?.split(',').map(Number);
   const origin = at && at.length === 2 ? { x: at[0], z: at[1] } : showcase ? { x: 0, z: 25 } : findOpenArea(map, { x: 0, z: 60 });
   const view = new DevView({ heroId: params.get('hero') ?? 'guanyu', map, origin, farHeroDist: Number(params.get('far') ?? 0) });
-  const renderer = new GameRenderer(canvas, view, { quality });
+  const renderer = new GameRenderer(canvas, view, { quality, stagedQualitySwitch: params.get('qstaged') !== '0', adaptiveResolution: params.get('adaptive') !== '0' });
   const tBuild = performance.now() - t0;
   // debug: ?hide=zone,terrain_skirt,water,... hides scene objects by name prefix
   const hide = params.get('hide')?.split(',') ?? [];
@@ -163,11 +172,23 @@ export function startDevGame(canvas: HTMLCanvasElement, params: URLSearchParams)
       const s = renderer.stats();
       stats.textContent = `fps ${s.fps}  calls ${s.drawCalls}  tris ${(s.triangles / 1000).toFixed(0)}k\nentities ${s.entities}  particles ${s.particles}\nprops ${s.worldProps}  chunks ${s.worldChunks}  build ${tBuild.toFixed(0)}ms\n${map.nameZh} ${renderer.getCameraPose().pos.x.toFixed(1)},${renderer.getCameraPose().pos.z.toFixed(1)}`;
     }
-    if (frames === 20) {
+    if (frames === readyFrames) {
       window.__ready = true;
     }
     window.__info = { ...renderer.stats(), buildMs: Math.round(tBuild), origin, map: map.nameEn, props: map.props.length };
     requestAnimationFrame(loop);
   };
-  requestAnimationFrame(loop);
+  // Like the game's loading screen: the AI-art bodies and every shader program the
+  // scene uses before the first frame. Without it each program compiled on first
+  // use inside a frame, waiting for the frames queued before it (SwiftShader: most
+  // of a ~90 s harness start). Warmed up, a few frames settle the view; cold
+  // (?warm=0), bodies still swap in over the first frames.
+  const warm = params.get('warm') !== '0';
+  const readyFrames = warm ? 6 : 20;
+  const t1 = performance.now();
+  void (warm ? renderer.warmup() : Promise.resolve()).then(() => {
+    window.__warmMs = Math.round(performance.now() - t1);
+    last = performance.now();
+    requestAnimationFrame(loop);
+  });
 }
