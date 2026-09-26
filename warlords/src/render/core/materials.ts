@@ -110,6 +110,14 @@ export function foliageMaterial(): THREE.MeshStandardMaterial {
 /** Maximum fog factor applied to characters (0 = no fog, 1 = full fog). */
 export const CHARACTER_FOG_MAX = 0.45;
 
+/**
+ * Ink edge of the procedural characters: facets turning away from the camera
+ * darken by up to this much, so the flat-shaded low-poly bodies (troops on
+ * 流畅, everyone in the single-file build) read with soft painted contours
+ * next to the AI-art bodies instead of as flat toy colours.
+ */
+export const CHARACTER_INK_EDGE = 0.3;
+
 export function characterMaterial(): THREE.MeshStandardMaterial {
   const m = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -121,6 +129,15 @@ export function characterMaterial(): THREE.MeshStandardMaterial {
   // fog never hides a character completely (scene/skyfog.ts): heroes beyond the
   // preset's fog range must stay readable silhouettes
   m.defines = { FOG_MAX: CHARACTER_FOG_MAX.toFixed(2) };
+  // painted-sky fog colour like the AI-art bodies and the world around them, plus the ink edge
+  m.onBeforeCompile = function (this: THREE.Material, shader) {
+    applySkyArtFog(shader, this);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      `outgoingLight *= 1.0 - ${CHARACTER_INK_EDGE.toFixed(2)} * pow(1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0), 2.5);\n#include <opaque_fragment>`,
+    );
+  };
+  m.customProgramCacheKey = () => `characterInk${skyArtFogKey()}`;
   return m;
 }
 
