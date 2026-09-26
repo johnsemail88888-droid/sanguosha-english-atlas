@@ -118,8 +118,12 @@ const DEFAULT_REJOIN_DELAYS = [0, 1500, 3000, 5000];
 export const REJOIN_WINDOW_MS = 120_000;
 /** Pause between rejoin attempts once the first ones (rejoinDelaysMs) failed (ms). */
 export const REJOIN_RETRY_MS = 5000;
-/** P2P reload rejoin (joinOnlineSession): how long "room not found" (host peer unavailable) is retried (responsive ms). */
-export const ROOM_NOT_FOUND_RETRY_MS = 30_000;
+/**
+ * P2P reload rejoin (joinOnlineSession, a tab holding a seat token): how long "room not
+ * found" (host peer unavailable — a frozen host) is retried, in responsive ms: as long as
+ * an automatic rejoin keeps trying (MP2-2; it was 30 s).
+ */
+export const ROOM_NOT_FOUND_RETRY_MS = REJOIN_WINDOW_MS;
 /**
  * The newest snapshot is acknowledged from the receive path when no input packet carried
  * an ack for this long (ms): input packets go out once per rendered frame, so a guest at
