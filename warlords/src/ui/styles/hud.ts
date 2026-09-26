@@ -320,12 +320,14 @@ export const HUD_CSS = /* css */ `
 .sg-hud.dead .hud-pickups { display: none; }
 /* touch: the vitals sit above the item bar in the middle and the stick rests bottom-left — the lines go just above
    the stick's ring, right of 随 / 标 (NP-11: they sat on the ring), short of the crosshair, the newest three
-   (a short phone's chat lines are above them); they never take touches. --stick-x / --stick-top: .stick-base */
+   (two on a 360 px screen: the chat lines are above them); they never take touches. --stick-x / --stick-top: .stick-base */
 .sg-hud.touch { --stick-x: clamp(70px, 16vmin, 110px); --stick-top: calc(clamp(80px, 22vmin, 130px) + 60px); }
 .sg-hud.touch .hud-pickups { left: calc(var(--stick-x) + 68px); transform: none; align-items: flex-start; bottom: calc(var(--stick-top) + 6px); max-width: calc(50% - var(--stick-x) - 68px - 52px); z-index: 23; }
 .sg-hud.touch .pk-row { max-width: 100%; }
 .sg-hud.touch .pk-row .pk-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sg-hud.touch .pk-row:nth-last-child(n + 4) { display: none; }
+/* 640×360: the third line would reach the chat's last line */
+@media (max-height: 370px) { .sg-hud.touch .pk-row:nth-last-child(n + 3) { display: none; } }
 .hud-abilities .item.empty .card { background: rgba(0, 0, 0, 0.35); border: 1.5px dashed rgba(214, 173, 82, 0.4); box-shadow: none; }
 
 /* ── weapon ────────────────────────────────────────────── */
