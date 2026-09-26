@@ -47,6 +47,8 @@ export const HUD_CSS = /* css */ `
 .sg-hud.touch .link-chip .lk-btn { min-height: 30px; padding: 0 12px; }
 /* touch: the top row is full (touch bar, zone banner, weapon panel) — the text wraps, the buttons go under it */
 .sg-hud.touch .link-chip:has(.lk-btn) { flex-direction: column; gap: 4px; max-width: 13.5em; padding: 4px 10px 6px; border-radius: 12px; white-space: normal; text-align: center; line-height: 1.3; }
+/* PLATFORM-4 「应用中…」: under the clock, above the pause menu (single player waits on it) */
+.hud-applying { position: absolute; left: 50%; top: calc(${u(16)} + 62px); transform: translateX(-50%); z-index: 25; padding: ${u(4)} ${u(18)}; border-radius: 999px; background: rgba(18, 12, 7, 0.9); border: 1px solid #f2c14e; color: #ffe6a8; font-size: ${fs(14, 11)}; font-weight: 800; white-space: nowrap; pointer-events: none; animation: sg-hud-blink 0.9s ease-in-out infinite alternate; }
 /* above the touch overlay's look zone (z 5), below every panel / overlay: only the chip's buttons take touches */
 .hud-topcenter { z-index: 9; }
 .hud-zone .zphase { font-family: var(--font-display); color: var(--gold-hi); font-weight: 800; }

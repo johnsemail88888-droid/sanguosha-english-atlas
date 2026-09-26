@@ -323,6 +323,9 @@ export class PauseMenu {
   readonly el: HTMLElement;
   private mode: 'menu' | 'click' = 'menu';
   private showAll = false;
+  /** a quality switch is applying (single player): 继续 waits — disabled, reading 「应用中…」 */
+  private applying = false;
+  private resumeBtn: HTMLButtonElement | null = null;
 
   constructor(private readonly actions: PauseActions, private readonly ctx: PauseContext = { online: () => false, isHost: () => true, items: () => [] }) {
     this.el = h('div', { class: 'hud-pause', role: 'dialog' });
@@ -336,6 +339,20 @@ export class PauseMenu {
   setMode(mode: 'menu' | 'click'): void {
     this.mode = mode;
     this.render();
+  }
+
+  setApplying(on: boolean): void {
+    if (on === this.applying) return;
+    this.applying = on;
+    this.showResume();
+  }
+
+  private showResume(): void {
+    const b = this.resumeBtn;
+    if (!b) return;
+    b.disabled = this.applying;
+    b.textContent = this.applying ? t('settings.applying') : t('pause.resume');
+    b.classList.toggle('applying', this.applying);
   }
 
   private cards(again = false): HTMLElement {
@@ -388,6 +405,7 @@ export class PauseMenu {
       const prompt = h('button', { class: 'click-prompt', type: 'button' }, h('span', { class: 'sg-seal', style: '--sz:2.4em' }, h('span', null, '战')), h('span', null, t('hud.clickToPlay')));
       this.el.replaceChildren(prompt);
       this.el.dataset.mode = 'click';
+      this.resumeBtn = null;
       return;
     }
     const online = this.ctx.online();
@@ -399,7 +417,7 @@ export class PauseMenu {
           h('h2', { class: 'sg-h2 sg-title-bar' }, online ? t('pause.menu') : t('pause.title')),
           online ? h('p', { class: 'pm-note' }, h('span', { class: 'live' }), t('pause.onlineNote')) : null,
           this.roleReminder(),
-          button(t('pause.resume'), () => this.actions.resume(), { cls: 'gold wide', sfx: 'confirm' }),
+          (this.resumeBtn = button(t('pause.resume'), () => this.actions.resume(), { cls: 'gold wide', sfx: 'confirm' })),
           button(t('pause.settings'), () => this.actions.settings(), { cls: 'dark wide' }),
           button(t('pause.controls'), () => this.actions.help(), { cls: 'dark wide' }),
           online && this.ctx.isHost() && this.actions.endMatch ? button(t('pause.endMatch'), () => this.actions.endMatch?.(), { cls: 'dark wide pm-end' }) : null,
@@ -408,6 +426,7 @@ export class PauseMenu {
         this.cards(),
       ),
     );
+    this.showResume();
   }
 }
 

@@ -64,6 +64,9 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     worldToScreen: (p) => handle.worldToScreen(p),
     onLoadProgress: (cb) => handle.onProgress(cb),
     isReady: () => handle.ready,
+    // PLATFORM-4: the staged mid-match quality switch (the UI subscribes once the view is ready)
+    qualityApplying: () => handle.renderer?.qualityApplying ?? false,
+    onQualityApplying: (cb) => handle.renderer?.onQualityApplying(cb) ?? (() => undefined),
     dispose: () => {
       offDebug?.();
       offProgress();

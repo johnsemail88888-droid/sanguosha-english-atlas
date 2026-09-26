@@ -91,6 +91,8 @@ export class Hud {
   private cardInfoTimer: ReturnType<typeof setTimeout> | null = null;
   private guide: HTMLElement | null = null;
   private guideTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 「应用中…」 while a mid-match quality switch applies (above the pause menu) */
+  private readonly applyingEl = h('div', { class: 'hud-applying sg-hidden', role: 'status' });
   /** what the touch guide was last fitted to (screen size, the Lord's G button): refit when it changes */
   private guideFit = '';
   /** when it was last fitted, and how many settle-in refits it has had (text metrics can still move right after it shows) */
@@ -249,6 +251,7 @@ export class Hud {
       wheelSlot,
       h('div', { class: 'hud-overlay-slot controls modal' }, this.controlsBox),
       h('div', { class: 'hud-overlay-slot pause modal' }, this.pause.el),
+      this.applyingEl,
       h('div', { class: 'sg-rotate' }, h('div', { class: 'phone' }), h('p', null, t('hud.rotate'))),
     );
 
@@ -264,6 +267,9 @@ export class Hud {
     this.bindInput();
     this.applySettings();
     this.bag.add(settings.subscribe(() => this.applySettings()));
+    // PLATFORM-4: a mid-match graphics switch is applied in stages — 「应用中…」 over the HUD; single player stays paused meanwhile
+    const offApplying = this.ctx.qualityApplying?.((on) => this.setQualityApplying(on));
+    if (offApplying) this.bag.add(offApplying);
     this.bag.add(this.handle.onEvents((evs) => this.onEvents(evs)));
     this.bag.add(
       this.session.on('chat', (c) => {
@@ -853,6 +859,17 @@ export class Hud {
 
   private pauseMode: 'menu' | 'click' = 'menu';
   private pauseByUnlockAt = -1e9;
+  /** a mid-match quality switch is being applied (App.qualityApplying) */
+  private applyingQuality = false;
+
+  private setQualityApplying(on: boolean): void {
+    this.applyingQuality = on;
+    setClass(this.applyingEl, 'sg-hidden', !on);
+    setText(this.applyingEl, t('settings.applying'));
+    // single player: 继续 waits until the new tier is in place (the sim stays paused meanwhile)
+    this.pause.setApplying(on && this.ctx.sessionKind === 'single');
+    this.syncPause();
+  }
 
   private openPause(mode: 'menu' | 'click'): void {
     this.pauseMode = mode;
@@ -864,6 +881,8 @@ export class Hud {
 
   /** Resume from the pause menu. `viaKey` = Esc (cannot grab the pointer lock). */
   private resume(viaKey = false): void {
+    // single player: the menu stays up while a quality switch applies (its 继续 reads 「应用中…」)
+    if (this.applyingQuality && this.ctx.sessionKind === 'single' && !this.dead()) return;
     if (this.isTouch() || this.safeIsLocked() || this.dead()) {
       this.closeOverlay('pause', true);
       return;
@@ -989,7 +1008,7 @@ export class Hud {
    */
   private wantsPause(): boolean {
     if (this.disposed || this.ctx.sessionKind !== 'single' || !this.active || this.gameOver) return false;
-    return this.overlay === 'pause' || this.overlay === 'controls' || this.settingsOpen || this.rotating;
+    return this.overlay === 'pause' || this.overlay === 'controls' || this.settingsOpen || this.rotating || this.applyingQuality;
   }
 
   private syncPause(): void {

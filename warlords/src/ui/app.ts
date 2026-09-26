@@ -71,6 +71,13 @@ export interface GameHandle {
    */
   onLoadProgress?(cb: (p: LoadProgress) => void): () => void;
   isReady?(): boolean;
+  /**
+   * Optional (PLATFORM-4): a graphics-tier switch made mid-match is applied in stages by the
+   * renderer — true until it has fully applied. `onQualityApplying` reports both edges and
+   * returns the unsubscribe; it may only work once the view is ready (the App subscribes then).
+   */
+  qualityApplying?(): boolean;
+  onQualityApplying?(cb: (applying: boolean) => void): () => void;
 }
 
 export interface LoadProgress {
@@ -150,7 +157,10 @@ class App implements UiCtx {
   /** your hero this match: sessions stop exposing `heroSelect` once that phase ends */
   private pickedHero: string | null = null;
   private autoRestart = false;
-  private match: { handle: GameHandle; hud: Hud; container: HTMLElement; view: ViewSource; offLoad: () => void; settleLoad: () => void } | null = null;
+  private match: { handle: GameHandle; hud: Hud; container: HTMLElement; view: ViewSource; offLoad: () => void; settleLoad: () => void; offQuality: (() => void) | null } | null = null;
+  /** a mid-match quality switch is being applied (「应用中…」): the HUD and the settings panel listen */
+  private applyingQuality = false;
+  private readonly applyingSubs = new Set<(on: boolean) => void>();
   /** lobby chat of the current online session: kept across matches (the lobby screen is rebuilt) */
   private lobbyChat: LobbyChatLog | null = null;
   /** connection of the current online session (host or guest) */
@@ -310,6 +320,25 @@ class App implements UiCtx {
     this.loadSubs.add(cb);
     cb(this.load);
     return () => this.loadSubs.delete(cb);
+  }
+
+  /** `cb` now and on every change: a mid-match quality switch is being applied (「应用中…」). */
+  qualityApplying(cb: (on: boolean) => void): () => void {
+    this.applyingSubs.add(cb);
+    cb(this.applyingQuality);
+    return () => this.applyingSubs.delete(cb);
+  }
+
+  private setQualityApplying(on: boolean): void {
+    if (on === this.applyingQuality) return;
+    this.applyingQuality = on;
+    for (const cb of [...this.applyingSubs]) {
+      try {
+        cb(on);
+      } catch (err) {
+        console.error('[ui] quality subscriber failed', err);
+      }
+    }
   }
 
   private setLoad(p: LoadProgress | null): void {
@@ -680,12 +709,25 @@ class App implements UiCtx {
     const viewReady = new Promise<void>((resolve) => {
       settle = resolve;
     });
-    const match = { handle, hud, container, view, offLoad: () => undefined as void, settleLoad: settle };
+    const match = { handle, hud, container, view, offLoad: () => undefined as void, settleLoad: settle, offQuality: null as (() => void) | null };
     this.match = match;
+    // the renderer's staged quality switch (PLATFORM-4): only once the view is built (before that a switch applies at once)
+    const watchQuality = (): void => {
+      if (match.offQuality || !handle.onQualityApplying || this.match !== match) return;
+      try {
+        match.offQuality = handle.onQualityApplying((on) => {
+          if (this.match === match) this.setQualityApplying(on);
+        });
+        if (handle.qualityApplying?.()) this.setQualityApplying(true);
+      } catch (err) {
+        console.warn('[ui] onQualityApplying failed', err);
+      }
+    };
     if (handle.onLoadProgress) {
       try {
         match.offLoad = handle.onLoadProgress((p) => {
           if (p.stage === 'ready' || p.stage === 'failed') match.settleLoad();
+          if (p.stage === 'ready') watchQuality();
           this.onLoadProgress(p);
         });
       } catch (err) {
@@ -693,7 +735,10 @@ class App implements UiCtx {
         settle();
       }
     } else settle();
-    if (handle.isReady?.()) settle();
+    if (handle.isReady?.() || !handle.onLoadProgress) {
+      settle();
+      watchQuality();
+    }
     try {
       (s as GameSession & { setLocalLoading?(ready: Promise<void>): void }).setLocalLoading?.(viewReady);
     } catch (err) {
@@ -708,6 +753,8 @@ class App implements UiCtx {
     this.match = null;
     m.settleLoad();
     m.offLoad();
+    m.offQuality?.();
+    this.setQualityApplying(false);
     this.setLoad(null);
     try {
       m.hud.dispose();

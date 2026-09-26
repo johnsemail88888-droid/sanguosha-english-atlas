@@ -164,6 +164,7 @@ const DICT = {
   // ── loading ──
   'loading.title': ['战场加载中', 'Preparing the battlefield'],
   'loading.tip': ['提示', 'Tip'],
+  'settings.applying': ['应用中…', 'Applying…'],
   'loading.waitHost': ['等待房主加载…', 'Waiting for the host to load…'],
 
   // ── HUD ──

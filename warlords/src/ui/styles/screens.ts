@@ -614,6 +614,8 @@ export const SCREENS_CSS = /* css */ `
 .sg-settings { width: min(46em, 100%); min-height: min(36em, calc(100% - 1em)); display: flex; flex-direction: column; max-height: calc(100% - 1em); padding: 1.1em 1.4em 1.2em; overflow: hidden; }
 .set-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5em; }
 .set-head h2 { color: var(--red-lo); }
+/* PLATFORM-4: a mid-match quality switch is applying */
+.set-head .set-applying { margin: 0 auto 0 0.9em; padding: 0.15em 0.8em; border-radius: 999px; background: rgba(140, 106, 38, 0.16); border: 1px solid rgba(140, 106, 38, 0.55); color: var(--paper-ink); font-size: 0.85em; font-weight: 700; white-space: nowrap; animation: sg-hud-blink 0.9s ease-in-out infinite alternate; }
 .sg-settings .sg-tabs { margin-bottom: -1px; }
 .set-body { flex: 1; overflow: auto; min-height: 0; padding: 0.5em 0.3em; border-top: 2px solid var(--gold-lo); }
 .set-foot { display: flex; justify-content: space-between; gap: 0.6em; padding-top: 0.8em; border-top: 1px dashed rgba(140, 106, 38, 0.45); }

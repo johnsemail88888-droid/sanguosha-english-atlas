@@ -1149,3 +1149,36 @@ test('MP2-1 / MP2-2 guest link: the chip counts a silent host, offers 重试 / �
   await expect(ld.page.locator('.load-stage')).toHaveText('开战！ 100%');
   await ld.ctx.close();
 });
+
+type ApplyingMock = { __ui: { deps: { lastGame: { simulateQualityApplying(on: boolean): void }; lastSession: { calls: string[]; paused: boolean } } } };
+
+test('PLATFORM-4 a mid-match quality switch: 「应用中…」 over the HUD and in 设置, single player stays paused until it has applied', async () => {
+  const { ctx, page, errors } = await open('screen=hud&overlay=pause');
+  await expect(page.locator('.sg-hud[data-overlay="pause"]')).toHaveCount(1, { timeout: 15_000 });
+  const applying = (on: boolean): Promise<void> => page.evaluate((v) => (window as unknown as ApplyingMock).__ui.deps.lastGame.simulateQualityApplying(v), on);
+  const resumeBtn = page.locator('.pm-box .sg-btn').first();
+  await expect(page.locator('.hud-applying')).toBeHidden();
+  await applying(true);
+  await expect(page.locator('.hud-applying')).toHaveText('应用中…');
+  await expect(resumeBtn).toHaveText('应用中…');
+  await expect(resumeBtn).toBeDisabled();
+  // 继续 / Esc cannot leave the menu meanwhile: the sim stays paused
+  await resumeBtn.click({ force: true });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.sg-hud[data-overlay="pause"]')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as unknown as ApplyingMock).__ui.deps.lastSession.paused)).toBe(true);
+  // 设置 shows the badge too (its heading), and it goes with the switch
+  await page.locator('.pm-box .sg-btn').nth(1).click();
+  await expect(page.locator('.sg-settings .set-applying')).toBeVisible();
+  await applying(false);
+  await expect(page.locator('.sg-settings .set-applying')).toBeHidden();
+  await expect(page.locator('.hud-applying')).toBeHidden();
+  await page.locator('.sg-settings .set-foot .sg-btn.gold').click();
+  await expect(resumeBtn).toBeEnabled();
+  await expect(resumeBtn).toHaveText('继续战斗');
+  await resumeBtn.click();
+  await expect(page.locator('.sg-hud[data-overlay="none"]')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as unknown as ApplyingMock).__ui.deps.lastSession.paused)).toBe(false);
+  expect(errors).toEqual([]);
+  await ctx.close();
+});

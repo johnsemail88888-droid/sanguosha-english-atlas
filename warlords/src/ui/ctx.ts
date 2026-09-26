@@ -63,6 +63,11 @@ export interface UiCtx {
    * exists). `cb` is called right away and on every change.
    */
   loadProgress?(cb: (p: LoadProgress | null) => void): () => void;
+  /**
+   * A mid-match graphics-tier switch is being applied (PLATFORM-4: 「应用中…」). `cb` is called
+   * right away and on every change; returns the unsubscribe.
+   */
+  qualityApplying?(cb: (on: boolean) => void): () => void;
   /** lobby chat history of the current online session (kept across matches) */
   chatLog?(): LobbyChatLog | null;
   /** how the current online session connects (invite links carry it) */

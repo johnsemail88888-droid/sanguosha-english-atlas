@@ -170,11 +170,26 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
     body.replaceChildren(...SECTIONS[tab]());
   };
 
+  // PLATFORM-4: a quality switch made mid-match applies in stages — 「应用中…」 in the heading meanwhile
+  let applying = false;
+  const applyingBadge = h('span', { class: 'set-applying sg-hidden', role: 'status' });
+  const showApplying = (): void => {
+    applyingBadge.textContent = t('settings.applying');
+    applyingBadge.classList.toggle('sg-hidden', !applying);
+  };
+  const offApplying = ctx.qualityApplying?.((on) => {
+    applying = on;
+    showApplying();
+  });
+  if (offApplying) bag.add(offApplying);
+
   const build = (): void => {
     const ids: SettingsTab[] = ['general', 'controls', 'graphics', 'audio', 'network'];
+    showApplying();
     sheet.replaceChildren(
       h('header', { class: 'set-head' },
         h('h2', { class: 'sg-h2' }, t('settings.title')),
+        applyingBadge,
         button('✕', onClose, { cls: 'icon small ghost', title: t('common.close'), sfx: 'back' }),
       ),
       tabs(ids.map((id) => ({ id, label: t(`settings.tab.${id}`) })), tab, (id) => {

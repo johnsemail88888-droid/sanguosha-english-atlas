@@ -27,6 +27,8 @@ export interface MockGameHandle extends GameHandle {
   readonly realInput: boolean;
   /** simulate losing the pointer lock (Esc / alt-tab); no-op with the real controller */
   simulateUnlock(): void;
+  /** simulate the renderer's staged mid-match quality switch (qualityApplying) starting / finishing */
+  simulateQualityApplying(on: boolean): void;
 }
 
 export interface MockGameOptions {
@@ -203,7 +205,19 @@ export function mountMockGame(container: HTMLElement, view: ViewSource, opts: Mo
     isLocked: () => locked,
   } as GameHandle['input'];
 
+  let applying = false;
+  const applyingCbs = new Set<(on: boolean) => void>();
   const handle: MockGameHandle = {
+    qualityApplying: () => applying,
+    onQualityApplying: (cb) => {
+      applyingCbs.add(cb);
+      return () => applyingCbs.delete(cb);
+    },
+    simulateQualityApplying: (on) => {
+      if (on === applying) return;
+      applying = on;
+      for (const cb of [...applyingCbs]) cb(on);
+    },
     ...(opts.loadReady
       ? {
           onLoadProgress: (cb: (p: { stage: 'ready'; progress: number }) => void) => {
