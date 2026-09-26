@@ -47,7 +47,7 @@ export function rolePreview(mode: GameMode, count: 5 | 6 | 7 | 8): HTMLElement {
   const variants = ROLE_DISTRIBUTION[mode]?.[count] ?? [];
   const wrap = h('div', { class: 'sg-role-preview' });
   variants.forEach((roles: RoleId[], i: number) => {
-    const row = h('div', { class: 'variant' });
+    const row = h('div', { class: 'variant', style: `--n:${roles.length}` });
     if (variants.length > 1) row.appendChild(h('span', { class: 'vlabel' }, `${String.fromCharCode(65 + i)}`));
     for (const r of roles) {
       const cell = h('span', { class: 'cell', title: roleName(r) }, roleSeal(r, '1.9em'));

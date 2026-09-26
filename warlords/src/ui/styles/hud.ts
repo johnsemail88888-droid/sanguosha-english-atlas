@@ -519,6 +519,26 @@ export const HUD_CSS = /* css */ `
   .sg-hud[data-overlay="wheel"] .hud-feed { visibility: hidden; }
 }
 
+/* a small desktop window (640×360 … 900 wide): vitals, 4 ability emblems (lord) + 4 cards and the weapon share one row (MP2-11) */
+@media (max-width: 900px) {
+  .sg-hud:not(.touch) .hud-vitals { width: ${u(300)}; }
+  .sg-hud:not(.touch) .w-main, .sg-hud:not(.touch) .w-main:has(> .w-art) { min-width: 0; }
+  /* the render goes (the weapon tabs above keep theirs): the name and the ammo are what count here */
+  .sg-hud:not(.touch) .w-main:has(> .w-art) { padding-left: ${u(16)}; }
+  .sg-hud:not(.touch) .w-main > .w-art { display: none; }
+  .sg-hud:not(.touch) .w-name { display: inline-block; max-width: 18vw; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+  .sg-hud:not(.touch) .w-card { display: none; }
+  .sg-hud:not(.touch) .hud-abilities { gap: ${u(8)}; }
+  .sg-hud:not(.touch) .hud-abilities .abilities { gap: ${u(6)}; }
+  .sg-hud:not(.touch) .hud-abilities .items { gap: ${u(5)}; }
+  .sg-hud:not(.touch) .hud-abilities .ab:not(.slot-passive) .ico { width: ${u(52)}; height: ${u(52)}; }
+}
+/* the wheel reaches the bottom on short screens: the (unusable meanwhile) bar under it steps aside, the hint gets a backing */
+@media (max-height: 520px) {
+  .sg-hud[data-overlay="wheel"] :is(.hud-abilities, .hud-pickups) { visibility: hidden; }
+  .wh-hint { left: 50%; right: auto; transform: translateX(-50%); width: max-content; max-width: 96vw; padding: 0.1em 0.8em; border-radius: 999px; background: rgba(18, 12, 7, 0.8); opacity: 1; }
+}
+
 /* ── touch mode layout tweaks ──────────────────────────── */
 .sg-hud.touch .hud-abilities, .sg-hud.touch .hud-squad, .sg-hud.touch .w-slots, .sg-hud.touch .v-name, .sg-hud.touch .v-portrait { display: none; }
 .sg-hud.touch { --tb: clamp(44px, 12vmin, 62px); }
