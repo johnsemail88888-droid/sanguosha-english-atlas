@@ -480,9 +480,19 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   });
   // stats: HP actually removed (finishing a downed hero only shortens its bleed-out)
   if (credit?.hero && credit !== target && !h?.downed) credit.hero.stats.damage += res.dealt;
-  // hero-on-hero damage by his own hand (not his troops, not a charm's forced shot): sustained
-  // fire tells a real fight from a stray hit (hostility.ts, C3-3)
-  if (credit?.hero && h && credit !== target && total > 0 && w.isDirectSource(req.sourceId, credit) && !charmedOnto(credit, target, now)) {
+  // hero-on-hero damage by his own hand (not his troops, not a charm's forced shot, not a
+  // lingering field or burn someone may just have walked into): sustained fire tells a real
+  // fight from a stray hit (hostility.ts, C3-3 / C3-5)
+  if (
+    credit?.hero &&
+    h &&
+    credit !== target &&
+    total > 0 &&
+    w.isDirectSource(req.sourceId, credit) &&
+    src?.kind !== 'hazard' &&
+    !req.abilityId?.startsWith('status:') &&
+    !charmedOnto(credit, target, now)
+  ) {
     w.noteHeroHarm(credit.id, target.id, total);
   }
 

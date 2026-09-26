@@ -18,6 +18,15 @@ const FOCUS_MEMORY = 4;
  * own hand lately (World.heroHarm, 3 s half-life) before his soldiers join in: ~4 carbine hits.
  */
 export const SUSTAINED_HARM = 90;
+/**
+ * The opening (s): heroes are still spreading out and looting. Soldiers only join a fight with
+ * another hero's side when one of the two heroes has actually hit the other by hand (World.heroHarm:
+ * not a burning field he walked into, not a burn, not soldiers trading shots, not a miss) — a camp
+ * napalm's burning ground used to start squad wars that ended in a hero death inside the first
+ * minute (C3-5).
+ */
+export const OPENING_CALM = 60;
+const OPENING_PROVOKE = 0.5;
 const LORD_SIDE: ReadonlySet<RoleId> = new Set<RoleId>(['lord', 'loyalist', 'double']);
 
 /** Role of `target` as `viewer` knows it (undefined viewer = public knowledge). */
@@ -100,6 +109,12 @@ function spareSide(w: World, ca: Entity, bRoot: Entity): boolean {
   return side === 'lord' || w.heroHarm(bRoot.id, ca.id) < SUSTAINED_HARM;
 }
 
+/** Opening minute: `ca`'s soldiers leave hero `bRoot`'s side alone unless one of them attacked the other by hand. */
+function openingCalm(w: World, ca: Entity, bRoot: Entity): boolean {
+  if (w.time >= OPENING_CALM || !bRoot.hero || bRoot === ca) return false;
+  return w.heroHarm(bRoot.id, ca.id) < OPENING_PROVOKE && w.heroHarm(ca.id, bRoot.id) < OPENING_PROVOKE;
+}
+
 export function isHostile(w: World, a: Entity, b: Entity): boolean {
   if (a === b || !b.alive || b.hero?.dead) return false;
   if (b.kind !== 'hero' && b.kind !== 'troop' && b.kind !== 'npc' && b.kind !== 'turret') return false;
@@ -121,7 +136,7 @@ export function isHostile(w: World, a: Entity, b: Entity): boolean {
   const bRoot = cb ?? b;
   // a unit of a commander in a charm duel with `b`'s side ignores that fight's hits and aim, and so
   // does one whose commander only grazed a hero on his side (orders, marks and known roles still count)
-  const duel = a !== ca && (charmBound(w, ca, bRoot) || spareSide(w, ca, bRoot));
+  const duel = a !== ca && (charmBound(w, ca, bRoot) || spareSide(w, ca, bRoot) || openingCalm(w, ca, bRoot));
   // (a) damage memory
   if (
     !duel &&

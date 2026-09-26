@@ -21,6 +21,7 @@ import { getAbility } from '../abilities/registry';
 import { cameraRig } from '../aim';
 import { ext } from '../ext';
 import type { SimExt } from '../ext';
+import { OPENING_CALM } from '../hostility';
 import { AbilityUser, groundPointOf } from './abilityUse';
 import { Aimer } from './aimer';
 import type { AimOut } from './aimer';
@@ -1279,9 +1280,19 @@ export class HeroBot implements BotBrain, BotView {
     return (this.role === 'loyalist' || this.role === 'double') && !this.beliefs.mayFinish(t);
   }
 
+  /**
+   * The opening minute: nobody is executed over an opening scuffle (a camp blast that caught a
+   * passer-by, a hot-drop brush) — a hero whose role this bot does not know is left standing once
+   * down to 35 % (C3-5: ~8–16 % of matches had a hero death inside the first minute).
+   */
+  private openingMercy(t: Entity): boolean {
+    if (t.kind !== 'hero' || this.now >= OPENING_CALM || (!t.hero?.downed && t.hp > t.maxHp * 0.35)) return false;
+    return !wearsCrown(this.sim, t) && roleKnownTo(this.sim, this.self, t) === undefined;
+  }
+
   /** CommanderMind: the squad spares whom this bot spares (the lord side's mercy, see lordSideMercy). */
   spares(e: Entity): boolean {
-    return this.lordSideMercy(e);
+    return this.lordSideMercy(e) || this.openingMercy(e);
   }
 
   /**
@@ -1291,7 +1302,7 @@ export class HeroBot implements BotBrain, BotView {
   private mercy(t: Entity): boolean {
     if (t.kind !== 'hero') return false;
     if (!t.hero?.downed && t.hp > t.maxHp * 0.35) return false;
-    if (this.lordSideMercy(t)) return true;
+    if (this.lordSideMercy(t) || this.openingMercy(t)) return true;
     const { sim, self } = this;
     // a rebel only finishes the lord side: half the strangers are fellow rebels, and a rebel who
     // kills one looks loyal to the others — the civil war that follows loses the match. Mid-game it
