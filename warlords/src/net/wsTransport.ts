@@ -380,19 +380,12 @@ export class WsTransport extends BaseTransport {
           await new Promise((r) => setTimeout(r, RESUME_BACKOFF_MS[Math.min(attempt - 1, RESUME_BACKOFF_MS.length - 1)]));
           if (this.closed) return;
         }
-        let got: { ws: SocketLike; peers: string[]; secret?: string };
         try {
-          got = await this.openResume();
+          await this.openResume(); // (adopted the new socket already)
+          return;
         } catch (e) {
           console.info('[net] relay: room not back yet', e instanceof Error ? e.message : e);
-          continue;
         }
-        if (this.closed) {
-          got.ws.close();
-          return;
-        }
-        this.adopt(got);
-        return;
       }
     } finally {
       budget.cancel();
@@ -401,8 +394,13 @@ export class WsTransport extends BaseTransport {
     if (!this.closed) this.fail(new NetError('relayLost'));
   }
 
-  /** One attempt: a new socket that resumes the room (or re-creates it under the same code). */
-  private openResume(): Promise<{ ws: SocketLike; peers: string[]; secret?: string }> {
+  /**
+   * One attempt: a new socket that resumes the room (or re-creates it under the same code),
+   * adopted as soon as the relay says so — inside that message handler: the frames the
+   * relay sends right behind its answer (what the guests sent meanwhile) may be dispatched
+   * before any promise continuation runs, and must reach the wired socket.
+   */
+  private openResume(): Promise<void> {
     return new Promise((resolve, reject) => {
       let ws: SocketLike;
       try {
@@ -425,7 +423,17 @@ export class WsTransport extends BaseTransport {
             /* ignore */
           }
           reject(err ?? new NetError('serverUnreachable'));
-        } else resolve(value);
+          return;
+        }
+        if (this.closed) {
+          ws.onopen = ws.onclose = ws.onmessage = ws.onerror = null;
+          try {
+            ws.close();
+          } catch {
+            /* ignore */
+          }
+        } else this.adopt(value);
+        resolve();
       };
       const timer = new StallAwareTimeout(this.timeoutMs, () => done(new NetError('timeout')));
       ws.onopen = () => ws.send(JSON.stringify({ op: 'resume', v: RELAY_PROTOCOL_VERSION, code: this.roomCode, secret: this.secret }));

@@ -16,7 +16,7 @@ import { flatMap, testHeroPool, waitFor } from './fixtures';
 // @ts-expect-error plain .mjs without type declarations
 import { startServer } from '../../../server/server.mjs';
 // @ts-expect-error plain .mjs without type declarations
-import { createRelay, HEARTBEAT_MISSES, UNRELIABLE_BACKLOG as RELAY_BACKLOG } from '../../../server/relay.mjs';
+import { createRelay, HEARTBEAT_MISSES, HOST_HEARTBEAT_MISSES, UNRELIABLE_BACKLOG as RELAY_BACKLOG } from '../../../server/relay.mjs';
 
 interface Server {
   port: number;
@@ -564,6 +564,89 @@ describe('WsTransport: relay liveness and the host resuming its room (MP2-1 / MP
       expect(errors[0]).toMatchObject({ code: 'relayLost', zh: '与中转服务器的连接已断开' });
     } finally {
       host.leave();
+    }
+  });
+});
+
+describe('relay heartbeat for a frozen host (MP2-1 / MP2-8)', () => {
+  it('a host socket gets twice the heartbeat tolerance, then the room still waits its grace for the host', async () => {
+    expect(HOST_HEARTBEAT_MISSES).toBeGreaterThanOrEqual(2 * HEARTBEAT_MISSES);
+    const r = await ownRelay({ heartbeatMs: 40, hostGraceMs: 400 });
+    try {
+      // the host's page is frozen: its browser answers no pings and sends nothing
+      const host = new WebSocket(r.url, { autoPong: false });
+      const ctrl: Record<string, unknown>[] = [];
+      let hostClosed = false;
+      host.on('message', (d, isBinary) => !isBinary && ctrl.push(JSON.parse(d.toString())));
+      host.on('close', () => (hostClosed = true));
+      await new Promise((res) => host.once('open', res));
+      host.send(JSON.stringify({ op: 'create', v: 1 }));
+      await waitFor(() => ctrl.length > 0);
+      const code = (ctrl[0] as { code: string }).code;
+      const a = await rawSocket(r.url);
+      a.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
+      await waitFor(() => a.ctrl.length > 0);
+      const t0 = Date.now();
+      await new Promise((res) => setTimeout(res, (HEARTBEAT_MISSES + 1) * 40 + 20));
+      expect(hostClosed).toBe(false); // a guest would be gone by now
+      await waitFor(() => hostClosed, 3000, 'host socket dropped');
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(HOST_HEARTBEAT_MISSES * 40 - 20);
+      expect(a.closed()).toBe(false); // the room waits for the host to resume it
+      await waitFor(() => a.closed(), 3000, 'grace over');
+      expect(a.ctrl.some((c) => c.op === 'hostLeft')).toBe(true);
+    } finally {
+      await r.close();
+    }
+  });
+});
+
+describe('WsTransport resume: what the guests sent meanwhile (MP2-8)', () => {
+  it('reaches the host transport right behind the "resumed" answer, peers reconciled', async () => {
+    const r = await ownRelay({ hostGraceMs: 5000 });
+    // the host's resume request goes out 300 ms late: the guests talk while it is away
+    type Impl = NonNullable<NonNullable<Parameters<typeof WsTransport.host>[1]>['WebSocketImpl']>;
+    const Native = (globalThis as unknown as { WebSocket: new (url: string) => { send(d: unknown): void } }).WebSocket;
+    function SlowResume(url: string) {
+      const ws = new Native(url);
+      const send = ws.send.bind(ws);
+      ws.send = (d: unknown) => (typeof d === 'string' && d.includes('"op":"resume"') ? void setTimeout(() => send(d), 300) : send(d));
+      return ws;
+    }
+    try {
+      const hostT = await WsTransport.host(r.url, { WebSocketImpl: SlowResume as unknown as Impl, pingMs: 1000 });
+      const joins: string[] = [];
+      const leaves: string[] = [];
+      const got: string[] = [];
+      const links: string[] = [];
+      hostT.onPeerJoin((p) => joins.push(p));
+      hostT.onPeerLeave((p) => leaves.push(p));
+      hostT.onMessage((from, data) => typeof data === 'string' && got.push(`${from}:${data}`));
+      hostT.onLinkState((s) => links.push(s));
+      const a = await rawSocket(r.url);
+      a.ws.send(JSON.stringify({ op: 'join', v: 1, code: hostT.roomCode }));
+      const b = await rawSocket(r.url);
+      b.ws.send(JSON.stringify({ op: 'join', v: 1, code: hostT.roomCode }));
+      await waitFor(() => joins.length === 2, 2000, 'joins');
+      const [aId, bId] = [(a.ctrl[0] as { id: string }).id, (b.ctrl[0] as { id: string }).id];
+      r.relay.rooms.get(hostT.roomCode).host.ws.terminate();
+      await waitFor(() => r.relay.rooms.get(hostT.roomCode)?.host === null && links.includes('reconnecting'), 2000, 'host away');
+      for (let i = 0; i < 5; i++) a.ws.send(encodeRelayFrame('host', `{"t":"chat","text":"m${i}"}`, 'reliable'));
+      b.ws.close(); // one guest leaves while the host is away
+      const c = await rawSocket(r.url); // … and another one arrives
+      c.ws.send(JSON.stringify({ op: 'join', v: 1, code: hostT.roomCode }));
+      await waitFor(() => c.ctrl.length > 0, 2000, 'c joined');
+      const cId = (c.ctrl[0] as { id: string }).id;
+      await waitFor(() => links.at(-1) === 'ok', 3000, 'resumed');
+      await waitFor(() => got.length === 5, 2000, 'kept frames delivered');
+      expect(got).toEqual([0, 1, 2, 3, 4].map((i) => `${aId}:{"t":"chat","text":"m${i}"}`));
+      expect(leaves).toEqual([bId]);
+      expect(joins).toEqual([aId, bId, cId]);
+      // and the link works both ways again
+      hostT.send(aId, 'welcome back', 'reliable');
+      await waitFor(() => a.data.some((d) => d.data === 'welcome back'), 2000, 'host → guest');
+      hostT.close();
+    } finally {
+      await r.close();
     }
   });
 });

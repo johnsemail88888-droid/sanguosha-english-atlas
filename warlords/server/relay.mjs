@@ -43,6 +43,13 @@ export const UNRELIABLE_BACKLOG = 16 * 1024;
  * merely quiet is kept (NET-4); the game's own watchdogs judge the players.
  */
 export const HEARTBEAT_MISSES = 4;
+/**
+ * Heartbeat misses tolerated from a room's HOST socket (2–2.25 min): the host's page does the
+ * heavy work (it runs the sim and loads its own view — on a slow machine frozen for minutes,
+ * not reading its socket), and a dropped host still has HOST_GRACE_MS to resume its room.
+ * The guests meanwhile see the host's silence with the relay's word that it is still there.
+ */
+export const HOST_HEARTBEAT_MISSES = 8;
 
 /**
  * A room whose host socket dropped without closing waits this long for the host to
@@ -55,7 +62,7 @@ export const HOST_QUEUE_BYTES = 1024 * 1024;
 const CLEAN_CLOSE = new Set([1000, 1001, 1005]);
 
 /**
- * @param {{ maxPerRoom?: number, maxRooms?: number, heartbeatMs?: number, heartbeatMisses?: number,
+ * @param {{ maxPerRoom?: number, maxRooms?: number, heartbeatMs?: number, heartbeatMisses?: number, hostHeartbeatMisses?: number,
  *           helloTimeoutMs?: number, unreliableBacklog?: number, hostGraceMs?: number,
  *           log?: (...a: unknown[]) => void }} [opts]
  */
@@ -65,6 +72,7 @@ export function createRelay(opts = {}) {
   const maxRooms = opts.maxRooms ?? 1000;
   const heartbeatMs = opts.heartbeatMs ?? 15000;
   const heartbeatMisses = Math.max(1, opts.heartbeatMisses ?? HEARTBEAT_MISSES);
+  const hostHeartbeatMisses = Math.max(heartbeatMisses, opts.hostHeartbeatMisses ?? HOST_HEARTBEAT_MISSES);
   const helloTimeoutMs = opts.helloTimeoutMs ?? 10000;
   const hostGraceMs = Math.max(0, opts.hostGraceMs ?? HOST_GRACE_MS);
   const log = opts.log ?? (() => {});
@@ -341,9 +349,11 @@ export function createRelay(opts = {}) {
     for (const ws of wss.clients) {
       const c = ws._sgwlClient;
       if (!c) continue;
-      // no pong / message for `heartbeatMisses` pings in a row (60–75 s by default): a dead link
-      if (c.missed >= heartbeatMisses) {
-        log(`[relay] ${c.room ? `room ${c.room.code} ${c.id}` : 'socket'}: no sign of life for ${heartbeatMisses} heartbeats, dropped`);
+      // no pong / message for `heartbeatMisses` pings in a row (60–75 s by default; a host
+      // twice that): a dead link
+      const misses = c.isHost && c.room ? hostHeartbeatMisses : heartbeatMisses;
+      if (c.missed >= misses) {
+        log(`[relay] ${c.room ? `room ${c.room.code} ${c.id}` : 'socket'}: no sign of life for ${misses} heartbeats, dropped`);
         ws.terminate();
         continue;
       }
