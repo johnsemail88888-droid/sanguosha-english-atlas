@@ -205,6 +205,7 @@ const DICT = {
   'hud.interact.reviveTouch': ['按住「救援」救起 {name}', 'Hold Revive to rescue {name}'],
   'hud.interact.needPeach': ['需要桃', 'Needs a Peach'],
   'hud.interact.selfRevive': ['按 {key} 饮酒自救', 'Press {key} to drink Wine and rise'],
+  'hud.interact.selfTao': ['按住 {key} 吃「桃」自救', 'Hold {key} to eat your Peach and rise'],
   'hud.channel.item': ['使用中', 'Using'],
   'hud.channel.revive': ['救援中', 'Reviving'],
   'hud.channel.open': ['开启锦囊', 'Opening'],

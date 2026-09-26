@@ -49,7 +49,8 @@ function validDiscord(sim: SimApi, victim: Entity, t: Entity | undefined): boole
 // 反间 (Q): charm the crosshair enemy hero for `duration` s onto the nearest other hero it can
 // see (never you); nobody around → disarm it instead. 谦逊-immune targets can't be chosen (no
 // cooldown). While the charm lasts, a target that drops, dies or slips into stealth is swapped
-// for the next one (none left → the charm ends).
+// for the next one (none left → the charm ends). Like 离间, the forced shots hit at ×dmgMul
+// (C3-2: at full damage an idle bystander went 400 → 0 in the 3 s charm).
 registerAbility({
   id: 'zhouyu_fanjian',
   activate(ctx) {
@@ -61,7 +62,7 @@ registerAbility({
     // pos = whom it turns on (the renderer draws the discord line target → pos); never a stealthed hero
     setCast(ctx, { target: t.id, pos: centerOf(other && publiclyVisible(sim, other) ? other : t) });
     const outcome = other
-      ? applyDebuff(ctx, t, 'charm', param(ctx, 'duration', 2), { targetId: other.id })
+      ? applyDebuff(ctx, t, 'charm', param(ctx, 'duration', 2.5), { targetId: other.id, dmgMul: param(ctx, 'dmgMul', 0.35) })
       : applyDebuff(ctx, t, 'disarm', param(ctx, 'disarm', 2));
     if (outcome === 'landed' && other) setState(ctx, 'victim', t.id);
     return outcome !== 'resisted' || deny(ctx, 'invalidTarget');

@@ -87,7 +87,8 @@ electron/, .github/workflows, scripts/  packaging + CI                  (PACKAGI
    (in 乱世 mode with 影武者, two crowns are announced — see §4).
 4. **选将 (hero select)**: the Lord first picks from the 5 lord candidates + 3 random heroes (15 s);
    the Lord's pick is shown to everyone; then all others pick simultaneously from 3 random
-   heroes (20 s; `freePick` shows all). Duplicate heroes are not allowed. Bots pick instantly —
+   heroes (20 s; `freePick` shows all). Duplicate heroes are not allowed. Bots pick instantly (a bot
+   Lord takes one of the lord candidates at random, the others by role suitability) —
    except with `freePick`: the humans choose first (bots pick once every human locked in, or at
    the deadline), each bot from a random handful of the roster; single player gets 4× the time.
    When the timer runs out a human gets the card shown selected (clicked or default).
@@ -134,12 +135,14 @@ since both crowns carry the lord's bonus), swapping in:
 - No passive regen. Healing comes from 桃 / abilities.
 - **濒死 (downed)** at 0 HP: 12 s bleed-out, crawling at 25 % speed, cannot shoot. Anyone can
   revive with a 桃 (hold F on them, 1.5 s → 100 HP); the downed hero may drink 酒 to self-revive
-  (50 HP). Damage while downed shortens bleed-out. Bleed-out or finishing → **death**.
+  (50 HP) or play his own 桃 (a 1.5 s channel → 100 HP — 三国杀: a dying player may save himself). Damage while downed shortens bleed-out. Bleed-out or finishing → **death**.
 - **Death reveals the role** to everyone (kill feed: "张飞(反贼) 被 曹操 击杀"). Dead players spectate
   (cycle alive heroes). Their squad disbands (troops become neutral NPCs that flee/fight 20 s, then vanish).
 - **Rewards/penalties** (official): whoever kills a **Rebel** draws **3 random items**
-  (dropped straight into their slots / at their feet). If the **Lord kills a Loyalist or the Double**,
-  the Lord **drops every item, armor, mount and the secondary weapon**.
+  (dropped straight into their slots / at their feet). If the **Lord kills a Loyalist or the Double**
+  by his own hand (his shots, projectiles, fields, turrets — or he downed him and a soldier finished;
+  a kill his troops / summons make alone doesn't count), the Lord **drops every item, armor, mount
+  and the secondary weapon**.
 - Friendly fire is ON (it's an identity game). A commander's own troops/turrets never damage him
   and are immune to his own AoE.
 
@@ -149,7 +152,11 @@ Players may publicly claim a role at any time (T wheel: 我是忠臣 / 我是反
 集火此人 / 需要桃 / 跟我来). Claims show as a small tag above the nameplate and in the scoreboard.
 Lies are allowed. Bots claim too: most bot rebels 跳反 after the opening loot (a few bluff 忠,
 the rest keep quiet until the push), the 内奸 bluffs 忠. Loyalists hunt a rebel who admitted it
-and rebels stand by one who is being shot.
+and rebels stand by one who is being shot. A bot standing in for a dropped player never claims
+(or sends identity quick-chat) in his name. A bot Lord holds his post: before the endgame he
+leaves a hero farther than 40 m that is not hurting the lord side to his loyalists. A field /
+burn someone laid is not read as an attack on whoever walks into it, and nobody is executed over
+a scuffle in the opening minute (bots stop at 35 % on a hero whose role they don't know).
 
 ### Zone 烽火圈 (`sim/zone.ts`)
 
@@ -175,7 +182,9 @@ Zone damage is type `zone` (ignores armor/dodge/shields; troops/NPCs take it too
 - **天降锦囊 airdrop** every 100 s from 2:00, announced and marked on the minimap; lands after a
   12 s fall (visible smoke + flare): 1 legendary/epic weapon + armor or mount + 2 items.
 - Picking up: walk over ammo/items auto-pickup if a slot is free; weapons/armor/mounts need F
-  (swaps with current, dropping the old one). Items stack up to `maxStack`.
+  (swaps with current, dropping the old one beside you — never behind you, in front of the camera).
+  Items stack up to `maxStack`. A card you discarded (X + slot) or swapped out with F is never
+  auto-picked back up by you — only an explicit F takes it (anyone else picks it up as usual).
 
 ## 5. Heroes (30) — design intent
 
@@ -216,7 +225,7 @@ are guidance; DATA tunes them for balance (TTK for a 400 HP hero under sustained
 | ganning | 甘宁 | 4 | 锦帆: +10 % speed; kills refill your mag | 奇袭: EMP bolt — target's armor & mount knocked 2.5 m away (locked for it 5 s), loses shield, silenced 2.5 s | 百骑劫营: 8 s stealth for you + squad; first attack from stealth +60 % | — |
 | lumeng | 吕蒙 | 4 | 克己: not firing for 4 s ⇒ stealth (breaks on firing) | 白衣渡江: 6 s stealth while moving + 30 % haste | 攻心: target disarmed 2.5 s and you steal 1 item | — |
 | huanggai | 黄盖 | 4 | 苦肉(被动): below 50 % HP, fire damage +30 % | 苦肉: lose 40 HP ⇒ gain 2 random items + fire-rate ×1.4 5 s | 诈降火船: launch a burning fire-ship drone (12 m/s), explodes 7 m: 120 fire + fire field | — |
-| zhouyu | 周瑜 | 3 | 英姿: reload +25 %, ability cooldowns −20 % | 反间: charm the crosshair enemy 3 s — they attack the nearest other hero; their troops turn on them (18 s cd) | 火烧赤壁: napalm strike along a 25 m line after 1.5 s: 110 fire + burning ground 18/s (24 s cd) | — |
+| zhouyu | 周瑜 | 3 | 英姿: reload +25 %, ability cooldowns −20 % | 反间: charm the crosshair enemy 2.5 s — they attack the nearest other hero (shots ×0.35, like 离间; both squads sit it out) (18 s cd) | 火烧赤壁: napalm strike along a 25 m line after 1.5 s: 110 fire + burning ground 18/s (24 s cd) | — |
 | daqiao | 大乔 | 3 | 流离: 35 % of bullets hitting you are redirected to another unit within 8 m | 国色: throw 乐不思蜀 at crosshair enemy (25 m): dance 3 s (14 s cd) | 安娴: heal you, your soldiers and heroes within 8 m for 90 (15 s cd) | — |
 | luxun | 陆逊 | 3 | 谦逊: immune to stun/charm/dance/silence/steal. 连营: when your mag empties, instantly reload 50 % | 火烧连营: lay 5 fire fields in a line ahead | 连营: 6 s no-reload; your fire fields spread | — |
 | sunshangxiang | 孙尚香 | 3 | 枭姬: when you lose armor/mount or first drop < 50 % HP: haste + full ammo + 1 item | 结姻: heal yourself and the male hero under crosshair 100 each | 弓腰姬: fire 5 explosive arrows in a fan | — |
@@ -294,7 +303,11 @@ removed). Mounts: offensive −1 马 赤兔/大宛/紫骍 (+30–40 % speed); de
   the last 10 s, (b) whatever their commander is shooting at / marked, (c) NPCs that aggro,
   (d) heroes whose **known** role is hostile to the commander's role (e.g. revealed rebels for the
   Lord's troops). They never attack heroes they have no reason to — this keeps the hidden-role
-  tension. Troops don't respawn; recruit with 征兵令 / abilities.
+  tension. One stray hit on a hero on the commander's side (the public lord; a revealed / claimed
+  fellow 忠 or 反) is no reason either: (a)/(b) need the commander's sustained fire (~90 damage by
+  his own hand in the last few seconds), a mark or an order. A charm duel (离间 / 反间) is no reason: the hits and aim it forces don't count, both
+  heroes' squads (and turrets) sit it out, and both sides forget it when the charm ends.
+  Troops don't respawn; recruit with 征兵令 / abilities.
 - 黄巾 camps (4–6 bandits + bronze crate) guard the best early loot; they leash back home.
 
 ## 9. Map — 虎牢·赤壁 (`src/sim/map/`)

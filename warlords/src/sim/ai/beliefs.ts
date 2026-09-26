@@ -34,6 +34,8 @@ interface Evidence {
   anti: number;
   /** traitor-specific evidence (claims) */
   trait: number;
+  /** the part of `anti` that comes from hitting the lord side's crowns / this bot itself */
+  crown: number;
 }
 
 interface Deed {
@@ -52,10 +54,17 @@ const SINKHORN_ITERS = 10;
 const SCORE_CLAMP = 8;
 /** evidence per proximity read (every PROXIMITY_EVERY s) against a stranger seen loitering with another at a crown's edge */
 const STAGING_READ = 0.05;
-/** a 忠-claimer seen dealing less than this to the lord side is still "clean" (stray pellets, one collateral sweep) */
-const CLEAN_HARM = 40;
+/**
+ * a 忠-claimer seen dealing less than this to the lord side is still "clean": stray pellets, one
+ * collateral sweep, a small burst (~4 carbine hits — C3-3: 3 hits used to start a war)
+ */
+const CLEAN_HARM = 90;
 /** …and the lord side never finishes (executes) a 忠-claimer seen dealing less than this to it */
 const FINISH_HARM = 100;
+/** …the 主公 himself (a loyalist he kills costs him all his gear): only a clearly deliberate attack */
+const LORD_FINISH_HARM = 250;
+/** seconds a hero who killed a revealed rebel gets the benefit of the doubt for fire that caught the lord side */
+const REBEL_KILL_GRACE = 20;
 
 const LORD_SIDE: ReadonlySet<RoleId> = new Set<RoleId>(['lord', 'loyalist', 'double']);
 
@@ -70,6 +79,8 @@ export class Beliefs {
    * side and did not shoot first) — never decays: "has this 忠-claimer ever hurt us?"
    */
   private readonly lordSideHarm = new Map<EntityId, number>();
+  /** when each hero was last seen killing a (then revealed) rebel */
+  private readonly rebelKillAt = new Map<EntityId, number>();
   private lastDecay = -1;
   private nextRecompute = 0;
   private lastRecompute = -99;
@@ -95,6 +106,7 @@ export class Beliefs {
         e.pro *= k;
         e.anti *= k;
         e.trait *= k;
+        e.crown *= k;
       }
       this.lastDecay = now;
     }
@@ -113,7 +125,7 @@ export class Beliefs {
   private evOf(id: EntityId): Evidence {
     let e = this.ev.get(id);
     if (!e) {
-      e = { pro: 0, anti: 0, trait: 0 };
+      e = { pro: 0, anti: 0, trait: 0, crown: 0 };
       this.ev.set(id, e);
     }
     return e;
@@ -149,8 +161,9 @@ export class Beliefs {
         if (!actor?.hero) return;
         // a blocked hit (dodged, nullified…) still shows intent, with the weight of a light hit
         const w = g * (Math.min(ev.amount, 120) / 60 + 0.1) * (ev.viaSquad ? 0.35 : 1) * (ev.field ? 0.2 : 1);
-        // the lord side shooting someone: a weak hint that the victim is suspected
-        if (wearsCrown(sim, actor) && this.hidden(sim, self, ev.target)) this.evOf(ev.target).anti += 0.12 * w;
+        // the lord side shooting someone: a weak hint that the victim is suspected (not when that is
+        // this bot itself: its own fire is no evidence — it made a stray hit look ever more rebel)
+        if (actor !== self && wearsCrown(sim, actor) && this.hidden(sim, self, ev.target)) this.evOf(ev.target).anti += 0.12 * w;
         if (!this.hidden(sim, self, ev.actor)) return;
         let retaliation = obs.sinceAttack(sim, ev.target, ev.actor) < 6 ? (wearsCrown(sim, target) ? 0.3 : 0.4) : 1;
         // collateral: the actor is trading fire with someone else (e.g. a loyalist fighting the
@@ -164,6 +177,10 @@ export class Beliefs {
             break;
           }
         }
+        // a hero who just killed a revealed rebel is fighting the rebels: fire that catches the lord
+        // side now is collateral (C3-3: a loyalist's 火攻 splash on the lord right after his kill)
+        const onLordSide = wearsCrown(sim, target) || (target === self && LORD_SIDE.has(ownRole(self)));
+        if (onLordSide && ev.time - (this.rebelKillAt.get(ev.actor) ?? -1e9) <= REBEL_KILL_GRACE) collateral = Math.min(collateral, 0.1);
         retaliation *= collateral;
         const e = this.evOf(ev.actor);
         if (ev.amount > 0 && this.harmsLordSide(sim, self, obs, ev.actor, target)) {
@@ -172,7 +189,9 @@ export class Beliefs {
           this.lordSideHarm.set(ev.actor, (this.lordSideHarm.get(ev.actor) ?? 0) + ev.amount * (ev.viaSquad ? 0.15 : 1) * (ev.field ? 0.3 : 1) * collateral);
         }
         if (wearsCrown(sim, target) || (target === self && LORD_SIDE.has(ownRole(self)))) {
-          e.anti += (target === self && !wearsCrown(sim, target) ? 1.4 : 2.2) * w * retaliation;
+          const add = (target === self && !wearsCrown(sim, target) ? 1.4 : 2.2) * w * retaliation;
+          e.anti += add;
+          e.crown += add;
         } else {
           // shooting someone we know nothing about tells us nothing: only the victim's
           // deviation from the table's base rates is informative
@@ -205,6 +224,7 @@ export class Beliefs {
         if (!role) return;
         const rebel = role === 'rebel';
         const loyal = role === 'loyalist' || role === 'double';
+        if (rebel && ev.actor !== undefined) this.rebelKillAt.set(ev.actor, ev.time);
         if (this.hidden(sim, self, ev.actor)) {
           const k = this.evOf(ev.actor);
           if (rebel) k.pro += 2.5 * g;
@@ -314,7 +334,7 @@ export class Beliefs {
     const roles = HIDDEN_ROLES.filter((r) => tk.unknown[r] > 1e-6);
     if (roles.length === 0) return;
     const m: number[][] = ids.map((id) => {
-      const e = this.ev.get(id) ?? { pro: 0, anti: 0, trait: 0 };
+      const e = this.ev.get(id) ?? { pro: 0, anti: 0, trait: 0, crown: 0 };
       return roles.map((r) => Math.exp(clampScore(score(r, e))));
     });
     // Sinkhorn: columns sum to the expected role counts, rows to 1
@@ -376,7 +396,7 @@ export class Beliefs {
 
   /** Raw evidence (debug / tests). */
   evidence(id: EntityId): Readonly<Evidence> {
-    return this.ev.get(id) ?? { pro: 0, anti: 0, trait: 0 };
+    return this.ev.get(id) ?? { pro: 0, anti: 0, trait: 0, crown: 0 };
   }
 
   /** Total evidence gathered about a hero (how much its own deeds say). */
@@ -421,6 +441,25 @@ export class Beliefs {
    */
   mayFinish(e: Entity): boolean {
     return e.hero?.claim !== 'loyalist' || (this.lordSideHarm.get(e.id) ?? 0) >= FINISH_HARM;
+  }
+
+  /**
+   * The 主公 (and his squad) may bring this hero down: anyone but a 忠-claimer, and a 忠-claimer
+   * only after a clearly deliberate attack on the lord side — and a downed 忠-claimer is never
+   * finished at all (C3-3: executing a loyalist costs the lord all his gear).
+   */
+  lordMayFinish(sim: SimApi, self: Entity, e: Entity): boolean {
+    const h = e.hero;
+    if (!h) return true;
+    const known = roleKnownTo(sim, self, e);
+    if (known !== undefined) return !LORD_SIDE.has(known);
+    const harm = this.lordSideHarm.get(e.id) ?? 0;
+    if (h.claim === 'loyalist') return !h.downed && harm >= LORD_FINISH_HARM;
+    // a stranger whose only offence is a small hit on the lord side (a stray burst — maybe a
+    // loyalist who hasn't claimed) is not executed for it; more fire lifts this at once
+    const ev = this.ev.get(e.id);
+    const other = ev ? ev.anti - ev.crown : 0;
+    return !(harm > 0 && harm < CLEAN_HARM && h.claim !== 'rebel' && other < 0.5 * this.prof.evidenceGain);
   }
 
   /** Lord-skill tell for a crown (casts this seat saw; > 0 = it is the real lord). */

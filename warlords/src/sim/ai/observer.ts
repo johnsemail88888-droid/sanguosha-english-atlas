@@ -122,9 +122,12 @@ export class WorldObserver {
           const k = sim.get(a)?.kind;
           bits |= k === 'hazard' ? 4 : k === 'troop' || k === 'npc' || k === 'turret' ? 2 : 1;
         }
-        const direct = bits === 0 || (bits & 1) !== 0;
+        // only the credited hero itself in the log: his own shot — or a field / burn he laid ticking
+        // (credited to him too) that the victim may just have walked into
+        const lingering = bits === 0 && typeof x.hitByHandRecently === 'function' && !x.hitByHandRecently(unit.id, actor.id, VIA_WINDOW);
+        const direct = !lingering && (bits === 0 || (bits & 1) !== 0);
         if (!direct && (bits & 2) !== 0) viaSquad = true;
-        const field = !direct && (bits & 2) === 0 && (bits & 4) !== 0;
+        const field = lingering || (!direct && (bits & 2) === 0 && (bits & 4) !== 0);
         const blocked = ev.blocked !== undefined && ev.blocked !== 'shield' && ev.blocked !== 'armor';
         this.push(sim, { kind: 'attack', actor: actor.id, target: target.id, amount: blocked ? 0 : Math.max(0, ev.amount), viaSquad, field, blocked, pos: ev.pos });
         return;

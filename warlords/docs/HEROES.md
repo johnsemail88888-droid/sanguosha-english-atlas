@@ -596,7 +596,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **英姿**<br>Heroic Bearing<br><sub>三国杀：英姿</sub> | — | 换弹速度 +25%；技能冷却 -20%。<br>Reload 25% faster. Ability cooldowns -20%. |
-| Q | **反间**<br>Sow Discord<br><sub>三国杀：反间</sub> | 18 s | 魅惑准星处敌人 3 秒：它攻击 30 米内离它最近、它看得见的另一名武将（不会是你）；若无则缴械它 3 秒。<br>Charm the crosshair enemy for 3 s: it attacks the nearest other hero it can see within 30 m (never you). None: disarm it 3 s. |
+| Q | **反间**<br>Sow Discord<br><sub>三国杀：反间</sub> | 18 s | 魅惑准星处敌人 2.5 秒：它攻击 30 米内离它最近、它看得见的另一名武将（伤害 ×35%，不会是你）；若无则缴械它 3 秒。<br>Charm the crosshair enemy 2.5 s: it attacks the nearest other hero it sees in 30 m (never you) at ×35% damage. None: disarm 3 s. |
 | E | **火烧赤壁**<br>Red Cliffs Inferno<br><sub>三国杀：英姿</sub><br><sub>火焰伤害 · Fire damage</sub> | 24 s | 1.5 秒后沿前方 25 米直线投下 5 枚凝固汽油弹：110 火焰伤害，燃烧地面 6 秒（每秒 18）。<br>After 1.5 s, 5 napalm bombs hit a 25 m line ahead: 110 fire damage and burning ground for 6 s (18/s). |
 
 **台词 Quotes**
@@ -886,7 +886,7 @@ DPS = one trigger pull × fire rate (no reloads); TTK counts from the first shot
 |---|---|---|---|
 | 杀 | **杀** Strike (Ammo Box) | 基本牌 Basic | 弹药箱：为两把武器补充 50% 最大备弹。<br>Ammo box: refills 50% of max reserve ammo for both weapons. |
 | 闪 | **闪** Dodge | 基本牌 Basic | 立即获得 1 次闪避（可超出上限，最多 3 次）。<br>Instantly gain 1 dodge charge (can exceed your normal max, up to 3). |
-| 桃 | **桃** Peach (Medkit) | 基本牌 Basic | 回复 120 生命；对濒死角色按住 F 1.5 秒可将其以 100 生命救起。<br>Restore 120 HP. Hold F on a downed hero for 1.5 s to revive them with 100 HP. |
+| 桃 | **桃** Peach (Medkit) | 基本牌 Basic | 回复 120 生命；对濒死角色按住 F 1.5 秒可将其以 100 生命救起；自己濒死时也可使用（1.5 秒）自救。<br>Restore 120 HP. Hold F on a downed hero for 1.5 s to revive them with 100 HP — or use it on yourself while downed (1.5 s). |
 | 酒 | **酒** Wine | 基本牌 Basic | 8 秒内你的下一次武器命中伤害 ×2（技能与锦囊伤害不受影响）；濒死时可饮用，以 50 生命自救。<br>Your next weapon hit within 8 s deals ×2 (ability and item damage are unaffected). While downed, drink it to revive with 50 HP. |
 | 无 | **无中生有** Something from Nothing | 锦囊 Trick | 立即获得 2 个随机锦囊。<br>Instantly gain 2 random items. |
 | 拆 | **过河拆桥** Dismantle (EMP Grenade) | 锦囊 Trick | 投掷电磁手雷（1.2 秒后于 4 米内生效）：敌人的护甲与坐骑被震落到 2.5 米外（本人 5 秒内无法拾回），护盾清空。<br>Throw an EMP grenade (4 m, 1.2 s fuse): enemies lose all shield, and their armor and mount are knocked 2.5 m away (they cannot pick them back up for 5 s). |

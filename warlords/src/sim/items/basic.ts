@@ -62,15 +62,23 @@ registerItem({
   },
 });
 
-// 桃: heal yourself, or revive the downed hero you are standing over.
+// 桃: heal yourself, or revive the downed hero you are standing over — or, downed yourself, get
+// back up with it (三国杀: a dying player may play his own 桃; a revive-length channel, C3-6).
 registerItem({
   id: 'tao',
   canUse: taoRefusal,
   canRevive: true,
+  usableWhileDowned: true,
   use(ctx) {
     const self = ctx.self;
     const t = ctx.target;
     const x = ext(ctx.sim);
+    if (self.hero?.downed) {
+      const hp = (ctx.def.params.reviveHp ?? 100) + x.modifiers(self.id).reviveHpBonus;
+      if (x.revive(self.id, hp, self.id)) return true;
+      ctx.deniedReason = 'blocked';
+      return false;
+    }
     if (t && t !== self && t.hero?.downed && !t.hero.dead) {
       const hp = (ctx.def.params.reviveHp ?? 100) + x.modifiers(self.id).reviveHpBonus;
       if (x.revive(t.id, hp, self.id)) return true;
@@ -87,7 +95,7 @@ registerItem({
     return false;
   },
   botShouldUse(_sim, self) {
-    return !self.hero?.downed && self.hp < self.maxHp * 0.55;
+    return self.hero?.downed === true || self.hp < self.maxHp * 0.55;
   },
 });
 
@@ -95,8 +103,8 @@ registerItem({
 function taoRefusal(ctx: ItemCtx): DeniedReason | null {
   const self = ctx.self;
   const t = ctx.target;
+  if (self.hero?.downed) return null; // a self-revive
   if (t && t !== self && t.hero?.downed && !t.hero.dead) return null; // a revive
-  if (self.hero?.downed) return 'blocked';
   return self.hp >= self.maxHp ? 'fullHp' : null;
 }
 

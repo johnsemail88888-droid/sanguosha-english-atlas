@@ -29,7 +29,8 @@ describe('registration', () => {
     }
     expect(impl('jiu').usableWhileDowned).toBe(true);
     expect(impl('tao').canRevive).toBe(true);
-    for (const def of ITEMS) if (def.id !== 'jiu') expect(impl(def.id).usableWhileDowned ?? false, def.id).toBe(false);
+    expect(impl('tao').usableWhileDowned).toBe(true); // a dying player may play his own 桃 (C3-6)
+    for (const def of ITEMS) if (def.id !== 'jiu' && def.id !== 'tao') expect(impl(def.id).usableWhileDowned ?? false, def.id).toBe(false);
   });
 });
 

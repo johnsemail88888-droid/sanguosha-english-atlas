@@ -306,7 +306,12 @@ export class AbilityUser {
     // NPC hordes rushing a point attack everything that is not ours: keep them far from friends.
     // A turret is not a horde: it shoots what its engineer fights — just don't set it on a friend.
     if ((hint === 'summon' && targeting === 'point' && def.params.turretRange === undefined) || this.wild.has(def.id)) return wildSummonClear(v, aim, plan.targetId);
-    return areaClear(v, def.params, targeting, aim, plan.targetId, abilityReach(def));
+    // aimed at a wild camp (黄巾 / 南蛮 NPCs), not at a hero or his side: the blast (and the fire it
+    // leaves) keeps clear of every hero around, not only of friends — a passer-by caught by a camp
+    // napalm started most first-minute hero deaths (C3-5)
+    const t = plan.targetId !== undefined ? v.sim.get(plan.targetId) : undefined;
+    const onCamp = t?.kind === 'npc' && t.npc?.summonerId === undefined;
+    return areaClear(v, def.params, targeting, aim, plan.targetId, abilityReach(def), onCamp);
   }
 
   private selfTarget(v: BotView, base: AbilityPlan): AbilityPlan {
@@ -368,10 +373,15 @@ function lordMargin(v: BotView, p: Record<string, number>): number {
   return lasting ? 14 : 5;
 }
 
-/** Heroes this bot must not hit with an area effect. */
-export function protectedHero(v: BotView, e: Entity, targetId: number | undefined): boolean {
+/** Heroes this bot must not hit with an area effect (`anyHero`: every other hero — a cast on a camp). */
+export function protectedHero(v: BotView, e: Entity, targetId: number | undefined, anyHero = false): boolean {
   if (e === v.self || !e.hero || e.hero.dead || e.id === targetId) return false;
-  return v.allyScore(e) >= 0.5 || v.hostility(e) < 0.6;
+  return anyHero || v.allyScore(e) >= 0.5 || v.hostility(e) < 0.6;
+}
+
+/** Extra berth (m) around heroes for an area cast on a wild camp: lasting fire needs more. */
+function campMargin(p: Record<string, number>): number {
+  return (p.fieldTime ?? p.duration ?? p.lifetime ?? 0) > 1 ? 10 : 4;
 }
 
 /**
@@ -386,26 +396,28 @@ export function areaClear(
   aim: Vec3 | undefined,
   targetId: number | undefined,
   reach: number,
+  onCamp = false,
 ): boolean {
   const self = v.self;
   const heroes = knownHeroes(v);
-  const margin = lordMargin(v, p);
+  const margin = lordMargin(v, p) + (onCamp ? campMargin(p) : 0);
+  const guarded = (e: Entity): boolean => protectedHero(v, e, targetId, onCamp);
   const radius = (p.radius ?? p.explodeRadius ?? p.fieldRadius ?? 0) + margin;
   if (targeting === 'self' || targeting === 'none') {
     if (radius <= 0) return true;
-    for (const e of heroes) if (protectedHero(v, e.e, targetId) && dist2d(e.p, self.pos) <= radius + 1) return false;
+    for (const e of heroes) if (guarded(e.e) && dist2d(e.p, self.pos) <= radius + 1) return false;
     return true;
   }
   if (targeting === 'enemy') {
     const r = p.radius ?? 0;
     if (r <= 0 || !aim) return true;
-    for (const e of heroes) if (protectedHero(v, e.e, targetId) && dist2d(e.p, aim) <= r * 0.6 + margin) return false;
+    for (const e of heroes) if (guarded(e.e) && dist2d(e.p, aim) <= r * 0.6 + margin) return false;
     return true;
   }
   if (!aim) return true;
   if (targeting === 'point') {
     const r = Math.max(3, radius);
-    for (const e of heroes) if (protectedHero(v, e.e, targetId) && dist2d(e.p, aim) <= r + 1) return false;
+    for (const e of heroes) if (guarded(e.e) && dist2d(e.p, aim) <= r + 1) return false;
     return true;
   }
   // direction: corridor from self toward the aim, `reach` long
@@ -417,7 +429,7 @@ export function areaClear(
   const width = Math.max(2, (p.width ?? 0) + 1, radius + 1, p.arc ? (p.range ?? 4) * 0.8 : 0);
   const len = reach + radius;
   for (const e of heroes) {
-    if (!protectedHero(v, e.e, targetId)) continue;
+    if (!guarded(e.e)) continue;
     const rx = e.p.x - self.pos.x;
     const rz = e.p.z - self.pos.z;
     const along = rx * ux + rz * uz;

@@ -220,6 +220,8 @@ export class RoleStrategy {
   private wanderUntil = 0;
   private claimed = 0;
   private nextClaimAt: number;
+  /** playing a dropped human's seat: no claims / identity quick-chat in his name */
+  private standIn = false;
   /** comms() ran at least once (a brain created mid-match took over a dropped player's seat) */
   private commsStarted = false;
   /** seeded claim temperament: 0..1 — how early / readily this bot claims (varies per bot, not per role) */
@@ -1398,9 +1400,11 @@ export class RoleStrategy {
   // ── claims & quick-chat ─────────────────────────────────────────────────
   /**
    * This brain took over a dropped player's seat mid-match: it keeps the player's public claim
-   * and says nothing for 30–60 s (an instant new claim — or a flip — would out the takeover).
+   * and never makes one of its own — nor identity quick-chat (保护主公, 集火此人, 跟我来…) — in
+   * his name; only 需要桃 / 谢谢 (the world drops a stand-in's claims anyway).
    */
   noteTakeover(now: number): void {
+    this.standIn = true;
     this.nextClaimAt = Math.max(this.nextClaimAt, now + 30 + this.rng.next() * 30);
   }
 
@@ -1413,6 +1417,7 @@ export class RoleStrategy {
     const { self, now, sim } = v;
     const h = self.hero!;
     const chat = (id: string, minGap = 14): boolean => {
+      if (this.standIn && id !== 'needPeach' && id !== 'thanks') return false;
       if (now - this.lastChatAt < minGap) return false;
       this.lastChatAt = now;
       f.actions.push({ a: 'quickchat', id });
@@ -1438,7 +1443,7 @@ export class RoleStrategy {
     }
     // claims (跳身份) — when and whether is a per-bot temperament, so the timing of a 忠 claim
     // says little about the role behind it (rebels fake it, loyalists / traitors vary)
-    if (this.claimed < 2 && now >= this.nextClaimAt) {
+    if (!this.standIn && this.claimed < 2 && now >= this.nextClaimAt) {
       this.nextClaimAt = now + 20 + this.rng.next() * 25;
       let claim: RoleId | null = null;
       const eager = this.claimEagerness;

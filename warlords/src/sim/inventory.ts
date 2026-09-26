@@ -10,6 +10,7 @@ import type { ItemImplEx, StripOptions } from './ext';
 import { getItem } from './items/registry';
 import { rollAirdrop, rollCrate, rollRewardItems as rollRewards, scatterAround } from './loot';
 import type { LootRoll } from './loot';
+import { groundAt } from './physics';
 import { REVIVE_HP, REVIVE_TIME } from './rules';
 import type { ControlState } from './status';
 import { findStatus, revealedTo } from './status';
@@ -34,6 +35,16 @@ export function lootLockedFor(w: World, loot: Entity, heroId: EntityId): boolean
     return false;
   }
   return l.heroId === heroId;
+}
+
+/**
+ * Did `heroId` put this loot down by choice (X + slot discard, or the card an F-swap
+ * replaced)? Then his walk-over auto-pickup never takes it back (NP-1: it used to return
+ * ~3 s later, as soon as DROP_LOCK ran out); only an explicit F does. Everyone else
+ * picks it up as usual.
+ */
+export function lootDiscardedBy(w: World, loot: Entity, heroId: EntityId): boolean {
+  return w.lootDiscards.get(loot.id) === heroId;
 }
 
 export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, cs: ControlState): void {
@@ -84,6 +95,8 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
     }
   }
   const reviving = target !== undefined && target !== e && target.hero?.downed === true;
+  // downed, getting back up with his own 桃: as long as reviving someone else (C3-6)
+  const selfRevive = h.downed && impl.canRevive === true;
   // can it be used at all right now (桃 at full HP, 闪 at the cap…)? Refuse before the 使用中
   // channel starts instead of after it (APP-7)
   if (impl.canUse) {
@@ -98,11 +111,11 @@ export function useItemSlot(w: World, e: Entity, rt: HeroRuntime, slot: number, 
       return;
     }
   }
-  const useTime = reviving ? (def.params.reviveTime ?? def.useTime ?? REVIVE_TIME) * rt.mods.reviveTimeMul : def.useTime;
+  const useTime = reviving || selfRevive ? (def.params.reviveTime ?? def.useTime ?? REVIVE_TIME) * rt.mods.reviveTimeMul : def.useTime;
   if (useTime > 0) {
     h.channel = { kind: 'item', start: w.time, until: w.time + useTime, targetId: target?.id, itemSlot: slot };
     h.reloadUntil = 0;
-    rt.channelItem = { id: stack.id, point, revive: reviving };
+    rt.channelItem = { id: stack.id, point, revive: reviving, selfRevive };
     return;
   }
   completeItem(w, e, rt, slot, stack.id, target, point);
@@ -431,7 +444,8 @@ export function dropSlot(w: World, e: Entity, slot: number, what: 'item' | 'weap
     const s = h.items[slot];
     if (!s) return;
     h.items[slot] = null;
-    w.spawnLoot(dropPos(w, e), { itemId: s.id, count: s.count }, undefined, { heroId: e.id, seconds: DROP_LOCK });
+    const l = w.spawnLoot(dropPos(w, e), { itemId: s.id, count: s.count }, undefined, { heroId: e.id, seconds: DROP_LOCK });
+    w.lootDiscards.set(l.id, e.id);
     return;
   }
   const wi = h.weapons[slot];
@@ -439,17 +453,49 @@ export function dropSlot(w: World, e: Entity, slot: number, what: 'item' | 'weap
   const other = h.weapons.some((x, i) => i !== slot && x);
   if (!other) return; // never drop your last weapon
   h.weapons[slot] = null;
-  w.spawnLoot(dropPos(w, e), { weaponId: wi.id }, wi, { heroId: e.id, seconds: DROP_LOCK });
+  const l = w.spawnLoot(dropPos(w, e), { weaponId: wi.id }, wi, { heroId: e.id, seconds: DROP_LOCK });
+  w.lootDiscards.set(l.id, e.id);
   if (h.activeSlot === slot) {
     h.activeSlot = h.weapons.findIndex((x) => x);
     h.reloadUntil = 0;
   }
 }
 
-export function dropPos(w: World, e: Entity): Vec3 {
+/** how far from the hero a discarded piece lands */
+const DROP_DIST = 1.6;
+/**
+ * Directions (degrees off the hero's facing, + = to his right) a discarded piece may land in:
+ * front-left first (clear of the crosshair and of the right-shoulder camera), then the other
+ * front diagonal, the sides and straight ahead — never behind him, where it would lie between
+ * the hero and the over-the-shoulder camera and fill the screen (NP-2).
+ */
+const DROP_DIRS = [-40, 40, -80, 80, 0];
+
+/**
+ * The spot `dist` m from the hero in direction `deg` (off his facing, + = right), or null when
+ * a wall is in the way or the ground there is far above / below his feet (roof edge, cliff).
+ */
+function besideHero(w: World, e: Entity, deg: number, dist: number): Vec3 | null {
+  const a = (deg * Math.PI) / 180;
   const fx = -Math.sin(e.yaw);
   const fz = -Math.cos(e.yaw);
-  return { x: e.pos.x + fx * 1.6, y: e.pos.y, z: e.pos.z + fz * 1.6 };
+  const rx = Math.cos(e.yaw);
+  const rz = -Math.sin(e.yaw);
+  const dx = fx * Math.cos(a) + rx * Math.sin(a);
+  const dz = fz * Math.cos(a) + rz * Math.sin(a);
+  const p = { x: e.pos.x + dx * dist, y: e.pos.y, z: e.pos.z + dz * dist };
+  if (!w.lineOfSight({ x: e.pos.x, y: e.pos.y + 0.8, z: e.pos.z }, { x: p.x, y: p.y + 0.8, z: p.z })) return null;
+  if (Math.abs(groundAt(w.cw, p.x, p.z, e.pos.y + 1.5) - e.pos.y) > 1.2) return null;
+  return p;
+}
+
+/** Where a discarded (X + slot) piece lands: in front of / beside the hero, never behind him (NP-2). */
+export function dropPos(w: World, e: Entity): Vec3 {
+  for (const deg of DROP_DIRS) {
+    const p = besideHero(w, e, deg, DROP_DIST);
+    if (p) return p;
+  }
+  return { x: e.pos.x, y: e.pos.y, z: e.pos.z };
 }
 
 // ── interact: revive / pick up / open ───────────────────────────────────
@@ -514,6 +560,11 @@ export function updateChannel(w: World, e: Entity, rt: HeroRuntime, cs: ControlS
     const stack = ch.itemSlot !== undefined ? h.items[ch.itemSlot] : null;
     const impl = stack ? (getItem(stack.id) as ItemImplEx | undefined) : undefined;
     if (!stack || !impl || (h.downed && !impl.usableWhileDowned) || cs.silenced) {
+      w.cancelChannel(e.id);
+      return;
+    }
+    // getting back up on his own: someone else revived him first → keep the card
+    if (rt.channelItem?.selfRevive && !h.downed) {
       w.cancelChannel(e.id);
       return;
     }
@@ -600,7 +651,7 @@ export function autoPickup(w: World, e: Entity): void {
   for (const l of near) {
     const lo = l.loot;
     if (!lo?.itemId || lootKindOf(lo.itemId) !== 'item') continue;
-    if (Math.abs(l.pos.y - e.pos.y) > 1.6 || lootLockedFor(w, l, e.id)) continue;
+    if (Math.abs(l.pos.y - e.pos.y) > 1.6 || lootLockedFor(w, l, e.id) || lootDiscardedBy(w, l, e.id)) continue;
     if (pickUp(w, e, l, false)) break;
   }
 }
@@ -613,48 +664,36 @@ export interface SwapDrop {
 
 /** seconds the hero who swapped gear cannot pick the old piece back up (no accidental re-swap on the next F) */
 export const SWAP_LOCK = 1.5;
-/** how far behind the hero the replaced gear lands */
+/** how far beside the hero the replaced gear lands */
 const SWAP_DROP_DIST = 1.35;
 /** loot this close to the picked item counts as its pile */
 const PILE_RADIUS = 3.5;
 
 /**
- * Drop spot for gear replaced by a swap at `pile` (the loot just taken): ~1.35 m behind the
+ * Drop spot for gear replaced by a swap at `pile` (the loot just taken): ~1.35 m beside the
  * hero, on the side away from the rest of the pile, so the next F press at the pile takes the
- * next piece instead of the one just dropped. Picks the candidate direction that keeps the
- * most room to every other pile item and is not behind a wall.
+ * next piece instead of the one just dropped. Never behind him: there it lay between the hero
+ * and the over-the-shoulder camera, a card slab over the bottom of the screen (NP-2). Picks the
+ * first side / front-diagonal direction that keeps ≥ 1.2 m to every pile item (incl. where the
+ * taken one lay) and is not behind a wall, else the one with the most room.
  */
 export function swapDropPos(w: World, e: Entity, pile: Entity): Vec3 {
-  const others: Vec3[] = [];
+  const others: Vec3[] = [pile.pos];
   for (const o of w.queryRadius(pile.pos, PILE_RADIUS, { kinds: ['loot', 'crate', 'airdrop'], exclude: [pile.id] })) if (o.alive) others.push(o.pos);
-  // away from the pile (its centre incl. the taken item), else straight behind the hero
-  let cx = pile.pos.x;
-  let cz = pile.pos.z;
+  // the pile's centre (incl. the taken item): is it to the hero's right or left?
+  let cx = 0;
+  let cz = 0;
   for (const o of others) {
-    cx += o.x;
-    cz += o.z;
+    cx += o.x / others.length;
+    cz += o.z / others.length;
   }
-  cx /= others.length + 1;
-  cz /= others.length + 1;
-  let bx = e.pos.x - cx;
-  let bz = e.pos.z - cz;
-  let l = Math.hypot(bx, bz);
-  if (l < 0.3) {
-    bx = Math.sin(e.yaw);
-    bz = Math.cos(e.yaw);
-    l = 1;
-  }
-  bx /= l;
-  bz /= l;
-  const chest = { x: e.pos.x, y: e.pos.y + 0.8, z: e.pos.z };
+  const right = (cx - e.pos.x) * Math.cos(e.yaw) - (cz - e.pos.z) * Math.sin(e.yaw);
+  const far = right > 0 ? -1 : 1; // the side away from the pile
   let best: Vec3 | null = null;
   let bestRoom = -Infinity;
-  for (const deg of [0, 40, -40, 80, -80, 125, -125, 180]) {
-    const a = (deg * Math.PI) / 180;
-    const dx = bx * Math.cos(a) - bz * Math.sin(a);
-    const dz = bx * Math.sin(a) + bz * Math.cos(a);
-    const p = { x: e.pos.x + dx * SWAP_DROP_DIST, y: e.pos.y, z: e.pos.z + dz * SWAP_DROP_DIST };
-    if (!w.lineOfSight(chest, { x: p.x, y: p.y + 0.8, z: p.z })) continue;
+  for (const deg of [far * 90, far * 60, -far * 90, -far * 60, far * 30, -far * 30, 0]) {
+    const p = besideHero(w, e, deg, SWAP_DROP_DIST);
+    if (!p) continue;
     let room = Infinity;
     for (const o of others) room = Math.min(room, Math.hypot(o.x - p.x, o.z - p.z));
     if (room >= 1.2) return p;
@@ -695,7 +734,7 @@ export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boole
     h.reloadUntil = 0;
     h.burst = 0;
     w.removeEntity(l.id);
-    // the replaced gun lands behind the hero, clear of the pile, briefly locked for him
+    // the replaced gun lands beside the hero, clear of the pile, briefly locked for him
     if (old) w.spawnLoot(swapDropPos(w, e, l), { weaponId: old.id }, old, { heroId: e.id, seconds: SWAP_LOCK });
     w.emit({ t: 'pickup', who: e.id, item: lo.weaponId });
     return true;
@@ -718,7 +757,7 @@ export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boole
     else if (s.id === id) room += max - s.count;
   }
   if (room <= 0) {
-    // full bar: a player's explicit F swaps the card for the last slot's (dropped behind you like swapped
+    // full bar: a player's explicit F swaps the card for the last slot's (dropped beside you like swapped
     // gear). Bots never pick cards they have no room for — their F at a pile is meant for the gear.
     const slot = explicit && !h.isBot ? itemSwapSlot(h.items, id) : -1;
     if (slot < 0) return false;
@@ -726,8 +765,11 @@ export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boole
     const n = Math.min(max, lo.count);
     h.items[slot] = { id, count: n };
     lo.count -= n;
+    const at = swapDropPos(w, e, l);
     if (lo.count <= 0) w.removeEntity(l.id);
-    w.spawnLoot(swapDropPos(w, e, l), { itemId: old.id, count: old.count }, undefined, { heroId: e.id, seconds: SWAP_LOCK });
+    // the swapped-out card is his discard: never walked back into the bar (NP-1)
+    const dropped = w.spawnLoot(at, { itemId: old.id, count: old.count }, undefined, { heroId: e.id, seconds: SWAP_LOCK });
+    w.lootDiscards.set(dropped.id, e.id);
     w.emit({ t: 'pickup', who: e.id, item: id });
     return true;
   }
