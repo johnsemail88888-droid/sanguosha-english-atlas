@@ -219,6 +219,8 @@ export interface PlayerSlot {
   lastSeq: number;
   ackSeq: number;
   brain?: BotBrain;
+  /** a bot playing a dropped human's seat (convertToBot): it never claims a role in his name */
+  standIn?: boolean;
 }
 
 interface Scheduled {
@@ -800,6 +802,7 @@ export class World implements SimExt, SimHost {
     const slot = this.slotByPlayer.get(playerId);
     if (!slot || slot.isBot) return;
     slot.isBot = true;
+    slot.standIn = true;
     slot.brain = this.makeBot(slot.seat);
     slot.queue = [];
     const e = this.get(slot.entityId);
@@ -824,6 +827,7 @@ export class World implements SimExt, SimHost {
     }
     slot.name = name;
     slot.isBot = false;
+    slot.standIn = false;
     slot.brain = undefined;
     slot.queue = [];
     slot.lastSeq = -1;
@@ -871,6 +875,9 @@ export class World implements SimExt, SimHost {
           }
         }
         actions = frame.actions ?? [];
+        // standing in for a dropped player: no 跳身份 in his name (host chat showed
+        // 「孟获·孙仲谋：我是忠臣！」 — online round 3)
+        if (slot.standIn && actions.some((a) => a.a === 'claim')) actions = actions.filter((a) => a.a !== 'claim');
       } else {
         frame = slot.latest;
         actions = slot.queue.length > MAX_ACTIONS_PER_TICK ? slot.queue.splice(0, MAX_ACTIONS_PER_TICK) : slot.queue.splice(0);
