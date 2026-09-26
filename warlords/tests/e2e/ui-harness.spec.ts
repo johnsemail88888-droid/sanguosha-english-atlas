@@ -927,6 +927,20 @@ test('round 2: help tables, card labels, pickup lines, full-bar swap + discard, 
   await drop();
   await rejoinBtn.click();
   await expect(rc.page.locator('[data-screen="lobby"] .room-code')).toContainText('BWKQR', { timeout: 15_000 });
+  // ONL3: a drop long after the join (the stored record is past REJOIN_MAX_AGE_MS) still offers
+  // 重新加入: the live session dates the record afresh
+  const agedAt = await rc.page.evaluate(() => {
+    const at = Date.now() - 40 * 60_000;
+    sessionStorage.setItem('sgwl.rejoin.v1', JSON.stringify({ code: 'BWKQR', mode: 'peer', net: {}, at }));
+    (window as unknown as MockInternals).__ui.deps.lastSession.fail('connectionLost', '与房主的连接已断开', 'Lost connection to the host');
+    return at;
+  });
+  await expect(rejoinBtn).toBeVisible();
+  const kept = await rc.page.evaluate(() => JSON.parse(sessionStorage.getItem('sgwl.rejoin.v1') ?? 'null') as { code: string; at: number } | null);
+  expect(kept?.code).toBe('BWKQR');
+  expect(kept!.at - agedAt).toBeGreaterThan(39 * 60_000);
+  await rejoinBtn.click();
+  await expect(rc.page.locator('[data-screen="lobby"] .room-code')).toContainText('BWKQR', { timeout: 15_000 });
   expect(rc.errors).toEqual([]);
   await rc.ctx.close();
 });
