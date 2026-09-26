@@ -82,6 +82,12 @@ export interface ClientSessionOptions {
   rejoinWindowMs?: number;
   /** pause between rejoin attempts after rejoinDelaysMs (ms, default REJOIN_RETRY_MS; tests) */
   rejoinRetryMs?: number;
+  /**
+   * Once the server answers again after it could not be reached during an automatic rejoin
+   * (a relay / signalling server that restarted), the rejoin keeps trying at least this much
+   * longer for the host to create its room again (responsive ms, default SERVER_BACK_GRACE_MS).
+   */
+  serverBackGraceMs?: number;
   /** host silent this long ⇒ 'status' "Waiting for host…" (ms, default 3000) */
   waitingStatusMs?: number;
   /** host-silence watchdog period (ms, default 1000; tests) */
@@ -118,6 +124,14 @@ const DEFAULT_REJOIN_DELAYS = [0, 1500, 3000, 5000];
 export const REJOIN_WINDOW_MS = 120_000;
 /** Pause between rejoin attempts once the first ones (rejoinDelaysMs) failed (ms). */
 export const REJOIN_RETRY_MS = 5000;
+/**
+ * A server that could not be reached during an automatic rejoin answers again (the relay
+ * restarted; P2P: the signalling server): the host needs a while to notice and create its
+ * room again — its reconnect backoff, a page that stalls on a slow machine — so the rejoin
+ * keeps trying at least this much longer from then on (responsive ms). ONL3: after a 98 s
+ * relay outage the guests' window ran out 2 s before the host had its room back.
+ */
+export const SERVER_BACK_GRACE_MS = 60_000;
 /**
  * P2P reload rejoin (joinOnlineSession, a tab holding a seat token): how long "room not
  * found" (host peer unavailable — a frozen host) is retried, in responsive ms: as long as
@@ -222,6 +236,7 @@ export class ClientSession implements GameSession {
   private readonly rejoinDelays: readonly number[];
   private readonly rejoinWindowMs: number;
   private readonly rejoinRetryMs: number;
+  private readonly serverBackGraceMs: number;
   private readonly waitingStatusMs: number;
   private readonly checkIntervalMs: number;
   private readonly hostLoadingTimeoutMs: number;
@@ -307,6 +322,7 @@ export class ClientSession implements GameSession {
     this.rejoinDelays = opts.rejoinDelaysMs?.length ? opts.rejoinDelaysMs : DEFAULT_REJOIN_DELAYS;
     this.rejoinWindowMs = Math.max(0, opts.rejoinWindowMs ?? REJOIN_WINDOW_MS);
     this.rejoinRetryMs = Math.max(10, opts.rejoinRetryMs ?? REJOIN_RETRY_MS);
+    this.serverBackGraceMs = Math.max(0, opts.serverBackGraceMs ?? SERVER_BACK_GRACE_MS);
     this.waitingStatusMs = opts.waitingStatusMs ?? 3000;
     this.checkIntervalMs = Math.max(10, opts.checkIntervalMs ?? CHECK_INTERVAL_MS);
     this.watchClock = new ResponsiveClock(maxStepFor(this.checkIntervalMs), now);
@@ -906,8 +922,10 @@ export class ClientSession implements GameSession {
    * failures are transient (MP2-2): a frozen P2P host's peer id is gone from the
    * signalling server until its page wakes up ("room not found"), a relay may be
    * restarting. Once the quick attempts failed — or at the first "room not found" — the
-   * session says so (status 'hostUnreachable'; retryNow() / leave()). Out of time, it
-   * ends with the original connection error (never "the host left": nobody said so).
+   * session says so (status 'hostUnreachable'; retryNow() / leave()). A server that could
+   * not be reached and answers again ("room not found" after failed connects: the relay
+   * restarted) leaves the host at least serverBackGraceMs to create its room again. Out of
+   * time, it ends with the original connection error (never "the host left": nobody said so).
    */
   private async rejoin(cause: NetError): Promise<void> {
     this.rejoining = true;
@@ -921,6 +939,8 @@ export class ClientSession implements GameSession {
     const reconnect = this.reconnectFn as () => Promise<Transport>;
     this.restartRejoinBudget();
     let final: NetError | null = null;
+    /** the last attempt could not reach the server at all (the relay / signalling server is down) */
+    let serverDown = false;
     try {
       for (let attempt = 0; ; attempt++) {
         const delay = attempt < this.rejoinDelays.length ? this.rejoinDelays[attempt] : this.rejoinRetryMs;
@@ -934,6 +954,9 @@ export class ClientSession implements GameSession {
         } catch (e) {
           err = e instanceof NetError ? e : new NetError('connectionLost', e instanceof Error ? e.message : undefined);
         }
+        // the server is back ("room not found": it answers, the host has not re-created the room yet)
+        if (err?.code === 'roomNotFound' && serverDown) this.extendRejoinBudget(this.serverBackGraceMs);
+        serverDown = err !== null && err.code !== 'roomNotFound';
         if (this.closed) {
           t?.close();
           return;
@@ -971,10 +994,18 @@ export class ClientSession implements GameSession {
     this.fatal(final ?? cause);
   }
 
-  /** (Re)start the rejoin's responsive-time budget (rejoinWindowMs). */
-  private restartRejoinBudget(): void {
+  /** (Re)start the rejoin's responsive-time budget (rejoinWindowMs, or `ms`). */
+  private restartRejoinBudget(ms = this.rejoinWindowMs): void {
     this.rejoinBudget?.cancel();
-    this.rejoinBudget = new StallAwareTimeout(this.rejoinWindowMs, () => this.rejoinWake?.());
+    this.rejoinBudget = new StallAwareTimeout(ms, () => this.rejoinWake?.());
+  }
+
+  /** The running rejoin keeps trying at least `ms` longer (responsive ms) — never shorter than it would anyway. */
+  private extendRejoinBudget(ms: number): void {
+    const b = this.rejoinBudget;
+    if (!b || !b.pending || b.ms - b.elapsed >= ms) return;
+    console.info(`[net] rejoin: the server is back — waiting up to ${Math.round(ms / 1000)} s for the host to reopen the room`);
+    this.restartRejoinBudget(ms);
   }
 
   /** Wait `ms` between rejoin attempts (retryNow and the end of the budget cut it short). */
