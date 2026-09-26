@@ -67,7 +67,7 @@ export function measure(def: WeaponDef, dist: number, ads: boolean): Cell {
   let pressed = false;
   for (let i = 0; i < 30 * 40 && empty < 0; i++) {
     // automatic: hold; semi-automatic: click as fast as the gun cycles (a fresh press once it is ready)
-    const click = def.auto || (!pressed && h.nextFireAt <= w.time + 1 / 30 + 1e-6);
+    const click: boolean = def.auto || (!pressed && h.nextFireAt <= w.time + 1 / 30 + 1e-6);
     pressed = click;
     frame(adsBtn | (click ? BTN_FIRE : 0));
     const before = inst.mag;
