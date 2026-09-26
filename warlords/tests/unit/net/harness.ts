@@ -23,6 +23,8 @@ export const FAST: Partial<FlowTimings> = {
   // a closed connection hands the seat to a bot at once (tests of the drop grace set their own)
   dropGrace: 0,
   loadDropGrace: 0,
+  // a lobby drop / reload frees the seat at once (tests of the lobby hold set their own)
+  lobbyDropGrace: 0,
   // no warm-up after 'loaded' (tests of the NET-4 warm-up set their own)
   warmUp: 0,
 };

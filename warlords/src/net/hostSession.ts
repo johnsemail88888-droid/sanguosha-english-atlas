@@ -106,6 +106,13 @@ export interface FlowTimings {
    */
   loadDropGrace: number;
   /**
+   * In the lobby, a guest whose page reloads (F5: its 'leave' says so) or whose link
+   * failed keeps its seat this long (s; 0 = freed at once): the tab comes back with its
+   * seat token and takes the same seat without 「X 离开了房间」 + 「X 加入了房间」 (ONL3).
+   * A real leave (离开房间) frees the seat at once.
+   */
+  lobbyDropGrace: number;
+  /**
    * After a player reported 'loaded', loadGrace / loadDropGrace keep applying
    * until its input has flowed steadily for this long (s; 0 = at once): a slow
    * device's first real frames still freeze its page for many seconds (at most
@@ -134,6 +141,7 @@ export const DEFAULT_TIMINGS: FlowTimings = {
   dropGrace: 5,
   loadGrace: 60,
   loadDropGrace: 20,
+  lobbyDropGrace: 20,
   warmUp: 10,
   spawnShield: 300,
 };
@@ -888,6 +896,12 @@ export class HostSession implements GameSession {
         }
       }
       if (free === null) continue; // cannot happen: count >= humans
+      // a seat held for a reloading player (holdSeat) keeps its timer under the new number
+      const held = this.dropTimers.get(rec.seat);
+      if (held !== undefined) {
+        this.dropTimers.delete(rec.seat);
+        this.dropTimers.set(free, held);
+      }
       rec.seat = free;
       this.seats.set(free, rec);
       if (rec.peer) {
@@ -938,8 +952,11 @@ export class HostSession implements GameSession {
     });
   }
 
-  /** `said`: the peer sent 'leave' (a reload or a real leave) — its link did not just fail under it. */
-  private onPeerLeave(id: PeerId, said = false): void {
+  /**
+   * `said`: the peer sent 'leave' — its link did not just fail under it; `reload`: that
+   * 'leave' came from a page going away (F5), not from the player.
+   */
+  private onPeerLeave(id: PeerId, said = false, reload = false): void {
     const peer = this.peers.get(id);
     if (!peer) return;
     this.peers.delete(id);
@@ -949,6 +966,13 @@ export class HostSession implements GameSession {
     if (!rec || rec.peer !== id) return;
     rec.peer = null;
     if (this.phaseValue === 'lobby') {
+      // a real leave frees the seat at once; a reload or a failed link keeps it for the tab
+      // that comes back with its token — seamless, like a blip mid-match (ONL3)
+      const grace = said && !reload ? 0 : this.timings.lobbyDropGrace * 1000;
+      if (grace > 0) {
+        this.holdSeat(rec, grace);
+        return;
+      }
       rec.connected = false;
       this.leftLobby(rec);
       return;
@@ -973,11 +997,17 @@ export class HostSession implements GameSession {
       this.finishDrop(rec);
       return;
     }
+    this.holdSeat(rec, grace);
+  }
+
+  /** The seat's player is gone for now: keep the seat `ms`, then finishDrop (a rejoin with the token cancels it). */
+  private holdSeat(rec: SeatRec, ms: number): void {
+    this.cancelDrop(rec.seat);
     const timer = setTimeout(() => {
       if (this.dropTimers.get(rec.seat) !== timer) return;
       this.dropTimers.delete(rec.seat);
       if (!this.disposed) this.finishDrop(rec);
-    }, grace);
+    }, ms);
     this.dropTimers.set(rec.seat, timer);
   }
 
@@ -1129,7 +1159,7 @@ export class HostSession implements GameSession {
         break;
       case 'leave':
         this.transport?.disconnect(from);
-        this.onPeerLeave(from, true);
+        this.onPeerLeave(from, true, msg.reload === true);
         break;
       default:
         break;

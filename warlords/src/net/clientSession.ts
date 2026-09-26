@@ -527,7 +527,8 @@ export class ClientSession implements GameSession {
    */
   leave(opts?: LeaveOptions): void {
     if (this.closed) return;
-    this.send({ t: 'leave' });
+    // (a reload says so: the lobby holds the seat for the tab that comes back with its token)
+    this.send(opts?.keepToken ? { t: 'leave', reload: true } : { t: 'leave' });
     // leaving on purpose (Leave button, back to the title after game over): the next join is a new seat
     if (!opts?.keepToken) saveToken(this.roomCode, null);
     this.dispose();
