@@ -755,7 +755,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **闭月**<br>Moon Eclipse<br><sub>三国杀：闭月</sub> | — | 5 秒未受伤后，每秒回复 5 生命。<br>After 5 s without taking damage, regenerate 5 HP/s. |
-| Q | **离间**<br>Sow Dissension<br><sub>三国杀：离间</sub> | 22 s | 魅惑准星处敌人及其 15 米内最近的另一名武将 2.5 秒，令二者互相攻击。<br>Charm the crosshair enemy and the nearest other hero within 15 m of it for 2.5 s; they attack each other. |
+| Q | **离间**<br>Sow Dissension<br><sub>三国杀：离间</sub> | 22 s | 魅惑准星处敌人及其 15 米内最近的另一名武将 2.5 秒，令二者互相攻击（伤害 ×40%）。<br>Charm the crosshair enemy and the nearest other hero within 15 m of it for 2.5 s; they attack each other (×40% damage). |
 | E | **连环计**<br>Chain Stratagem<br><sub>三国杀：离间</sub> | 20 s | 连环准星处敌人及其 8 米内至多 2 名敌人 8 秒：减速 25%，火焰与雷电伤害相互传导。<br>Chain the crosshair enemy and up to 2 enemies within 8 m for 8 s: slowed 25%; fire and thunder damage spreads. |
 
 **台词 Quotes**

@@ -15,6 +15,7 @@ import type { AbilityImplEx } from '../../../src/sim/ext';
 import type { MatchInit } from '../../../src/sim/host';
 import type { World } from '../../../src/sim/world';
 import { createWorld } from '../../../src/sim/world';
+import { HeroBot } from '../../../src/sim/ai/heroBot';
 import { hero, makeWorld, place, stepN } from '../sim/helpers';
 
 const QUN = ['huatuo', 'lubu', 'diaochan', 'zhangjiao', 'yuanshao', 'menghuo'];
@@ -438,6 +439,76 @@ describe('貂蝉 Diaochan', () => {
     expect(A.hp).toBeLessThan(A.maxHp);
     stepN(w, T(1));
     expect(w.hasStatus(A.id, 'charm')).toBe(false);
+  });
+
+  it('离间 is capped: each bot of the pair loses at most 150 HP to the other, and they stop after the charm (COMBAT-6)', () => {
+    // two bot heroes 10 m apart with their signature weapons, hip-firing (uncapped: 190 / 170 here, and
+    // 140 more in the 3 s after; the playtest lost 230–390 each, then kept fighting)
+    const a = arena(['dummy', 'liubei', 'diaochan', 'dummy', 'zhangjiao'], STD5, {
+      humans: [0, 2, 3],
+      botFactory: (seat, d, seed) => new HeroBot(seat, d, seed),
+    });
+    const { w } = a;
+    const dc = a.at(2);
+    const A = a.at(1);
+    const B = a.at(4);
+    for (const e of [A, B]) e.maxHp = e.hp = 2000;
+    place(w, dc, 0, 55);
+    place(w, A, -5, 25, 0);
+    place(w, B, 5, 25, Math.PI);
+    place(w, a.at(0), -50, -50);
+    place(w, a.at(3), 50, -50);
+    stepN(w, T(0.5));
+    expect(fired(cast(a, 2, 'q', aimAt(dc, A)), 'diaochan_lijian')).toBe(true);
+    const hitsOn = (e: Entity, by: Entity, evs: GameEvent[]): number =>
+      evs.reduce((n, ev) => n + (ev.t === 'hit' && ev.target === e.id && ev.src === by.id ? ev.amount : 0), 0);
+    const during: GameEvent[] = [];
+    for (let i = 0; i < T(2.6); i++) {
+      w.step();
+      during.push(...w.drainEvents());
+    }
+    expect(w.hasStatus(A.id, 'charm')).toBe(false);
+    const after: GameEvent[] = [];
+    for (let i = 0; i < T(3); i++) {
+      w.step();
+      after.push(...w.drainEvents());
+    }
+    const dA = hitsOn(A, B, during);
+    const dB = hitsOn(B, A, during);
+    const lingering = hitsOn(A, B, after) + hitsOn(B, A, after);
+    process.stdout.write(`[离间] charmed damage A←B ${dA.toFixed(0)} · B←A ${dB.toFixed(0)} · the 3 s after ${lingering.toFixed(0)}\n`);
+    for (const d of [dA, dB]) {
+      expect(d).toBeGreaterThan(20); // still a fight
+      expect(d).toBeLessThanOrEqual(150);
+    }
+    expect(lingering).toBeLessThan(30);
+  });
+
+  it('离间 on two idle players (the charm aims and fires for them): ≤ 150 each, ~40 % of the uncapped fight (COMBAT-6)', () => {
+    const run = (dmgMul: number): [number, number] => {
+      const def = abilityOf('diaochan', 'q');
+      const old = def.params.dmgMul;
+      def.params.dmgMul = dmgMul;
+      try {
+        const a = arena(['dummy', 'liubei', 'diaochan', 'dummy', 'zhangjiao']);
+        const { w } = a;
+        const [dc, A, B] = [a.at(2), a.at(1), a.at(4)];
+        for (const e of [A, B]) e.maxHp = e.hp = 2000;
+        place(w, dc, 0, 50);
+        place(w, A, -5, 25, 0);
+        place(w, B, 5, 25, Math.PI);
+        expect(fired(cast(a, 2, 'q', aimAt(dc, A)), 'diaochan_lijian')).toBe(true);
+        stepN(w, T(3));
+        return [lost(A), lost(B)];
+      } finally {
+        def.params.dmgMul = old;
+      }
+    };
+    const full = run(1);
+    const capped = run(abilityOf('diaochan', 'q').params.dmgMul);
+    process.stdout.write(`[离间] idle pair, uncapped ${full.map((x) => x.toFixed(0)).join(' / ')} → capped ${capped.map((x) => x.toFixed(0)).join(' / ')}\n`);
+    for (const d of capped) expect(d).toBeLessThanOrEqual(150);
+    expect(capped[0] + capped[1]).toBeLessThan((full[0] + full[1]) * 0.5);
   });
 
   it('离间: alone, the target is turned on the nearest unit (third parties first, never its own squad)', () => {

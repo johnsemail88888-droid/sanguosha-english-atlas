@@ -203,12 +203,13 @@ export const QUN_HEROES: HeroDef[] = [
         nameZh: '离间',
         nameEn: 'Sow Dissension',
         sgsSkill: '离间',
-        descZh: '魅惑准星处敌人及其 15 米内最近的另一名武将 2.5 秒，令二者互相攻击。',
-        descEn: 'Charm the crosshair enemy and the nearest other hero within 15 m of it for 2.5 s; they attack each other.',
+        descZh: '魅惑准星处敌人及其 15 米内最近的另一名武将 2.5 秒，令二者互相攻击（伤害 ×40%）。',
+        descEn: 'Charm the crosshair enemy and the nearest other hero within 15 m of it for 2.5 s; they attack each other (×40% damage).',
         cooldown: 22,
         // impl: two charm statuses with params.targetId pointing at each other; no second hero → single charm on nearest unit
         //       (third-party units first, else Diaochan's own soldiers; never the target's own squad).
-        params: { range: 30, radius: 15, duration: 2.5 },
+        //       dmgMul: the charmed shots at the charm target deal ×dmgMul; the pair forgets the fight when it ends.
+        params: { range: 30, radius: 15, duration: 2.5, dmgMul: 0.4 },
         targeting: 'enemy',
         aiHint: 'offense',
       },

@@ -388,6 +388,11 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
     }
     if ((src.kind === 'troop' || src.kind === 'turret') && credit?.hero) amount *= w.modifiers(credit.id).troopDmgMul;
     if (req.weaponId) amount *= weaponOutgoingMul(w, weaponDef(req.weaponId), src, target);
+    // 离间: the shots a charm forces onto its target hit softer (params.dmgMul, COMBAT-6)
+    if (req.weaponId && src.statuses.length > 0) {
+      const ch = findStatus(src, 'charm', now);
+      if (ch?.params?.dmgMul !== undefined && ch.params.targetId === target.id) amount *= Math.max(0, ch.params.dmgMul);
+    }
     if (src.kind === 'hero') amount = w.hooks.modifyOutgoing(src, target, req, amount);
   }
   const frame = pushFrame(w, reqIn, req, amount);

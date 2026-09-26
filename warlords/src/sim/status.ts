@@ -378,6 +378,9 @@ function removeAt(w: World, target: Entity, index: number): void {
   const s = list[index];
   list.splice(index, 1);
   if (s.id === 'shield') target.shield = 0;
+  // a charm's forced fight is forgotten when it ends: neither side keeps shooting the other
+  // just because it was hit (COMBAT-6)
+  if (s.id === 'charm' && s.params?.targetId !== undefined) w.forgetAttacks(target.id, s.params.targetId);
   // off only when the last instance of this route is gone
   if (!routeHasOther(list, s, -1, w.time, false)) w.emit(statusEvent(target.id, s.id, false, routeOf(s)));
 }
