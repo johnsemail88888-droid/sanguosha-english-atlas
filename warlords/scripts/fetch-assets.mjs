@@ -5,7 +5,8 @@
 //
 // manifest entry kinds:
 //   image   → resized WebP (maxSize px on the long edge, quality; circleMask: true
-//             makes everything outside the inscribed circle transparent)
+//             makes everything outside the inscribed circle transparent; cropCenter:
+//             0..1 keeps only that central fraction first)
 //   preview → small WebP kept under assets-src/previews for art review only (not shipped)
 //   glb     → optimised GLB: textures resized + WebP, meshopt compression
 //   anim    → animation-only GLB (meshes/materials/textures stripped, skeleton kept)
@@ -48,7 +49,15 @@ async function download(url) {
 
 async function processImage(buf, e) {
   const max = e.maxSize ?? 512;
-  const img = sharp(buf).resize({ width: max, height: max, fit: 'inside', withoutEnlargement: true });
+  let src = sharp(buf);
+  if (e.cropCenter) {
+    // keep only the central fraction (e.g. 0.8): trims a frame the model painted round an emblem
+    const { width, height } = await sharp(buf).metadata();
+    const cw = Math.round(width * e.cropCenter);
+    const ch = Math.round(height * e.cropCenter);
+    src = src.extract({ left: Math.round((width - cw) / 2), top: Math.round((height - ch) / 2), width: cw, height: ch });
+  }
+  const img = src.resize({ width: max, height: max, fit: 'inside', withoutEnlargement: true });
   if (!e.circleMask) return img.webp({ quality: e.quality ?? 82 }).toBuffer();
   // round emblems (item cards, ability icons): everything outside the inscribed
   // circle becomes transparent, with a ~2 % soft edge, so no painted corner (some

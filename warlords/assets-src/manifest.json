@@ -1611,7 +1611,8 @@
    "out": "public/assets/icons/abilities/zhaoyun_qijin.webp",
    "maxSize": 256,
    "quality": 82,
-   "circleMask": true
+   "circleMask": true,
+   "cropCenter": 0.8
   },
   {
    "kind": "image",
