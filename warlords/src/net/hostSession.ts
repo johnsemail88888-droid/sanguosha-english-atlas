@@ -332,6 +332,8 @@ export class HostSession implements GameSession {
   private snapAcc = 0;
   private postGameTicks = 0;
   private extraEvents: GameEvent[] = [];
+  /** host-made events one player does not get (「X 重新连接」 is no news to X, ONL3) → that player */
+  private readonly eventSkips = new Map<GameEvent, PlayerId>();
   private resultValue: GameResult | null = null;
   private unwatchFocus: (() => void) | null = null;
   /** single-player pause (setPaused) */
@@ -1272,14 +1274,15 @@ export class HostSession implements GameSession {
       }
       this.sendMatchStart(peer);
       if (this.phaseValue === 'loading') this.waitingLoad.add(peer.id);
-      if (wasBot) this.injectEvent({ t: 'announce', zh: `${rec.name} 重新连接`, en: `${rec.name} reconnected`, kind: 'info' });
+      // (not to the player who is back: their own screen already says 已重新连接)
+      if (wasBot) this.injectEvent({ t: 'announce', zh: `${rec.name} 重新连接`, en: `${rec.name} reconnected`, kind: 'info' }, rec.playerId);
     }
     // a player who comes back after the match ended gets the real results: the
     // loop has stopped, so no snapshot will bring the final player list
     if (this.phaseValue === 'gameOver' && this.resultValue) {
       this.sendTo(peer.id, { t: 'gameOver', result: this.resultValue, players: this.finalPlayersFor(rec) });
     }
-    if (wasBot) this.notice(`${rec.name} 重新连接`, `${rec.name} reconnected`);
+    if (wasBot) this.notice(`${rec.name} 重新连接`, `${rec.name} reconnected`, false, peer.id);
     this.lobbyChanged();
   }
 
@@ -1806,7 +1809,17 @@ export class HostSession implements GameSession {
    */
   private fanOutEvents(tick: number, events: GameEvent[]): void {
     const sim = this.sim;
-    const priv = hasPrivateEvents(events);
+    // host-made events that skip one player (eventSkips): that player's list is filtered too
+    let skips: Map<GameEvent, PlayerId> | null = null;
+    if (this.eventSkips.size > 0) {
+      for (const ev of events) {
+        const who = this.eventSkips.get(ev);
+        if (who === undefined) continue;
+        (skips ??= new Map()).set(ev, who);
+        this.eventSkips.delete(ev);
+      }
+    }
+    const priv = hasPrivateEvents(events) || skips !== null;
     const entityOf = (playerId: PlayerId): number | null => {
       try {
         return sim?.entityOf(playerId) ?? null;
@@ -1827,6 +1840,10 @@ export class HostSession implements GameSession {
         const rec = this.seats.get(peer.seat);
         if (!rec || rec.peer !== peer.id) continue;
         list = filterEventsFor(events, entityOf(rec.playerId));
+        if (skips) {
+          const sk = skips;
+          list = list.filter((ev) => sk.get(ev) !== rec.playerId);
+        }
       }
       if (list.length === 0) continue;
       // same length as the public list ⇒ identical (the filter only removes)
@@ -1835,13 +1852,14 @@ export class HostSession implements GameSession {
     }
   }
 
-  /** Add a host-generated event (announcements) to the stream; sent with the next tick. */
-  private injectEvent(ev: GameEvent): void {
+  /** Add a host-generated event (announcements) to the stream; sent with the next tick. `skip`: a player it is not for. */
+  private injectEvent(ev: GameEvent, skip?: PlayerId): void {
     const sim = this.sim;
     if (!sim) return;
+    if (skip !== undefined) this.eventSkips.set(ev, skip);
     if (this.loop?.isRunning) {
       this.extraEvents.push(ev);
-      if (this.extraEvents.length > 64) this.extraEvents.shift();
+      if (this.extraEvents.length > 64) this.eventSkips.delete(this.extraEvents.shift() as GameEvent);
     } else if (this.phaseValue === 'gameOver') {
       this.fanOutEvents(sim.tick, [ev]);
     }
@@ -1933,9 +1951,12 @@ export class HostSession implements GameSession {
     this.emitter.emit('chat', { from, text });
   }
 
-  /** Tell everyone; `log`: a lobby event (join / leave / kick) that the UI keeps as a system chat line. */
-  private notice(zh: string, en: string, log = false): void {
-    this.broadcast(log ? { t: 'notice', zh, en, log: true } : { t: 'notice', zh, en });
+  /**
+   * Tell everyone (but `except`: the player it is about, when it is no news to them); `log`: a
+   * lobby event (join / leave / kick) that the UI keeps as a system chat line.
+   */
+  private notice(zh: string, en: string, log = false, except?: PeerId): void {
+    this.broadcast(log ? { t: 'notice', zh, en, log: true } : { t: 'notice', zh, en }, except);
     this.status(zh, en);
     if (log) this.emitter.emit('chat', { from: '', text: zh, system: true, zh, en });
   }
@@ -1962,11 +1983,11 @@ export class HostSession implements GameSession {
   }
 
   /** Send to every seated, connected peer. */
-  private broadcast(msg: HostMsg): void {
+  private broadcast(msg: HostMsg, except?: PeerId): void {
     const t = this.transport;
     if (!t) return;
     const text = encodeJson(msg);
-    for (const peer of this.peers.values()) if (peer.seat !== null) t.send(peer.id, text, 'reliable');
+    for (const peer of this.peers.values()) if (peer.seat !== null && peer.id !== except) t.send(peer.id, text, 'reliable');
   }
 
   private after(seconds: number, fn: () => void): void {

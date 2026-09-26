@@ -1,12 +1,14 @@
 // Playtest round-3 ONLINE (ONL3) network fixes:
 //  - after a long relay outage the guests' automatic rejoin outlasts the host's own
-//    relay reconnect (they gave up 2 s before the host had re-created the room).
+//    relay reconnect (they gave up 2 s before the host had re-created the room);
+//  - a player who is back is not told 「<own name> 重新连接」 on top of its own 已重新连接.
 import { afterEach, describe, expect, it } from 'vitest';
 import { REJOIN_WINDOW_MS, SERVER_BACK_GRACE_MS } from '../../../src/net/clientSession';
 import { NetError } from '../../../src/net/errors';
 import { RESUME_WINDOW_MS } from '../../../src/net/wsTransport';
 import { waitFor } from './fixtures';
-import { addClient, cleanupHarness, loopbackReconnect, makeHost, type ClientRec } from './harness';
+import { addClient, cleanupHarness, loopbackReconnect, makeHost, runToPlaying, type ClientRec } from './harness';
+import { receivedEvents } from './leakScan';
 
 afterEach(() => cleanupHarness());
 
@@ -86,5 +88,35 @@ describe('ONL3: a long relay outage — the guests wait for the host to re-creat
   it('defaults: the host tries to get its room back as long as its guests keep rejoining; they wait a minute after the relay is back', () => {
     expect(RESUME_WINDOW_MS).toBeGreaterThanOrEqual(REJOIN_WINDOW_MS);
     expect(SERVER_BACK_GRACE_MS).toBe(60_000);
+  });
+});
+
+describe('ONL3: 「X 重新连接」 is for the others, not for X', () => {
+  it('a player back from a bot takeover: the others get the notice and the announcement, the player only its own 已重新连接', async () => {
+    const h = makeHost({ seed: 64, timings: { dropGrace: 0.2 } });
+    let a: ClientRec | undefined;
+    a = await addClient(h, '刘玄德', { reconnect: loopbackReconnect(h, () => a), rejoinDelaysMs: [600, 300], rejoinRetryMs: 300 });
+    const b = await addClient(h, 'B');
+    await runToPlaying(h);
+    const sim = h.sims[0];
+    const aStatus: string[] = [];
+    const bStatus: string[] = [];
+    const hostStatus: string[] = [];
+    a.session.on('status', (st) => aStatus.push(st.zh));
+    b.session.on('status', (st) => bStatus.push(st.zh));
+    h.host.on('status', (st) => hostStatus.push(st.zh));
+    const oldId = a.session.myId;
+    const aLogFrom = a.log.length;
+    h.net.dropClient(oldId);
+    // away longer than the drop grace: a bot takes over, then the rejoin reclaims the hero
+    await waitFor(() => sim.conversions.some((c) => c.kind === 'bot'), 3000, 'bot takes over');
+    await waitFor(() => a!.session.myId !== oldId && !a!.session.reconnecting && a!.session.phase === 'playing', 5000, 'back');
+    await waitFor(() => bStatus.includes('刘玄德 重新连接'), 3000, 'B told');
+    await waitFor(() => receivedEvents(b.log).some((e) => e.t === 'announce' && e.zh === '刘玄德 重新连接'), 3000, 'B announcement');
+    await new Promise((r) => setTimeout(r, 400)); // a few more ticks: nothing late reaches A either
+    expect(hostStatus).toContain('刘玄德 重新连接');
+    expect(aStatus).toContain('已重新连接');
+    expect(aStatus.filter((x) => x.includes('刘玄德'))).toEqual([]);
+    expect(receivedEvents(a.log.slice(aLogFrom)).filter((e) => e.t === 'announce' && String(e.zh).includes('刘玄德'))).toEqual([]);
   });
 });
