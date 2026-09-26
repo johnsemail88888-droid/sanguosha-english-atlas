@@ -206,6 +206,21 @@ describe('life, death and rewards', () => {
     expect(lord.hero!.items[0]).not.toBeNull();
   });
 
+  it('C3-3: the lord downs a loyalist by his own hand and a soldier of his finishes him — the feed credits the lord, and so does the penalty', () => {
+    const w = world5();
+    const lord = hero(w, 0);
+    const loyal = hero(w, 1);
+    lord.hero!.items = [{ id: 'tao', count: 1 }, null, null, null];
+    const [t] = w.spawnTroops(lord.id, 'shu_rifleman', 1, { x: -12, y: 0, z: 26 });
+    w.dealDamage({ targetId: loyal.id, sourceId: lord.id, amount: 5000, type: 'true' });
+    expect(loyal.hero!.downed).toBe(true);
+    w.dealDamage({ targetId: loyal.id, sourceId: t.id, amount: 5000, type: 'true' });
+    expect(loyal.hero!.dead).toBe(true);
+    expect(loyal.hero!.killerId).toBe(lord.id);
+    expect(lord.hero!.items[0]).toBeNull();
+    expect(ofType(w.drainEvents(), 'reward').some((r) => r.kind === 'lordPenalty' && r.who === lord.id)).toBe(true);
+  });
+
   it("no lord penalty when the lord's summoned NPCs land the kill (黄天 黄巾力士), even after they despawn", () => {
     const w = world5();
     const lord = hero(w, 0);

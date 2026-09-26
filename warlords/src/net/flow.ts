@@ -145,9 +145,17 @@ export function heroSuitability(hero: HeroDef, role: RoleId): number {
   }
 }
 
-/** Bot pick: the best-suited option with a little randomness (`noise`: max random bonus). */
+/**
+ * Bot pick: the best-suited option with a little randomness (`noise`: max random bonus). A 主公
+ * takes one of the lord candidates on offer at random (NP-5: suitability made it 袁绍 60 % of
+ * the time and 张角 never — every lord should show up).
+ */
 export function botPickHero(options: readonly string[], role: RoleId, heroesById: Record<string, HeroDef>, rng: Rng, noise = 1.5): string {
   if (options.length === 0) throw new Error('botPickHero: no options');
+  if (role === 'lord') {
+    const crowns = options.filter((id) => heroesById[id]?.lordCandidate);
+    if (crowns.length > 0) return rng.pick(crowns);
+  }
   let best = options[0];
   let bestScore = -Infinity;
   for (const id of options) {

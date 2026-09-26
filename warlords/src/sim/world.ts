@@ -201,7 +201,7 @@ export interface HeroRuntime {
   lastArmor: string | null;
   lastMount: string | null;
   /** item being channelled (id + target point; revive = started on a downed hero) */
-  channelItem?: { id: string; point?: Vec3; revive: boolean };
+  channelItem?: { id: string; point?: Vec3; revive: boolean; selfRevive?: boolean };
   /** locomotion state wrapper (shares pos/vel with the entity) */
   move: MoveState;
   /** tick of the last movement step (dashes / knockbacks started later in a tick begin next tick) */
@@ -219,6 +219,8 @@ export interface PlayerSlot {
   lastSeq: number;
   ackSeq: number;
   brain?: BotBrain;
+  /** a bot playing a dropped human's seat (convertToBot): it never claims a role in his name */
+  standIn?: boolean;
 }
 
 interface Scheduled {
@@ -238,6 +240,8 @@ const DODGE_DISTANCE = 4.5;
 const DODGE_TIME = 0.35;
 const WEAPON_SWAP_TIME = 0.25;
 const ATTACK_MEMORY = 10;
+/** half-life (s) of the per-pair tally of damage a hero dealt another by his own hand (heroHarm) */
+const HARM_HALF_LIFE = 3;
 const MARK_TIME = 12;
 const AIRDROP_RADIUS = 1.0;
 /** airdrops stay this far from the map edge */
@@ -318,11 +322,17 @@ export class World implements SimExt, SimHost {
   private scheduled: Scheduled[] = [];
   private schedSeq = 0;
   private attackLog = new Map<EntityId, Map<EntityId, number>>();
+  /** victim → attacker → time of his last hit that was not a lingering effect (hitByHandRecently) */
+  private handLog = new Map<EntityId, Map<EntityId, number>>();
+  /** victim hero → attacker hero → decaying damage he dealt by his own hand (heroHarm) */
+  private harmLog = new Map<EntityId, Map<EntityId, { amt: number; at: number }>>();
   private expiries = new Map<EntityId, number>();
   private removals = new Map<EntityId, number>();
   private turretAis = new Map<EntityId, { nextScan: number }>();
   /** loot that a given hero may not auto/F pick up until a time (voluntary drops, penalties) */
   readonly lootLocks = new Map<EntityId, { heroId: EntityId; until: number }>();
+  /** loot → the hero who put it down by choice (discard / swap): never auto-picked back up by him (NP-1) */
+  readonly lootDiscards = new Map<EntityId, EntityId>();
   private resultValue: GameResult | null = null;
   private winCheckRequested = true;
   private readonly troopBrain: TroopBrain;
@@ -794,6 +804,7 @@ export class World implements SimExt, SimHost {
     const slot = this.slotByPlayer.get(playerId);
     if (!slot || slot.isBot) return;
     slot.isBot = true;
+    slot.standIn = true;
     slot.brain = this.makeBot(slot.seat);
     slot.queue = [];
     const e = this.get(slot.entityId);
@@ -818,6 +829,7 @@ export class World implements SimExt, SimHost {
     }
     slot.name = name;
     slot.isBot = false;
+    slot.standIn = false;
     slot.brain = undefined;
     slot.queue = [];
     slot.lastSeq = -1;
@@ -865,6 +877,9 @@ export class World implements SimExt, SimHost {
           }
         }
         actions = frame.actions ?? [];
+        // standing in for a dropped player: no 跳身份 in his name (host chat showed
+        // 「孟获·孙仲谋：我是忠臣！」 — online round 3)
+        if (slot.standIn && actions.some((a) => a.a === 'claim')) actions = actions.filter((a) => a.a !== 'claim');
       } else {
         frame = slot.latest;
         actions = slot.queue.length > MAX_ACTIONS_PER_TICK ? slot.queue.splice(0, MAX_ACTIONS_PER_TICK) : slot.queue.splice(0);
@@ -1408,6 +1423,14 @@ export class World implements SimExt, SimHost {
         for (const [att, t] of m) if (now - t > ATTACK_MEMORY) m.delete(att);
         if (m.size === 0) this.attackLog.delete(victim);
       }
+      for (const [victim, m] of this.handLog) {
+        for (const [att, t] of m) if (now - t > ATTACK_MEMORY) m.delete(att);
+        if (m.size === 0) this.handLog.delete(victim);
+      }
+      for (const [victim, m] of this.harmLog) {
+        for (const [att, r] of m) if (now - r.at > HARM_HALF_LIFE * 6) m.delete(att);
+        if (m.size === 0) this.harmLog.delete(victim);
+      }
       for (const [id, st] of this.freezeStacks) if (now > st.until && now > st.immuneUntil) this.freezeStacks.delete(id);
       for (const [id, echo] of this.nullifyEcho) if (echo.tick < this.tick) this.nullifyEcho.delete(id);
     }
@@ -1497,6 +1520,75 @@ export class World implements SimExt, SimHost {
   forgetAttacks(a: EntityId, b: EntityId): void {
     this.attackLog.get(a)?.delete(b);
     this.attackLog.get(b)?.delete(a);
+  }
+
+  /**
+   * A charm's forced fight between `heroId` and `targetId` ended (status.ts): drop what both
+   * sides remember of it — every unit of the charmed hero's side (hero, troops, turrets,
+   * summons) vs every unit of the target's side — plus each hero's focus on the other side and
+   * soldiers' current targets there, so nobody keeps shooting just because the duel happened
+   * (C3-1: squads kept the fight going for seconds after 离间).
+   */
+  forgetCharmFight(heroId: EntityId, targetId: EntityId): void {
+    this.forgetAttacks(heroId, targetId);
+    const ra = this.creditOf(heroId) ?? heroId;
+    const rb = this.creditOf(targetId) ?? targetId;
+    if (ra === rb) return;
+    const sideA: Entity[] = [];
+    const sideB: Entity[] = [];
+    for (const e of this.ents.values()) {
+      if (e.kind !== 'hero' && e.kind !== 'troop' && e.kind !== 'turret' && e.kind !== 'npc') continue;
+      const c = this.creditOf(e.id) ?? e.id;
+      if (c === ra) sideA.push(e);
+      else if (c === rb) sideB.push(e);
+    }
+    const inB = new Set(sideB.map((e) => e.id));
+    const inA = new Set(sideA.map((e) => e.id));
+    for (const x of sideA) for (const y of sideB) this.forgetAttacks(x.id, y.id);
+    const calm = (side: Entity[], other: Set<EntityId>): void => {
+      for (const e of side) {
+        const rt = e.hero ? this.heroRts.get(e.id) : undefined;
+        if (rt?.focusId !== undefined && other.has(rt.focusId)) rt.focusId = undefined;
+        if (e.troop?.targetId !== undefined && other.has(e.troop.targetId)) e.troop.targetId = undefined;
+        if (e.turret?.targetId !== undefined && other.has(e.turret.targetId)) e.turret.targetId = undefined;
+      }
+    };
+    calm(sideA, inB);
+    calm(sideB, inA);
+  }
+
+  /** A hit on `victimId` credited to `creditId` that was not a lingering effect (combat.ts). */
+  noteHandHit(victimId: EntityId, creditId: EntityId): void {
+    let m = this.handLog.get(victimId);
+    if (!m) {
+      m = new Map();
+      this.handLog.set(victimId, m);
+    }
+    m.set(creditId, this.time);
+  }
+
+  hitByHandRecently(victimId: EntityId, creditId: EntityId, window: number): boolean {
+    const t = this.handLog.get(victimId)?.get(creditId);
+    return t !== undefined && this.time - t <= window;
+  }
+
+  /** Tally damage hero `attackerId` dealt hero `victimId` by his own hand (combat.ts; not his troops'). */
+  noteHeroHarm(attackerId: EntityId, victimId: EntityId, amount: number): void {
+    let m = this.harmLog.get(victimId);
+    if (!m) {
+      m = new Map();
+      this.harmLog.set(victimId, m);
+    }
+    m.set(attackerId, { amt: this.heroHarm(attackerId, victimId) + amount, at: this.time });
+  }
+
+  /**
+   * Damage hero `attackerId` dealt hero `victimId` by his own hand lately (decays with a 3 s
+   * half-life): tells sustained fire from a stray hit (hostility.ts, C3-3).
+   */
+  heroHarm(attackerId: EntityId, victimId: EntityId): number {
+    const r = this.harmLog.get(victimId)?.get(attackerId);
+    return r ? r.amt * Math.pow(0.5, (this.time - r.at) / HARM_HALF_LIFE) : 0;
   }
 
   /** did `attackerId` damage `victimId` within the memory window? */
@@ -1963,6 +2055,7 @@ export class World implements SimExt, SimHost {
     this.removals.delete(id);
     this.freezeStacks.delete(id);
     this.lootLocks.delete(id);
+    this.lootDiscards.delete(id);
     forgetPath(this, id);
     this.unitMovedTick.delete(id);
     if (e.troop) {

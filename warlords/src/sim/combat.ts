@@ -305,6 +305,11 @@ function pushFrame(w: World, reqIn: DamageRequest, req: DamageRequest, outgoing:
   return f;
 }
 
+/** Is `e` charmed (离间 / 反间) onto `target` right now? */
+function charmedOnto(e: Entity, target: Entity, now: number): boolean {
+  return e.statuses.length > 0 && findStatus(e, 'charm', now)?.params?.targetId === target.id;
+}
+
 function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   const res: DamageResult = { dealt: 0, absorbed: 0, killed: false };
   const target = w.ents.get(reqIn.targetId);
@@ -333,7 +338,13 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   const chained = (type === 'fire' || type === 'thunder') && findStatus(target, 'chained', now) !== undefined;
   const chainKey = chained ? chainDedupKey(req, creditId) : undefined;
   if (chainKey !== undefined && !w.chainSpreading && w.chainStrikeThisTick(chainKey)?.spread.has(target.id)) return res;
-  if (creditId !== undefined && creditId !== target.id) w.recordAttack(target.id, creditId, req.sourceId);
+  // a lingering effect ticking (a field laid earlier, a burn / poison): credited to whoever laid it,
+  // but not his hand — the victim may just have walked into it (observer.ts, hostility.ts)
+  const lingering = w.periodicDepth > 0 || (req.abilityId?.startsWith('status:') ?? false);
+  if (creditId !== undefined && creditId !== target.id) {
+    w.recordAttack(target.id, creditId, req.sourceId);
+    if (!lingering) w.noteHandHit(target.id, creditId);
+  }
 
   // attacker pre-hook (may mutate req: canDodge, ignoreArmor, amount)
   if (src && src.kind === 'hero' && src !== target && !passThrough) w.hooks.beforeDamageDealt(src, target, req);
@@ -475,6 +486,20 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   });
   // stats: HP actually removed (finishing a downed hero only shortens its bleed-out)
   if (credit?.hero && credit !== target && !h?.downed) credit.hero.stats.damage += res.dealt;
+  // hero-on-hero damage by his own hand (not his troops, not a charm's forced shot, not a
+  // lingering field or burn someone may just have walked into): sustained fire tells a real
+  // fight from a stray hit (hostility.ts, C3-3 / C3-5)
+  if (
+    credit?.hero &&
+    h &&
+    credit !== target &&
+    total > 0 &&
+    w.isDirectSource(req.sourceId, credit) &&
+    !lingering &&
+    !charmedOnto(credit, target, now)
+  ) {
+    w.noteHeroHarm(credit.id, target.id, total);
+  }
 
   // 7. reflect / thorns
   if (!req.noReflect && src && src !== target && src.alive && total > 0 && !isZone && target.statuses.length > 0) {
@@ -1053,6 +1078,9 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
     }
   }
   w.emit({ t: 'shot', src: e.id, weapon: def.id, from: eye, to: firstEnd ?? aim, hit: firstHit });
+  // what a charm (离间 / 反间) forces him to shoot at is not his focus: his squad does not
+  // adopt the charm target (C3-1)
+  const forced = e.statuses.length > 0 && findStatus(e, 'charm', now) !== undefined;
   for (const [tid, a] of acc) {
     const target = w.ents.get(tid);
     if (!target) continue;
@@ -1067,11 +1095,13 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
       canDodge: true,
       ignoreArmor: def.special === 'pierceArmor',
     });
-    rt.focusId = tid;
-    rt.focusAt = now;
+    if (!forced) {
+      rt.focusId = tid;
+      rt.focusAt = now;
+    }
     if (!res.blocked) applyWeaponSpecialOnHit(w, e, def, target, res.dealt + res.absorbed);
   }
-  if (acc.size === 0 && firstHit === undefined) {
+  if (acc.size === 0 && firstHit === undefined && !forced) {
     const tgt = w.inputOf(e).aimTargetId;
     if (tgt !== undefined) {
       rt.focusId = tgt;

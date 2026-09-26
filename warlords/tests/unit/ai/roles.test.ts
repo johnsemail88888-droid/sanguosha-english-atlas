@@ -300,8 +300,14 @@ describe('lord (主公)', () => {
     act(w, 2, [{ a: 'claim', role: 'loyalist' }]);
     run(w, 30);
     expect(bot(0).beliefs.cleanLoyalClaim(fake)).toBe(true);
-    run(w, 30 * 3, (t) => {
+    // a small burst is forgiven (C3-3: up to ~4 carbine hits)…
+    run(w, 30, (t) => {
       if (t % 10 === 0) w.dealDamage({ targetId: lord.id, sourceId: fake.id, amount: 15, type: 'normal', canDodge: false });
+    });
+    expect(bot(0).beliefs.cleanLoyalClaim(fake)).toBe(true);
+    // …real fire is not
+    run(w, 30 * 3, (t) => {
+      if (t % 5 === 0) w.dealDamage({ targetId: lord.id, sourceId: fake.id, amount: 15, type: 'normal', canDodge: false });
     });
     expect(bot(0).beliefs.cleanLoyalClaim(fake)).toBe(false);
   }, 30_000);

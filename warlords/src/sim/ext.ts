@@ -261,6 +261,13 @@ export interface SimExt extends SimApi {
   cleanse(targetId: EntityId): void;
   /** entities that damaged `id` within `window` seconds (credited ids) */
   recentAttackers(id: EntityId, window?: number): EntityId[];
+  /**
+   * Did `creditId` damage `victimId` within `window` s other than through a lingering effect (a
+   * field's ticks, a burn / poison)? Field and burn damage is credited to the hero who laid it, so
+   * the attack log alone cannot tell it from his own shots (observer.ts: someone may just have
+   * walked into it).
+   */
+  hitByHandRecently(victimId: EntityId, creditId: EntityId, window: number): boolean;
   /** steal one random item from victim into thief (respects canBeAffected 'steal'); returns id */
   stealItem(thiefId: EntityId, victimId: EntityId, includeEquipment?: boolean): string | null;
   /**

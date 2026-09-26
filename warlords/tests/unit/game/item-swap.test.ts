@@ -1,5 +1,5 @@
 // COMBAT-7: a full item bar can be managed. F on a card while all four slots hold
-// other cards swaps it for the last slot's card (dropped behind you, briefly locked
+// other cards swaps it for the last slot's card (dropped beside you, briefly locked
 // for you — like a gear swap); walking over it never swaps; the HUD's F prompt names
 // the same slot the sim swaps; X + 4–7 (the discard chord) reaches the sim's drop.
 import { describe, expect, it } from 'vitest';
@@ -43,7 +43,7 @@ function press(w: World, actions: ReturnType<typeof emptyInput>['actions'], aimT
 }
 
 describe('COMBAT-7: F on a card with a full bar swaps it for the last slot', () => {
-  it('the 桃 replaces slot 7 (无懈可击), which lands behind the hero, locked for him', () => {
+  it('the 桃 replaces slot 7 (无懈可击), which lands beside the hero, locked for him', () => {
     const { w, me, card } = scene({ itemId: 'tao' });
     const evs = press(w, [{ a: 'interact' }], card.id);
     expect(ids(me.hero!.items)).toEqual(['wugux1', 'jiedaox1', 'tiesuox1', 'taox1']);

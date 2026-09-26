@@ -369,14 +369,15 @@ export const WU_HEROES: HeroDef[] = [
         nameZh: '反间',
         nameEn: 'Sow Discord',
         sgsSkill: '反间',
-        descZh: '魅惑准星处敌人 3 秒：它攻击 30 米内离它最近、它看得见的另一名武将（不会是你）；若无则缴械它 3 秒。',
-        descEn: 'Charm the crosshair enemy for 3 s: it attacks the nearest other hero it can see within 30 m (never you). None: disarm it 3 s.',
+        descZh: '魅惑准星处敌人 2.5 秒：它攻击 30 米内离它最近、它看得见的另一名武将（伤害 ×35%，不会是你）；若无则缴械它 3 秒。',
+        descEn: 'Charm the crosshair enemy 2.5 s: it attacks the nearest other hero it sees in 30 m (never you) at ×35% damage. None: disarm 3 s.',
         cooldown: 18,
         // impl: x = nearest hero ≠ target, ≠ self within searchRadius of the target that the target can see
         //       (canSee: stealth hides) →
-        //       applyStatus(target, 'charm', duration, { sourceId: self.id, params: { targetId: x.id } });
-        //       no such hero → applyStatus(target, 'disarm', disarm). Its soldiers follow its fire on their own.
-        params: { range: 30, duration: 3, searchRadius: 30, disarm: 3 },
+        //       applyStatus(target, 'charm', duration, { sourceId: self.id, params: { targetId: x.id, dmgMul } });
+        //       no such hero → applyStatus(target, 'disarm', disarm). Like 离间 (C3-2): the forced shots deal ×dmgMul,
+        //       both heroes' squads sit the duel out and forget it when it ends (hostility.ts charmBound).
+        params: { range: 30, duration: 2.5, searchRadius: 30, disarm: 3, dmgMul: 0.35 },
         targeting: 'enemy',
         aiHint: 'offense',
       },
