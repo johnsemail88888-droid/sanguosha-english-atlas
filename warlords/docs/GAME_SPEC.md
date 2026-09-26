@@ -87,7 +87,10 @@ electron/, .github/workflows, scripts/  packaging + CI                  (PACKAGI
    (in 乱世 mode with 影武者, two crowns are announced — see §4).
 4. **选将 (hero select)**: the Lord first picks from the 5 lord candidates + 3 random heroes (15 s);
    the Lord's pick is shown to everyone; then all others pick simultaneously from 3 random
-   heroes (20 s; `freePick` shows all). Duplicate heroes are not allowed. Bots pick instantly.
+   heroes (20 s; `freePick` shows all). Duplicate heroes are not allowed. Bots pick instantly —
+   except with `freePick`: the humans choose first (bots pick once every human locked in, or at
+   the deadline), each bot from a random handful of the roster; single player gets 4× the time.
+   When the timer runs out a human gets the card shown selected (clicked or default).
 5. **Battle**: everyone spawns (Lord at the palace, others at shuffled spawn points ~110 m out)
    with their signature weapon, a pistol, 1 × 桃, and their squad.
 6. **Game over** screen: winners, every role revealed, stats (kills/damage/healing/rescues), MVP;
@@ -144,7 +147,9 @@ since both crowns carry the lord's bonus), swapping in:
 
 Players may publicly claim a role at any time (T wheel: 我是忠臣 / 我是反贼 / 我是内奸 / 保护主公 /
 集火此人 / 需要桃 / 跟我来). Claims show as a small tag above the nameplate and in the scoreboard.
-Lies are allowed. Bots claim too (sometimes lying as traitors).
+Lies are allowed. Bots claim too: most bot rebels 跳反 after the opening loot (a few bluff 忠,
+the rest keep quiet until the push), the 内奸 bluffs 忠. Loyalists hunt a rebel who admitted it
+and rebels stand by one who is being shot.
 
 ### Zone 烽火圈 (`sim/zone.ts`)
 

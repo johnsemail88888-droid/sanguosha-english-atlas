@@ -7,16 +7,18 @@
 //                    behind loyalists / squad when focused, keeps moving; marks
 //                    and calls out (集火此人 / 救我) whoever attacks him.
 //  忠臣 Loyalist  — gears up briefly, then escorts the lord; answers his calls,
-//                    hunts suspected rebels seen near him, fights over airdrops
-//                    with likely rebels; claims 忠 when it helps.
+//                    hunts suspected rebels seen near him (a rebel who admitted
+//                    it further out), fights over airdrops with likely rebels;
+//                    claims 忠 when it helps.
 //  影武者 Double  — escorts the real lord as a decoy crown.
-//  反贼 Rebel     — mostly 跳反 early (some keep quiet, a few bluff 忠);
+//  反贼 Rebel     — mostly 跳反 early (some keep quiet, a few bluff 忠) and stands
+//                    by the ones who did (whoever shoots one gets shot);
 //                    loots, keeps away from the crowns; mid-game (by temper, not in
 //                    small tables) goes skirmishing — hit-and-run fights with
 //                    heroes that show real loyal signs, away from the crowns,
 //                    that wound but do not execute — and fights over airdrops.
 //                    The decisive push comes late (a push time the rebels share,
-//                    seeded by the table, ≈ 6:40–8:30 on normal): the first to
+//                    seeded by the table, ≈ 6:50–8:40 on normal): the first to
 //                    reach it calls 跟我来, every rebel who hears it stages around
 //                    the lord and they strike together (a hurt rebel heals first).
 //                    With two crowns the push focuses ONE agreed crown (the one
@@ -113,7 +115,7 @@ const SKIRMISH_CROWN_GAP = 50;
 const PRESSURE_FROM = zonePhaseStart(3) + 70;
 const PRESSURE_FULL = zonePhaseStart(5) - 10;
 /** the rebels' shared push time: lootPhase + PUSH_AFTER_LOOT + up to PUSH_SPREAD (seeded by the table)… */
-const PUSH_AFTER_LOOT = 285;
+const PUSH_AFTER_LOOT = 295;
 const PUSH_SPREAD = 110;
 /** …plus up to this many seconds of each rebel's own */
 const PUSH_JITTER = 20;
@@ -123,6 +125,10 @@ const TRAITOR_SHADOW = 36;
 const CROWN_WEIGHT = 1.4;
 /** 主公: two or more untrusted heroes seen this close (m) → brace (cover, close to the escort) */
 const LORD_WARY = 70;
+/** loyalists hunt a revealed rebel seen this close to the lord (m; a suspect: 55 m) */
+const HUNT_RADIUS = 75;
+/** the lord keeps with the believed-loyal heroes this close to him (a loyalist off hunting is not followed) */
+const LORD_FRIEND_R = 45;
 /** rebels' claim temperaments (COMBAT-4): share that bluff 忠 / that 跳反 early (the rest keep quiet until the push) */
 const REBEL_BLUFF = 0.15;
 const REBEL_EARLY = 0.6;
@@ -177,7 +183,7 @@ function sure(p: number, cap: number, evidence: number, now: number): number {
 const hyp = (a: Vec3, b: Vec3): number => Math.hypot(a.x - b.x, a.z - b.z);
 
 /**
- * The rebels' shared push time for this match: lootPhase + 285..395 s (normal ≈ 6:40–8:30),
+ * The rebels' shared push time for this match: lootPhase + 295..405 s (normal ≈ 6:50–8:40),
  * seeded by the table everybody sees (seats and heroes), so every rebel bot plans the same push
  * without talking — the table is different every match, the plan with it.
  */
@@ -730,6 +736,18 @@ export class RoleStrategy {
     return this.skirmishTarget !== undefined ? q : undefined;
   }
 
+  /** Rebels: `x` is hurting a fellow rebel who admitted it (跳反), within 40 m of this bot. */
+  private huntingOuted(v: BotView, x: Entity): boolean {
+    const { sim, self } = v;
+    for (const o of sim.heroes()) {
+      if (o === self || o === x || !o.hero || o.hero.dead || o.hero.claim !== 'rebel') continue;
+      const op = v.posOf(o, 3);
+      if (!op || hyp(op, self.pos) > 40) continue;
+      if (v.obs.recentDamage(sim, x.id, o.id) >= DEFEND_DMG) return true;
+    }
+    return false;
+  }
+
   /** `x` (seen) is on its own: no other known hero within 25 m, far from the crowns. */
   private isolated(v: BotView, x: Entity): boolean {
     const { sim, self } = v;
@@ -831,6 +849,8 @@ export class RoleStrategy {
           // misread as a loyalist is the whole rebel side
           if (this.fewRebels(v) && !this.pushing(v) && pressure(v.now) < 0.5) hst = Math.min(hst, 0.6);
           if (provoked) hst = Math.max(hst, rb > 0.7 ? 0.3 : RETALIATE);
+          // a fellow rebel who admitted it (跳反) is being shot by x close by: the pack answers
+          if (rb < 0.6 && this.huntingOuted(v, x)) hst = Math.max(hst, DEFEND);
           if (rb < 0.6) {
             // pick off a suspected loyalist caught alone, and fight strangers over airdrops
             if (ls >= 0.6 && evMag >= 0.8 && healthy && v.seesNow(x) && xd < 45 && v.hpFrac(x) <= self.hp / self.maxHp && this.isolated(v, x)) hst = Math.max(hst, 0.92);
@@ -1098,7 +1118,12 @@ export class RoleStrategy {
         if (zg) return { mode: 'zone', goal: zg, arrive: 3, sprint: true };
         // stay with the believed loyal side, moving around them (a still lord is an easy target)
         const friends: Vec3[] = [];
-        for (const a of v.allies()) if (!wearsCrown(sim, a) || roleKnownTo(sim, self, a) === 'double') friends.push(v.posOf(a)!);
+        for (const a of v.allies()) {
+          if (wearsCrown(sim, a) && roleKnownTo(sim, self, a) !== 'double') continue;
+          const ap = v.posOf(a)!;
+          // a loyalist off hunting a rebel does not drag the lord along
+          if (hyp(ap, self.pos) <= LORD_FRIEND_R) friends.push(ap);
+        }
         const brace = this.lordBrace(v, friends);
         if (brace) return brace;
         if (friends.length > 0) {
@@ -1151,7 +1176,9 @@ export class RoleStrategy {
           const qp = q ? v.posOf(q, 15) : undefined;
           if (qp) return { mode: 'hunt', goal: { ...qp }, arrive: 18, sprint: hyp(qp, self.pos) > 40 };
           if (now >= this.prof.lootPhase) {
-            const rally = this.rallyPoint(v, lord, now < this.regroupUntil ? 85 : 70);
+            // a rebel who admitted it (跳反) waits beyond the lord's sight: the lord side hunts it there
+            const outed = self.hero!.claim === 'rebel';
+            const rally = this.rallyPoint(v, lord, now < this.regroupUntil || outed ? 85 : 70);
             const far = hyp(rally, self.pos);
             // at the rally point: patrol around it while waiting for the push
             if (far < 12) return this.wander(v, rally, 14, 'regroup');
@@ -1226,7 +1253,8 @@ export class RoleStrategy {
 
   /**
    * Loyalist: the last known spot of a hero it would open fire on (suspected
-   * rebel), seen recently within 55 m of the lord — when healthy.
+   * rebel), seen recently within 55 m of the lord — a revealed one (跳反, caught
+   * shooting the lord side) within HUNT_RADIUS (COMBAT-3) — when healthy.
    */
   private suspectNear(v: BotView, lp: Vec3): Vec3 | undefined {
     const { sim, self } = v;
@@ -1236,9 +1264,11 @@ export class RoleStrategy {
     for (const e of sim.heroes()) {
       if (e === self || !e.hero || e.hero.dead || e.hero.downed || wearsCrown(sim, e)) continue;
       const p = v.posOf(e, 12);
-      if (!p || hyp(p, lp) > 55) continue;
+      if (!p) continue;
       const hst = v.hostility(e);
-      if (hst < 0.8 || v.beliefs.rebelness(sim, self, e) < 0.6) continue;
+      const rb = v.beliefs.rebelness(sim, self, e);
+      if (hyp(p, lp) > (rb >= 0.85 && hst >= 0.85 ? HUNT_RADIUS : 55)) continue;
+      if (hst < 0.8 || rb < 0.6) continue;
       const s = hst * 10 - hyp(p, self.pos) / 10 - v.hpFrac(e) * 3;
       if (s > bs) {
         bs = s;
@@ -1425,10 +1455,10 @@ export class RoleStrategy {
           if (now > 45 + 120 * (1 - eager) && this.rng.next() < 0.45 + 0.35 * eager) claim = 'loyalist';
           break;
         case 'rebel':
-          // 跳反: the early ones admit it after the opening loot (0:50–2:30, by temperament) — the
+          // 跳反: the early ones admit it after the opening loot (1:20–2:40, by temperament) — the
           // lord side knows whom to hunt, the rebels whom not to shoot; the quiet ones at the push
           if (this.pushing(v) && (this.claimRebelAtPush || this.rebelClaim === 'early')) claim = 'rebel';
-          else if (this.rebelClaim === 'early' && now > 50 + 100 * (1 - eager)) claim = 'rebel';
+          else if (this.rebelClaim === 'early' && now > 80 + 80 * (1 - eager)) claim = 'rebel';
           else if (!this.pushing(v) && this.rebelClaim === 'bluff' && now > 40 + 110 * (1 - eager)) claim = 'loyalist';
           break;
         case 'opportunist':
