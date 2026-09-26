@@ -71,6 +71,12 @@ export interface FlowTimings {
   pickReveal: number;
   /** max wait for clients to build the map (s) */
   loadTimeout: number;
+  /**
+   * max wait for the host player's OWN view (setLocalLoading) (s). The clock never starts
+   * behind the host's loading screen before this — downloading the art takes a while on a
+   * slow line; only a view that never settles is given up on (COMBAT-10).
+   */
+  localLoadTimeout: number;
   /** keep simulating after game over (s) */
   postGame: number;
   pingInterval: number;
@@ -114,6 +120,7 @@ export const DEFAULT_TIMINGS: FlowTimings = {
   pick: 20,
   pickReveal: 1.5,
   loadTimeout: 20,
+  localLoadTimeout: 300,
   postGame: 4,
   pingInterval: 2,
   peerTimeout: 15,
@@ -602,7 +609,7 @@ export class HostSession implements GameSession {
 
   /**
    * The host's own 3D view is still loading: keep the match in 'loading' until
-   * `ready` settles (capped by timings.loadTimeout). Called by the UI from its
+   * `ready` settles (capped by timings.localLoadTimeout). Called by the UI from its
    * 'matchStart' handler; without it the match starts as soon as every client
    * reported 'loaded' (the old behaviour).
    */
@@ -1548,7 +1555,14 @@ export class HostSession implements GameSession {
       this.sendMatchStart(peer);
     }
     const token = this.flowToken;
+    // guests that are still loading after loadTimeout are not waited for any longer (they join
+    // late); the host's own view is (COMBAT-10), up to localLoadTimeout
     this.after(this.timings.loadTimeout, () => {
+      if (token !== this.flowToken || this.phaseValue !== 'loading') return;
+      this.waitingLoad.clear();
+      this.maybeBeginPlaying();
+    });
+    this.after(Math.max(this.timings.loadTimeout, this.timings.localLoadTimeout), () => {
       if (token === this.flowToken && this.phaseValue === 'loading') this.beginPlaying();
     });
     // the UI mounts the view here and may call setLocalLoading() synchronously:
