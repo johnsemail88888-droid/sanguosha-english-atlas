@@ -211,7 +211,7 @@ export interface PaintedSkyMapping {
   horizonV: number;
   /** image heights per radian of elevation */
   vPerRad: number;
-  /** width of the cross-faded seam (fraction of the image width) */
+  /** width of the cross-faded seam (fraction of the image width; 0 = the image already tiles) */
   seam: number;
   /** linear colour above the painting's top edge */
   zenith: THREE.Color;
@@ -269,7 +269,8 @@ export function buildPaintedFogLut(preview: { px: Uint8ClampedArray | Uint8Array
     for (let i = 0; i < W; i++) {
       const u = (i + 0.5) / W;
       acc[0] = acc[1] = acc[2] = 0;
-      const t = sstep(1 - m.seam, 1, u);
+      // (seam 0: the painting already wraps seamlessly — makePanoramaTileable)
+      const t = m.seam > 0 ? sstep(1 - m.seam, 1, u) : 0;
       sample(u, v, acc, 1 - t);
       if (t > 0) sample(1 - u, v, acc, t);
       const z = sstep(topEl - 0.32, topEl - 0.02, el);

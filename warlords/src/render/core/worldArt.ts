@@ -418,6 +418,155 @@ export function findSun(px: Uint8ClampedArray | Uint8Array, w: number, h: number
   return { u: (sx / n + 0.5) / w, v: (sy / n + 0.5) / h };
 }
 
+/** How makePanoramaTileable reshapes the painting near its two edges (fractions of the width). */
+export interface TileableOptions {
+  /** width of the low-frequency colour ramp on the left edge */
+  rampL: number;
+  /** …and on the right edge (kept clear of the painted sun) */
+  rampR: number;
+  /** mean width of the detail cross-fade at the right edge (into the mirrored left edge; varies per row) */
+  fade: number;
+  /** where the matched edge colour sits between the left (0) and right (1) edge colour (before leaning to the brighter one) */
+  bias: number;
+  /** how much of the detail contrast is gone at the edges (0 = kept, 1 = only the matched colour) */
+  soften: number;
+}
+
+export const SKY_TILEABLE: TileableOptions = { rampL: 0.24, rampR: 0.13, fade: 0.05, bias: 0.5, soften: 0.6 };
+
+/**
+ * Make a panorama wrap seamlessly around 360° (RGBA bytes, in place). The
+ * painting was not made to tile — deep blue on its left edge, sunset clouds and
+ * dark ranges on its right — so a plain wrap is a colour wall (and bilinear /
+ * mip filtering draws a 1 px line of the other edge right on it). Per row, both
+ * edges' low frequencies (block means, blurred) are pulled to one matched colour
+ * over wide ramps — a gradual shift of tint over 45–85° of sky, the details
+ * kept — then the right edge's remaining detail cross-fades into the mirrored
+ * left edge over a few degrees. Afterwards the last column continues into the
+ * first. Pure.
+ */
+export function makePanoramaTileable(px: Uint8ClampedArray | Uint8Array, w: number, h: number, o: TileableOptions = SKY_TILEABLE): void {
+  if (w < 8 || h < 2) return;
+  // 1. low-pass: block means on a coarse grid, box-blurred (clamped at the image edges)
+  const gw = Math.min(w, 64);
+  const gh = Math.max(2, Math.min(h, Math.round((gw * h) / w)));
+  const grid = new Float32Array(gw * gh * 3);
+  for (let gy = 0; gy < gh; gy++) {
+    const y0 = Math.floor((gy * h) / gh);
+    const y1 = Math.max(y0 + 1, Math.floor(((gy + 1) * h) / gh));
+    for (let gx = 0; gx < gw; gx++) {
+      const x0 = Math.floor((gx * w) / gw);
+      const x1 = Math.max(x0 + 1, Math.floor(((gx + 1) * w) / gw));
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      for (let y = y0; y < y1; y++)
+        for (let x = x0; x < x1; x++) {
+          const i = (y * w + x) * 4;
+          r += px[i];
+          g += px[i + 1];
+          b += px[i + 2];
+        }
+      const n = (y1 - y0) * (x1 - x0);
+      const k = (gy * gw + gx) * 3;
+      grid[k] = r / n;
+      grid[k + 1] = g / n;
+      grid[k + 2] = b / n;
+    }
+  }
+  const blur = (src: Float32Array, horizontal: boolean): Float32Array => {
+    const dst = new Float32Array(src.length);
+    for (let gy = 0; gy < gh; gy++)
+      for (let gx = 0; gx < gw; gx++) {
+        let n = 0;
+        const k = (gy * gw + gx) * 3;
+        for (let d = -1; d <= 1; d++) {
+          const x = horizontal ? gx + d : gx;
+          const y = horizontal ? gy : gy + d;
+          if (x < 0 || x >= gw || y < 0 || y >= gh) continue;
+          const s = (y * gw + x) * 3;
+          dst[k] += src[s];
+          dst[k + 1] += src[s + 1];
+          dst[k + 2] += src[s + 2];
+          n++;
+        }
+        dst[k] /= n;
+        dst[k + 1] /= n;
+        dst[k + 2] /= n;
+      }
+    return dst;
+  };
+  const low = blur(blur(grid, true), false);
+  // bilinear lookup in the blurred grid (texel centres, clamped)
+  const lowAt = (fx: number, fy: number, out: number[]): void => {
+    const gx = Math.min(gw - 1, Math.max(0, fx * gw - 0.5));
+    const gy = Math.min(gh - 1, Math.max(0, fy * gh - 0.5));
+    const x0 = Math.floor(gx);
+    const y0 = Math.floor(gy);
+    const x1 = Math.min(gw - 1, x0 + 1);
+    const y1 = Math.min(gh - 1, y0 + 1);
+    const tx = gx - x0;
+    const ty = gy - y0;
+    for (let c = 0; c < 3; c++) {
+      const a = low[(y0 * gw + x0) * 3 + c] * (1 - tx) + low[(y0 * gw + x1) * 3 + c] * tx;
+      const b = low[(y1 * gw + x0) * 3 + c] * (1 - tx) + low[(y1 * gw + x1) * 3 + c] * tx;
+      out[c] = a * (1 - ty) + b * ty;
+    }
+  };
+  const sstep = (a: number, b: number, x: number): number => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  // 2. per row: pull both edges' low frequencies to the matched colour, then cross-fade the detail
+  const row = new Float32Array(w * 3);
+  const lo = [0, 0, 0];
+  const eL = [0, 0, 0];
+  const eR = [0, 0, 0];
+  const xl1 = Math.min(w, Math.ceil(o.rampL * w) + 1);
+  const xr0 = Math.max(0, Math.floor((1 - o.rampR) * w) - 1);
+  for (let y = 0; y < h; y++) {
+    const fy = (y + 0.5) / h;
+    lowAt(0, fy, eL);
+    lowAt(1, fy, eR);
+    // the matched colour leans to the brighter edge: dark painted ranges dissolve into
+    // the haze (ink-wash style) instead of the haze darkening into a smudge
+    const dl = 0.3 * (eR[0] - eL[0]) + 0.59 * (eR[1] - eL[1]) + 0.11 * (eR[2] - eL[2]);
+    const bias = Math.min(1, Math.max(0, o.bias + 0.35 * Math.tanh(dl / 30)));
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      row[x * 3] = px[i];
+      row[x * 3 + 1] = px[i + 1];
+      row[x * 3 + 2] = px[i + 2];
+      if (x >= xl1 && x < xr0) continue;
+      const u = (x + 0.5) / w;
+      const k = (1 - sstep(0, o.rampL, u)) + sstep(1 - o.rampR, 1, u);
+      if (k <= 0) continue;
+      lowAt(u, fy, lo);
+      for (let c = 0; c < 3; c++) {
+        const m = eL[c] + (eR[c] - eL[c]) * bias;
+        // low frequencies → the matched colour; details (ranges, cloud edges) soften toward the seam
+        row[x * 3 + c] += k * (m - lo[c]) - k * o.soften * (row[x * 3 + c] - lo[c]);
+      }
+    }
+    // the fade's start wanders from row to row (a ragged, misty edge, not a vertical cut
+    // through the painted ranges)
+    const fade = o.fade * (1 + 0.45 * Math.sin(fy * 17.3 + 1.1) + 0.3 * Math.sin(fy * 41.7 + 2.3));
+    const xf0 = Math.max(0, Math.floor((1 - fade) * w) - 1);
+    for (let x = xf0; x < w; x++) {
+      const t = fade > 0 ? sstep(1 - fade, 1, (x + 0.5) / w) : 0;
+      if (t <= 0) continue;
+      const m = w - 1 - x; // mirrored column: the last column continues into column 0
+      for (let c = 0; c < 3; c++) row[x * 3 + c] += (row[m * 3 + c] - row[x * 3 + c]) * t;
+    }
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      px[i] = Math.min(255, Math.max(0, Math.round(row[x * 3])));
+      px[i + 1] = Math.min(255, Math.max(0, Math.round(row[x * 3 + 1])));
+      px[i + 2] = Math.min(255, Math.max(0, Math.round(row[x * 3 + 2])));
+    }
+  }
+}
+
 /** Where the painted sun sits when nothing can be detected (env/sky.webp as shipped). */
 const SUN_FALLBACK = { u: 0.81, v: 0.56 };
 
@@ -439,19 +588,24 @@ export function requestSkyArt(cb: (art: SkyArt) => void): void {
           const canvas = document.createElement('canvas');
           canvas.width = w;
           canvas.height = h;
-          const g = canvas.getContext('2d');
+          const g = canvas.getContext('2d', { willReadFrequently: true });
           if (!g) throw new Error('no 2d context');
           g.imageSmoothingQuality = 'high';
           g.drawImage(bmp, 0, 0, w, h);
-          // analysis on a small copy: sun position, horizon / zenith colours
+          // wrapped around 360°: its two painted edges must meet (no seam at any azimuth)
+          const img = g.getImageData(0, 0, w, h);
+          makePanoramaTileable(img.data, w, h);
+          g.putImageData(img, 0, 0);
+          // analysis on a small copy of the tileable painting: sun position, horizon / zenith colours, fog LUT
           const aw = 256;
-          const ah = Math.max(8, Math.round((bmp.height * aw) / bmp.width));
+          const ah = Math.max(8, Math.round((h * aw) / w));
           const small = document.createElement('canvas');
           small.width = aw;
           small.height = ah;
           const sg = small.getContext('2d', { willReadFrequently: true });
           if (!sg) throw new Error('no 2d context');
-          sg.drawImage(bmp, 0, 0, aw, ah);
+          sg.imageSmoothingQuality = 'high';
+          sg.drawImage(canvas, 0, 0, aw, ah);
           const px = sg.getImageData(0, 0, aw, ah).data;
           bmp.close();
           const sun = findSun(px, aw, ah) ?? SUN_FALLBACK;
