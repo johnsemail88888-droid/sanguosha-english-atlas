@@ -54,10 +54,11 @@ describe('UX-2: the 玩法说明 weapon table lists only what a hero can hold', 
 });
 
 describe('UX-9: HUD card labels', () => {
-  it('Chinese labels are at most two glyphs (无中 / 借刀 / 乐不 …), English unchanged', () => {
+  it('Chinese labels are at most two glyphs (无中 / 借刀 / 乐 …), English unchanged', () => {
     for (const it of ITEMS) expect([...itemShort(it.id, 'zh')].length, it.id).toBeLessThanOrEqual(2);
     expect(['wuzhong', 'guohe', 'shunshou', 'jiedao', 'wuxie', 'nanman', 'wanjian', 'taoyuan', 'wugu', 'tiesuo', 'lebusishu', 'bingliang'].map((id) => itemShort(id, 'zh'))).toEqual([
-      '无中', '过河', '顺手', '借刀', '无懈', '南蛮', '万箭', '桃园', '五谷', '铁索', '乐不', '兵粮',
+      // NP-13: 乐不思蜀 is 「乐」 (what players call it; 「乐不」 read as a broken word)
+      '无中', '过河', '顺手', '借刀', '无懈', '南蛮', '万箭', '桃园', '五谷', '铁索', '乐', '兵粮',
     ]);
     expect(itemShort('wuzhong', 'en')).toBe('Draw 2');
     expect(Object.keys(ITEM_SHORT).length).toBe(ITEMS.length);

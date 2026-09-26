@@ -128,7 +128,8 @@ export function abilityShort(def: Pick<AbilityDef, 'id' | 'nameZh' | 'nameEn'>, 
 /**
  * Item (card) id → short label under the card glyph / painted emblem: at most two
  * glyphs in Chinese (a 44 px card fits two at the HUD's smallest size — 无中, 借刀 —
- * where 「无中生有」 was cut to 「无中…」), a short word in English.
+ * where 「无中生有」 was cut to 「无中…」), a short word in English. 乐不思蜀 is 「乐」 — what
+ * players call it (NP-13: 「乐不」 read as a broken word); like 桃 it repeats its glyph.
  */
 export const ITEM_SHORT: Readonly<Record<string, readonly [string, string]>> = {
   sha: ['杀', 'Ammo'],
@@ -147,7 +148,7 @@ export const ITEM_SHORT: Readonly<Record<string, readonly [string, string]>> = {
   wugu: ['五谷', 'Harvest'],
   huogong: ['火攻', 'Fire'],
   tiesuo: ['铁索', 'Chains'],
-  lebusishu: ['乐不', 'Dance'],
+  lebusishu: ['乐', 'Dance'],
   bingliang: ['兵粮', 'Starve'],
   shandian: ['闪电', 'Storm'],
   zhengbing: ['征兵', 'Recruit'],

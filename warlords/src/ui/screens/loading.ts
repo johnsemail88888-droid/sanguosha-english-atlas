@@ -12,19 +12,60 @@ import { heroName, heroTitle, roleName, t, tx } from '../i18n';
 import { artBackdrop, type ArtBackdrop } from '../keyart';
 import { heroCard, roleSeal } from '../widgets';
 import { mySeat } from './roles';
+import { settings } from '../../game/settings';
+import { touchLabel, type TouchKey } from '../short';
+import { ORDER_GLYPH, ORDER_SEQUENCE } from '../theme';
+import { shouldUseTouch } from '../touch';
 
-export const LOADING_TIPS: readonly [string, string][] = [
-  ['主公的身份是公开的，其他人的身份只有死亡后才会揭晓。', 'Only the Lord is public; every other role is revealed on death.'],
-  ['击杀反贼的人可以获得 3 个锦囊奖励。', 'Whoever kills a Rebel is rewarded with 3 items.'],
-  ['主公误杀忠臣会丢弃所有锦囊、装备和副武器。', 'If the Lord kills a Loyalist, the Lord drops every item, armor, mount and the secondary weapon.'],
-  ['按 T 打开跳身份轮盘——但别忘了，谎言也是一种战术。', 'Press T for the claim wheel — lying is a valid strategy.'],
-  ['濒死时 12 秒内被队友用「桃」救起即可复活，也可以饮「酒」自救。', 'When downed you have 12 s: an ally can revive you with a Peach, or drink Wine to rise yourself.'],
-  ['Z 跟随 · X 驻守 · C 进攻 · V 冲锋：别忘了指挥你的部曲。', 'Z follow · X hold · C attack · V charge — command your squad.'],
-  ['烽火圈外每秒都会受到伤害，且无视护甲与闪避。', 'The zone burns you every second outside, ignoring armor and dodges.'],
-  ['天降锦囊每 100 秒降落一次，里面有传说级武器。', 'Airdrops land every 100 s and carry legendary weapons.'],
-  ['Ctrl / Alt 闪避翻滚有短暂无敌时间。', 'Ctrl / Alt dodge-rolls grant brief invulnerability.'],
-  ['内奸必须在最后与主公单挑并获胜。', 'The Traitor must be the last one standing against the Lord.'],
+export interface LoadingTip {
+  zh: string;
+  en: string;
+  /** a tip that names a key: the on-screen button instead on touch (NP-7), labelled as on the screen */
+  touch?: readonly [string, string];
+}
+
+const tl = (k: TouchKey): readonly [string, string] => [touchLabel(k, 'zh'), touchLabel(k, 'en')];
+const WHEEL = tl('wheel');
+const DODGE = tl('dodge');
+
+export const LOADING_TIPS: readonly LoadingTip[] = [
+  { zh: '主公的身份是公开的，其他人的身份只有死亡后才会揭晓。', en: 'Only the Lord is public; every other role is revealed on death.' },
+  { zh: '击杀反贼的人可以获得 3 个锦囊奖励。', en: 'Whoever kills a Rebel is rewarded with 3 items.' },
+  { zh: '主公误杀忠臣会丢弃所有锦囊、装备和副武器。', en: 'If the Lord kills a Loyalist, the Lord drops every item, armor, mount and the secondary weapon.' },
+  {
+    zh: '按 T 打开跳身份轮盘——但别忘了，谎言也是一种战术。',
+    en: 'Press T for the claim wheel — lying is a valid strategy.',
+    touch: [`点「${WHEEL[0]}」打开跳身份轮盘——但别忘了，谎言也是一种战术。`, `Tap “${WHEEL[1]}” for the claim wheel — lying is a valid strategy.`],
+  },
+  { zh: '濒死时 12 秒内被队友用「桃」救起即可复活，也可以饮「酒」自救。', en: 'When downed you have 12 s: an ally can revive you with a Peach, or drink Wine to rise yourself.' },
+  {
+    zh: 'Z 跟随 · X 驻守 · C 进攻 · V 冲锋：别忘了指挥你的部曲。',
+    en: 'Z follow · X hold · C attack · V charge — command your squad.',
+    touch: [
+      `点左侧的「${ORDER_GLYPH.follow}」切换部曲命令：${ORDER_SEQUENCE.map((o) => ORDER_GLYPH[o]).join(' → ')}（跟随 → 驻守 → 进攻 → 冲锋）。`,
+      'Tap the squad button (“Follow”) to cycle its order: Follow → Hold → Attack → Charge.',
+    ],
+  },
+  { zh: '烽火圈外每秒都会受到伤害，且无视护甲与闪避。', en: 'The zone burns you every second outside, ignoring armor and dodges.' },
+  { zh: '天降锦囊每 100 秒降落一次，里面有传说级武器。', en: 'Airdrops land every 100 s and carry legendary weapons.' },
+  {
+    zh: 'Ctrl / Alt 闪避翻滚有短暂无敌时间。',
+    en: 'Ctrl / Alt dodge-rolls grant brief invulnerability.',
+    touch: [`「${DODGE[0]}」按钮闪避翻滚，有短暂无敌时间。`, `The “${DODGE[1]}” button dodge-rolls with brief invulnerability.`],
+  },
+  { zh: '内奸必须在最后与主公单挑并获胜。', en: 'The Traitor must be the last one standing against the Lord.' },
 ];
+
+/** Tip `i` (wrapping) as [zh, en]: the touch wording when the on-screen controls are on (NP-7). */
+export function loadingTip(i: number, touch: boolean): readonly [string, string] {
+  const tip = LOADING_TIPS[((i % LOADING_TIPS.length) + LOADING_TIPS.length) % LOADING_TIPS.length];
+  return touch && tip.touch ? tip.touch : [tip.zh, tip.en];
+}
+
+/** Whether the tips should read for touch (the same test as the HUD's touch controls). */
+export function touchTips(): boolean {
+  return shouldUseTouch(settings.get().touchControls);
+}
 
 /** Loading stage → [progress, zh, en]; `null` = the host is still generating the match. */
 const STAGES: Record<string, [number, string, string]> = {
@@ -67,7 +108,7 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
   let tipIndex = Math.floor(Math.random() * LOADING_TIPS.length);
   const tipEl = h('p', { class: 'tip-text' });
   const showTip = (): void => {
-    const [zh, en] = LOADING_TIPS[tipIndex % LOADING_TIPS.length];
+    const [zh, en] = loadingTip(tipIndex, touchTips());
     tipEl.textContent = tx(zh, en);
   };
 

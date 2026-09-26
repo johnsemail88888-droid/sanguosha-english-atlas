@@ -5,10 +5,13 @@ import type { ItemKind } from '../../data/types';
 import { ARMORS, ITEMS, ITEM_KIND_INFO, MOUNTS, ROLES, ROLE_DISTRIBUTION, TROOPS, WEAPONS } from '../../data';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, type Child } from '../dom';
-import { colon, kingdomName, t, tx, type I18nKey } from '../i18n';
-import { ORDER_KEYS, RARITY_INK, cardTileVars, roleInk } from '../theme';
+import { colon, getLang, kingdomName, t, tx, type I18nKey } from '../i18n';
+import { ORDER_GLYPH, ORDER_KEYS, RARITY_INK, cardTileVars, roleInk } from '../theme';
+import { touchLabel, type TouchKey } from '../short';
+import { shouldUseTouch } from '../touch';
+import { settings, type Lang } from '../../game/settings';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
-import { weaponClassName } from './heroDetail';
+import { weaponCardNote, weaponClassName } from './heroDetail';
 import { gearArt, isUnitWeapon } from '../cardArt';
 import { artKnown, gearIcon, roleCardBadge, setArt, whenArtKnown } from '../artIcons';
 import { ZONE_PHASES } from '../../sim/zone';
@@ -46,6 +49,47 @@ export const CONTROLS: readonly { keys: string[]; zh: string; en: string }[] = [
   { keys: ['Enter'], zh: '聊天', en: 'Chat' },
   { keys: ['Esc'], zh: '菜单（单机自动暂停，联机不暂停）', en: 'Menu (pauses single player; online matches keep running)' },
 ];
+
+/**
+ * The touch controls, one row per on-screen control (NP-7): what a phone player reads
+ * first. Button caps are the buttons' own labels (short.ts touchLabel / theme ORDER_GLYPH),
+ * so the sheet and the screen always agree (装弹, not 换弹; 切枪; 随 → 守 → 攻 → 冲).
+ */
+export interface TouchControlRow {
+  /** TouchKey: that button's label; `order`: the squad button's glyph; else a literal [zh, en] cap */
+  caps: readonly (TouchKey | 'order' | readonly [string, string])[];
+  zh: string;
+  en: string;
+}
+
+export const TOUCH_CONTROLS: readonly TouchControlRow[] = [
+  { caps: [['摇杆', 'Stick']], zh: '左侧摇杆移动，推到底自动冲刺', en: 'Left stick: move; push it all the way to sprint' },
+  { caps: [['拖动', 'Drag']], zh: '在右半屏拖动瞄准', en: 'Drag on the right half of the screen to aim' },
+  { caps: ['fire'], zh: '开火（按住并拖动可同时瞄准）', en: 'Fire (hold and drag to aim at the same time)' },
+  { caps: ['ads'], zh: '开镜瞄准（再点一次收镜）', en: 'Aim down sights (tap again to lower)' },
+  { caps: ['jump'], zh: '跳跃', en: 'Jump' },
+  { caps: ['dodge'], zh: '闪避翻滚，短暂无敌 · 2 次充能，8 秒恢复', en: 'Dodge roll, brief invulnerability · 2 charges, 8 s recharge' },
+  { caps: ['reload'], zh: '装弹', en: 'Reload' },
+  { caps: ['swap'], zh: '切枪：主 / 副武器', en: 'Swap between primary and secondary weapon' },
+  { caps: [['Q', 'Q'], ['E', 'E'], ['G', 'G']], zh: '武将技能（G：主公技，仅主公）', en: 'Hero abilities (G: lord skill, Lord only)' },
+  { caps: ['interact'], zh: '拾取 / 打开锦囊 / 按住救援——按钮上写着现在能做什么', en: 'Pick up / open chests / hold to revive — the button says what a tap does now' },
+  { caps: [['4–7', '4–7']], zh: '锦囊栏：点击使用；长按查看说明，可「丢弃此锦囊」', en: 'Item slots: tap to use; long-press to read the card, with “Discard this card”' },
+  { caps: ['order'], zh: '部曲命令：每点一次切换 随 跟随 → 守 驻守 → 攻 进攻 → 冲 冲锋', en: 'Squad order: each tap cycles Follow → Hold → Attack → Charge' },
+  { caps: ['mark'], zh: '标记准星处目标（部曲会集火）', en: 'Mark the target under the crosshair (your troops focus it)' },
+  { caps: ['wheel'], zh: '跳身份 & 快捷喊话轮盘', en: 'Claim & quick-chat wheel' },
+  { caps: ['chat', 'map', 'score'], zh: '聊天 · 战场地图 · 战况', en: 'Chat · battle map · scoreboard' },
+  { caps: ['menu'], zh: '菜单（单机自动暂停，联机不暂停）', en: 'Menu (pauses single player; online matches keep running)' },
+];
+
+/** A touch control's caps as shown (the buttons' own labels in this language). */
+export function touchCapLabels(row: TouchControlRow, lang: Lang): string[] {
+  return row.caps.map((c) => (c === 'order' ? (lang === 'en' ? t('hud.order.follow') : ORDER_GLYPH.follow) : typeof c === 'string' ? touchLabel(c, lang) : lang === 'en' ? c[1] : c[0]));
+}
+
+/** The touch rows as table / grid cells: round caps like the on-screen buttons, then the text. */
+export function touchControlCells(lang: Lang): { caps: HTMLElement[]; text: string }[] {
+  return TOUCH_CONTROLS.map((r) => ({ caps: touchCapLabels(r, lang).map((c) => h('span', { class: 'sg-tcap' }, c)), text: lang === 'en' ? r.en : r.zh }));
+}
 
 const KIND_NAMES: Record<ItemKind, [string, string]> = {
   basic: ['基本牌', 'Basic'],
@@ -215,18 +259,23 @@ function squadTab(): HTMLElement {
 }
 
 function controlsTab(): HTMLElement {
-  return h('div', null,
-    section(tx('键鼠操作', 'Keyboard & mouse'),
-      h('div', { class: 'sg-table-wrap' },
-        h('table', { class: 'sg-table controls' },
-          h('tbody', null, CONTROLS.map((c) => h('tr', null, h('td', { class: 'keys' }, c.keys.map((k) => keyCap(keyLabel(k)))), h('td', null, tx(c.zh, c.en))))),
-        ),
+  const keys = section(tx('键鼠操作', 'Keyboard & mouse'),
+    h('div', { class: 'sg-table-wrap' },
+      h('table', { class: 'sg-table controls' },
+        h('tbody', null, CONTROLS.map((c) => h('tr', null, h('td', { class: 'keys' }, c.keys.map((k) => keyCap(keyLabel(k)))), h('td', null, tx(c.zh, c.en))))),
       ),
     ),
-    section(tx('触屏操作', 'Touch controls'),
-      para('左侧虚拟摇杆移动（推到底自动冲刺），右半屏拖动瞄准。按钮：开火（按住并拖动可同时瞄准）、开镜、跳跃、闪避、换弹、Q、E、G、互动、锦囊栏与部曲命令（点击切换）。在触屏设备上自动开启，也可在设置中切换。', 'Left virtual stick to move (push fully to sprint), drag on the right half to aim. Buttons: fire (hold and drag to aim), ADS, jump, dodge, reload, Q, E, G, interact, item bar and squad order (tap to cycle). Auto-enabled on touch devices; toggle it in Settings.'),
-    ),
   );
+  const touch = section(tx('触屏操作', 'Touch controls'),
+    h('div', { class: 'sg-table-wrap' },
+      h('table', { class: 'sg-table controls touch' },
+        h('tbody', null, touchControlCells(getLang()).map((c) => h('tr', null, h('td', { class: 'keys' }, c.caps), h('td', null, c.text)))),
+      ),
+    ),
+    para('在触屏设备上自动开启，也可在设置中切换。', 'Auto-enabled on touch devices; toggle it in Settings.'),
+  );
+  // NP-7: a phone player reads the buttons first (the 20-row keyboard table comes after)
+  return shouldUseTouch(settings.get().touchControls) ? h('div', null, touch, keys) : h('div', null, keys, touch);
 }
 
 function itemsTab(): HTMLElement {
@@ -302,7 +351,7 @@ function weaponsTab(): HTMLElement {
               h('td', { class: 'wname' },
                 gearIcon(w.id, 'wt-art', true),
                 h('b', { style: `color:${RARITY_INK[w.rarity] ?? 'inherit'}` }, tx(w.nameZh, w.nameEn)),
-                w.sgsCard ? h('div', { class: 'sg-mute' }, `〔${w.sgsCard}〕`) : null,
+                weaponCardNote(w) ? h('div', { class: 'sg-mute' }, weaponCardNote(w)) : null,
                 // on its own line: never over the end of a long name
                 !w.lootable ? h('div', null, h('span', { class: 'sg-chip' }, tx('专属', 'Signature'))) : null,
               ),
@@ -335,11 +384,13 @@ export function createHelpScreen(ctx: UiCtx): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-help', data: { screen: 'help' } });
   let tab: HelpTab = 'roles';
-  const body = h('div', { class: 'help-body sg-panel sg-corners' });
+  // the tab scrolls inside the framed panel: its corner brackets stay on the frame, never over a row
+  const scroll = h('div', { class: 'help-scroll' });
+  const body = h('div', { class: 'help-body sg-panel sg-corners' }, scroll);
 
   const showTab = (): void => {
-    body.replaceChildren(TAB_BUILDERS[tab]());
-    body.scrollTop = 0;
+    scroll.replaceChildren(TAB_BUILDERS[tab]());
+    scroll.scrollTop = 0;
   };
 
   const build = (): void => {

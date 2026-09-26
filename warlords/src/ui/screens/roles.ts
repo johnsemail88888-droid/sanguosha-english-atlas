@@ -11,7 +11,7 @@ import { ROLE_GLYPH, roleColor } from '../theme';
 import { roleSeal, seal, textUnits } from '../widgets';
 import { artOr, roleArt } from '../artIcons';
 import { backToSetup } from './heroSelect';
-import { LOADING_TIPS } from './loading';
+import { LOADING_TIPS, loadingTip, touchTips } from './loading';
 
 export function seatName(session: GameSession, seat: number): string {
   const s = session.lobby?.seats.find((x) => x.seat === seat);
@@ -88,7 +88,7 @@ export function createRolesScreen(ctx: UiCtx, session: GameSession): Screen {
   let tipIndex = Math.floor(Math.random() * LOADING_TIPS.length);
   const tipText = h('span', { class: 'tip-text' });
   const showTip = (): void => {
-    const [zh, en] = LOADING_TIPS[tipIndex % LOADING_TIPS.length];
+    const [zh, en] = loadingTip(tipIndex, touchTips());
     tipText.textContent = tx(zh, en);
   };
   bag.interval(() => {

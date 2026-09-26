@@ -171,6 +171,9 @@ export const SCREENS_CSS = /* css */ `
 .room-code .code { font-family: "Consolas", "Menlo", monospace; font-size: 2em; font-weight: 800; letter-spacing: 0.22em; padding-left: 0.22em; color: var(--gold-hi); text-shadow: 0 0 10px rgba(245, 200, 100, 0.35); line-height: 1.1; }
 .lobby-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.9fr); gap: 1em; min-height: 0; }
 .lobby-grid > section { padding: 1em 1.2em; min-height: 0; overflow: auto; }
+/* a framed panel scrolls inside its padding: the corner brackets stay on the frame, never over a row (NP-11) */
+.lobby-grid > section.sg-corners { display: flex; flex-direction: column; overflow: hidden; }
+.lobby-grid > section.sg-corners > :is(.seats, .settings) { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .box-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6em; margin-bottom: 0.6em; flex-wrap: wrap; }
 .sg-panel .box-head h2 { color: var(--red-lo); }
 .sg-dark .box-head h2 { color: var(--gold-hi); }
@@ -245,7 +248,7 @@ export const SCREENS_CSS = /* css */ `
 @media (max-width: 720px) {
   .sg-lobby { padding: 0.8em; }
   .lobby-grid { grid-template-columns: minmax(0, 1fr); flex: none; }
-  .lobby-grid > section { overflow: visible; }
+  .lobby-grid > section, .lobby-grid > section.sg-corners, .lobby-grid > section.sg-corners > :is(.seats, .settings) { overflow: visible; }
   .code-box { margin-left: 0; width: 100%; }
   .seat { grid-template-columns: 1.2em 2em minmax(0, 1fr) auto auto; gap: 0.4em; padding: 0.3em 0.4em; }
   .lobby-foot .act { width: 100%; justify-content: space-between; }
@@ -576,7 +579,9 @@ export const SCREENS_CSS = /* css */ `
 .help-head { display: flex; align-items: center; gap: 1em; }
 .help-head h1 { color: var(--gold-hi); text-shadow: 0 2px 0 #000; }
 .sg-help > .sg-tabs { margin-bottom: -0.6em; position: relative; z-index: 1; padding-left: 0.4em; }
-.help-body { flex: 1; min-height: 0; overflow: auto; padding: 1.2em 1.6em; user-select: text; }
+/* the tab scrolls inside the panel's padding: the corner brackets (5–7 px in) stay on the frame, never over a row */
+.help-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0.6em; }
+.help-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0.6em 1em; user-select: text; }
 .help-sec { margin-bottom: 1.6em; }
 .help-sec h2 { color: var(--red-lo); margin-bottom: 0.5em; border-bottom: 1px solid rgba(140, 106, 38, 0.45); padding-bottom: 0.2em; }
 .help-sec p, .help-sec li { max-width: 60em; }
@@ -605,7 +610,7 @@ export const SCREENS_CSS = /* css */ `
 .sg-table.orders td:nth-child(-n + 2) { white-space: nowrap; width: 1%; }
 @media (max-width: 640px) {
   .sg-help { padding: 0.7em; }
-  .help-body { padding: 1em; }
+  .help-scroll { padding: 0.4em; }
   .role-list { grid-template-columns: minmax(0, 1fr); }
   .sg-tab { font-size: 0.9em; padding: 0.3em 0.7em; }
 }

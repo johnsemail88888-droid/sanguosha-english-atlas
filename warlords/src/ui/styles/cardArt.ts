@@ -135,8 +135,13 @@ export const CARD_ART_CSS = /* css */ `
 .sg-ability > .ab-ico:not(:has(> .sg-art)), .sg-weapon-card > .wc-art:not(:has(> .sg-art)) { display: none; }
 /* floated: the name sits beside the icon, the description flows under it at full width (no extra lines) */
 .sg-ability:has(> .ab-ico > .sg-art) { display: flow-root; }
-.sg-ability > .ab-ico { float: left; width: 2.6em; margin: 0.1em 0.6em 0.1em 0; }
+.sg-ability > .ab-ico { position: relative; float: left; width: 2.6em; margin: 0.1em 0.6em 0.1em 0; container-type: inline-size; }
 .sg-ability > .ab-ico > .sg-art { width: 100%; box-shadow: 0 0 0 1.5px #c9a04a, 0 1px 3px rgba(0, 0, 0, 0.35); }
+/* until the emblem has loaded: the skill's short name on a disc under it, as on the HUD's buttons (NP-4) */
+.sg-ability > .ab-ico > .g { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 50%; overflow: hidden; background: radial-gradient(circle at 35% 30%, #6a4428, #1e140c); box-shadow: 0 0 0 1.5px #c9a04a, 0 1px 3px rgba(0, 0, 0, 0.35); font-family: var(--font-display); font-size: 36cqw; font-weight: 900; line-height: 1; letter-spacing: -0.02em; white-space: nowrap; color: #f5dc98; }
+.sg-ability > .ab-ico > .g.en { padding: 0 6%; font-family: var(--font-body); font-size: 19cqw; font-weight: 800; letter-spacing: 0; text-overflow: ellipsis; }
+.sg-ability.slot-passive > .ab-ico > .g { background: radial-gradient(circle at 35% 30%, #4a5a34, #141a0c); color: #d8e8b0; }
+.sg-ability > .ab-ico.art-on > .g { visibility: hidden; }
 .sg-ability.dim > .ab-ico { filter: grayscale(0.8); }
 .sg-weapon-card:has(> .wc-art > .sg-art) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 0.6em; }
 .sg-weapon-card > .wc-art { grid-column: 2; grid-row: 1 / span 2; width: 7em; align-self: center; }

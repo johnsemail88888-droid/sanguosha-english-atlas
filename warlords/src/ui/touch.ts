@@ -174,7 +174,7 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
   const ads = btn('ads', 'ads', () => setAds(!adsOn), undefined, tx('开镜', 'Aim'), 'ads');
   const jump = btn('jump', 'jump', () => push({ a: 'jump' }), undefined, tx('跳跃', 'Jump'), 'jump');
   const dodge = btn('dodge', 'dodge', () => push({ a: 'dodge' }), undefined, tx('闪避', 'Dodge'), 'dodge');
-  const reload = btn('reload', 'reload', () => push({ a: 'reload' }), undefined, tx('换弹', 'Reload'), 'reload');
+  const reload = btn('reload', 'reload', () => push({ a: 'reload' }), undefined, tx('装弹', 'Reload'), 'reload');
   const swap = btn('swap', 'swap', () => push({ a: 'weapon', slot: activeSlot === 0 ? 1 : 0 }), undefined, tx('切换武器', 'Swap weapon'), 'swap');
   const interact = btn('interact', 'interact', () => {
     push({ a: 'interact' });

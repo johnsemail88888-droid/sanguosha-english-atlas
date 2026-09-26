@@ -233,6 +233,30 @@ export function isMapVisible(e: Pick<ViewEntity, 'flags'>, friendly: boolean): b
   return true;
 }
 
+/** A screen-space box on the map canvas (a region label). */
+export interface MapBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/**
+ * Where an icon of half-size (hw, hh) meant for (x, y) is drawn so it covers no region
+ * label (NP-12: the Lord's crown sat on 「洛阳宫城」, where the Lord spends the match):
+ * where it is when that is clear, else just above the label it would cover — below when
+ * the spot is in the label's lower half, or when above would leave the map.
+ */
+export function clearOfLabels(x: number, y: number, hw: number, hh: number, labels: readonly MapBox[], size: number, gap = 2): { x: number; y: number; moved: boolean } {
+  const hit = labels.find((b) => x + hw > b.x0 && x - hw < b.x1 && y + hh > b.y0 && y - hh < b.y1);
+  if (!hit) return { x, y, moved: false };
+  const up = hit.y0 - gap - hh;
+  const down = hit.y1 + gap + hh;
+  const preferUp = y <= (hit.y0 + hit.y1) / 2;
+  const ny = preferUp ? (up - hh >= 0 ? up : down) : down + hh <= size ? down : up;
+  return { x, y: ny, moved: true };
+}
+
 function drawCrown(g: CanvasRenderingContext2D, x: number, y: number, s: number, color: string): void {
   g.beginPath();
   g.moveTo(x - s, y + s * 0.6);
@@ -292,7 +316,7 @@ function drawExposedRing(g: CanvasRenderingContext2D, x: number, y: number, s: n
   g.stroke();
 }
 
-function drawMarkers(g: CanvasRenderingContext2D, tf: Transform, m: MarkerInput, px: number, big: boolean): void {
+function drawMarkers(g: CanvasRenderingContext2D, tf: Transform, m: MarkerInput, px: number, big: boolean, labels: readonly MapBox[] = []): void {
   const myId = m.me?.entityId;
   const myRole = m.me?.role;
   const squad = new Set(m.me?.squad.map((s) => s.id) ?? []);
@@ -342,12 +366,18 @@ function drawMarkers(g: CanvasRenderingContext2D, tf: Transform, m: MarkerInput,
     const marked = !!(e.flags & VF_MARKED);
     const exposed = !!(e.flags & VF_EXPOSED);
     if (!crown && !role && !marked && !ally && !exposed) continue;
-    const [sx, sy] = toScreen(tf, e.x, e.z);
-    if (!inView(sx, sy)) continue;
+    const [tx, ty] = toScreen(tf, e.x, e.z);
+    if (!inView(tx, ty)) continue;
+    const kind = crown ? crownKind(myRole, e, allies) : 'plain';
+    const s = (big ? 6 : 5) * px;
+    // a crown (with its halo) never sits on a region label: it moves just off it (the label names the spot)
+    const hw = kind !== 'plain' ? s * 1.45 : s;
+    const hh = kind !== 'plain' ? hw : s * 0.8;
+    const at = crown && labels.length ? clearOfLabels(tx, ty, hw, hh, labels, tf.size, 2 * px) : { x: tx, y: ty };
+    const sx = at.x;
+    const sy = at.y;
     if (exposed) drawExposedRing(g, sx, sy, (big ? 7 : 5.8) * px, pulse, px);
     if (crown) {
-      const kind = crownKind(myRole, e, allies);
-      const s = (big ? 6 : 5) * px;
       drawCrown(g, sx, sy, s, kind === 'decoy' ? CROWN_DECOY : CROWN_GOLD);
       if (kind !== 'plain') {
         // decoy: a silver crown with a 影 badge; ally: a green halo around the real Lord
@@ -431,19 +461,24 @@ export function drawBigMap(canvas: HTMLCanvasElement, map: MapData, m: MarkerInp
   g.clearRect(0, 0, size, size);
   g.imageSmoothingEnabled = true;
   g.drawImage(terrainCanvas(map, canvas.ownerDocument), 0, 0, size, size);
-  // region labels
+  // region labels (their boxes: the crowns keep off them)
   g.textAlign = 'center';
   g.textBaseline = 'middle';
+  const labels: MapBox[] = [];
   for (const r of map.regions) {
     const [x, y] = toScreen(tf, r.center.x, r.center.z);
     const label = lang === 'en' ? r.nameEn : r.nameZh;
-    g.font = `700 ${Math.round(15 * px)}px "STKaiti","KaiTi","Kaiti SC",serif`;
+    const fs = Math.round(15 * px);
+    g.font = `700 ${fs}px "STKaiti","KaiTi","Kaiti SC",serif`;
     g.lineWidth = 3.5 * px;
     g.strokeStyle = 'rgba(20, 12, 6, 0.85)';
     g.strokeText(label, x, y);
     g.fillStyle = '#f5e6c0';
     g.fillText(label, x, y);
+    const hw = g.measureText(label).width / 2 + 1.75 * px;
+    const hh = fs * 0.55 + 1.75 * px;
+    labels.push({ x0: x - hw, y0: y - hh, x1: x + hw, y1: y + hh });
   }
   drawZone(g, tf, m.zone, px);
-  drawMarkers(g, tf, m, px * 1.4, true);
+  drawMarkers(g, tf, m, px * 1.4, true, labels);
 }

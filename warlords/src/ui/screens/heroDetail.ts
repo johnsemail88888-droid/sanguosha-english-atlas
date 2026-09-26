@@ -10,6 +10,7 @@ import { kingdomColor } from '../theme';
 import { difficultyStars, kingdomBadge, magatamaRow } from '../widgets';
 import { gearArt } from '../cardArt';
 import { abilityArt, setArt } from '../artIcons';
+import { abilityShort } from '../short';
 
 export const SLOT_ORDER: Record<AbilityDef['slot'], number> = { passive: 0, q: 1, e: 2, lord: 3 };
 export const SLOT_KEY: Record<AbilityDef['slot'], string> = { passive: '', q: 'Q', e: 'E', lord: 'G' };
@@ -29,8 +30,10 @@ export function abilityBlock(a: AbilityDef, opts: { dimLord?: boolean } = {}): H
   if (a.cooldown) meta.push(t('select.cooldown', { n: a.cooldown }));
   if (a.charges && a.charges > 1) meta.push(t('select.charges', { n: a.charges }));
   const dim = a.slot === 'lord' && opts.dimLord;
-  // the painted skill icon beside the text (an empty, hidden slot without art)
-  const ico = h('span', { class: 'ab-ico' });
+  // the painted skill icon beside the text (a hidden slot without art); while the file loads the
+  // slot shows the skill's short name on a disc, like the HUD (NP-4) — never an empty indent
+  const en = getLang() === 'en';
+  const ico = h('span', { class: 'ab-ico' }, h('span', { class: `g${en ? ' en' : ''}`, aria: { hidden: 'true' } }, abilityShort(a, en ? 'en' : 'zh')));
   setArt(ico, abilityArt(a.id), { lazy: true });
   return h('div', { class: `sg-ability slot-${a.slot}${dim ? ' dim' : ''}` },
     ico,
@@ -67,6 +70,19 @@ export function weaponClassName(c: WeaponDef['class']): string {
   return n ? tx(n[0], n[1]) : c;
 }
 
+/**
+ * A hero's own named weapon (青龙偃月, 龙胆亮银枪 …) or a common gun anyone may start with
+ * (制式冲锋枪 / 卡宾枪 / 手枪): the detail panel heads it 专属武器 or 初始武器 (NP-8).
+ */
+export function isSignatureWeapon(w: Pick<WeaponDef, 'rarity'>): boolean {
+  return w.rarity !== 'common';
+}
+
+/** The 〔三国杀 card〕 note beside a weapon's name — only when it says something new (NP-10: not 诸葛连弩〔诸葛连弩〕). */
+export function weaponCardNote(w: Pick<WeaponDef, 'sgsCard' | 'nameZh'>): string | null {
+  return w.sgsCard && w.sgsCard !== w.nameZh ? `〔${w.sgsCard}〕` : null;
+}
+
 export function weaponBlock(w: WeaponDef): HTMLElement {
   const dmg = w.pellets > 1 ? `${w.damage}×${w.pellets}` : String(w.damage);
   // the painted render beside the stats (an empty, hidden slot without art)
@@ -76,7 +92,7 @@ export function weaponBlock(w: WeaponDef): HTMLElement {
     art,
     h('div', { class: 'wc-head' },
       h('span', { class: 'wc-name' }, tx(w.nameZh, w.nameEn)),
-      w.sgsCard ? h('span', { class: 'wc-card' }, `〔${w.sgsCard}〕`) : null,
+      weaponCardNote(w) ? h('span', { class: 'wc-card' }, weaponCardNote(w)) : null,
       h('span', { class: `wc-class rarity-${w.rarity}` }, weaponClassName(w.class)),
     ),
     h('div', { class: 'wc-stats' },
@@ -181,7 +197,7 @@ export function heroDetail(ctx: UiCtx, heroId: string, opts: HeroDetailOpts = {}
     ),
     h('div', { class: 'hd-abilities' }, sortedAbilities(def).map((a) => abilityBlock(a, { dimLord: opts.dimLord }))),
     h('div', { class: 'hd-gear' },
-      weapon ? h('div', { class: 'hd-sec' }, h('h4', null, t('select.signature')), weaponBlock(weapon)) : null,
+      weapon ? h('div', { class: 'hd-sec' }, h('h4', null, t(isSignatureWeapon(weapon) ? 'select.signature' : 'select.startWeapon')), weaponBlock(weapon)) : null,
       troop
         ? h('div', { class: 'hd-sec' }, h('h4', null, t('select.troops')),
             h('div', { class: 'hd-troop' }, h('b', null, tx(troop.nameZh, troop.nameEn)), h('span', { class: 'sg-mute' }, ` · ${troop.hp} ${t('common.hp')}${def.troopBonus ? tx(` · 兵力 +${def.troopBonus}`, ` · squad +${def.troopBonus}`) : ''}`)))
