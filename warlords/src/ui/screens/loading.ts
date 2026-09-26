@@ -10,7 +10,7 @@ import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, setClass } from '../dom';
 import { heroName, heroTitle, roleName, t, tx } from '../i18n';
 import { artBackdrop, type ArtBackdrop } from '../keyart';
-import { heroCard, roleSeal } from '../widgets';
+import { button, heroCard, roleSeal } from '../widgets';
 import { mySeat } from './roles';
 import { settings } from '../../game/settings';
 import { touchLabel, type TouchKey } from '../short';
@@ -78,13 +78,19 @@ const STAGES: Record<string, [number, string, string]> = {
   failed: [1, '开战！', 'To battle!'],
 };
 
+/** Built and ready, but the host has not started the clock yet (session.awaitingHostStart). */
+export function waitingForHost(stage: string, awaitingHost: boolean): boolean {
+  return (stage === 'ready' || stage === 'failed') && awaitingHost;
+}
+
 /**
  * The stage line under the bar. Built and ready while the host has not started the
  * clock yet (it — or a slow guest — is still loading; session.awaitingHostStart):
- * 「等待房主加载…」 instead of a 「开战！」 that would sit there for a minute (MP2-1).
+ * 「等待房主加载…」 instead of a 「开战！」 that would sit there for a minute (MP2-1),
+ * counting the seconds of that wait (`waitSecs`, ONL3: guests sat there 9 minutes).
  */
-export function loadStageText(stage: string, progress: number, awaitingHost: boolean): string {
-  if ((stage === 'ready' || stage === 'failed') && awaitingHost) return t('loading.waitHost');
+export function loadStageText(stage: string, progress: number, awaitingHost: boolean, waitSecs = 0): string {
+  if (waitingForHost(stage, awaitingHost)) return waitSecs >= 1 ? t('loading.waitHostFor', { n: Math.floor(waitSecs) }) : t('loading.waitHost');
   const st = STAGES[stage] ?? STAGES.sim;
   return `${tx(st[1], st[2])} ${Math.round(progress * 100)}%`;
 }
@@ -97,14 +103,39 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
   const barFill = h('i');
   const bar = h('div', { class: 'brush-bar det', role: 'progressbar', aria: { valuemin: '0', valuemax: '100' } }, barFill);
   const stageEl = h('div', { class: 'load-stage' });
+  // waiting on a slow host (ONL3): the seconds count and there is a way out (离开, Esc)
+  let waitSince: number | null = null;
+  let confirming = false;
+  const leave = (): void => {
+    if (confirming) return;
+    confirming = true;
+    // the host's session is the room: leaving closes it for everyone
+    void ctx.confirm(t(session.isHost ? 'pause.hostLeaveConfirm' : 'pause.leaveConfirm')).then((yes) => {
+      confirming = false;
+      if (yes && el.isConnected) ctx.leaveSession(true);
+    });
+  };
+  const leaveBtn = button(t('link.leave'), leave, { cls: 'small dark load-leave sg-hidden', sfx: 'back' });
+  const stageRow = h('div', { class: 'load-stage-row' }, stageEl, leaveBtn);
   const showStage = (): void => {
     barFill.style.width = `${Math.round(progress * 100)}%`;
     bar.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
-    const waiting = !!session.awaitingHostStart;
-    stageEl.textContent = loadStageText(stage, progress, waiting);
+    const waiting = waitingForHost(stage, !!session.awaitingHostStart);
+    const t0 = performance.now();
+    if (!waiting) waitSince = null;
+    else waitSince ??= t0;
+    stageEl.textContent = loadStageText(stage, progress, waiting, waitSince === null ? 0 : (t0 - waitSince) / 1000);
     el.dataset.stage = stage;
-    setClass(el, 'wait-host', waiting && (stage === 'ready' || stage === 'failed'));
+    setClass(el, 'wait-host', waiting);
+    setClass(leaveBtn, 'sg-hidden', !waiting || ctx.sessionKind !== 'online');
   };
+  bag.listen(el.ownerDocument, 'keydown', (ev) => {
+    if (ev.key !== 'Escape' || ev.defaultPrevented || !el.isConnected || leaveBtn.classList.contains('sg-hidden')) return;
+    // a modal (settings / confirm) above the screen gets the Esc first
+    if (el.ownerDocument.querySelector('.sg-modal-back')) return;
+    ev.preventDefault();
+    leave();
+  });
   let tipIndex = Math.floor(Math.random() * LOADING_TIPS.length);
   const tipEl = h('p', { class: 'tip-text' });
   const showTip = (): void => {
@@ -157,7 +188,7 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
           roleLine(),
           h('h1', { class: 'sg-h1' }, t('loading.title')),
           bar,
-          stageEl,
+          stageRow,
           h('div', { class: 'tip sg-dark' }, h('b', null, t('loading.tip')), tipEl),
         ),
       ),
@@ -188,6 +219,7 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
   return {
     el,
     relabel: () => {
+      leaveBtn.textContent = t('link.leave');
       render();
       showStage();
     },

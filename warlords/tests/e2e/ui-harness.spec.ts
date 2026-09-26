@@ -1160,12 +1160,34 @@ test('MP2-1 / MP2-2 guest link: the chip counts a silent host, offers 重试 / �
     await ctx.close();
   }
   // loading: the view is ready but the host's clock has not started → 等待房主加载…, not 开战！
-  const ld = await open('screen=loading&awaitHost=1', 1280, 720);
-  await expect(ld.page.locator('.load-stage')).toHaveText('等待房主加载…', { timeout: 15_000 });
+  // (ONL3: the wait counts its seconds, and a guest has a way out — 离开 / Esc)
+  const ld = await open('screen=loading&awaitHost=1&host=0', 1280, 720);
+  await expect(ld.page.locator('.load-stage')).toHaveText(/^等待房主加载…/, { timeout: 15_000 });
+  await expect(ld.page.locator('.load-stage')).toHaveText(/^等待房主加载… [1-9]\d* 秒$/, { timeout: 5000 });
+  const leaveBtn = ld.page.locator('.load-stage-row .load-leave');
+  await expect(leaveBtn).toBeVisible();
+  await expect(leaveBtn).toHaveText('离开');
+  // Esc asks first (确定离开当前对局？); 取消 stays
+  await ld.page.keyboard.press('Escape');
+  const dlg = ld.page.locator('.sg-modal-back');
+  await expect(dlg).toContainText('确定离开当前对局？');
+  await dlg.locator('.sg-btn', { hasText: '取消' }).click();
+  await expect(dlg).toHaveCount(0);
+  await expect(ld.page.locator('[data-screen="loading"]')).toBeVisible();
   await ld.page.evaluate(() => {
     (window as unknown as { __ui: { deps: { lastSession: { awaitingHostStart: boolean } } } }).__ui.deps.lastSession.awaitingHostStart = false;
   });
   await expect(ld.page.locator('.load-stage')).toHaveText('开战！ 100%');
+  await expect(leaveBtn).toBeHidden();
+  await ld.page.evaluate(() => {
+    (window as unknown as { __ui: { deps: { lastSession: { awaitingHostStart: boolean } } } }).__ui.deps.lastSession.awaitingHostStart = true;
+  });
+  // 离开 → confirmed → out of the room, back on the title
+  await leaveBtn.click();
+  await ld.page.locator('.sg-modal-back .sg-btn', { hasText: '确定' }).click();
+  await expect(ld.page.locator('[data-screen="title"]')).toBeVisible({ timeout: 15_000 });
+  expect(await ld.page.evaluate(() => (window as unknown as { __ui: { deps: { lastSession: { calls: string[] } } } }).__ui.deps.lastSession.calls)).toContain('leave');
+  expect(ld.errors).toEqual([]);
   await ld.ctx.close();
 });
 

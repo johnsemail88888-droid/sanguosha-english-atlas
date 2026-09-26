@@ -169,6 +169,7 @@ const DICT = {
   'loading.tip': ['提示', 'Tip'],
   'settings.applying': ['应用中…', 'Applying…'],
   'loading.waitHost': ['等待房主加载…', 'Waiting for the host to load…'],
+  'loading.waitHostFor': ['等待房主加载… {n} 秒', 'Waiting for the host to load… {n} s'],
 
   // ── HUD ──
   'hud.reloading': ['换弹中', 'Reloading'],

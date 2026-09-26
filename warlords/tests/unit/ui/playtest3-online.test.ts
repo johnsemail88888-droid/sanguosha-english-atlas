@@ -1,7 +1,12 @@
 // Playtest round-3 ONLINE UI fixes: the rejoin record never ages out under a live guest
-// session (ONL3: a drop 40 min after the join lost 重新加入 and the seat token).
-import { describe, expect, it } from 'vitest';
+// session (ONL3: a drop 40 min after the join lost 重新加入 and the seat token); the
+// loading screen counts a slow host's seconds (离开 / Esc: tests/e2e/ui-harness.spec.ts).
+import { afterEach, describe, expect, it } from 'vitest';
+import { overrideLang } from '../../../src/ui/i18n';
 import { REJOIN_MAX_AGE_MS, loadRejoin, refreshRejoin, saveRejoin } from '../../../src/ui/invite';
+import { loadStageText, waitingForHost } from '../../../src/ui/screens/loading';
+
+afterEach(() => overrideLang(null));
 
 class MemStore {
   private m = new Map<string, string>();
@@ -38,5 +43,27 @@ describe('ONL3: the rejoin record lives as long as the guest session', () => {
     expect(refreshRejoin(null, st, t0 + REJOIN_MAX_AGE_MS + 1)).toBeNull();
     // (and nothing was written)
     expect(loadRejoin(st, t0)).toMatchObject({ at: t0 });
+  });
+});
+
+describe('ONL3: the loading screen while a slow host loads', () => {
+  it('counts the seconds of the wait (from the first whole second)', () => {
+    overrideLang('zh');
+    expect(loadStageText('ready', 1, true, 0)).toBe('等待房主加载…');
+    expect(loadStageText('ready', 1, true, 0.9)).toBe('等待房主加载…');
+    expect(loadStageText('ready', 1, true, 23.7)).toBe('等待房主加载… 23 秒');
+    expect(loadStageText('failed', 1, true, 535)).toBe('等待房主加载… 535 秒');
+    // still building here: the progress, no counter
+    expect(loadStageText('models', 0.62, true, 40)).toBe('点将列阵（载入模型）… 62%');
+    expect(loadStageText('ready', 1, false, 40)).toBe('开战！ 100%');
+    overrideLang('en');
+    expect(loadStageText('ready', 1, true, 12)).toBe('Waiting for the host to load… 12 s');
+  });
+
+  it('waits for the host only once this page is ready and the host has not started the clock', () => {
+    expect(waitingForHost('ready', true)).toBe(true);
+    expect(waitingForHost('failed', true)).toBe(true);
+    expect(waitingForHost('warmup', true)).toBe(false);
+    expect(waitingForHost('ready', false)).toBe(false);
   });
 });
