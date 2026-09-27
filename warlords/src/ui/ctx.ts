@@ -74,4 +74,8 @@ export interface UiCtx {
   chatLog?(): LobbyChatLog | null;
   /** how the current online session connects (invite links carry it) */
   connection?(): { mode: 'peer' | 'ws'; net: NetServerConfig } | null;
+  /** open 性能体检 (is the GPU used, how fast, how to fix it) */
+  openPerfCheck?(): void;
+  /** probe the GPU again and run the 2 s benchmark (性能体检's 重新检测); ctx.gpu / the stored benchmark update */
+  recheckGpu?(): Promise<void>;
 }

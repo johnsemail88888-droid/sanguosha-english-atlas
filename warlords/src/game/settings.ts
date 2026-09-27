@@ -2,7 +2,29 @@
 // Read by render (fov/quality), input (sensitivity), audio (volumes), net (server), UI (everything).
 
 export type Lang = 'zh' | 'en';
-export type Quality = 'low' | 'medium' | 'high';
+/**
+ * Graphics tiers, cheapest first: 'potato' (极速 — playable even on a software
+ * renderer) … 'ultra' (极致 — strong GPUs). See QUALITY_TIERS.
+ */
+export type Quality = 'potato' | 'low' | 'medium' | 'high' | 'ultra';
+
+/** Every tier, from the cheapest to the richest (automatic quality steps along it). */
+export const QUALITY_TIERS: readonly Quality[] = ['potato', 'low', 'medium', 'high', 'ultra'];
+
+export function isQuality(v: unknown): v is Quality {
+  return typeof v === 'string' && (QUALITY_TIERS as readonly string[]).includes(v);
+}
+
+/** A GPU benchmark result (render/bench.ts), kept so it runs again only when the GPU changes. */
+export interface GpuBench {
+  /** the GPU it ran on (WebGL renderer string) */
+  gpu: string;
+  /** median frame time (ms) of the benchmark scene at its reference size (1280×720), and at a quarter of it */
+  ms: number;
+  msSmall: number;
+  /** Date.now() */
+  at: number;
+}
 
 export interface NetServerConfig {
   /** 'peer' = PeerJS WebRTC (default public cloud or custom), 'ws' = WebSocket relay server */
@@ -29,6 +51,8 @@ export interface UserSettings {
   fov: number; // 60 .. 100
   quality: Quality;
   showFps: boolean;
+  /** the last GPU benchmark (null: never ran) */
+  gpuBench: GpuBench | null;
   masterVolume: number; // 0..1
   musicVolume: number;
   sfxVolume: number;
@@ -48,6 +72,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   fov: 75,
   quality: 'medium',
   showFps: false,
+  gpuBench: null,
   masterVolume: 0.8,
   musicVolume: 0.5,
   sfxVolume: 0.9,
@@ -145,7 +170,7 @@ const NO_GPU: GpuInfo = { webgl2: false, reason: 'no DOM', renderer: '', vendor:
 let gpuCache: GpuInfo | null = null;
 
 /** Renderer / vendor strings of a context (the unmasked ones when the browser masks gl.RENDERER). */
-function readGpuStrings(gl: WebGLRenderingContext | WebGL2RenderingContext): { renderer: string; vendor: string } {
+export function readGpuStrings(gl: WebGLRenderingContext | WebGL2RenderingContext): { renderer: string; vendor: string } {
   let renderer = '';
   let vendor = '';
   try {
@@ -169,8 +194,8 @@ function readGpuStrings(gl: WebGLRenderingContext | WebGL2RenderingContext): { r
  * Probe WebGL once per page (cached): can a WebGL 2 context be created, and which
  * GPU does the browser use for it. The context is freed right away.
  */
-export function probeGpu(doc: Document | undefined = (globalThis as { document?: Document }).document): GpuInfo {
-  if (gpuCache) return gpuCache;
+export function probeGpu(doc: Document | undefined = (globalThis as { document?: Document }).document, fresh = false): GpuInfo {
+  if (gpuCache && !fresh) return gpuCache;
   if (!doc || typeof doc.createElement !== 'function') return NO_GPU;
   const attrs: WebGLContextAttributes = { failIfMajorPerformanceCaveat: false, powerPreference: 'default' };
   try {
@@ -204,7 +229,7 @@ function load(): UserSettings {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<UserSettings>;
       const q = parsed.quality;
-      const quality: Quality = q === 'low' || q === 'medium' || q === 'high' ? q : defaultQuality();
+      const quality: Quality = isQuality(q) ? q : defaultQuality();
       return { ...DEFAULT_SETTINGS, ...parsed, quality, net: { ...DEFAULT_SETTINGS.net, ...(parsed.net ?? {}) } };
     }
   } catch {

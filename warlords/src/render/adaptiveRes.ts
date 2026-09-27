@@ -3,6 +3,10 @@
 // frames are comfortably fast — with hysteresis and a back-off so it does not
 // oscillate. Pure logic (no DOM / three.js): GameRenderer feeds it the real
 // interval between two frames and applies `ratio` when update() says it moved.
+//
+// Also the automatic graphics tier: what a GPU benchmark (render/bench.ts) says
+// this machine can run (pickAutoTune).
+import { QUALITY_TIERS, type Quality } from '../game/settings';
 
 export interface AdaptiveResolutionOptions {
   /** smoothed frame time (ms) above which the ratio is lowered */
@@ -44,9 +48,9 @@ export const ADAPTIVE_RES_DEFAULTS: AdaptiveResolutionOptions = {
   pauseS: 5,
 };
 
-/** Lowest pixel ratio the controller may pick: 1.0, or 0.75 on the 'low' preset. */
+/** Lowest pixel ratio the controller may pick: 1.0, 0.75 on 'low', 0.5 on 'potato'. */
 export function adaptiveFloor(quality: string): number {
-  return quality === 'low' ? 0.75 : 1;
+  return quality === 'potato' ? 0.5 : quality === 'low' ? 0.75 : 1;
 }
 
 const EPS = 1e-6;
@@ -166,4 +170,100 @@ export class AdaptiveResolution {
 /** Round to 1/100 so repeated steps do not drift (0.75 + 0.25 === 1). */
 function snap(v: number): number {
   return Math.round(v * 100) / 100;
+}
+
+// ── automatic tier / render scale from the GPU benchmark ─────────────────────
+
+/**
+ * The benchmark's reference frame (render/bench.ts): a 'medium'-like scene drawn
+ * at 1280×720, and at a quarter of the pixels (640×360) to tell the fixed cost of
+ * a frame (draw submission, vertices, shadows) from the per-pixel one.
+ */
+export const BENCH_PIXELS = 1280 * 720;
+export const BENCH_SMALL_PIXELS = 640 * 360;
+
+/** Frame cost of each tier relative to 'medium' (the benchmark scene). */
+export const TIER_COST: Record<Quality, number> = { potato: 0.3, low: 0.5, medium: 1, high: 1.5, ultra: 2.1 };
+
+/**
+ * Frame time the automatic pick must fit (ms): 60 fps with ~20 % headroom for
+ * busy fights (the in-match controller corrects the rest).
+ */
+export const AUTO_BUDGET_MS = 13;
+
+/** A 'medium' frame on this machine: fixedMs + perMpx × megapixels rendered. */
+export interface FrameCost {
+  fixedMs: number;
+  perMpx: number;
+}
+
+/**
+ * The benchmark's two sizes → fixed and per-pixel cost. With one size only (or a
+ * noisy pair) 60 % of the frame is taken to scale with the pixels.
+ */
+export function frameCost(ms: number, msSmall?: number | null): FrameCost {
+  const big = BENCH_PIXELS / 1e6;
+  const small = BENCH_SMALL_PIXELS / 1e6;
+  if (msSmall && msSmall > 0 && msSmall <= ms * 1.05) {
+    const perMpx = Math.max(0, (ms - msSmall) / (big - small));
+    return { fixedMs: Math.max(0, ms - perMpx * big), perMpx };
+  }
+  return { fixedMs: ms * 0.4, perMpx: (ms * 0.6) / big };
+}
+
+/** Estimated frame time (ms) on `tier` rendering `pixels` device pixels. */
+export function estimateFrameMs(cost: FrameCost, tier: Quality, pixels: number): number {
+  return TIER_COST[tier] * (cost.fixedMs + (cost.perMpx * Math.max(0, pixels)) / 1e6);
+}
+
+/** Estimated frame rate on `tier` at pixel ratio `r` for a `cssPixels` view (see estimateFrameMs). */
+export function estimateFps(benchMs: number, benchSmallMs: number | null | undefined, tier: Quality, cssPixels: number, r = 1): number {
+  return Math.round(1000 / Math.max(0.1, estimateFrameMs(frameCost(benchMs, benchSmallMs), tier, cssPixels * r * r)));
+}
+
+export interface AutoTuneInput {
+  /** the benchmark's median frame ms at 1280×720 and 640×360 (null: none — a software renderer needs none) */
+  benchMs: number | null;
+  benchSmallMs?: number | null;
+  /** WebGL runs on a software renderer (hardware acceleration off) */
+  software: boolean;
+  /** the game view's size in CSS px (width × height) */
+  cssPixels: number;
+  /** window.devicePixelRatio */
+  dpr: number;
+}
+
+export interface AutoTunePick {
+  quality: Quality;
+  /** highest pixel ratio this tier may render at (the adaptive resolution's ceiling) */
+  maxPixelRatio: number;
+  /** estimated frame rate of the pick (null: no benchmark) */
+  fps: number | null;
+}
+
+const snapQ = (v: number): number => Math.floor(v * 4 + 1e-6) / 4;
+
+/**
+ * The richest tier whose estimated frame fits AUTO_BUDGET_MS at pixel ratio 1, and
+ * the highest pixel ratio (up to min(dpr, 2), in 0.25 steps) it still fits at: a
+ * strong GPU (≤ ~6 ms on the benchmark) gets 'ultra', a mid one 'medium', a weak
+ * one 'low', a very weak one — and any software renderer — 'potato'. No benchmark
+ * (it failed): 'medium' at up to 1.25 on hardware.
+ */
+export function pickAutoTune(i: AutoTuneInput): AutoTunePick {
+  const dprCap = Math.max(1, Math.min(2, i.dpr || 1));
+  const css = Math.max(1, i.cssPixels);
+  const cost = i.benchMs && i.benchMs > 0 ? frameCost(i.benchMs, i.benchSmallMs) : null;
+  const fpsAt = (tier: Quality, r: number): number | null => (cost ? Math.round(1000 / Math.max(0.1, estimateFrameMs(cost, tier, css * r * r))) : null);
+  if (i.software) return { quality: 'potato', maxPixelRatio: 1, fps: fpsAt('potato', 1) };
+  if (!cost) return { quality: 'medium', maxPixelRatio: Math.min(dprCap, 1.25), fps: null };
+  for (let k = QUALITY_TIERS.length - 1; k > 0; k--) {
+    const tier = QUALITY_TIERS[k];
+    if (estimateFrameMs(cost, tier, css) > AUTO_BUDGET_MS) continue;
+    // 'low' renders at ≤ 1 (its preset scales it down further)
+    let r = tier === 'low' ? 1 : snapQ(dprCap);
+    while (r > 1 && estimateFrameMs(cost, tier, css * r * r) > AUTO_BUDGET_MS) r = Math.max(1, r - 0.25);
+    return { quality: tier, maxPixelRatio: r, fps: fpsAt(tier, r) };
+  }
+  return { quality: 'potato', maxPixelRatio: 1, fps: fpsAt('potato', 1) };
 }

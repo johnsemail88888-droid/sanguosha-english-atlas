@@ -15,6 +15,8 @@
 //   &kind=online (hud / match as an online session: the menu reads 菜单 and never pauses)
 //   &awaitHost=1 (loading: the view is built, the host has not started the clock → 等待房主加载…)
 //   &gpu=<renderer string> (the GPU the probe reports; SwiftShader → the software-renderer warning)
+//   &perfcheck=1 (open 性能体检)  &autocheck=1 (it opens by itself on a problem)  &bench=<ms> (fake benchmark)
+//   &benched=<ms> (a stored benchmark result for that GPU)
 import type { RoleId, StatusId } from '../../core/types';
 import { setAssetListForTests } from '../../game/assets';
 import { settings } from '../../game/settings';
@@ -65,7 +67,20 @@ if (!root) throw new Error('#app missing');
 // `?nowebgl=1` previews the title screen of a browser without WebGL 2; `?gpu=<renderer string>`
 // pretends the browser renders with that GPU (`?gpu=SwiftShader`: the "not using the graphics
 // card" warning) — without it the harness reports no GPU, whatever the test browser uses
-const opts: MountAppOptions = { version: 'dev', gpu: params.get('gpu') ?? '', ...(params.get('nowebgl') === '1' ? { webgl: false } : {}) };
+const opts: MountAppOptions = {
+  version: 'dev',
+  gpu: params.get('gpu') ?? '',
+  // `?perfcheck=1` opens 性能体检; `?autocheck=1` lets it open by itself like the game does
+  initialPerfCheck: params.get('perfcheck') === '1',
+  autoPerfCheck: params.get('autocheck') === '1',
+  ...(params.get('nowebgl') === '1' ? { webgl: false } : {}),
+};
+// `?bench=<ms>`: what the fake GPU benchmark measures (0: it fails); `?benched=<ms>`: a stored result for the ?gpu
+if (params.has('bench')) deps.benchMs = Number(params.get('bench')) || 0;
+if (params.has('benched')) {
+  const ms = Number(params.get('benched')) || 5;
+  settings.update({ gpuBench: { gpu: opts.gpu ?? '', ms, msSmall: ms * 0.45, at: Date.now() } });
+}
 const online = params.get('online') !== '0';
 const isHost = params.get('host') !== '0';
 const view = {

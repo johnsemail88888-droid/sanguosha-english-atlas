@@ -6,6 +6,7 @@ import type { GameEvent } from './core/types';
 import type { GameSession } from './game/session';
 import { createLocalSession, hostOnlineSession, joinOnlineSession } from './net';
 import { mountGameView, mountHeroTurntable, renderHeroPortrait } from './render';
+import { runGpuBenchmark } from './render/bench';
 import type { ViewSource } from './render/view';
 import { registerAllVfx } from './render/vfx/registerAll';
 import { mountApp, type AppDeps, type GameHandle } from './ui/app';
@@ -95,6 +96,7 @@ const deps: AppDeps = {
   mountGame,
   renderHeroPortrait,
   mountHeroTurntable,
+  benchmarkGpu: (opts) => runGpuBenchmark(opts),
   audio: {
     ui: (name) => audio.ui(name),
     music: (track) => audio.music(track),

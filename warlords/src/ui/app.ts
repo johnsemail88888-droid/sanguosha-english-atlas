@@ -26,6 +26,7 @@ import { createGameOverScreen } from './screens/gameOver';
 import { createGalleryScreen } from './screens/gallery';
 import { createHelpScreen } from './screens/help';
 import { createSettingsPanel } from './screens/settings';
+import { createPerfCheckPanel } from './screens/perfCheck';
 import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
 import { clearRejoin, isReconnectable, loadRejoin, netFor, refreshRejoin, type RejoinInfo } from './invite';
@@ -40,6 +41,8 @@ export interface AppDeps {
   mountGame(container: HTMLElement, view: ViewSource, session: GameSession): GameHandle;
   renderHeroPortrait(heroId: string, size?: number): Promise<string>;
   mountHeroTurntable?(container: HTMLElement, heroId: string): { dispose(): void };
+  /** ~2 s GPU benchmark in its own offscreen context (render/bench.ts): median frame ms at 1280×720 and 640×360 (0: failed) */
+  benchmarkGpu?(opts?: { durationMs?: number; signal?: { aborted: boolean } }): Promise<{ ms: number; msSmall: number; renderer: string; error?: string }>;
   audio?: {
     ui(name: 'click' | 'hover' | 'confirm' | 'back' | 'flip' | 'error' | 'countdown' | 'reveal'): void;
     music(track: 'menu' | 'battle' | 'victory' | 'defeat' | null): void;
@@ -120,6 +123,14 @@ export interface MountAppOptions {
   webgl?: boolean;
   /** override the GPU renderer string of the probe (dev harness: `?gpu=SwiftShader` previews the software-renderer warning) */
   gpu?: string;
+  /**
+   * Open 性能体检 by itself when a problem is found (a software renderer; the GPU fixed
+   * since last time → ✅). Default: on, except in automated browsers (navigator.webdriver:
+   * the e2e suites run on SwiftShader and would be greeted by it on every page).
+   */
+  autoPerfCheck?: boolean;
+  /** open 性能体检 right after mounting (dev harness) */
+  initialPerfCheck?: boolean;
 }
 
 type MusicTrack = 'menu' | 'battle' | 'victory' | 'defeat' | null;
@@ -202,8 +213,12 @@ class App implements UiCtx {
   readonly version: string;
   /** WebGL 2 is available (probed once at boot): without it no match can render */
   readonly webgl: WebGLSupport;
-  /** the GPU the browser renders WebGL with (same probe) */
-  readonly gpu: { renderer: string; software: boolean };
+  /** the GPU the browser renders WebGL with (same probe; 重新检测 probes again) */
+  gpu: { renderer: string; software: boolean };
+  /** the harness pretends this GPU (never probes the real one) */
+  private readonly gpuOverride: string | undefined;
+  /** 性能体检 (modal) */
+  private perfPanel: Screen | null = null;
   /** the 3D view of the current match failed to start (the failure modal is up) */
   private loadFailed = false;
   /** blurred key art behind the menu screens (dropped during a match to free the decoded image) */
@@ -221,6 +236,7 @@ class App implements UiCtx {
     this.version = opts.version ?? '0.1.0';
     this.webgl = opts.webgl === undefined ? probeWebGL(host.ownerDocument) : { ok: opts.webgl, reason: opts.webgl ? null : 'disabled (dev harness)' };
     if (!this.webgl.ok) console.warn('[ui] WebGL 2 unavailable:', this.webgl.reason);
+    this.gpuOverride = opts.gpu;
     const renderer = opts.gpu ?? (opts.webgl === undefined ? probeGpu(host.ownerDocument).renderer : '');
     this.gpu = { renderer, software: isSoftwareGpu(renderer) };
     if (this.gpu.software) console.info('[ui] WebGL runs on a software renderer:', renderer);
@@ -265,6 +281,36 @@ class App implements UiCtx {
       if (kind === 'single' && session.phase === 'lobby') this.go('single');
     }
     if (opts.initialSettings) this.openSettings(opts.initialSettings);
+    if (opts.initialPerfCheck) this.openPerfCheck();
+    else if (opts.autoPerfCheck ?? !navigatorIsAutomated()) this.autoPerfCheck();
+  }
+
+  /**
+   * 性能体检 opens by itself (once per tab) when WebGL runs on a software renderer,
+   * and once more on the first visit after that was fixed — to show the ✅.
+   */
+  private autoPerfCheck(): void {
+    if (!this.webgl.ok || !this.gpu.renderer) return;
+    const SOFT_KEY = 'sgwl.gpu.software';
+    const SHOWN_KEY = 'sgwl.perfcheck.shown';
+    let wasSoftware = false;
+    let shown = false;
+    try {
+      wasSoftware = localStorage.getItem(SOFT_KEY) === '1';
+      shown = sessionStorage.getItem(SHOWN_KEY) === '1';
+      if (this.gpu.software) localStorage.setItem(SOFT_KEY, '1');
+      else localStorage.removeItem(SOFT_KEY);
+    } catch {
+      /* storage blocked: shown on every load, like the warning */
+    }
+    const open = this.gpu.software ? !shown : wasSoftware;
+    if (!open) return;
+    try {
+      sessionStorage.setItem(SHOWN_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+    this.openPerfCheck();
   }
 
   // ── UiCtx ─────────────────────────────────────────────────────────────────
@@ -345,7 +391,38 @@ class App implements UiCtx {
     this.settingsPanel.dispose();
     this.settingsPanel.el.remove();
     this.settingsPanel = null;
-    this.match?.hud.setSettingsOpen(false);
+    if (!this.perfPanel) this.match?.hud.setSettingsOpen(false);
+  }
+
+  openPerfCheck(): void {
+    this.closePerfCheck();
+    const panel = createPerfCheckPanel(this, () => this.closePerfCheck());
+    this.perfPanel = panel;
+    this.modalLayer.appendChild(panel.el);
+    panel.el.querySelector<HTMLElement>('.sg-perfcheck')?.focus({ preventScroll: true });
+    // a single-player match pauses behind it, like behind the settings
+    this.match?.hud.setSettingsOpen(true);
+  }
+
+  private closePerfCheck(): void {
+    if (!this.perfPanel) return;
+    this.perfPanel.dispose();
+    this.perfPanel.el.remove();
+    this.perfPanel = null;
+    if (!this.settingsPanel) this.match?.hud.setSettingsOpen(false);
+  }
+
+  /** 重新检测: probe the GPU again (the harness keeps its pretend GPU) and benchmark it (not a software renderer: nothing to measure). */
+  async recheckGpu(): Promise<void> {
+    if (this.gpuOverride === undefined && this.webgl.ok) {
+      const g = probeGpu(this.root.ownerDocument, true);
+      this.gpu = { renderer: g.renderer, software: isSoftwareGpu(g.renderer) };
+    }
+    const bench = this.deps.benchmarkGpu;
+    if (!bench || this.gpu.software || !this.webgl.ok) return;
+    const r = await bench({ durationMs: 2000 });
+    if (r.ms > 0) settings.update({ gpuBench: { gpu: this.gpu.renderer, ms: r.ms, msSmall: r.msSmall, at: Date.now() } });
+    else console.warn('[ui] GPU benchmark did not run:', r.error);
   }
 
   loadProgress(cb: (p: LoadProgress | null) => void): () => void {
@@ -873,6 +950,7 @@ class App implements UiCtx {
       }
     }
     if (this.settingsPanel?.relabel) this.settingsPanel.relabel();
+    if (this.perfPanel?.relabel) this.perfPanel.relabel();
     this.match?.hud.relabel();
   }
 
@@ -921,11 +999,13 @@ class App implements UiCtx {
     this.bag.listen(this.root.ownerDocument, 'keydown', unlock, { capture: true });
     // Esc closes the settings modal wherever focus is
     this.bag.listen(this.root.ownerDocument, 'keydown', (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape' && this.settingsPanel) {
+      if (ev.key === 'Escape' && (this.settingsPanel || this.perfPanel)) {
         ev.preventDefault();
         // the same Esc must not also toggle the in-match pause menu
         ev.stopImmediatePropagation();
-        this.closeSettings();
+        // 性能体检 opened from the settings sits on top of them: it closes first
+        if (this.perfPanel) this.closePerfCheck();
+        else this.closeSettings();
       }
     });
 
@@ -954,6 +1034,7 @@ class App implements UiCtx {
     if (this.prefetchTimer !== null) clearTimeout(this.prefetchTimer);
     this.menuArt?.dispose();
     this.closeSettings();
+    this.closePerfCheck();
     this.leaveSession(false, true);
     if (this.screen) {
       this.screen.dispose();
@@ -973,4 +1054,13 @@ class App implements UiCtx {
 export function mountApp(root: HTMLElement, deps: AppDeps, opts: MountAppOptions = {}): { dispose(): void } {
   const app = new App(root, deps, opts);
   return { dispose: () => app.dispose() };
+}
+
+/** An automated browser (WebDriver / Playwright): no unasked-for dialogs over the page. */
+function navigatorIsAutomated(): boolean {
+  try {
+    return !!(globalThis.navigator as { webdriver?: boolean } | undefined)?.webdriver;
+  } catch {
+    return false;
+  }
 }

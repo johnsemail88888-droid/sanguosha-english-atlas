@@ -88,6 +88,7 @@ export class Hud {
   private readonly regionEl: HTMLElement;
   /** F3 / 设置 → 显示帧率: frame rate, frame and JS time, draw calls, render scale, tier, GPU */
   private readonly fpsEl: HTMLElement;
+  private readonly perfRows: HTMLElement;
   /** top-left column under the role chip: the software-renderer warning and the F3 panel */
   private readonly diagEl: HTMLElement;
   private readonly touchBar: HTMLElement;
@@ -213,7 +214,10 @@ export class Hud {
     this.regionEl = h('div', { class: 'mm-region' });
     this.minimapWrap = h('div', { class: 'hud-minimap' }, h('div', { class: 'mm-ring' }, this.minimapCanvas, h('span', { class: 'mm-n' }, tx('北', 'N'))), this.regionEl);
     this.bag.listen(this.minimapWrap, 'click', () => this.toggleOverlay('map'));
-    this.fpsEl = h('div', { class: 'hud-perf sg-hidden', aria: { hidden: 'true' } });
+    this.perfRows = h('div', { class: 'rows' });
+    // 性能体检 from the panel (clickable while the pointer is free: pause menu, touch)
+    const perfOpen = ctx.openPerfCheck ? button(tx('性能体检', 'Performance check'), () => this.ctx.openPerfCheck?.(), { cls: 'small dark pc-open' }) : null;
+    this.fpsEl = h('div', { class: 'hud-perf sg-hidden' }, this.perfRows, perfOpen);
     // WebGL on a software renderer: the match crawls whatever the machine — say so (desktop HUD; the title says it too)
     const gpu = ctx.gpu;
     const gpuWarn = gpu?.software && !gpuWarnDismissed(gpu.renderer) ? gpuWarning('hud', gpu.renderer, () => gpuWarn?.remove()) : null;
@@ -1229,8 +1233,8 @@ export class Hud {
       p = null;
     }
     const lines = perfLines(p, { fps: hudFps, ms: hudFps > 0 ? 1000 / hudFps : 0 }, this.ctx.gpu?.renderer ?? '');
-    const rows = this.fpsEl.children;
-    if (rows.length !== lines.length) this.fpsEl.replaceChildren(...lines.map((l, i) => h('div', { class: i === lines.length - 1 ? 'gpu' : 'ln' }, l)));
+    const rows = this.perfRows.children;
+    if (rows.length !== lines.length) this.perfRows.replaceChildren(...lines.map((l, i) => h('div', { class: i === lines.length - 1 ? 'gpu' : 'ln' }, l)));
     else lines.forEach((l, i) => setText(rows[i] as HTMLElement, l));
   }
 

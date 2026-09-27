@@ -103,6 +103,7 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
   const gpuLine = (): HTMLElement => {
     const { renderer, software } = ctx.gpu;
     return h('div', { class: `set-gpu${software ? ' soft' : ''}`, title: renderer },
+      ctx.openPerfCheck ? button(tx('性能体检', 'Performance check'), () => ctx.openPerfCheck?.(), { cls: 'small gold pc-open' }) : null,
       h('span', { class: 'lbl' }, tx('显卡：', 'GPU: ')),
       h('b', null, gpuShortName(renderer) || tx('未知', 'unknown')),
       software ? h('span', { class: 'warn' }, tx('（软件渲染：浏览器没有使用显卡）', ' (software rendering: the browser is not using the GPU)')) : null,
