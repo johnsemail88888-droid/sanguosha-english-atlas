@@ -14,10 +14,9 @@ const APP_NAME = '三国杀·枪火乱世';
 // Use the graphics card, always: the game is unplayable on Chromium's software
 // fallback (SwiftShader), which a blocklisted driver or a laptop's power-saving GPU
 // choice would otherwise give it. Must be set before the app is ready.
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('force_high_performance_gpu');
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
+for (const sw of ['ignore-gpu-blocklist', 'force_high_performance_gpu', 'enable-gpu-rasterization', 'enable-zero-copy']) {
+  if (app.commandLine) app.commandLine.appendSwitch(sw);
+}
 const ROOT = app.isPackaged ? app.getAppPath() : path.join(__dirname, '..');
 let server = null;
 let win = null;
@@ -96,17 +95,17 @@ function gpuStatus() {
   let status = {};
   try {
     status = app.getGPUFeatureStatus() || {};
+    console.info('[desktop] GPU feature status', JSON.stringify(status));
+    app
+      .getGPUInfo('basic')
+      .then((info) => {
+        const devices = (info && info.gpuDevice) || [];
+        console.info('[desktop] GPUs', JSON.stringify(devices.map((d) => ({ vendorId: d.vendorId, deviceId: d.deviceId, active: d.active, driver: d.driverVersion }))));
+      })
+      .catch(() => undefined);
   } catch (err) {
     console.warn('[desktop] GPU feature status unavailable', err);
   }
-  console.info('[desktop] GPU feature status', JSON.stringify(status));
-  app
-    .getGPUInfo('basic')
-    .then((info) => {
-      const devices = (info && info.gpuDevice) || [];
-      console.info('[desktop] GPUs', JSON.stringify(devices.map((d) => ({ vendorId: d.vendorId, deviceId: d.deviceId, active: d.active, driver: d.driverVersion }))));
-    })
-    .catch(() => undefined);
   return String(status.webgl2 || status.webgl || '');
 }
 
