@@ -7,7 +7,15 @@
 // makes that the `npm run build` output in dist/ (otherwise it builds its own).
 import { defineConfig, devices } from '@playwright/test';
 
-const headless = process.env.SGWL_MAC_HEADED !== '1';
+// each engine headless (as CI browsers usually run) and headed (a real window on the
+// runner's desktop, like a player's browser: pointer lock needs a focused window)
+const modes = (process.env.SGWL_MAC_MODES ?? 'headless,headed').split(',').filter(Boolean);
+const engines = {
+  webkit: { ...devices['Desktop Safari'] },
+  // the full Chromium build (new headless), which draws with the GPU like Chrome does;
+  // no extra switches: the audio must unlock on a click and the GPU be found as in Chrome
+  chromium: { ...devices['Desktop Chrome'], channel: 'chromium' },
+};
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -25,20 +33,11 @@ export default defineConfig({
     navigationTimeout: 120_000,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
-    headless,
   },
-  projects: [
-    { name: 'webkit', use: { ...devices['Desktop Safari'], viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 } },
-    {
-      name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        viewport: { width: 1280, height: 720 },
-        deviceScaleFactor: 1,
-        // the full Chromium build (new headless), which draws with the GPU like Chrome does;
-        // no extra switches: the audio must unlock on a click and the GPU be found as in Chrome
-        channel: 'chromium',
-      },
-    },
-  ],
+  projects: modes.flatMap((mode) =>
+    Object.entries(engines).map(([name, use]) => ({
+      name: mode === 'headless' ? name : `${name}-${mode}`,
+      use: { ...use, viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1, headless: mode === 'headless' },
+    })),
+  ),
 });

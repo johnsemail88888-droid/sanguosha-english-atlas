@@ -15,7 +15,7 @@
 // screenshots; the numbers (renderer, tier, fps) to the GitHub step summary.
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { PORT_OFFSET, enterGame, holdKeyUntilMoved, pickHero, playSingle, relevantErrors, startPreview, waitMatch, type Server, type SgwlWindow } from './fixtures/game-fixture';
+import { PORT_OFFSET, holdKeyUntilMoved, pickHero, playSingle, relevantErrors, startPreview, waitMatch, type Server, type SgwlWindow } from './fixtures/game-fixture';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -165,12 +165,50 @@ const perf = (page: Page): Promise<PerfLike | null> =>
     const r = ((window as SgwlWindow).__sgwl?.handle as { renderer?: { perf(): PerfLike } } | null)?.renderer;
     return r ? { ...r.perf() } : null;
   });
+/** What stands between the player and the game: HUD overlay, pointer lock, focus, the lock events seen. */
+const lockState = (page: Page) =>
+  page.evaluate(() => {
+    const hud = document.querySelector<HTMLElement>('.sg-hud');
+    return {
+      overlay: hud?.dataset.overlay ?? null,
+      pauseMode: hud?.dataset.pauseMode ?? null,
+      locked: document.pointerLockElement !== null,
+      focus: document.hasFocus(),
+      visibility: document.visibilityState,
+      lockEvents: (window as unknown as { __lockLog?: string[] }).__lockLog ?? [],
+    };
+  });
+
+/**
+ * Click into the game (pointer lock) until no overlay is open, like enterGame, but
+ * logging every step: headless browsers on macOS may refuse the pointer lock.
+ */
+async function enterPlay(page: Page, who: string): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __lockLog?: string[] };
+    if (w.__lockLog) return;
+    const log: string[] = (w.__lockLog = []);
+    document.addEventListener('pointerlockchange', () => log.push(`change:${document.pointerLockElement !== null ? 'locked' : 'free'}`));
+    document.addEventListener('pointerlockerror', () => log.push('error'));
+  });
+  const vp = page.viewportSize() ?? { width: 1280, height: 720 };
+  for (let i = 0; i < 6; i++) {
+    const st = await lockState(page);
+    if (st.overlay === 'none') return;
+    console.log(`[mac] ${who} enter #${i}: ${JSON.stringify(st)}`);
+    await page.mouse.click(vp.width / 2, vp.height * 0.62);
+    await page.waitForTimeout(700);
+  }
+  const st = await lockState(page);
+  if (st.overlay !== 'none') throw new Error(`cannot enter the game (pointer lock): ${JSON.stringify(st)}`);
+}
+
 const elapsed = (page: Page): Promise<number> => page.evaluate(() => (window as SgwlWindow).__sgwl!.elapsed());
 const storedSettings = (page: Page): Promise<Record<string, unknown>> => page.evaluate(() => JSON.parse(localStorage.getItem('sgwl.settings.v1') ?? '{}') as Record<string, unknown>);
 
-test('Mac smoke: title → audio → GPU tier → single player: move / aim / fire → pause → 设置 GPU → title', async ({ browser, browserName }) => {
+test('Mac smoke: title → audio → GPU tier → single player: move / aim / fire → pause → 设置 GPU → title', async ({ browser, browserName }, info) => {
   test.setTimeout(15 * 60_000);
-  const rows: Record<string, unknown> = { engine: `${browserName} ${browser.version()}` };
+  const rows: Record<string, unknown> = { engine: `${browserName} ${browser.version()}${info.project.use.headless === false ? ' (headed)' : ''}` };
   let g: MacPage | null = null;
   try {
     // 自动 quality with the benchmark on (?autotune=1: automated browsers skip it otherwise)
@@ -210,8 +248,8 @@ test('Mac smoke: title → audio → GPU tier → single player: move / aim / fi
     rows.loadMs = await page.evaluate(() => JSON.stringify((window as SgwlWindow).__sgwl!.timings));
     const fp = await page.evaluate(() => ((window as SgwlWindow).__sgwl!.handle as { renderer: { firstPerson: boolean } }).renderer.firstPerson);
     expect(fp, 'first person by default with mouse + keyboard').toBe(true);
-    await enterGame(page);
-    rows.pointerLock = await page.evaluate(() => document.pointerLockElement !== null);
+    await enterPlay(page, browserName);
+    rows.pointerLock = await lockState(page);
     await shot('02-match');
     const t0 = await elapsed(page);
 
@@ -297,16 +335,20 @@ test('Mac smoke: title → audio → GPU tier → single player: move / aim / fi
     rows.result = 'passed';
   } catch (err) {
     rows.result = `FAILED: ${(err as Error).message.split('\n')[0]}`;
-    if (g) rows.errors = relevantErrors(g.errors).slice(0, 5);
+    if (g) {
+      rows.errors = relevantErrors(g.errors).slice(0, 5);
+      rows.state = await lockState(g.page).catch(() => null);
+      console.log(`[mac] ${browserName} console (last 60 lines):\n${g.lines.slice(-60).join('\n')}`);
+    }
     throw err;
   } finally {
-    summarize(`Mac smoke · ${browserName}`, rows);
+    summarize(`Mac smoke · ${info.project.name || browserName}`, rows);
     await g?.close();
   }
 });
 
-test('Mac smoke: P2P join between two WebKit players (PeerJS cloud)', async ({ browser, browserName }) => {
-  test.skip(browserName !== 'webkit', 'P2P runs between two WebKit (Safari) contexts');
+test('Mac smoke: P2P join between two WebKit players (PeerJS cloud)', async ({ browser, browserName }, info) => {
+  test.skip(browserName !== 'webkit' || info.project.use.headless === false, 'P2P runs between two headless WebKit (Safari) contexts');
   test.setTimeout(12 * 60_000);
   const reachable = await fetch(`https://0.peerjs.com/peerjs/id?ts=${Date.now()}`, { signal: AbortSignal.timeout(8000) }).then(
     (r) => r.ok,
@@ -350,7 +392,6 @@ test('Mac smoke: P2P join between two WebKit players (PeerJS cloud)', async ({ b
     // the guest's clock follows the host's
     const c0 = await elapsed(guest.page);
     await expect.poll(() => elapsed(guest.page), { message: 'the guest clock runs', timeout: 30_000 }).toBeGreaterThan(c0 + 2);
-    await enterGame(guest.page);
     await guest.page.screenshot({ path: test.info().outputPath('webkit-p2p-guest.png') });
     await host.page.screenshot({ path: test.info().outputPath('webkit-p2p-host.png') });
     for (const p of pages) expect(relevantErrors(p.errors)).toEqual([]);
@@ -358,6 +399,7 @@ test('Mac smoke: P2P join between two WebKit players (PeerJS cloud)', async ({ b
   } catch (err) {
     rows.result = `FAILED: ${(err as Error).message.split('\n')[0]}`;
     rows.errors = pages.flatMap((p) => relevantErrors(p.errors)).slice(0, 5);
+    for (const p of pages) console.log(`[mac] p2p console (last 40 lines):\n${p.lines.slice(-40).join('\n')}`);
     throw err;
   } finally {
     summarize(`Mac smoke · P2P (${browserName})`, rows);

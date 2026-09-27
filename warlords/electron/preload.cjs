@@ -53,6 +53,16 @@ const arg = (name) => {
 
 const isUrlList = (v) => Array.isArray(v) && v.every((u) => typeof u === 'string');
 
+/** Asked from the main process, which answers once the GPU process has reported (see main.cjs gpuReady). */
+function webglStatus() {
+  try {
+    const v = ipcRenderer.sendSync('sgwl:webgl');
+    return typeof v === 'string' ? v : '';
+  } catch {
+    return '';
+  }
+}
+
 let lanUrls = [];
 try {
   lanUrls = JSON.parse(decodeURIComponent(arg('sgwl-lan')) || '[]');
@@ -74,6 +84,6 @@ contextBridge.exposeInMainWorld('sgwlDesktop', {
     }
   },
   port: Number(arg('sgwl-port') || 8787),
-  /** how Chromium runs WebGL (app.getGPUFeatureStatus().webgl2: 'enabled…' = on the GPU; '' unknown) */
-  webgl: decodeURIComponent(arg('sgwl-webgl') || ''),
+  /** how Chromium runs WebGL (app.getGPUFeatureStatus().webgl: 'enabled…' = on the GPU; '' unknown) */
+  webgl: webglStatus(),
 });
