@@ -8,9 +8,9 @@
 import * as THREE from 'three';
 import type { Vec3 } from '../core/math';
 import { dirFromYawPitch } from '../core/math';
-import type { EntityId, GameEvent, ViewEntity } from '../core/types';
+import type { AbilitySlot, EntityId, GameEvent, ViewEntity } from '../core/types';
 import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
-import { WEAPON_BY_ID } from '../data';
+import { ABILITY_BY_ID, ABILITY_HERO, WEAPON_BY_ID, heroAbility } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { ViewSource } from './view';
 import { HERO_VIEW_RANGE, groundVariant, presetPixelRatio, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
@@ -49,6 +49,7 @@ import { MountRig } from './models/mounts';
 import { Effects } from './vfx/effects';
 import { handleEvents, shotClass } from './vfx/eventVfx';
 import { ZoneVisual } from './vfx/zone';
+import { SkillPreview, type PreviewUnit } from './vfx/skillPreview';
 import { autoScaleCap } from './adaptiveRes';
 import { GpuTimer } from './gpuTimer';
 
@@ -208,6 +209,11 @@ export class GameRenderer {
   /** keep the last picture on screen while a switch compiles the scene's programs */
   private holdRender = false;
   private readonly applyingSubs = new Set<(applying: boolean) => void>();
+  /** skill targeting preview on the ground while an aimed skill's key is held (vfx/skillPreview.ts) */
+  private readonly skillPreview = new SkillPreview();
+  private skillAimSlot: AbilitySlot | null = null;
+  /** the last crosshair query (InputController samples it right before frame()) */
+  private lastPick: { aimPoint: Vec3; aimTargetId?: EntityId } | null = null;
 
   constructor(canvas: HTMLCanvasElement, view: ViewSource, opts: GameRendererOptions = {}) {
     this.canvas = canvas;
@@ -280,6 +286,8 @@ export class GameRenderer {
     this.scene.add(this.entities.group);
     this.zone = new ZoneVisual(displayMap(map));
     this.scene.add(this.zone.group);
+    this.skillPreview.groundY = (x, z) => this.pickWorld.groundHeight(x, z);
+    this.scene.add(this.skillPreview.group);
     this.post = new PostChain(this.renderer, this.sky, this.scene, this.camera, {
       bloom: this.preset.bloom,
       vignette: this.preset.post,
@@ -369,7 +377,9 @@ export class GameRenderer {
         camPos: this.camera.position,
       });
       this.trackLocalDamage(evs, localId);
+      this.skillCastFlash(evs, localId, localEnt, local);
     }
+    this.updateSkillPreview(d, localEnt, local);
 
     // 4. local fire feedback (instant muzzle / tracer, audio hook)
     this.localFire(d, localEnt, local);
@@ -663,8 +673,22 @@ export class GameRenderer {
       minDist,
       maxUnitDist: this.preset.characterDistance,
     });
-    if (!hit) return { aimPoint: { x: origin.x + dir.x * maxDist, y: origin.y + dir.y * maxDist, z: origin.z + dir.z * maxDist } };
-    return hit.entityId !== undefined ? { aimPoint: hit.point, aimTargetId: hit.entityId } : { aimPoint: hit.point };
+    const out = !hit
+      ? { aimPoint: { x: origin.x + dir.x * maxDist, y: origin.y + dir.y * maxDist, z: origin.z + dir.z * maxDist } }
+      : hit.entityId !== undefined
+        ? { aimPoint: hit.point, aimTargetId: hit.entityId }
+        : { aimPoint: hit.point };
+    this.lastPick = out;
+    return out;
+  }
+
+  /**
+   * The skill whose key is held (InputController, every frame): its targeting preview is
+   * drawn on the ground. Returns whether releasing now would act (false: no target in range).
+   */
+  setSkillAim(slot: AbilitySlot | null): boolean {
+    this.skillAimSlot = slot;
+    return this.skillPreview.valid;
   }
 
   getCameraPose(): { pos: Vec3; yaw: number; pitch: number } {
@@ -798,6 +822,7 @@ export class GameRenderer {
     this.fx.dispose();
     this.fp.dispose();
     this.zone.dispose();
+    this.skillPreview.dispose();
     this.fires.dispose();
     this.grass.dispose();
     this.world.dispose();
@@ -1194,6 +1219,45 @@ export class GameRenderer {
     this.zoomNow = rig.currentZoom;
     this.fp.active = rig.mode === 'first';
     rig.apply(dt);
+  }
+
+  /** The held skill's preview (hidden while dead, downed, spectating or in the free camera). */
+  private updateSkillPreview(dt: number, localEnt: ViewEntity | undefined, local: ReturnType<ViewSource['local']>): void {
+    const alive = !!localEnt && !!local && !local.dead && !local.downed && this.freeCam === null;
+    const def = alive && this.skillAimSlot ? heroAbility(local!.heroId, this.skillAimSlot) ?? null : null;
+    const pick = this.lastPick;
+    this.skillPreview.update(dt, {
+      def,
+      caster: localEnt ? { x: localEnt.x, y: localEnt.y, z: localEnt.z } : null,
+      yaw: this.look.fresh ? this.look.yaw : localEnt?.yaw ?? 0,
+      aimPoint: pick?.aimPoint ?? null,
+      target: def ? this.previewUnit(pick?.aimTargetId, localEnt) : null,
+    });
+  }
+
+  private previewUnit(id: EntityId | undefined, localEnt: ViewEntity | undefined): PreviewUnit | null {
+    const t = id !== undefined ? this.view.get(id) : undefined;
+    if (!t || !localEnt || t.flags & VF_DEAD) return null;
+    const own = t.id === localEnt.id || t.owner === localEnt.id || this.squad.has(t.id);
+    return { id: t.id, x: t.x, y: t.y, z: t.z, kind: t.kind, own };
+  }
+
+  /** Our own cast: its area stays on the ground for a moment (a key tap or a touch button shows it too). */
+  private skillCastFlash(evs: readonly GameEvent[], localId: EntityId | null, localEnt: ViewEntity | undefined, local: ReturnType<ViewSource['local']>): void {
+    if (localId === null || !localEnt || !local) return;
+    for (const ev of evs) {
+      if (ev.t !== 'ability' || ev.src !== localId || ev.proc) continue;
+      const def = ABILITY_BY_ID[ev.ability];
+      if (!def || ABILITY_HERO[ev.ability] !== local.heroId) continue;
+      const pick = this.lastPick;
+      this.skillPreview.castOf(def, () => ({
+        def,
+        caster: { x: localEnt.x, y: localEnt.y, z: localEnt.z },
+        yaw: ev.dir ? Math.atan2(-ev.dir.x, -ev.dir.z) : this.look.yaw,
+        aimPoint: ev.pos ?? pick?.aimPoint ?? { x: localEnt.x, y: localEnt.y, z: localEnt.z },
+        target: this.previewUnit(ev.target, localEnt),
+      }));
+    }
   }
 
   private readonly focusVec = new THREE.Vector3();

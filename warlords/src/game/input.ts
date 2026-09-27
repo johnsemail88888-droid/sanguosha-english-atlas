@@ -2,13 +2,15 @@
 // per match view. The touch overlay (src/ui/touch*.ts) drives it through the
 // InputSink methods. UI-only keys (Tab/M/Enter/Esc/T) are reported through
 // onUiKey() instead of InputActions.
-import type { EntityId, InputAction, InputFrame } from '../core/types';
+import type { AbilitySlot, EntityId, InputAction, InputFrame } from '../core/types';
 import type { Vec3 } from '../core/math';
 import { clamp, wrapAngle } from '../core/math';
 import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, BTN_INTERACT, BTN_JUMP, BTN_SPRINT, emptyInput } from '../core/types';
 import type { InputSink } from './input-types';
 import { settings } from './settings';
 import { CAMERA_TOGGLE_KEY, resolveCameraView, toggledCameraView, type CameraView } from '../render/camera/viewMode';
+import { heroAbility } from '../data/heroes';
+import { skillAimed } from '../data/skillInfo';
 
 /** Radians of yaw/pitch per pixel of mouse movement at sensitivity 1. */
 export const LOOK_RAD_PER_PX = 0.0022;
@@ -20,8 +22,40 @@ export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
 export interface InputRendererLike {
   pick(): { aimPoint: Vec3; aimTargetId?: EntityId };
   setLookAngles?(yaw: number, pitch: number, ads?: boolean, fireHeld?: boolean, firstPerson?: boolean): void;
+  /** the skill whose key is held (its targeting preview), null for none; returns whether the aim is valid now */
+  setSkillAim?(slot: AbilitySlot | null): boolean;
   readonly adsZoom?: number;
-  readonly view?: { viewTick(): number; local(): { activeSlot: number; weapons: unknown[] } | null; localId(): EntityId | null; get(id: EntityId): { yaw: number; pitch: number; x?: number; z?: number } | undefined };
+  readonly view?: {
+    viewTick(): number;
+    local(): { activeSlot: number; weapons: unknown[]; heroId?: string; role?: string; cooldowns?: Record<string, number>; charges?: Record<string, number>; downed?: boolean; dead?: boolean } | null;
+    localId(): EntityId | null;
+    get(id: EntityId): { yaw: number; pitch: number; x?: number; z?: number } | undefined;
+  };
+}
+
+/** The held skill preview as the HUD reads it: which slot, and whether releasing now would find its target. */
+export interface SkillAimInfo {
+  slot: AbilitySlot;
+  valid: boolean;
+}
+
+/**
+ * Slots of this hero whose skills preview while held and cast on release: the aimed
+ * skills (an area on the ground or a unit to pick, data/skillInfo.ts) that are ready.
+ * A skill on cooldown (or a downed / dead hero) casts on press, so the refusal shows at once.
+ */
+export function aimSlotsFor(local: { heroId?: string; role?: string; cooldowns?: Record<string, number>; charges?: Record<string, number>; downed?: boolean; dead?: boolean } | null): AbilitySlot[] {
+  if (!local?.heroId || local.downed || local.dead) return [];
+  const out: AbilitySlot[] = [];
+  for (const slot of ['q', 'e', 'lord'] as const) {
+    // the lord skill works for the real Lord only (anyone else's G is refused on press)
+    if (slot === 'lord' && local.role !== 'lord') continue;
+    const def = heroAbility(local.heroId, slot);
+    if (!def || !skillAimed(def)) continue;
+    const ready = def.charges ? (local.charges?.[def.id] ?? def.charges) > 0 : !((local.cooldowns?.[def.id] ?? 0) > 0);
+    if (ready) out.push(slot);
+  }
+  return out;
 }
 
 /** Yaw (core/math convention: forward = (−sin yaw, −cos yaw)) that faces from `a` towards `b`. */
@@ -156,6 +190,13 @@ export class InputState {
   private actions: InputAction[] = [];
   /** a slot key was pressed while X was held: X's own order is not sent on release */
   private discardChord = false;
+  /**
+   * Skill slots that preview while their key is held and cast on release (aimed skills
+   * that are ready — see InputController.sample). Others cast on press, as before.
+   */
+  private aimSlots: readonly AbilitySlot[] = [];
+  /** the held skill key whose targeting preview is showing */
+  private aim: { slot: AbilitySlot; code: string } | null = null;
   enabled = true;
   /** the camera is first person: frames carry BTN_FIRST_PERSON (the host's crosshair / shots start at the eye) */
   firstPerson = false;
@@ -185,10 +226,20 @@ export class InputState {
       return;
     }
     const b = KEY_MAP[code];
+    // an aimed skill: show its preview while held, cast on release (another skill key switches the preview)
+    if (b?.kind === 'action' && b.action.a === 'ability' && this.aimSlots.includes(b.action.slot)) {
+      this.aim = { slot: b.action.slot, code };
+      return;
+    }
     if (b?.kind === 'action') this.pushAction(b.action);
   }
 
   keyUp(code: string): void {
+    if (this.aim && this.aim.code === code) {
+      const slot = this.aim.slot;
+      this.aim = null;
+      this.pushAction({ a: 'ability', slot });
+    }
     if (code === DISCARD_KEY && this.keys.has(code) && !this.discardChord) {
       const b = KEY_MAP[code];
       if (b?.kind === 'action') this.pushAction(b.action);
@@ -202,8 +253,28 @@ export class InputState {
 
   setMouseButton(btn: 'fire' | 'ads', down: boolean): void {
     if (!this.enabled && down) return;
+    // right click while a skill preview shows cancels the skill (MOBA style) instead of aiming
+    if (btn === 'ads' && down && this.aim) {
+      this.aim = null;
+      return;
+    }
     if (btn === 'fire' && down) this.fireLatch = true;
     this.held[btn] = down;
+  }
+
+  /** Slots whose skill previews while held and casts on release (the rest cast on press). */
+  setAimSlots(slots: readonly AbilitySlot[]): void {
+    this.aimSlots = slots;
+  }
+
+  /** The skill whose targeting preview is showing (its key is held), else null. */
+  aimingSlot(): AbilitySlot | null {
+    return this.aim?.slot ?? null;
+  }
+
+  /** Drop the held skill preview without casting. */
+  cancelAim(): void {
+    this.aim = null;
   }
 
   setTouchHeld(btn: 'fire' | 'ads' | 'sprint' | 'interact', down: boolean): void {
@@ -228,6 +299,8 @@ export class InputState {
   releaseAll(): void {
     this.keys.clear();
     this.discardChord = false;
+    // focus lost / menu opened mid-preview: the skill is not cast
+    this.aim = null;
     this.held.fire = this.held.ads = this.held.sprint = this.held.interact = this.held.jump = false;
     this.touchHeld.fire = this.touchHeld.ads = this.touchHeld.sprint = this.touchHeld.interact = false;
     this.fireLatch = false;
@@ -364,6 +437,8 @@ export class InputController implements InputSink {
   /** timed turn towards an entity (张辽 突袭 lands behind the target: face it) */
   private turn: { targetId: EntityId; remaining: number; last: number } | null = null;
   private readonly wheel = new WheelGesture();
+  /** last frame's held skill preview (HUD: tooltip + 「松开施放」 hint) */
+  private skillAim: SkillAimInfo | null = null;
 
   constructor(target: HTMLElement, opts: InputControllerOptions = {}) {
     this.target = target;
@@ -581,8 +656,18 @@ export class InputController implements InputSink {
     this.state.applyLook(sens, s.invertY);
     this.state.firstPerson = this.view === 'first';
     renderer.setLookAngles?.(this.state.yaw, this.state.pitch, ads, this.state.isHeld('fire') && this.state.enabled, this.state.firstPerson);
+    // aimed skills preview while their key is held (touch buttons still cast on tap)
+    this.state.setAimSlots(this.touchMode ? [] : aimSlotsFor(view?.local() ?? null));
+    const slot = this.state.aimingSlot();
+    const valid = renderer.setSkillAim?.(slot) ?? true;
+    this.skillAim = slot ? { slot, valid } : null;
     const aim = renderer.pick();
     return this.state.frame(aim, view?.viewTick());
+  }
+
+  /** The skill preview showing (its key held) and whether releasing now would find a target; null for none. */
+  aimingInfo(): SkillAimInfo | null {
+    return this.skillAim;
   }
 
   dispose(): void {
