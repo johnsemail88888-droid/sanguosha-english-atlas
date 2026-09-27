@@ -68,6 +68,9 @@ export interface MakeHostOptions {
   createMatch?: (init: MatchInit) => SimHost | Promise<SimHost>;
   /** hero pool (defaults to testHeroPool()) */
   heroes?: readonly HeroDef[];
+  /** a server-run room (HostSessionOptions.headless / ownerKey) */
+  headless?: boolean;
+  ownerKey?: string;
 }
 
 export function makeHost(opts: MakeHostOptions = {}): Harness {
@@ -82,6 +85,8 @@ export function makeHost(opts: MakeHostOptions = {}): Harness {
     seed: opts.seed ?? 42,
     preferWorkerTicker: false,
     settings: opts.settings,
+    headless: opts.headless,
+    ownerKey: opts.ownerKey,
     createMatch:
       opts.createMatch ??
       ((init) => {
