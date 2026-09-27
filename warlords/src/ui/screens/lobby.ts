@@ -9,6 +9,10 @@ import { displayName } from '../../game/names';
 import { button, field, segmented, toggle } from '../widgets';
 import { rolePreview } from './single';
 import { inviteLink } from '../invite';
+import { canNativeShare, inviteStatus, type InviteNotice } from '../quickInvite';
+import { gpuChip, platformInfo } from '../perfcheck';
+import { shouldUseTouch } from '../touch';
+import { settings } from '../../game/settings';
 
 export { inviteLink };
 
@@ -63,6 +67,9 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-lobby', data: { screen: 'lobby' } });
   let statusText: { zh: string; en: string } | null = null;
+  /** the invite link is on the clipboard (邀请朋友一起玩 / 复制): true / false (refused) / null (not yet) */
+  let copied: boolean | null = null;
+  let manualShown = false;
   const chatLog = h('div', { class: 'chat-log', role: 'log', aria: { live: 'polite' } });
   const chatInput = h('input', { class: 'sg-input dark', placeholder: t('lobby.chatPh'), maxlength: 120, autocomplete: 'off', aria: { label: t('lobby.chat') } });
   const seatsBox = h('div', { class: 'seats' });
@@ -111,16 +118,10 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     });
     headBox.replaceChildren(
       h('h1', { class: 'sg-h1' }, t('lobby.title')),
+      ...[gpuChip(ctx, 'lobby')].filter((x): x is HTMLElement => !!x),
       h('div', { class: 'code-box' },
         copyCodeBtn,
-        // the obvious next step after 创建房间: the link a friend opens to land in this lobby (no code to type)
-        h('div', { class: 'invite-share' },
-          button(t('lobby.copyLink'), () => {
-            const link = inviteLink(code, location, ctx.connection?.() ?? undefined);
-            void copyText(link).then((ok) => ctx.toast(ok ? `${t('common.copied')} · ${t('lobby.inviteHint')}` : link));
-          }, { cls: 'gold invite-copy', sfx: 'confirm' }),
-          h('span', { class: 'invite-hint' }, t('lobby.inviteHint')),
-        ),
+        inviteBox(code),
       ),
       button(t('lobby.leave'), () => {
         // the host's session IS the room
@@ -128,6 +129,57 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
           if (yes) ctx.leaveSession(true);
         });
       }, { cls: 'small ghost', sfx: 'back' }),
+    );
+  };
+
+  /**
+   * The obvious next step after 创建房间: the link a friend opens to land in this lobby (no
+   * code to type), shown big and selectable, 复制 / 再复制一次, the share sheet (phones, Macs),
+   * and whether it is on the clipboard — 邀请朋友一起玩 copied it already; when the clipboard
+   * refused, the link is selected for 长按 / Ctrl+C.
+   */
+  const inviteBox = (code: string): HTMLElement => {
+    const linkNow = (): string => (code ? inviteLink(code, location, ctx.connection?.() ?? undefined) : '');
+    const link = linkNow();
+    const plat = platformInfo();
+    const touch = shouldUseTouch(settings.get().touchControls);
+    const st = inviteStatus(copied, plat.os, touch);
+    const field = h('input', { class: 'sg-input invite-link', value: link, autocomplete: 'off', aria: { label: t('lobby.inviteLink') } });
+    field.readOnly = true;
+    field.spellcheck = false;
+    const selectAll = (): void => {
+      try {
+        field.select();
+        field.setSelectionRange(0, field.value.length);
+      } catch {
+        /* not selectable (detached) */
+      }
+    };
+    field.addEventListener('focus', selectAll);
+    field.addEventListener('click', selectAll);
+    const copyBtn = button(copied ? t('lobby.copyAgain') : t('lobby.copyLink'), () => {
+      void copyText(linkNow()).then((ok) => {
+        copied = ok;
+        if (ok) ctx.toast(`${t('common.copied')} · ${t('lobby.inviteHint')}`);
+        const lobby = session.lobby;
+        if (lobby) renderHead(lobby);
+      });
+    }, { cls: 'gold invite-copy', sfx: 'confirm', disabled: !link });
+    const share = link && canNativeShare(globalThis.navigator as Parameters<typeof canNativeShare>[0], plat.os, link)
+      ? button(t('lobby.share'), () => {
+          void navigator.share({ title: tx('三国杀·枪火乱世', 'Sanguo Warlords'), text: tx('来和我一起玩三国杀·枪火乱世！点开链接就能进房间：', 'Join my Sanguo Warlords room — open the link:'), url: linkNow() }).catch(() => undefined);
+        }, { cls: 'dark invite-share-btn', sfx: 'confirm' })
+      : null;
+    // the clipboard refused: the link is selected, ready for 长按 / Ctrl+C (once: later renders leave the focus alone)
+    if (st.kind === 'manual' && !manualShown) queueMicrotask(() => {
+      manualShown = true;
+      if (!field.isConnected) return;
+      field.focus({ preventScroll: true });
+      selectAll();
+    });
+    return h('div', { class: `invite-share ${st.kind}`, data: { copied: st.kind } },
+      h('div', { class: 'invite-row' }, field, copyBtn, share),
+      h('span', { class: 'invite-hint', role: 'status' }, st.text),
     );
   };
 
@@ -285,6 +337,15 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
   let phoneTab: 'seats' | 'settings' | 'chat' = 'seats';
 
   bag.add(session.on('lobby', () => update()));
+  // 邀请朋友一起玩: the link the title's button copied (or could not)
+  if (ctx.inviteNotice) {
+    bag.add(ctx.inviteNotice((n: InviteNotice | null) => {
+      if (!n || n.copied === null || n.copied === copied) return;
+      copied = n.copied;
+      const lobby = session.lobby;
+      if (lobby && el.isConnected) renderHead(lobby);
+    }));
+  }
   bag.add(chat.subscribe((line) => appendChat(line)));
   bag.add(
     session.on('status', (st) => {

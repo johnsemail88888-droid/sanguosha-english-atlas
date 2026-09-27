@@ -6,7 +6,8 @@ import { Bag, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { button, field, nameFieldModel, segmented, slider, tabs, textInput, toggle } from '../widgets';
 import { markModeChosen } from '../invite';
-import { gpuShortName, qualityName } from '../perfcheck';
+import { gpuShortName, isMac, qualityName } from '../perfcheck';
+import { macNotesBox } from './help';
 
 /** localhost, 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, ::1, fc00::/7, *.local: nobody has a TLS certificate there */
 export function isPrivateHost(host: string): boolean {
@@ -86,7 +87,9 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
         { value: 'off' as const, label: t('common.off') },
       ], st.touchControls, (v) => upd({ touchControls: v }), { name: t('settings.touch') }),
       tx('“自动”会在触屏设备上显示虚拟摇杆与按钮。', '“Auto” shows the virtual stick and buttons on touch devices.')),
-    ];
+      // a Mac: the trackpad, ⌥ for 闪避, the ⌘ / fn keys
+      isMac() ? macNotesBox('settings') : null,
+    ].filter((x): x is HTMLElement => !!x);
   };
 
   const graphics = (): HTMLElement[] => {

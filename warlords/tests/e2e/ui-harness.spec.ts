@@ -295,6 +295,173 @@ test('online: an invite link (?room=) joins with zero clicks; a failed one shows
   await host.ctx.close();
 });
 
+test('邀请朋友一起玩: one click on the title → a room, its link on the clipboard, the lobby shows it big; a refused clipboard → the link selected for Ctrl+C', async () => {
+  const shots = process.env.UI_SHOTS;
+  const { ctx, page, errors } = await open('');
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new globalThis.URL(URL).origin });
+  await expect(page.locator('[data-screen="title"] .sg-invite-btn')).toBeVisible();
+  await page.locator('.sg-invite-btn').click();
+  // no second click: the room is created and the host lands in the lobby
+  const field = page.locator('[data-screen="lobby"] .invite-link');
+  await expect(field).toHaveValue(/[?&]room=KX7QD\b/, { timeout: 10_000 });
+  await expect(page.locator('.invite-share')).toHaveAttribute('data-copied', 'copied');
+  await expect(page.locator('.invite-share .invite-hint')).toHaveText('✓ 已复制，发给朋友，点开就能进房间');
+  const link = await field.inputValue();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link);
+  expect(new globalThis.URL(link).searchParams.get('mode')).toBe('peer');
+  await expect(page.locator('.invite-share .invite-copy')).toHaveText('再复制一次');
+  if (shots) await page.waitForTimeout(400).then(() => page.screenshot({ path: `${shots}/lobby-invite.png` }));
+  // 再复制一次 copies it again
+  await page.evaluate(() => navigator.clipboard.writeText('x'));
+  await page.locator('.invite-share .invite-copy').click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(link);
+  expect(errors).toEqual([]);
+  await ctx.close();
+
+  // the clipboard refuses (no permission / plain http): the link is selected, 「按 Ctrl+C 复制」
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 720 }, reducedMotion: 'reduce' });
+  await ctx2.addInitScript(() => {
+    const no = (): Promise<never> => Promise.reject(new DOMException('denied', 'NotAllowedError'));
+    Object.defineProperty(navigator, 'clipboard', { value: { write: no, writeText: no, readText: no }, configurable: true });
+    document.execCommand = () => false;
+  });
+  const page2 = await ctx2.newPage();
+  const errors2: string[] = [];
+  page2.on('pageerror', (e) => errors2.push(e.message));
+  await page2.goto(`${URL}?`);
+  await page2.locator('.sg-invite-btn').click();
+  await expect(page2.locator('.invite-share')).toHaveAttribute('data-copied', 'manual', { timeout: 10_000 });
+  await expect(page2.locator('.invite-share .invite-hint')).toContainText('Ctrl+C');
+  await expect(page2.locator('.invite-share .invite-link')).toBeFocused();
+  const sel = await page2.evaluate(() => {
+    const f = document.querySelector<HTMLInputElement>('.invite-link')!;
+    return f.value.slice(f.selectionStart ?? 0, f.selectionEnd ?? 0);
+  });
+  expect(sel).toMatch(/[?&]room=KX7QD\b/);
+  if (shots) await page2.waitForTimeout(400).then(() => page2.screenshot({ path: `${shots}/lobby-invite-manual.png` }));
+  expect(errors2).toEqual([]);
+  await ctx2.close();
+});
+
+const WIN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+const MAC_SAFARI_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+const GPUS = {
+  rtx: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 (0x00002B85) Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  uhd: 'ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  soft: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)',
+};
+
+/** open() as another platform: its user agent (Safari: no Chromium client hints either). */
+async function openAs(query: string, ua: string, width = 1280, height = 720, safari = false): Promise<Opened> {
+  const ctx = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', userAgent: ua });
+  if (safari) await ctx.addInitScript(() => Object.defineProperty(Navigator.prototype, 'userAgentData', { get: () => undefined, configurable: true }));
+  const page = await ctx.newPage();
+  const errors: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text());
+  });
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+  await page.goto(`${URL}?${query}`);
+  return { ctx, page, errors };
+}
+
+test('GPU at a glance: the title / lobby chip (green ✓ · red · amber) opens 性能体检; Windows on its integrated GPU gets the cable / NVIDIA tips', async () => {
+  const shots = process.env.UI_SHOTS;
+  const gpuQ = (g: string): string => `gpu=${encodeURIComponent(g)}`;
+  // an RTX 5090 in use: green, short name
+  const ok = await openAs(`screen=title&${gpuQ(GPUS.rtx)}&benched=4`, WIN_UA);
+  const chip = ok.page.locator('[data-screen="title"] .sg-gpu-chip');
+  await expect(chip).toHaveText('显卡：NVIDIA RTX 5090 ✓');
+  await expect(chip).toHaveAttribute('data-gpu', 'ok');
+  if (shots) await ok.page.waitForTimeout(400).then(() => ok.page.screenshot({ path: `${shots}/title-chip-ok.png` }));
+  await chip.click();
+  await expect(ok.page.locator('[data-screen="perfcheck"] .pc-verdict')).toHaveAttribute('data-verdict', 'ok');
+  expect(ok.errors).toEqual([]);
+  await ok.ctx.close();
+  // hardware acceleration off: red, and the click is the way to the fix
+  const soft = await openAs(`screen=title&${gpuQ(GPUS.soft)}`, WIN_UA);
+  const red = soft.page.locator('[data-screen="title"] .sg-gpu-chip');
+  await expect(red).toHaveText('⚠ 浏览器没用显卡');
+  await expect(red).toHaveAttribute('data-gpu', 'soft');
+  if (shots) await soft.page.waitForTimeout(400).then(() => soft.page.screenshot({ path: `${shots}/title-chip-soft.png` }));
+  await red.click();
+  await expect(soft.page.locator('[data-screen="perfcheck"] .pc-verdict')).toHaveAttribute('data-verdict', 'software');
+  expect(soft.errors).toEqual([]);
+  await soft.ctx.close();
+  // a strong PC drawing on the CPU's Intel graphics: amber → the desktop cable, Windows and NVIDIA tips
+  const igp = await openAs(`screen=title&${gpuQ(GPUS.uhd)}&benched=9`, WIN_UA);
+  const amber = igp.page.locator('[data-screen="title"] .sg-gpu-chip');
+  await expect(amber).toHaveText('集成显卡：Intel UHD Graphics 630');
+  await amber.click();
+  const tip = igp.page.locator('[data-screen="perfcheck"] .pc-sec.tip');
+  await expect(tip).toContainText('显示器线要插在独立显卡（机箱下方的显卡接口）上，不要插主板');
+  await expect(tip).toContainText('高性能 NVIDIA 处理器');
+  await expect(tip).toContainText('ms-settings:display-advancedgraphics');
+  await expect(igp.page.locator('[data-screen="perfcheck"] .pc-file')).toContainText('Windows-portable.exe');
+  if (shots) await igp.page.waitForTimeout(400).then(() => igp.page.screenshot({ path: `${shots}/perfcheck-integrated.png` }));
+  expect(igp.errors).toEqual([]);
+  await igp.ctx.close();
+  // the lobby says it too
+  const lobby = await openAs(`screen=lobby&${gpuQ(GPUS.rtx)}`, WIN_UA);
+  await expect(lobby.page.locator('.lobby-head .sg-gpu-chip')).toHaveText('显卡：NVIDIA RTX 5090 ✓');
+  expect(lobby.errors).toEqual([]);
+  await lobby.ctx.close();
+  // a landscape phone: the chip sits beside 语言, clear of the menu, nothing overflows
+  const phone = await openAs(`screen=title&${gpuQ(GPUS.soft)}`, WIN_UA, 844, 390);
+  const box = await phone.page.locator('.sg-gpu-chip').boundingBox();
+  const menu = await phone.page.locator('.sg-title-menu').boundingBox();
+  expect(box && menu && (box.y + box.height <= menu.y || box.x >= menu.x + menu.width)).toBeTruthy();
+  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  if (shots) await phone.page.waitForTimeout(400).then(() => phone.page.screenshot({ path: `${shots}/title-chip-phone.png` }));
+  await phone.ctx.close();
+});
+
+test('Mac: controls in Mac words (help, settings), 性能体检 reads ✅ on the Apple GPU and names the right .dmg', async () => {
+  const shots = process.env.UI_SHOTS;
+  const gpuQ = (g: string): string => `gpu=${encodeURIComponent(g)}`;
+  // Safari on a Mac: "Apple GPU" (it hides which chip) → ✅, both .dmg files, labelled
+  const safari = await openAs(`screen=title&${gpuQ('Apple GPU')}&benched=12`, MAC_SAFARI_UA, 1280, 720, true);
+  const chip = safari.page.locator('[data-screen="title"] .sg-gpu-chip');
+  await expect(chip).toHaveText('显卡：Apple GPU ✓');
+  await chip.click();
+  await expect(safari.page.locator('[data-screen="perfcheck"] .pc-verdict')).toHaveAttribute('data-verdict', 'ok');
+  await expect(safari.page.locator('[data-screen="perfcheck"] .pc-verdict')).toContainText('✅ 显卡已启用：Apple GPU');
+  await expect(safari.page.locator('[data-screen="perfcheck"] .pc-sec.mac')).toContainText('总是用显卡');
+  const files = safari.page.locator('[data-screen="perfcheck"] .pc-file');
+  await expect(files).toHaveCount(2);
+  await expect(files.nth(0)).toContainText('macOS-arm64.dmg');
+  await expect(files.nth(0)).toContainText('Apple 芯片');
+  await expect(files.nth(1)).toContainText('macOS-x64.dmg');
+  await expect(safari.page.locator('[data-screen="perfcheck"] .pc-sec.tip')).toHaveCount(0);
+  if (shots) await safari.page.waitForTimeout(400).then(() => safari.page.screenshot({ path: `${shots}/perfcheck-mac.png` }));
+  expect(safari.errors).toEqual([]);
+  await safari.ctx.close();
+  // Chrome on an M-series Mac names the chip: the arm64 build only
+  const chromeMac = MAC_SAFARI_UA.replace(/Version\/[\d.]+ Safari\/[\d.]+$/, 'Chrome/140.0.0.0 Safari/537.36');
+  const m2 = await openAs(`screen=title&${gpuQ('ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)')}&benched=6&perfcheck=1`, chromeMac);
+  await expect(m2.page.locator('[data-screen="perfcheck"] .pc-file')).toHaveCount(1);
+  await expect(m2.page.locator('[data-screen="perfcheck"] .pc-file')).toContainText('macOS-arm64.dmg');
+  await m2.ctx.close();
+  // 玩法说明 → 操作: ⌥ for 闪避, the trackpad, the ⌘ / fn keys
+  const help = await openAs('screen=help', MAC_SAFARI_UA, 1280, 720, true);
+  await help.page.locator('.sg-tab[data-tab="controls"]').click();
+  await expect(help.page.locator('.sg-mac-notes.help')).toContainText('触控板：双指点按 = 右键瞄准；建议使用鼠标');
+  await expect(help.page.locator('.sg-mac-notes.help')).toContainText('fn + F3');
+  await expect(help.page.locator('.sg-table.controls').first()).toContainText('⌥ Option');
+  await expect(help.page.locator('.sg-table.controls').first()).not.toContainText('Ctrl');
+  if (shots) await help.page.waitForTimeout(400).then(() => help.page.screenshot({ path: `${shots}/help-mac.png` }));
+  expect(help.errors).toEqual([]);
+  await help.ctx.close();
+  // 设置 → 操作 says it too; a Windows PC sees none of it
+  const set = await openAs('screen=settings&tab=controls', MAC_SAFARI_UA, 1280, 720, true);
+  await expect(set.page.locator('.sg-settings .sg-mac-notes')).toContainText('⌥ Option');
+  await set.ctx.close();
+  const win = await openAs('screen=settings&tab=controls', WIN_UA);
+  await expect(win.page.locator('.sg-settings .sg-tab[data-tab="controls"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(win.page.locator('.sg-mac-notes')).toHaveCount(0);
+  await win.ctx.close();
+});
+
 test('touch controls on a landscape phone', async () => {
   const { ctx, page, errors } = await open('screen=hud&touch=1', 844, 390);
   await expect(page.locator('.sg-touch .fire')).toBeVisible({ timeout: 15_000 });

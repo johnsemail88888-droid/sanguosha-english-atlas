@@ -321,7 +321,7 @@ export const BASE_CSS = /* css */ `
 .sg-toast.out { animation: sg-toast-out 0.3s ease-in forwards; }
 @keyframes sg-toast-in { from { opacity: 0; transform: translateY(-10px); } }
 @keyframes sg-toast-out { to { opacity: 0; transform: translateY(-10px); } }
-.sg-modal-back { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center; padding: 1em; background: rgba(8, 5, 3, 0.62); backdrop-filter: blur(2px); animation: sg-fade 0.18s ease-out; }
+.sg-modal-back { position: absolute; inset: 0; z-index: 50; display: grid; place-items: center; padding: 1em; background: rgba(8, 5, 3, 0.62); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); animation: sg-fade 0.18s ease-out; }
 .sg-modal { width: min(30em, 100%); max-height: calc(100% - 1em); overflow: auto; padding: 1.4em 1.6em; animation: sg-pop 0.2s ease-out; }
 .sg-modal .actions { display: flex; justify-content: flex-end; gap: 0.6em; margin-top: 1.2em; flex-wrap: wrap; }
 @keyframes sg-fade { from { opacity: 0; } }

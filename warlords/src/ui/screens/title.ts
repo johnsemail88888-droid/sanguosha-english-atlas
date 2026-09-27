@@ -8,7 +8,7 @@ import { Bag, h, s } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { artBackdrop } from '../keyart';
 import { button, nameFieldModel, seal } from '../widgets';
-import { RELEASES_URL, externalLink, gpuWarnDismissed, gpuWarning, isDesktopOs, platformInfo } from '../perfcheck';
+import { RELEASES_URL, externalLink, gpuChip, gpuWarnDismissed, gpuWarning, isDesktopOs, platformInfo } from '../perfcheck';
 
 /** Periodic ridge line (period = width/2) so the layer can scroll seamlessly. */
 function ridgePath(width: number, height: number, base: number, amps: readonly [number, number, number][], seed: number): string {
@@ -176,7 +176,8 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
     el.classList.toggle('no-gl', noGl);
     if (swWarn) el.append(swWarn);
     el.append(
-      h('div', { class: 'sg-title-top' }, langBtn),
+      // 「显卡：NVIDIA RTX 5090 ✓」 at a glance (red / amber → 性能体检, where the fix is)
+      h('div', { class: 'sg-title-top' }, gpuChip(ctx, 'title'), langBtn),
       h('div', { class: 'sg-title-main' },
         h('div', { class: 'sg-logo' },
           h('div', { class: 'l1' }, '三国杀'),
@@ -189,6 +190,8 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
           glNotice,
           h('label', { class: 'sg-name' }, h('span', null, t('title.name')), name),
           menuItem(t('title.single'), t('title.singleSub'), () => ctx.go('single'), noGl ? 'primary off' : 'primary', noGl),
+          // one click: a room in the default mode, its link on the clipboard, the lobby (the clipboard write starts in this click)
+          menuItem(t('title.invite'), t('title.inviteSub'), () => (ctx.quickInvite ? ctx.quickInvite() : ctx.go('online')), 'gold sg-invite-btn', noGl),
           menuItem(t('title.online'), t('title.onlineSub'), () => ctx.go('online'), '', noGl),
           h('div', { class: 'row' },
             menuItem(t('title.gallery'), null, () => ctx.go('gallery'), 'dark'),

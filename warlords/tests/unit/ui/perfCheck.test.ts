@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { defaultQuality, defaultRenderScale, loadSettingsForTest } from '../../../src/game/settings';
 import { overrideLang } from '../../../src/ui/i18n';
 import { desktopGpuSoftware } from '../../../src/ui/desktop';
-import { desktopDownload, detectBrowser, detectOs, gpuWarnText, integratedTip, isDesktopOs, perfVerdict, softwareFix, verdictText } from '../../../src/ui/perfcheck';
+import { desktopDownload, desktopPcTip, detectBrowser, detectOs, detectOsFrom, gpuChipName, gpuChipStatus, gpuWarnText, integratedTip, isDesktopOs, isMac, macArch, nvidiaPanelTip, perfVerdict, softwareFix, verdictText } from '../../../src/ui/perfcheck';
 
 afterEach(() => overrideLang(null));
 
@@ -104,13 +104,41 @@ describe('how to turn the GPU on', () => {
     expect(integratedTip('windows', GPU.swiftshader, false)).toBeNull();
   });
 
-  it('the desktop build for the OS (Apple silicon: arm64)', () => {
-    expect(desktopDownload('windows', 'discrete')!.file).toMatch(/Windows-portable\.exe$/);
-    expect(desktopDownload('mac', 'apple')!.file).toMatch(/macOS-arm64\.dmg$/);
-    expect(desktopDownload('mac', 'integrated')!.file).toMatch(/macOS-x64\.dmg$/);
-    expect(desktopDownload('linux', 'unknown')!.file).toMatch(/Linux\.AppImage$/);
-    expect(desktopDownload('android', 'mobile')).toBeNull();
-    expect(desktopDownload('ios', 'apple')).toBeNull();
+  // (it took the GPU class before; now the renderer string + Chromium's architecture hint, so
+  // Safari's "Apple GPU" — Apple silicon and Intel Macs alike — offers both .dmg files)
+  it('the desktop build for the OS (Apple silicon: arm64; Intel Mac: x64; can\'t tell: both)', () => {
+    const files = (d: ReturnType<typeof desktopDownload>): string[] => d!.files.map((f) => f.file);
+    expect(files(desktopDownload('windows', GPU.rtx))).toEqual([expect.stringMatching(/Windows-portable\.exe$/)]);
+    expect(files(desktopDownload('mac', GPU.m1))).toEqual([expect.stringMatching(/macOS-arm64\.dmg$/)]);
+    expect(files(desktopDownload('mac', 'Apple M3 Pro'))).toEqual([expect.stringMatching(/macOS-arm64\.dmg$/)]);
+    expect(files(desktopDownload('mac', 'ANGLE (Intel Inc., Intel(R) Iris(TM) Plus Graphics OpenGL Engine, OpenGL 4.1)'))).toEqual([expect.stringMatching(/macOS-x64\.dmg$/)]);
+    expect(files(desktopDownload('mac', 'AMD Radeon Pro 5500M OpenGL Engine'))).toEqual([expect.stringMatching(/macOS-x64\.dmg$/)]);
+    // Safari: "Apple GPU" on every Mac → both, labelled; Chromium's hint settles it
+    const both = desktopDownload('mac', 'Apple GPU')!;
+    expect(files(both)).toEqual([expect.stringMatching(/macOS-arm64\.dmg$/), expect.stringMatching(/macOS-x64\.dmg$/)]);
+    expect(both.files.map((f) => f.label)).toEqual([expect.stringContaining('Apple 芯片'), expect.stringContaining('Intel')]);
+    expect(files(desktopDownload('mac', 'Apple GPU', 'arm'))).toEqual([expect.stringMatching(/macOS-arm64\.dmg$/)]);
+    expect(files(desktopDownload('mac', 'Apple GPU', 'x86'))).toEqual([expect.stringMatching(/macOS-x64\.dmg$/)]);
+    expect(macArch('', null)).toBeNull();
+    // the renderer names the hardware: an x86 Chrome in Rosetta on an M1 still gets the arm64 build
+    expect(macArch(GPU.m1, 'x86')).toBe('arm64');
+    expect(files(desktopDownload('linux', ''))).toEqual([expect.stringMatching(/Linux\.AppImage$/)]);
+    expect(desktopDownload('android', GPU.mali)).toBeNull();
+    expect(desktopDownload('ios', 'Apple GPU')).toBeNull();
+  });
+
+  it('a strong PC on its integrated GPU (Windows): the desktop PC\'s cable, the laptop\'s Windows and NVIDIA settings', () => {
+    const pc = desktopPcTip('windows', GPU.uhd)!.join(' ');
+    expect(pc).toContain('显示器线要插在独立显卡（机箱下方的显卡接口）上，不要插主板');
+    const nv = nvidiaPanelTip('windows', GPU.uhd, false)!.join(' ');
+    expect(nv).toContain('NVIDIA 控制面板 → 管理 3D 设置 → 程序设置');
+    expect(nv).toContain('高性能 NVIDIA 处理器');
+    expect(nvidiaPanelTip('windows', GPU.uhd, true)!.join(' ')).toContain('SanguoWarlords');
+    for (const g of [GPU.rtx, GPU.rx, GPU.swiftshader]) {
+      expect(desktopPcTip('windows', g)).toBeNull();
+      expect(nvidiaPanelTip('windows', g, false)).toBeNull();
+    }
+    expect(desktopPcTip('mac', GPU.uhd)).toBeNull();
   });
 });
 
@@ -147,11 +175,56 @@ describe('verdict', () => {
     expect(verdictText(v)).toContain('WebGL 2');
   });
 
+  it('✅ on a Mac: its browser always draws on the Apple GPU (a low estimate is no "fix your GPU")', () => {
+    for (const r of [GPU.m1, 'Apple GPU', 'Apple M2 Max']) {
+      const v = perfVerdict({ webgl2: true, renderer: r, pick: pick('low', 32) });
+      expect(v.kind).toBe('ok');
+      expect(verdictText(v)).toMatch(/^✅ 显卡已启用：Apple/);
+    }
+  });
+
   it('English', () => {
     overrideLang('en');
     expect(verdictText(perfVerdict({ webgl2: true, renderer: GPU.rtx, pick: pick('high', 120) }))).toBe('✅ Graphics card in use: NVIDIA GeForce RTX 5090, about 120 fps expected');
     expect(verdictText(perfVerdict({ webgl2: true, renderer: GPU.swiftshader, pick: null }))).toMatch(/^⚠ The browser is not using the graphics card/);
   });
+});
+
+describe('the GPU chip (title, lobby)', () => {
+  it('short names: no GeForce / (R) / (TM) filler, capped', () => {
+    expect(gpuChipName(GPU.rtx)).toBe('NVIDIA RTX 5090');
+    expect(gpuChipName(GPU.uhd)).toBe('Intel UHD Graphics 620');
+    expect(gpuChipName(GPU.m1)).toBe('Apple M1');
+    expect(gpuChipName('NVIDIA GeForce GTX 980, or similar')).toBe('NVIDIA GTX 980');
+    expect(gpuChipName('A Very Long Graphics Adapter Name Of Some Vendor', 20)).toHaveLength(20);
+  });
+
+  it('green ✓ on a card / Apple / phone GPU, red on a software renderer, amber on an integrated one', () => {
+    expect(gpuChipStatus({ renderer: GPU.rtx, software: false })).toEqual({ kind: 'ok', text: '显卡：NVIDIA RTX 5090 ✓' });
+    expect(gpuChipStatus({ renderer: GPU.m1, software: false })!.kind).toBe('ok');
+    expect(gpuChipStatus({ renderer: GPU.mali, software: false })!.kind).toBe('ok');
+    expect(gpuChipStatus({ renderer: GPU.swiftshader, software: true })).toEqual({ kind: 'soft', text: '⚠ 浏览器没用显卡' });
+    expect(gpuChipStatus({ renderer: GPU.uhd, software: false })).toEqual({ kind: 'integrated', text: '集成显卡：Intel UHD Graphics 620' });
+    expect(gpuChipStatus({ renderer: GPU.apu, software: false })!.kind).toBe('integrated');
+    expect(gpuChipStatus({ renderer: 'Weird Adapter', software: false })!.kind).toBe('unknown');
+    // nothing to say: no renderer string, or no WebGL 2 (the title explains that itself)
+    expect(gpuChipStatus({ renderer: '', software: false })).toBeNull();
+    expect(gpuChipStatus({ renderer: GPU.rtx, software: false }, false)).toBeNull();
+    overrideLang('en');
+    expect(gpuChipStatus({ renderer: GPU.rtx, software: false })!.text).toBe('GPU: NVIDIA RTX 5090 ✓');
+  });
+
+  it('a Mac from the client hints / navigator.platform when the user agent says nothing useful', () => {
+    expect(detectOsFrom({ userAgent: UA.safariMac })).toBe('mac');
+    expect(detectOsFrom({ userAgent: UA.safariMac, maxTouchPoints: 5 })).toBe('ios');
+    expect(detectOsFrom({ userAgent: 'Mozilla/5.0', userAgentData: { platform: 'macOS' } })).toBe('mac');
+    expect(detectOsFrom({ userAgent: '', platform: 'MacIntel' })).toBe('mac');
+    expect(detectOsFrom({ userAgent: '', platform: 'Win32' })).toBe('windows');
+    expect(detectOsFrom({ userAgent: UA.chromeWin, platform: 'MacIntel' })).toBe('windows');
+    expect(isMac({ userAgent: UA.chromeMac })).toBe(true);
+    expect(isMac({ userAgent: UA.chromeWin })).toBe(false);
+  });
+
 });
 
 describe('first-run tier from the device (before the benchmark)', () => {

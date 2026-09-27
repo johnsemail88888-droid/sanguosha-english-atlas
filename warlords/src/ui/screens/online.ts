@@ -299,14 +299,30 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   if (plan) queueMicrotask(() => {
     if (el.isConnected && !busy) void runJoin();
   });
+  // 邀请朋友一起玩 (title): create the room at once, in the mode 创建房间 would use — on a web
+  // page that is known once the same-origin server probe below has answered
+  const quick = (ctx.takeQuickHost?.() ?? false) && !plan;
+  const quickHost = (): void => {
+    if (!quick || !el.isConnected || busy) return;
+    if (mode === 'ws' && !settings.get().net.wsUrl.trim() && !servedByLocalServer()) return; // 服务器 without an address: the warning says so
+    void runRef?.('host');
+  };
   // a page served by our own server (LAN / self-host): same-origin relay → default to server mode
   if (!desktop) {
     void detectLocalServer().then((ok) => {
-      if (!ok || !el.isConnected) return;
-      if (!modeTouched && !busy && !settings.get().net.wsUrl.trim()) mode = 'ws';
-      if (!busy) render();
+      if (!el.isConnected) return;
+      if (ok) {
+        if (!modeTouched && !busy && !settings.get().net.wsUrl.trim()) mode = 'ws';
+        if (!busy) render();
+        // a relay invite (mode=ws) on a page our own server serves: its relay turned out to be right here
+        if (!plan && !quick && !busy && autoJoinPlan({ invited: rejoin ? null : invited, rejoin: false, inviteTried, canJoin: true }) === 'invite') {
+          inviteTried = true;
+          void runJoin();
+        }
+      }
+      quickHost();
     });
-  }
+  } else if (quick) queueMicrotask(quickHost);
   // desktop: a network change (Wi-Fi switched, cable plugged) → fresh LAN addresses
   if (desktop) {
     const onNet = (): void => {
