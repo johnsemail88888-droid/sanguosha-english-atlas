@@ -5,6 +5,7 @@ import { SCREENS_CSS } from './screens';
 import { HUD_CSS } from './hud';
 import { ART_CSS } from './art';
 import { CARD_ART_CSS } from './cardArt';
+import { PERF_CSS } from './perf';
 
 const STYLE_ID = 'sgwl-ui-styles';
 let grainUrl: string | null = null;
@@ -45,7 +46,7 @@ export function injectStyles(doc: Document = document): void {
   if (!doc.getElementById(STYLE_ID)) {
     const style = doc.createElement('style');
     style.id = STYLE_ID;
-    style.textContent = BASE_CSS + SCREENS_CSS + HUD_CSS + ART_CSS + CARD_ART_CSS;
+    style.textContent = BASE_CSS + SCREENS_CSS + HUD_CSS + ART_CSS + CARD_ART_CSS + PERF_CSS;
     doc.head.appendChild(style);
   }
 }

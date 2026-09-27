@@ -8,6 +8,7 @@ import { Bag, h, s } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { artBackdrop } from '../keyart';
 import { button, nameFieldModel, seal } from '../widgets';
+import { gpuWarnDismissed, gpuWarning } from '../perfcheck';
 
 /** Periodic ridge line (period = width/2) so the layer can scroll seamlessly. */
 function ridgePath(width: number, height: number, base: number, amps: readonly [number, number, number][], seed: number): string {
@@ -161,7 +162,12 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
         )
       : null;
 
+    // WebGL on a software renderer (hardware acceleration off): the match would crawl — say so, and how to fix it
+    const gpu = ctx.gpu;
+    const swWarn = !noGl && gpu.software && !gpuWarnDismissed(gpu.renderer) ? gpuWarning('title', gpu.renderer, () => swWarn?.remove()) : null;
+
     el.classList.toggle('no-gl', noGl);
+    if (swWarn) el.append(swWarn);
     el.append(
       h('div', { class: 'sg-title-top' }, langBtn),
       h('div', { class: 'sg-title-main' },

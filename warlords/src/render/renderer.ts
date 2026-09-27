@@ -81,6 +81,30 @@ export interface RenderStats {
   frameMs: number;
 }
 
+/**
+ * Live performance numbers (the F3 panel, the automatic quality controller): one
+ * object, refreshed by perf() — cheap enough to read every frame.
+ */
+export interface PerfSnapshot {
+  /** smoothed real frame rate */
+  fps: number;
+  /** smoothed real time between two frames (ms) */
+  frameMs: number;
+  /** smoothed main-thread time of a frame (ms): from the frame's start (its rAF time) to the end of the render call — input, sim, scene update and draw submission */
+  jsMs: number;
+  /** draw calls / triangles of the last frame */
+  drawCalls: number;
+  triangles: number;
+  /** pixel ratio the canvas renders at now, and the adaptive resolution's range on this tier */
+  pixelRatio: number;
+  pixelRatioMin: number;
+  pixelRatioMax: number;
+  /** the tier in use (a staged switch reaches the wanted one when it has applied) */
+  quality: Quality;
+  /** a staged quality switch is being applied */
+  applying: boolean;
+}
+
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _dir = new THREE.Vector3();
@@ -112,6 +136,9 @@ export class GameRenderer {
   private time = 0;
   private frameNo = 0;
   private fps = 60;
+  /** smoothed main-thread ms per frame (PerfSnapshot.jsMs) */
+  private jsMs = 0;
+  private readonly perfOut: PerfSnapshot = { fps: 0, frameMs: 0, jsMs: 0, drawCalls: 0, triangles: 0, pixelRatio: 1, pixelRatioMin: 1, pixelRatioMax: 1, quality: 'medium', applying: false };
   private disposed = false;
   private contextLost = false;
   private readonly onContextLost = (e: Event): void => {
@@ -245,6 +272,7 @@ export class GameRenderer {
   /** Render one frame. dt = real seconds since the previous frame. */
   frame(dt: number): void {
     if (this.disposed) return;
+    const frameStart = frameStartTime();
     if (this.contextLost) {
       // keep draining so HUD / audio still get events while the GPU is gone
       const evs = this.view.drainEvents();
@@ -342,6 +370,8 @@ export class GameRenderer {
         }
       }
     }
+    const js = performance.now() - frameStart;
+    this.jsMs += (js - this.jsMs) * (this.jsMs === 0 ? 1 : 0.1);
   }
 
   /**
@@ -616,6 +646,24 @@ export class GameRenderer {
       pixelRatioMax: this.adaptive.ceil,
       frameMs: Math.round(this.adaptive.frameMs * 10) / 10,
     };
+  }
+
+  /** Live performance numbers (see PerfSnapshot): the same object every call. */
+  perf(): PerfSnapshot {
+    const o = this.perfOut;
+    o.fps = Math.round(this.fps);
+    o.frameMs = this.adaptive.frameMs;
+    o.jsMs = this.jsMs;
+    if (!this.disposed) {
+      o.drawCalls = this.renderer.info.render.calls;
+      o.triangles = this.renderer.info.render.triangles;
+    }
+    o.pixelRatio = this.adaptive.ratio;
+    o.pixelRatioMin = this.adaptive.floor;
+    o.pixelRatioMax = this.adaptive.ceil;
+    o.quality = this.quality;
+    o.applying = this.applyingQuality;
+    return o;
   }
 
   dispose(): void {
@@ -1097,4 +1145,15 @@ export class GameRenderer {
       }
     }
   }
+}
+
+/**
+ * When the current frame started: its requestAnimationFrame time (document.timeline
+ * during a rAF callback) — so the input sampling and the sim update the game loop runs
+ * before frame() are counted too — or now, outside an animation frame.
+ */
+function frameStartTime(): number {
+  const now = performance.now();
+  const tl = typeof document !== 'undefined' ? (document.timeline?.currentTime as number | null | undefined) : null;
+  return typeof tl === 'number' && tl <= now && now - tl < 250 ? tl : now;
 }

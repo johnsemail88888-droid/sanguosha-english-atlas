@@ -6,6 +6,7 @@ import { Bag, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { button, field, nameFieldModel, segmented, slider, tabs, textInput, toggle } from '../widgets';
 import { markModeChosen } from '../invite';
+import { gpuShortName } from '../perfcheck';
 
 /** localhost, 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, ::1, fc00::/7, *.local: nobody has a TLS certificate there */
 export function isPrivateHost(host: string): boolean {
@@ -92,8 +93,21 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
         { value: 'high' as Quality, label: t('settings.quality.high') },
       ], st.quality, (v) => upd({ quality: v }), { name: t('settings.quality') }),
       tx('集成显卡或手机请选择“流畅”。', 'Pick “Low” on integrated GPUs and phones.')),
-      field(t('settings.fps'), toggle(st.showFps, (v) => upd({ showFps: v }), t('settings.fps'))),
+      field(t('settings.fps'), toggle(st.showFps, (v) => upd({ showFps: v }), t('settings.fps')),
+        tx('对局中按 F3 也可开关：帧率、帧时间、绘制调用、渲染比例、画质与显卡。', 'F3 toggles it in a match: frame rate and time, draw calls, render scale, tier and GPU.')),
+      gpuLine(),
     ];
+  };
+
+  /** 显卡：<renderer> — which GPU the browser draws with (a software renderer is flagged). */
+  const gpuLine = (): HTMLElement => {
+    const { renderer, software } = ctx.gpu;
+    return h('div', { class: `set-gpu${software ? ' soft' : ''}`, title: renderer },
+      h('span', { class: 'lbl' }, tx('显卡：', 'GPU: ')),
+      h('b', null, gpuShortName(renderer) || tx('未知', 'unknown')),
+      software ? h('span', { class: 'warn' }, tx('（软件渲染：浏览器没有使用显卡）', ' (software rendering: the browser is not using the GPU)')) : null,
+      renderer ? h('code', null, renderer) : null,
+    );
   };
 
   const audio = (): HTMLElement[] => {

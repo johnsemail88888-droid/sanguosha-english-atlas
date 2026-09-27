@@ -14,6 +14,7 @@
 //   &single=1 (roles / heroSelect / loading / gameOver as a single-player session: 返回 button, 再来一局)
 //   &kind=online (hud / match as an online session: the menu reads 菜单 and never pauses)
 //   &awaitHost=1 (loading: the view is built, the host has not started the clock → 等待房主加载…)
+//   &gpu=<renderer string> (the GPU the probe reports; SwiftShader → the software-renderer warning)
 import type { RoleId, StatusId } from '../../core/types';
 import { setAssetListForTests } from '../../game/assets';
 import { settings } from '../../game/settings';
@@ -61,8 +62,10 @@ if (params.get('real') === '1') {
 const root = document.getElementById('app');
 if (!root) throw new Error('#app missing');
 
-// `?nowebgl=1` previews the title screen of a browser without WebGL 2
-const opts: MountAppOptions = { version: 'dev', ...(params.get('nowebgl') === '1' ? { webgl: false } : {}) };
+// `?nowebgl=1` previews the title screen of a browser without WebGL 2; `?gpu=<renderer string>`
+// pretends the browser renders with that GPU (`?gpu=SwiftShader`: the "not using the graphics
+// card" warning) — without it the harness reports no GPU, whatever the test browser uses
+const opts: MountAppOptions = { version: 'dev', gpu: params.get('gpu') ?? '', ...(params.get('nowebgl') === '1' ? { webgl: false } : {}) };
 const online = params.get('online') !== '0';
 const isHost = params.get('host') !== '0';
 const view = {

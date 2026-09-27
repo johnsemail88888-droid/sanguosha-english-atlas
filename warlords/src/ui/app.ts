@@ -4,7 +4,7 @@
 import type { GameEvent, HeroSelectView, MatchPhase, MatchSettings, Vec3 } from '../core/types';
 import type { GameSession } from '../game/session';
 import type { InputSink } from '../game/input-types';
-import { settings } from '../game/settings';
+import { isSoftwareGpu, probeGpu, settings, type NetServerConfig, type Quality } from '../game/settings';
 import type { ViewSource } from '../render/view';
 import type { ScreenId, Screen, SettingsTab, UiCtx } from './ctx';
 import { Bag, h, clear } from './dom';
@@ -29,7 +29,6 @@ import { createSettingsPanel } from './screens/settings';
 import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
 import { clearRejoin, isReconnectable, loadRejoin, netFor, refreshRejoin, type RejoinInfo } from './invite';
-import type { NetServerConfig } from '../game/settings';
 
 export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
 
@@ -78,6 +77,25 @@ export interface GameHandle {
    */
   qualityApplying?(): boolean;
   onQualityApplying?(cb: (applying: boolean) => void): () => void;
+  /** Optional: live performance numbers of the 3D view (F3 panel); null before the view is built. */
+  perf?(): PerfInfo | null;
+}
+
+/** The 3D view's live performance numbers (render/renderer.ts PerfSnapshot). */
+export interface PerfInfo {
+  fps: number;
+  /** real time between two frames (ms, smoothed) */
+  frameMs: number;
+  /** main-thread time of a frame (ms, smoothed) */
+  jsMs: number;
+  drawCalls: number;
+  triangles: number;
+  /** render scale now, and its adaptive range on this tier */
+  pixelRatio: number;
+  pixelRatioMin: number;
+  pixelRatioMax: number;
+  quality: Quality;
+  applying: boolean;
 }
 
 export interface LoadProgress {
@@ -100,6 +118,8 @@ export interface MountAppOptions {
   initialSettings?: SettingsTab;
   /** override the WebGL 2 probe (dev harness: `false` previews the "no WebGL" title) */
   webgl?: boolean;
+  /** override the GPU renderer string of the probe (dev harness: `?gpu=SwiftShader` previews the software-renderer warning) */
+  gpu?: string;
 }
 
 type MusicTrack = 'menu' | 'battle' | 'victory' | 'defeat' | null;
@@ -182,6 +202,8 @@ class App implements UiCtx {
   readonly version: string;
   /** WebGL 2 is available (probed once at boot): without it no match can render */
   readonly webgl: WebGLSupport;
+  /** the GPU the browser renders WebGL with (same probe) */
+  readonly gpu: { renderer: string; software: boolean };
   /** the 3D view of the current match failed to start (the failure modal is up) */
   private loadFailed = false;
   /** blurred key art behind the menu screens (dropped during a match to free the decoded image) */
@@ -199,6 +221,9 @@ class App implements UiCtx {
     this.version = opts.version ?? '0.1.0';
     this.webgl = opts.webgl === undefined ? probeWebGL(host.ownerDocument) : { ok: opts.webgl, reason: opts.webgl ? null : 'disabled (dev harness)' };
     if (!this.webgl.ok) console.warn('[ui] WebGL 2 unavailable:', this.webgl.reason);
+    const renderer = opts.gpu ?? (opts.webgl === undefined ? probeGpu(host.ownerDocument).renderer : '');
+    this.gpu = { renderer, software: isSoftwareGpu(renderer) };
+    if (this.gpu.software) console.info('[ui] WebGL runs on a software renderer:', renderer);
     this.portraits = new PortraitCache((id, size) => deps.renderHeroPortrait(id, size));
     this.root = h('div', { class: 'sg-root', data: { lang: this.lang } });
     applyRootVars(this.root);

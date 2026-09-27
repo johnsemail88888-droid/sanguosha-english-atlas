@@ -13,6 +13,7 @@ import type { GameSession } from '../../game/session';
 import type { ViewSource } from '../../render/view';
 import type { AppDeps, GameHandle, UiKey } from '../app';
 import { kingdomColor } from '../theme';
+import { settings } from '../../game/settings';
 import { MockSession, type MockSessionOptions } from './mock';
 
 export interface MockGameHandle extends GameHandle {
@@ -207,7 +208,10 @@ export function mountMockGame(container: HTMLElement, view: ViewSource, opts: Mo
 
   let applying = false;
   const applyingCbs = new Set<(on: boolean) => void>();
+  // the F3 panel's numbers: a plausible mid-range desktop (the harness draws no 3D)
+  const perf = { fps: 60, frameMs: 16.7, jsMs: 3.4, drawCalls: 214, triangles: 846_000, pixelRatio: 1, pixelRatioMin: 1, pixelRatioMax: 1.25, quality: settings.get().quality, applying: false };
   const handle: MockGameHandle = {
+    perf: () => Object.assign(perf, { quality: settings.get().quality, applying }),
     qualityApplying: () => applying,
     onQualityApplying: (cb) => {
       applyingCbs.add(cb);

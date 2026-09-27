@@ -7,7 +7,7 @@ import type { GameSession } from '../../game/session';
 import { displayName } from '../../game/names';
 import { settings } from '../../game/settings';
 import type { ViewSource } from '../../render/view';
-import type { GameHandle, UiKey } from '../app';
+import type { GameHandle, PerfInfo, UiKey } from '../app';
 import type { UiCtx } from '../ctx';
 import { Bag, h, isTextInput, setClass, setText } from '../dom';
 import { getLang, heroName, roleName, t, tx } from '../i18n';
@@ -28,6 +28,7 @@ import { LinkStatus, silentSecs } from './connstatus';
 import { prewarmWeapons } from '../artIcons';
 import type { HudFrame } from './types';
 import { trackViewport } from './viewport';
+import { gpuWarnDismissed, gpuWarning, perfLines } from '../perfcheck';
 
 /** `setPaused` of a local single-player session (GameSession G2 extension; optional). */
 type PausableSession = GameSession & { setPaused?(paused: boolean): void };
@@ -85,7 +86,10 @@ export class Hud {
   private readonly minimapCanvas: HTMLCanvasElement;
   private readonly minimapWrap: HTMLElement;
   private readonly regionEl: HTMLElement;
+  /** F3 / 设置 → 显示帧率: frame rate, frame and JS time, draw calls, render scale, tier, GPU */
   private readonly fpsEl: HTMLElement;
+  /** top-left column under the role chip: the software-renderer warning and the F3 panel */
+  private readonly diagEl: HTMLElement;
   private readonly touchBar: HTMLElement;
   private readonly cardInfo: HTMLElement;
   private cardInfoTimer: ReturnType<typeof setTimeout> | null = null;
@@ -209,7 +213,11 @@ export class Hud {
     this.regionEl = h('div', { class: 'mm-region' });
     this.minimapWrap = h('div', { class: 'hud-minimap' }, h('div', { class: 'mm-ring' }, this.minimapCanvas, h('span', { class: 'mm-n' }, tx('北', 'N'))), this.regionEl);
     this.bag.listen(this.minimapWrap, 'click', () => this.toggleOverlay('map'));
-    this.fpsEl = h('div', { class: 'hud-fps sg-hidden' });
+    this.fpsEl = h('div', { class: 'hud-perf sg-hidden', aria: { hidden: 'true' } });
+    // WebGL on a software renderer: the match crawls whatever the machine — say so (desktop HUD; the title says it too)
+    const gpu = ctx.gpu;
+    const gpuWarn = gpu?.software && !gpuWarnDismissed(gpu.renderer) ? gpuWarning('hud', gpu.renderer, () => gpuWarn?.remove()) : null;
+    this.diagEl = h('div', { class: 'hud-diag' }, gpuWarn, this.fpsEl);
     this.touchBar = h('div', { class: 'hud-touchbar sg-hidden' });
     this.cardInfo = h('div', { class: 'hud-cardinfo off', role: 'status' });
     this.bag.listen(this.cardInfo, 'click', () => this.hideCardInfo());
@@ -242,7 +250,7 @@ export class Hud {
       this.pickups.el,
       this.weapon.el,
       this.spectate.el,
-      this.fpsEl,
+      this.diagEl,
       this.cardInfo,
       this.touchBar,
       // map + scoreboard let touches through around the panel (stick / fire keep working);
@@ -409,7 +417,7 @@ export class Hud {
     this.lastT = now;
     this.fpsFrames++;
     if (now - this.fpsT >= 0.5) {
-      if (!this.fpsEl.classList.contains('sg-hidden')) setText(this.fpsEl, t('hud.fps', { n: Math.round(this.fpsFrames / (now - this.fpsT || 1)) }));
+      if (!this.fpsEl.classList.contains('sg-hidden')) this.renderPerf(this.fpsFrames / (now - this.fpsT || 1));
       this.fpsFrames = 0;
       this.fpsT = now;
     }
@@ -781,6 +789,13 @@ export class Hud {
         ev.stopPropagation();
         return;
       }
+      // F3: the performance panel (the browser's own F3 is "find next")
+      if (ev.code === 'F3' && this.active) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (!ev.repeat) settings.update({ showFps: !settings.get().showFps });
+        return;
+      }
       if (!this.active || this.gameOver || this.settingsOpen) return;
       if (isTextInput(ev.target)) return;
       const consume = (): void => {
@@ -1138,7 +1153,10 @@ export class Hud {
 
   private applySettings(): void {
     const st = settings.get();
-    setClass(this.fpsEl, 'sg-hidden', !st.showFps);
+    if (this.fpsEl.classList.contains('sg-hidden') === st.showFps) {
+      setClass(this.fpsEl, 'sg-hidden', !st.showFps);
+      if (st.showFps) this.renderPerf(0);
+    }
     const wantTouch = this.isTouch();
     if (wantTouch && !this.touch) {
       this.touch = mountTouchControls(this.el, this.handle.input, {
@@ -1200,6 +1218,20 @@ export class Hud {
 
   private isTouch(): boolean {
     return shouldUseTouch(settings.get().touchControls);
+  }
+
+  /** The F3 panel (every 0.5 s while shown). `hudFps`: the HUD's own count, when the view has no numbers yet. */
+  private renderPerf(hudFps: number): void {
+    let p: PerfInfo | null = null;
+    try {
+      p = this.handle.perf?.() ?? null;
+    } catch {
+      p = null;
+    }
+    const lines = perfLines(p, { fps: hudFps, ms: hudFps > 0 ? 1000 / hudFps : 0 }, this.ctx.gpu?.renderer ?? '');
+    const rows = this.fpsEl.children;
+    if (rows.length !== lines.length) this.fpsEl.replaceChildren(...lines.map((l, i) => h('div', { class: i === lines.length - 1 ? 'gpu' : 'ln' }, l)));
+    else lines.forEach((l, i) => setText(rows[i] as HTMLElement, l));
   }
 
   private safeIsLocked(): boolean {

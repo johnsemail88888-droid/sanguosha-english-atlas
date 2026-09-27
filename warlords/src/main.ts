@@ -67,6 +67,8 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     // PLATFORM-4: the staged mid-match quality switch (the UI subscribes once the view is ready)
     qualityApplying: () => handle.renderer?.qualityApplying ?? false,
     onQualityApplying: (cb) => handle.renderer?.onQualityApplying(cb) ?? (() => undefined),
+    // the F3 panel / automatic quality read the renderer's live numbers
+    perf: () => handle.renderer?.perf() ?? null,
     dispose: () => {
       offDebug?.();
       offProgress();

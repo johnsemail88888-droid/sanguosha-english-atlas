@@ -92,6 +92,109 @@ export function defaultQuality(d: DeviceHints = deviceHints()): Quality {
   return d.coarse || (d.minSide > 0 && d.minSide <= 500) ? 'low' : 'medium';
 }
 
+// ── GPU ──────────────────────────────────────────────────────────────────────
+
+/**
+ * What kind of GPU a WebGL renderer string names. 'software': the browser draws
+ * WebGL on the CPU (hardware acceleration off, or the GPU blocklisted) — every
+ * frame is slow however strong the machine is.
+ */
+export type GpuClass = 'software' | 'mobile' | 'apple' | 'discrete' | 'integrated' | 'unknown';
+
+const SOFTWARE_GPU = /swiftshader|llvmpipe|softpipe|lavapipe|basic render|software|gdi generic/i;
+const MOBILE_GPU = /mali|adreno|powervr|videocore|tegra|apple a\d/i;
+const APPLE_GPU = /apple (m\d|gpu)/i;
+// AMD APUs: "Radeon(TM) Graphics", "Radeon 780M", "Radeon RX Vega 8 Graphics" (Ryzen laptops)
+const AMD_APU = /radeon(\(tm\))?\s+graphics|radeon\s+\d{3}m\b|vega \d+ graphics/i;
+// Intel Arc and AMD's RX / Pro / R9 lines are cards
+const DISCRETE_GPU = /nvidia|geforce|quadro|\brtx\b|\bgtx\b|radeon\s*(\(tm\)\s*)?(rx|pro|r9|r7|hd \d{4})|firepro|\barc\b|arc\(tm\)/i;
+const INTEGRATED_GPU = /intel|iris|uhd graphics|hd graphics|radeon|vega/i;
+
+/** The browser renders WebGL without the GPU (hardware acceleration off / blocklisted). */
+export function isSoftwareGpu(renderer: string): boolean {
+  return SOFTWARE_GPU.test(renderer);
+}
+
+export function classifyGpu(renderer: string): GpuClass {
+  const r = renderer.trim();
+  if (!r) return 'unknown';
+  if (SOFTWARE_GPU.test(r)) return 'software';
+  if (MOBILE_GPU.test(r)) return 'mobile';
+  if (APPLE_GPU.test(r)) return 'apple';
+  if (AMD_APU.test(r)) return 'integrated';
+  if (DISCRETE_GPU.test(r)) return 'discrete';
+  if (INTEGRATED_GPU.test(r)) return 'integrated';
+  return 'unknown';
+}
+
+/** The one WebGL probe of the page (a throwaway context, read once). */
+export interface GpuInfo {
+  /** a WebGL 2 context could be created (three.js needs it) */
+  webgl2: boolean;
+  /** why not (when !webgl2) */
+  reason: string | null;
+  /** the GPU the browser renders WebGL with (UNMASKED_RENDERER_WEBGL); '' = unknown */
+  renderer: string;
+  vendor: string;
+}
+
+const NO_GPU: GpuInfo = { webgl2: false, reason: 'no DOM', renderer: '', vendor: '' };
+let gpuCache: GpuInfo | null = null;
+
+/** Renderer / vendor strings of a context (the unmasked ones when the browser masks gl.RENDERER). */
+function readGpuStrings(gl: WebGLRenderingContext | WebGL2RenderingContext): { renderer: string; vendor: string } {
+  let renderer = '';
+  let vendor = '';
+  try {
+    renderer = String(gl.getParameter(gl.RENDERER) ?? '');
+    vendor = String(gl.getParameter(gl.VENDOR) ?? '');
+    // Chrome / Safari answer the masked "WebKit WebGL"; Firefox already gives the real (sanitized) name
+    if (!renderer || /^webkit/i.test(renderer)) {
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      if (ext) {
+        renderer = String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) ?? renderer);
+        vendor = String(gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) ?? vendor);
+      }
+    }
+  } catch {
+    /* a lost / odd context: unknown */
+  }
+  return { renderer: renderer.trim(), vendor: vendor.trim() };
+}
+
+/**
+ * Probe WebGL once per page (cached): can a WebGL 2 context be created, and which
+ * GPU does the browser use for it. The context is freed right away.
+ */
+export function probeGpu(doc: Document | undefined = (globalThis as { document?: Document }).document): GpuInfo {
+  if (gpuCache) return gpuCache;
+  if (!doc || typeof doc.createElement !== 'function') return NO_GPU;
+  const attrs: WebGLContextAttributes = { failIfMajorPerformanceCaveat: false, powerPreference: 'default' };
+  try {
+    const canvas = doc.createElement('canvas');
+    const gl = canvas.getContext('webgl2', attrs) as WebGL2RenderingContext | null;
+    if (gl) {
+      gpuCache = { webgl2: true, reason: null, ...readGpuStrings(gl) };
+      // free the probe context right away (browsers cap live contexts)
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    } else {
+      const reason = typeof WebGL2RenderingContext === 'undefined' ? 'WebGL 2 is not supported by this browser' : 'WebGL 2 context creation failed (disabled or blocklisted GPU)';
+      // WebGL 1 may still say which renderer the browser fell back to
+      const gl1 = doc.createElement('canvas').getContext('webgl', attrs) as WebGLRenderingContext | null;
+      gpuCache = { webgl2: false, reason, ...(gl1 ? readGpuStrings(gl1) : { renderer: '', vendor: '' }) };
+      gl1?.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+  } catch (err) {
+    gpuCache = { webgl2: false, reason: err instanceof Error ? err.message : String(err), renderer: '', vendor: '' };
+  }
+  return gpuCache;
+}
+
+/** Test / harness hook: pretend the probe found `info` (null: probe again). */
+export function setGpuInfoForTests(info: GpuInfo | null): void {
+  gpuCache = info;
+}
+
 function load(): UserSettings {
   try {
     const raw = globalThis.localStorage?.getItem(KEY);

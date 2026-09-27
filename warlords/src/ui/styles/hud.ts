@@ -65,7 +65,6 @@ export const HUD_CSS = /* css */ `
 .mm-canvas { display: block; width: 100%; height: 100%; }
 .mm-n { position: absolute; top: ${u(3)}; left: 50%; transform: translateX(-50%); font-family: var(--font-display); font-size: ${fs(13, 9)}; font-weight: 800; color: #f5dc98; }
 .mm-region { width: fit-content; max-width: 100%; margin: ${u(9)} auto 0; padding: ${u(1)} ${u(10)}; text-align: center; font-family: var(--font-display); font-size: ${fs(14, 10)}; color: var(--gold-hi); letter-spacing: 0.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(18, 12, 7, 0.72); border: 1px solid var(--hud-line); border-radius: 999px; text-shadow: 0 1px 2px #000, 0 0 3px #000; }
-.hud-fps { position: absolute; top: ${u(2)}; right: ${u(4)}; font-size: 11px; font-variant-numeric: tabular-nums; color: #9fe0a0; z-index: 9; }
 
 /* ── kill feed ─────────────────────────────────────────── */
 .hud-feed { position: absolute; top: ${u(16)}; right: ${u(250)}; display: flex; flex-direction: column; align-items: flex-end; gap: ${u(4)}; max-width: min(${u(560)}, 44vw); font-size: ${fs(14, 10)}; }
