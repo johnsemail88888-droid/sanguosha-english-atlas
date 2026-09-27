@@ -61,6 +61,8 @@ export interface UserSettings {
   /** background music: 'noname' = 无名杀 recordings (streamed), 'original' = the procedural score */
   musicSource: 'noname' | 'original';
   touchControls: 'auto' | 'on' | 'off';
+  /** camera: 'auto' = first person with mouse + keyboard, third person on touch controls (render/camera/viewMode.ts) */
+  cameraView: 'auto' | 'first' | 'third';
   net: NetServerConfig;
 }
 
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   voiceLines: true,
   musicSource: 'noname',
   touchControls: 'auto',
+  cameraView: 'auto',
   net: {
     mode: 'peer',
     peerHost: '',

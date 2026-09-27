@@ -10,6 +10,7 @@ import { HERO_BY_ID, isPassiveAbility } from '../../../src/data';
 import type { AbilityDef } from '../../../src/data/types';
 import { getAbility, hasAbility } from '../../../src/sim/abilities';
 import { aimAnglesFor } from '../../../src/sim/aim';
+import { TROOP_VS_HERO_MUL } from '../../../src/sim/combat';
 import type { World } from '../../../src/sim/world';
 import { statusRows } from '../../../src/sim/status';
 import { createWorld } from '../../../src/sim/world';
@@ -378,11 +379,11 @@ describe('夏侯惇 Xiahou Dun', () => {
     w.dealDamage({ targetId: me.id, amount: 50, type: 'zone' });
     w.dealDamage({ targetId: me.id, sourceId: foe.id, amount: 50, type: 'fire', noReflect: true, abilityId: 'status:burn' });
     expect(foe.hp).toBe(f);
-    // a troop attacker gets it back too
+    // a troop attacker gets it back too (30 % of what it dealt: a soldier's hit on a hero lands × TROOP_VS_HERO_MUL)
     const troop = w.spawnTroops(foe.id, 'qun_raider', 1, { x: 0, y: 0, z: 24 })[0];
     const t0 = troop.hp;
     w.dealDamage({ targetId: me.id, sourceId: troop.id, amount: 20, type: 'normal', weaponId: 'troop_shotgun' });
-    expect(t0 - troop.hp).toBeCloseTo(6, 5);
+    expect(t0 - troop.hp).toBeCloseTo(20 * TROOP_VS_HERO_MUL * 0.3, 5);
   });
 
   it('拔矢啖睛 heals 30 % of missing HP and gives ×1.3 damage for 6 s', () => {

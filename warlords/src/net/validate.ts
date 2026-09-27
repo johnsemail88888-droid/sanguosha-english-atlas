@@ -4,6 +4,7 @@
 // counts are only bounded by the transport's max payload. The host sanitizes
 // every InputPacket before it reaches SimHost.setInput.
 import {
+  BTN_FIRST_PERSON,
   ITEM_SLOTS,
   WEAPON_SLOTS,
   type AbilitySlot,
@@ -127,16 +128,18 @@ export function sanitizeInputPacket(p: InputPacket): InputPacket {
  * spawn shield (hostSession, MP2-1).
  */
 export function isActiveInput(f: InputFrame): boolean {
-  return f.moveX !== 0 || f.moveZ !== 0 || f.buttons !== 0 || f.actions.length > 0;
+  // (the first-person bit is a view mode, not a held button)
+  return f.moveX !== 0 || f.moveZ !== 0 || (f.buttons & ~BTN_FIRST_PERSON) !== 0 || f.actions.length > 0;
 }
 
 /**
  * "Hands off the controls": no movement, no held buttons, no actions — but the
- * same view direction, so the hero does not snap around. seq 0 marks an
- * unsequenced frame (SimHost accepts it without disturbing input ordering).
- * null when there is no previous input to keep the view direction from.
+ * same view (direction, first / third person), so the hero does not snap
+ * around. seq 0 marks an unsequenced frame (SimHost accepts it without
+ * disturbing input ordering). null when there is no previous input to keep the
+ * view direction from.
  */
 export function neutralInput(prev: InputFrame | null): InputFrame | null {
   if (!prev) return null;
-  return { seq: 0, moveX: 0, moveZ: 0, yaw: prev.yaw, pitch: prev.pitch, buttons: 0, actions: [] };
+  return { seq: 0, moveX: 0, moveZ: 0, yaw: prev.yaw, pitch: prev.pitch, buttons: prev.buttons & BTN_FIRST_PERSON, actions: [] };
 }

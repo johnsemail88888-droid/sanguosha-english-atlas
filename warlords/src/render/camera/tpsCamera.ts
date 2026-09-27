@@ -88,7 +88,8 @@ export function resolveCameraCollision(
   };
 }
 
-export type CameraMode = 'follow' | 'spectate' | 'orbit' | 'free';
+/** 'first': the local hero's eye (./firstPerson.ts). */
+export type CameraMode = 'follow' | 'first' | 'spectate' | 'orbit' | 'free';
 
 /** Trauma-based screen shake + recoil kick, shared by every mode. */
 export class CameraShake {
@@ -216,6 +217,18 @@ export class TpsCameraRig {
     };
     if (smooth) this.approach(camPos, yaw, p, dt, 14);
     else this.setPose(camPos, yaw, p);
+  }
+
+  /**
+   * First person: the camera at the hero's eye (`eyeHeight` above the feet),
+   * looking (yaw, pitch) — exactly the sim's first-person crosshair ray.
+   */
+  firstPerson(target: Vec3, eyeHeight: number, yaw: number, pitch: number): void {
+    const p = clamp(pitch, -PITCH_LIMIT, PITCH_LIMIT);
+    this.setPose({ x: target.x, y: target.y + eyeHeight, z: target.z }, yaw, p);
+    // leaving first person: the third-person boom starts from where collision allows
+    this.collisionDist = 0.35;
+    this.adsBack = CAM_BACK;
   }
 
   /** 0..1 how far ADS has pulled the camera in (for fading the local hero). */

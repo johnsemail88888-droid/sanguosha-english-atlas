@@ -31,6 +31,7 @@ import { GrassField } from './scene/grass';
 import { PickWorld } from './camera/pick';
 import { CameraOccluders } from './camera/camOccluders';
 import { TpsCameraRig, tpsCameraPose, PITCH_LIMIT, adsPull } from './camera/tpsCamera';
+import { FirstPersonView, firstPersonPose } from './camera/firstPerson';
 import { EntityManager } from './entities/manager';
 import { preloadCharacterArt } from './models/preload';
 import { evictUnusedTemplates } from './models/glb';
@@ -130,6 +131,8 @@ export class GameRenderer {
   private readonly post: PostChain;
   private readonly pickWorld: PickWorld;
   private readonly rig: TpsCameraRig;
+  /** first-person camera + weapon viewmodel (camera/firstPerson.ts) */
+  private readonly fp: FirstPersonView;
   private readonly entities = new EntityManager();
   private readonly fx: Effects;
   private readonly zone: ZoneVisual;
@@ -159,7 +162,7 @@ export class GameRenderer {
   };
   private unsubSettings: () => void;
   // local control (from InputController)
-  private look = { yaw: 0, pitch: 0, ads: false, fire: false, fresh: false };
+  private look = { yaw: 0, pitch: 0, ads: false, fire: false, fresh: false, fp: false };
   private spectateId: EntityId | null = null;
   private freeCam: { pos: Vec3; yaw: number; pitch: number } | null = null;
   private readonly eventSubs = new Set<(evs: readonly GameEvent[]) => void>();
@@ -230,6 +233,7 @@ export class GameRenderer {
     this.camera = new THREE.PerspectiveCamera(s.fov, 1, 0.1, this.preset.drawDistance);
     this.rig = new TpsCameraRig(this.camera);
     this.rig.baseFov = s.fov;
+    this.fp = new FirstPersonView(this.camera);
 
     const map = view.map;
     installSkyFog(SUN_DIR);
@@ -269,6 +273,7 @@ export class GameRenderer {
       vignette: this.preset.post,
       msaa: this.preset.msaa,
     });
+    this.post.setOverlay(this.fp.viewmodel);
     this.applyQuality();
     const rect = canvas.getBoundingClientRect();
     this.resize(Math.max(1, rect.width || canvas.width), Math.max(1, rect.height || canvas.height));
@@ -332,6 +337,8 @@ export class GameRenderer {
         lv.rig.setLocalView(this.rig.mode === 'follow');
       }
     }
+    // first person: own body hidden from this camera (shadow kept), the weapon viewmodel posed
+    this.fp.sync(d, localEnt, local, localEnt ? this.entities.character(localEnt.id) : undefined, this.look, this.look.ads && this.adsZoom >= 3 && this.zoomNow >= 1.8);
 
     // 3. events → VFX, then re-emit to subscribers
     let evs = view.drainEvents();
@@ -447,8 +454,9 @@ export class GameRenderer {
       fadedRig?.setFade(1);
     };
     try {
-      // the sky layer's own programs (its scene: no lights in their keys)
+      // the sky layer's own programs (its scene: no lights in their keys), the first-person viewmodel's
       this.forWorldTarget(() => this.renderer.compile(this.sky.scene, this.sky.camera));
+      this.forWorldTarget(() => this.fp.viewmodel.compile(this.renderer));
       if (this.renderer.extensions.has('KHR_parallel_shader_compile')) {
         await this.forWorldTarget(() => this.renderer.compileAsync(this.scene, this.camera));
         shaderProgress?.(1);
@@ -498,6 +506,7 @@ export class GameRenderer {
     this.applySize();
     this.camera.aspect = this.size.w / this.size.h;
     this.camera.updateProjectionMatrix();
+    this.fp.viewmodel.setAspect(this.camera.aspect);
   }
 
   /**
@@ -556,7 +565,10 @@ export class GameRenderer {
       // canonical pose from the freshest look angles (not last frame's camera)
       const yaw = this.look.fresh ? this.look.yaw : ent.yaw;
       const pitch = this.look.fresh ? this.look.pitch : ent.pitch;
-      const pose = tpsCameraPose(ent, yaw, pitch, (ent.flags & VF_DOWNED) !== 0);
+      // first person: the eye the camera sits at (the host starts the ray and the shots there)
+      const pose = this.fp.active
+        ? firstPersonPose(ent, yaw, pitch, this.camera.position.y - ent.y)
+        : tpsCameraPose(ent, yaw, pitch, (ent.flags & VF_DOWNED) !== 0);
       origin = pose.origin;
       dir = pose.dir;
       minDist = Math.max(0, pose.nearClip - 0.3);
@@ -607,12 +619,18 @@ export class GameRenderer {
    * Latest local look state (called by InputController.sample every frame so
    * the camera and pick() use this frame's yaw/pitch, not the last snapshot's).
    */
-  setLookAngles(yaw: number, pitch: number, ads = false, fireHeld = false): void {
+  setLookAngles(yaw: number, pitch: number, ads = false, fireHeld = false, firstPerson = false): void {
     this.look.yaw = yaw;
     this.look.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
     this.look.ads = ads;
     this.look.fire = fireHeld;
     this.look.fresh = true;
+    this.look.fp = firstPerson;
+  }
+
+  /** The camera is the local hero's eye this frame (first-person view). */
+  get firstPerson(): boolean {
+    return this.fp.active;
   }
 
   /** ADS zoom of the local hero's active weapon when aiming (1 otherwise). UI draws a scope when ≥ 3. */
@@ -696,6 +714,7 @@ export class GameRenderer {
     // the match's character models (textures ~5 MB each) go with it; the next match reloads from the HTTP cache
     evictUnusedTemplates();
     this.fx.dispose();
+    this.fp.dispose();
     this.zone.dispose();
     this.fires.dispose();
     this.grass.dispose();
@@ -1048,9 +1067,14 @@ export class GameRenderer {
     } else if (localEnt && !localDead && !(localEnt.flags & VF_DEAD)) {
       const yaw = this.look.fresh ? this.look.yaw : localEnt.yaw;
       const pitch = this.look.fresh ? this.look.pitch : localEnt.pitch;
-      rig.mode = 'follow';
       const zoom = this.adsZoom;
-      rig.follow(this.pickWorld, localEnt, yaw, pitch, dt, false, (localEnt.flags & VF_DOWNED) !== 0, zoom);
+      if (this.look.fp) {
+        rig.mode = 'first';
+        rig.firstPerson(localEnt, this.fp.eyeHeight(localEnt, dt), yaw, pitch);
+      } else {
+        rig.mode = 'follow';
+        rig.follow(this.pickWorld, localEnt, yaw, pitch, dt, false, (localEnt.flags & VF_DOWNED) !== 0, zoom);
+      }
       rig.setZoom(zoom, dt);
     } else {
       // dead / not spawned: spectate a target or orbit
@@ -1066,6 +1090,7 @@ export class GameRenderer {
       rig.setZoom(1, dt);
     }
     this.zoomNow = rig.currentZoom;
+    this.fp.active = rig.mode === 'first';
     rig.apply(dt);
   }
 
@@ -1143,7 +1168,8 @@ export class GameRenderer {
     const cls = shotClass(w.id);
     const aim = this.pick().aimPoint;
     const muzzle = _v2;
-    if (!view || !view.muzzleWorld(muzzle)) muzzle.set(ent.x, ent.y + 1.4, ent.z);
+    // first person: from the viewmodel's barrel as it appears on screen
+    if (!this.fp.muzzleWorld(muzzle) && (!view || !view.muzzleWorld(muzzle))) muzzle.set(ent.x, ent.y + 1.4, ent.z);
     const d = dirFromYawPitch(this.look.fresh ? this.look.yaw : ent.yaw, this.look.fresh ? this.look.pitch : ent.pitch);
     _dir.set(d.x, d.y, d.z);
     for (let s = 0; s < shots; s++) {
@@ -1157,7 +1183,9 @@ export class GameRenderer {
         }
       }
       view?.onShot();
-      const kick = Math.min(0.05, ((def?.recoil ?? 1) * Math.PI) / 180);
+      if (this.fp.active) this.fp.onShot(w.id);
+      // (first person: the viewmodel carries most of the kick, the view itself barely moves)
+      const kick = Math.min(0.05, ((def?.recoil ?? 1) * Math.PI) / 180) * (this.fp.active ? 0.4 : 1);
       this.rig.shake.kick(kick * 0.6, (Math.random() - 0.5) * kick * 0.3);
       for (const cb of this.fireSubs) {
         try {

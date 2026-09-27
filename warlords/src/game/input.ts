@@ -5,9 +5,10 @@
 import type { EntityId, InputAction, InputFrame } from '../core/types';
 import type { Vec3 } from '../core/math';
 import { clamp, wrapAngle } from '../core/math';
-import { BTN_ADS, BTN_FIRE, BTN_INTERACT, BTN_JUMP, BTN_SPRINT, emptyInput } from '../core/types';
+import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, BTN_INTERACT, BTN_JUMP, BTN_SPRINT, emptyInput } from '../core/types';
 import type { InputSink } from './input-types';
 import { settings } from './settings';
+import { CAMERA_TOGGLE_KEY, resolveCameraView, toggledCameraView, type CameraView } from '../render/camera/viewMode';
 
 /** Radians of yaw/pitch per pixel of mouse movement at sensitivity 1. */
 export const LOOK_RAD_PER_PX = 0.0022;
@@ -18,7 +19,7 @@ export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
 /** What sample() needs from the renderer (GameRenderer satisfies it). */
 export interface InputRendererLike {
   pick(): { aimPoint: Vec3; aimTargetId?: EntityId };
-  setLookAngles?(yaw: number, pitch: number, ads?: boolean, fireHeld?: boolean): void;
+  setLookAngles?(yaw: number, pitch: number, ads?: boolean, fireHeld?: boolean, firstPerson?: boolean): void;
   readonly adsZoom?: number;
   readonly view?: { viewTick(): number; local(): { activeSlot: number; weapons: unknown[] } | null; localId(): EntityId | null; get(id: EntityId): { yaw: number; pitch: number; x?: number; z?: number } | undefined };
 }
@@ -104,7 +105,7 @@ const MOVE_KEYS: Readonly<Record<string, [number, number]>> = {
 };
 
 /** Game keys outside KEY_MAP / MOVE_KEYS whose browser default must not fire while playing. */
-const EXTRA_GAME_KEYS = new Set(['ShiftLeft', 'ShiftRight', 'Slash', 'Quote', 'Backquote']);
+const EXTRA_GAME_KEYS = new Set(['ShiftLeft', 'ShiftRight', 'Slash', 'Quote', 'Backquote', CAMERA_TOGGLE_KEY]);
 
 export interface KeyMods {
   ctrlKey: boolean;
@@ -156,6 +157,8 @@ export class InputState {
   /** a slot key was pressed while X was held: X's own order is not sent on release */
   private discardChord = false;
   enabled = true;
+  /** the camera is first person: frames carry BTN_FIRST_PERSON (the host's crosshair / shots start at the eye) */
+  firstPerson = false;
 
   addLook(dx: number, dy: number): void {
     if (!this.enabled) return;
@@ -294,7 +297,7 @@ export class InputState {
     if (this.held.sprint || this.touchHeld.sprint) b |= BTN_SPRINT;
     if (this.held.jump) b |= BTN_JUMP;
     if (this.held.interact || this.touchHeld.interact) b |= BTN_INTERACT;
-    f.buttons = this.enabled ? b : 0;
+    f.buttons = (this.enabled ? b : 0) | (this.firstPerson ? BTN_FIRST_PERSON : 0);
     f.actions = this.actions;
     this.actions = [];
     if (aim) {
@@ -318,6 +321,8 @@ const isEditable = (t: EventTarget | null): boolean => {
 export interface InputControllerOptions {
   /** request pointer lock when the target is clicked (default true, desktop) */
   autoLock?: boolean;
+  /** start in this view instead of the cameraView setting (dev harness / tests; the toggle key still flips it, unsaved) */
+  view?: CameraView;
 }
 
 export class InputController implements InputSink {
@@ -332,12 +337,15 @@ export class InputController implements InputSink {
   private seededFromView = false;
   private disposed = false;
   private activeSlot = 0;
+  /** forced view (options.view), flipped by the toggle key without touching the saved setting */
+  private viewOverride: CameraView | null = null;
   /** timed turn towards an entity (张辽 突袭 lands behind the target: face it) */
   private turn: { targetId: EntityId; remaining: number; last: number } | null = null;
 
   constructor(target: HTMLElement, opts: InputControllerOptions = {}) {
     this.target = target;
     this.opts = { autoLock: true, ...opts };
+    this.viewOverride = opts.view ?? null;
     type AnyMap = WindowEventMap & DocumentEventMap;
     const on = <K extends keyof AnyMap>(el: Window | Document | HTMLElement, type: K, fn: (e: AnyMap[K]) => void, o?: AddEventListenerOptions): void => {
       el.addEventListener(type, fn as EventListener, o);
@@ -465,6 +473,17 @@ export class InputController implements InputSink {
     if (on) this.exitLock();
   }
 
+  /** The camera view in use: the setting ('auto': first person with mouse + keyboard, third on touch). */
+  get view(): CameraView {
+    return this.viewOverride ?? resolveCameraView(settings.get().cameraView, this.touchMode);
+  }
+
+  /** Flip first ↔ third person (the toggle key; saved in the settings). */
+  toggleView(): void {
+    if (this.viewOverride) this.viewOverride = this.viewOverride === 'first' ? 'third' : 'first';
+    else settings.update({ cameraView: toggledCameraView(settings.get().cameraView, this.touchMode) });
+  }
+
   /** Current look angles (for UI such as the compass). */
   get yaw(): number {
     return this.state.yaw;
@@ -537,7 +556,8 @@ export class InputController implements InputSink {
     const zoom = renderer.adsZoom ?? 1;
     const sens = s.mouseSensitivity * (ads ? s.adsSensitivity / Math.max(1, zoom / 1.5) : 1);
     this.state.applyLook(sens, s.invertY);
-    renderer.setLookAngles?.(this.state.yaw, this.state.pitch, ads, this.state.isHeld('fire') && this.state.enabled);
+    this.state.firstPerson = this.view === 'first';
+    renderer.setLookAngles?.(this.state.yaw, this.state.pitch, ads, this.state.isHeld('fire') && this.state.enabled, this.state.firstPerson);
     const aim = renderer.pick();
     return this.state.frame(aim, view?.viewTick());
   }
@@ -569,6 +589,10 @@ export class InputController implements InputSink {
     }
     const code = e.code;
     if (shouldSuppressKey(code, e)) e.preventDefault();
+    if (code === CAMERA_TOGGLE_KEY) {
+      if (down && !e.repeat) this.toggleView();
+      return;
+    }
     const b = KEY_MAP[code];
     if (b?.kind === 'ui') {
       if (down && e.repeat) return;

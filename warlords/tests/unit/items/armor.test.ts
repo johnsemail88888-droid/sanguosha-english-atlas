@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { BTN_ADS, BTN_FIRE, emptyInput } from '../../../src/core/types';
 import { ARMOR_BY_ID, MOUNTS, MOUNT_BY_ID } from '../../../src/data';
 import type { World } from '../../../src/sim/world';
+import { TROOP_VS_HERO_MUL } from '../../../src/sim/combat';
 import { aimFrame, chest, feet, giveAndUse, place, send, setup, stepN, ticks } from './helpers';
 
 function duel(): ReturnType<typeof setup> {
@@ -60,7 +61,8 @@ describe('仁王盾 renwang', () => {
     b.hero!.armor = 'renwang';
     b.yaw = 0;
     const [t] = w.spawnTroops(a.id, 'shu_rifleman', 1, { x: 0, y: 0, z: 25 });
-    expect(w.dealDamage({ targetId: b.id, sourceId: t.id, amount: 40, type: 'normal', weaponId: 'troop_rifle' }).dealt).toBeCloseTo(12, 5);
+    // (a soldier's hit on a hero lands at TROOP_VS_HERO_MUL — 「一下就死了」)
+    expect(w.dealDamage({ targetId: b.id, sourceId: t.id, amount: 40, type: 'normal', weaponId: 'troop_rifle' }).dealt).toBeCloseTo(12 * TROOP_VS_HERO_MUL, 5);
   });
 });
 
@@ -84,7 +86,7 @@ describe('藤甲 tengjia', () => {
     expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 50, type: 'fire', abilityId: 'x' }).dealt).toBeCloseTo(100, 5);
     expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 50, type: 'explosive', abilityId: 'x' }).dealt).toBeCloseTo(50, 5);
     // soldiers' melee / blasts are not bullets
-    expect(w.dealDamage({ targetId: b.id, sourceId: t.id, amount: 30, type: 'melee' }).dealt).toBeCloseTo(30, 5);
+    expect(w.dealDamage({ targetId: b.id, sourceId: t.id, amount: 30, type: 'melee' }).dealt).toBeCloseTo(30 * TROOP_VS_HERO_MUL, 5);
   });
 
   it('losing it to an EMP removes the fire weakness', () => {

@@ -34,7 +34,7 @@ import type {
   WeaponInstance,
   ZoneView,
 } from '../core/types';
-import { BTN_ADS, BTN_FIRE, SIM_DT, emptyInput } from '../core/types';
+import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, SIM_DT, emptyInput } from '../core/types';
 import type { GameMode } from '../core/types';
 import { ROLE_BY_ID, isPassiveAbility } from '../data';
 import type { AbilityDef, HeroDef, WeaponDef } from '../data/types';
@@ -55,7 +55,8 @@ import type {
 import type { MatchInit, MatchSeatInit, SimHost } from './host';
 import './abilities';
 import { getAbility } from './abilities/registry';
-import { aimAnglesFor, cameraRig } from './aim';
+import { aimAnglesFor, cameraRig, firstPersonRig, fpEyeHeight } from './aim';
+import type { CameraRig } from './aim';
 import { HookDispatcher } from './hooks';
 import type { AbilityEntry } from './hooks';
 import { createBasicBot } from './ai/basicBot';
@@ -75,6 +76,7 @@ import {
   makeProjectileState,
   raycastAll,
   redirectDamage as redirectDamageImpl,
+  ridesForHits,
   startReload,
   tickReload,
   updateProjectiles,
@@ -206,6 +208,8 @@ export interface HeroRuntime {
   move: MoveState;
   /** tick of the last movement step (dashes / knockbacks started later in a tick begin next tick) */
   movedTick: number;
+  /** decayed damage taken from each commander's troops / summons / turrets (sim/combat.ts troopFocusDamage) */
+  troopHeat: Map<EntityId, { value: number; at: number }>;
 }
 
 export interface PlayerSlot {
@@ -495,6 +499,7 @@ export class World implements SimExt, SimHost {
         lastMount: null,
         move: { pos: e.pos, vel: e.vel, onGround: true },
         movedTick: -1,
+        troopHeat: new Map(),
       };
       this.heroRts.set(e.id, rt);
       const slot: PlayerSlot = {
@@ -1707,9 +1712,33 @@ export class World implements SimExt, SimHost {
   }
 
   aimRay(e: Entity): { origin: Vec3; dir: Vec3 } {
-    const input = this.inputOf(e);
-    const rig = cameraRig(e.pos, finiteOr(input.yaw, e.yaw), finiteOr(input.pitch, e.pitch), e.hero?.downed === true);
+    const rig = this.aimRig(e);
     return { origin: rig.origin, dir: rig.dir };
+  }
+
+  /** The hero's player looks through the first-person camera (BTN_FIRST_PERSON). */
+  firstPerson(e: Entity): boolean {
+    return e.kind === 'hero' && (this.inputOf(e).buttons & BTN_FIRST_PERSON) !== 0;
+  }
+
+  /** The camera rig the hero's crosshair is on: first person (the eye) or over the shoulder. */
+  private aimRig(e: Entity): CameraRig {
+    const input = this.inputOf(e);
+    const yaw = finiteOr(input.yaw, e.yaw);
+    const pitch = finiteOr(input.pitch, e.pitch);
+    const downed = e.hero?.downed === true;
+    if (this.firstPerson(e)) return firstPersonRig(e.pos, yaw, pitch, fpEyeHeight(downed, ridesForHits(e)));
+    return cameraRig(e.pos, yaw, pitch, downed);
+  }
+
+  /**
+   * Where the hero's weapon shots start: the eye (eyePos) — in first person the
+   * camera itself (a rider's eye is up in the saddle), so the shot ray IS the
+   * crosshair ray and lands where the crosshair points, however close.
+   */
+  shotOrigin(e: Entity): Vec3 {
+    if (!this.firstPerson(e)) return this.eyePos(e);
+    return this.aimRig(e).origin;
   }
 
   /** Tick to rewind other entities to when resolving this human's shots. */
@@ -1719,7 +1748,7 @@ export class World implements SimExt, SimHost {
     return Math.round(clamp(vt, this.tick - LAG_COMP_MAX_TICKS, this.tick));
   }
 
-  /** Crosshair point (validated client aimPoint, or reconstructed third-person ray). */
+  /** Crosshair point (validated client aimPoint, or the reconstructed crosshair ray of the hero's camera). */
   crosshairPoint(e: Entity, maxDist: number): Vec3 {
     return this.crosshair(e, maxDist).point;
   }
@@ -1730,8 +1759,8 @@ export class World implements SimExt, SimHost {
    */
   private crosshair(e: Entity, maxDist: number): { point: Vec3; onSurface: boolean } {
     const input = this.inputOf(e);
-    const rig = cameraRig(e.pos, finiteOr(input.yaw, e.yaw), finiteOr(input.pitch, e.pitch), e.hero?.downed === true);
-    const eye = this.eyePos(e);
+    const rig = this.aimRig(e);
+    const eye = this.shotOrigin(e);
     const ap = input.aimPoint;
     if (ap && isFiniteVec(ap)) {
       const bot = this.isBotHero(e);
@@ -1785,7 +1814,7 @@ export class World implements SimExt, SimHost {
   aimTarget(e: Entity, maxDist: number, filter?: QueryFilter): Entity | undefined {
     const input = this.inputOf(e);
     const eye = this.eyePos(e);
-    const rig = cameraRig(e.pos, finiteOr(input.yaw, e.yaw), finiteOr(input.pitch, e.pitch), e.hero?.downed === true);
+    const rig = this.aimRig(e);
     const f: QueryFilter = { ...(filter ?? {}), exclude: [...(filter?.exclude ?? []), e.id] };
     const ok = (t: Entity): boolean => this.passes(t, f) && !findStatus(t, 'untargetable', this.time) && this.canSee(e, t);
     const angleTo = (t: Entity): number => {

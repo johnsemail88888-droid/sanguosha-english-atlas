@@ -8,7 +8,7 @@ import { h, setClass, setText } from '../dom';
 import { gearName, getLang, heroName, t, tx, type I18nKey } from '../i18n';
 import { displayName } from '../../game/names';
 import { CRATE_NAME } from '../theme';
-import { crosshairStyle, deriveInteract, distanceOutsideZone, relativeBearing, spreadToPx, type InteractPrompt } from './logic';
+import { SquadFocusTracker, crosshairStyle, deriveInteract, distanceOutsideZone, relativeBearing, spreadToPx, type InteractPrompt } from './logic';
 import type { HudFrame } from './types';
 import { viewport } from './viewport';
 import type { PortraitCache } from '../widgets';
@@ -222,6 +222,57 @@ export class DamageDirection {
       const ang = relativeBearing(ent.x, ent.z, ent.yaw, a.src.x, a.src.z);
       a.el.style.transform = `translate(-50%, -50%) rotate(${Math.round((ang * 180) / Math.PI)}deg)`;
     }
+  }
+}
+
+// ── Squad focus warning ──────────────────────────────────────────────────────
+
+/** Who is focusing you, for the warning line: the Lord's guard, a named hero's squad, or wild units. */
+export function squadFocusText(kind: 'lord' | 'hero' | 'wild', heroNameText: string): string {
+  if (kind === 'lord') return tx('主公卫队正在攻击你！', 'The Lord’s guard is firing at you!');
+  if (kind === 'hero') return tx(`${heroNameText}的部曲正在集火你！`, `${heroNameText}’s squad is focusing you!`);
+  return tx('敌军正在集火你！', 'Enemy soldiers are focusing you!');
+}
+
+/**
+ * A squad focusing you (「主公卫队正在攻击你」): red pulsing screen edges and a
+ * line under the zone warning while ≥ 3 soldiers of one commander keep hitting
+ * you — break line of sight, back off or use a 桃 before it is too late.
+ */
+export class SquadFocusWarning {
+  readonly el: HTMLElement;
+  private readonly text: HTMLElement;
+  readonly tracker = new SquadFocusTracker();
+  private on = false;
+  private key = '';
+
+  constructor() {
+    this.text = h('span', { class: 'txt' });
+    this.el = h('div', { class: 'hud-focuswarn' }, h('div', { class: 'edge' }), h('div', { class: 'line' }, h('b', null, '⚠'), this.text));
+  }
+
+  /** A troop / NPC / turret shot hit you. */
+  note(shooter: EntityId, commander: EntityId | undefined, now: number): void {
+    this.tracker.note(shooter, commander, now);
+  }
+
+  /** `who(commander)`: the commander's kind and hero name as the HUD knows them. */
+  update(f: HudFrame, now: number, who: (commander: EntityId | undefined) => { kind: 'lord' | 'hero' | 'wild'; name: string }): void {
+    const me = f.me;
+    const focus = me && !me.dead ? this.tracker.current(now) : null;
+    const on = !!focus;
+    if (on !== this.on) {
+      this.on = on;
+      setClass(this.el, 'on', on);
+    }
+    if (!focus) return;
+    const w = who(focus.commander);
+    const key = `${w.kind}|${w.name}|${f.lang}`;
+    if (key !== this.key) {
+      this.key = key;
+      setText(this.text, squadFocusText(w.kind, w.name));
+    }
+    setClass(this.el, 'lord', w.kind === 'lord');
   }
 }
 

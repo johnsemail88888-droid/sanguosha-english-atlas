@@ -2,6 +2,7 @@
 // through GameHandle.onEvents (never drains the view itself). Owns the in-match
 // overlays (scoreboard, big map, wheel, chat, pause) and the touch overlay.
 import type { EntityId, GameEvent, SquadOrderKind, ViewEntity } from '../../core/types';
+import { VF_LORD } from '../../core/types';
 import { HERO_BY_ID, ITEM_BY_ID } from '../../data';
 import type { GameSession } from '../../game/session';
 import { displayName } from '../../game/names';
@@ -17,7 +18,7 @@ import { mountTouchControls, shouldUseTouch, type TouchControls } from '../touch
 import { button, keyCap } from '../widgets';
 import { CONTROLS, touchControlCells } from '../screens/help';
 import { AbilityBar, SquadPanel, TopBar, VitalsPanel, WeaponPanel } from './panels';
-import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, DuelBar, InteractPromptView, KillStamp, Scope, SpectateBar, ZoneWarning } from './combat';
+import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, DuelBar, InteractPromptView, KillStamp, Scope, SpectateBar, SquadFocusWarning, ZoneWarning } from './combat';
 import { Announcer, ChatBox, KillFeed, PickupStrip, type FeedParty } from './feed';
 import { createGuideCard, fitGuideCard, guideClockRuns, guideCount, guideMayMount, shouldShowGuide } from './guide';
 import { drawMinimap, type MarkerInput } from './minimap';
@@ -72,6 +73,8 @@ export class Hud {
   private readonly downed = new DownedOverlay();
   private readonly spectate: SpectateBar;
   private readonly zoneWarn = new ZoneWarning();
+  /** 「主公卫队正在攻击你」: a squad focusing you */
+  private readonly focusWarn = new SquadFocusWarning();
   private readonly duel: DuelBar;
   private readonly feed: KillFeed;
   private readonly announcer = new Announcer();
@@ -237,6 +240,7 @@ export class Hud {
       this.downed.el,
       this.scope.el,
       this.dmgDir.el,
+      this.focusWarn.el,
       this.dmg.el,
       this.crosshair.el,
       this.killStamp.el,
@@ -471,6 +475,11 @@ export class Hud {
     this.downed.update(f);
     this.spectate.update(f);
     this.zoneWarn.update(f);
+    this.focusWarn.update(f, now, (id) => {
+      const c = id !== undefined ? this.view.get(id) : undefined;
+      if (!c || c.kind !== 'hero') return { kind: 'wild', name: '' };
+      return { kind: c.flags & VF_LORD ? 'lord' : 'hero', name: heroName(c.sub) };
+    });
     this.duel.update(f);
     this.feed.update(now);
     this.announcer.update(now);
@@ -608,6 +617,13 @@ export class Hud {
           }
           case 'heal':
             if (ev.target === myId && ev.amount >= 1) this.dmg.spawn(`+${Math.round(ev.amount)}`, 'heal', null, now);
+            break;
+          case 'shot':
+            // soldiers' hits on you: the squad focus warning
+            if (ev.hit !== undefined && ev.hit === myId) {
+              const s = this.view.get(ev.src);
+              if (s && (s.kind === 'troop' || s.kind === 'npc' || s.kind === 'turret')) this.focusWarn.note(ev.src, s.owner, now);
+            }
             break;
           case 'death':
             this.onDeath(ev, myId, lang, now);
