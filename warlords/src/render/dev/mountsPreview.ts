@@ -78,7 +78,8 @@ export async function startMountsPreview(canvas: HTMLCanvasElement, params: URLS
     const rig = new CharacterRig(heroSpec(heroId));
     rig.setWeapon(weapon ?? HEROES.find((h) => h.id === heroId)?.signatureWeapon ?? 'carbine');
     const coat = MOUNT_BY_ID[id]?.color ?? id;
-    rig.setMount('horse', coat, kingdomColor(HEROES.find((h) => h.id === heroId)?.kingdom), '#d8ac4c');
+    // (the AI-art horse also without a rider: rider=0 shows the mounts alone)
+    rig.setMount('horse', coat, kingdomColor(HEROES.find((h) => h.id === heroId)?.kingdom), '#d8ac4c', true);
     if (riders) rig.useGlb(heroModelPath(heroId), GLB_HERO_HEIGHT);
     else rig.mesh.visible = false;
     if (file) rig.root.position.set(0, 0, (i - (coats.length - 1) / 2) * 3.0);
@@ -93,7 +94,7 @@ export async function startMountsPreview(canvas: HTMLCanvasElement, params: URLS
     const def = TROOP_BY_ID.elephant;
     rig.setWeapon(weapon ?? def?.weapon ?? (def?.melee ? 'troop_melee' : 'troop_rifle'));
     rig.root.scale.setScalar(look.rootScale);
-    rig.setMount('elephant', '#8a8580', look.spec.kingdom, '#d8ac4c');
+    rig.setMount('elephant', '#8a8580', look.spec.kingdom, '#d8ac4c', true);
     if (riders) rig.useGlb(troopModelPath({ id: 'elephant', headgear: look.spec.headgear }), rig.standHeight());
     else rig.mesh.visible = false;
     rig.root.position.set(0, 0, file ? -((coats.length - 1) / 2) * 3.0 - 5 : -5.5);

@@ -331,10 +331,9 @@ export class CharacterRig {
   }
 
   /** Ride a mount (null = on foot). Cheap (no allocation) when unchanged. */
-  setMount(kind: MountKind | null, coat = '#6b4a2e', cloth = '#8a2a22', trim = '#d8ac4c'): void {
+  /** `art`: the AI-art mount allowed (default: when this rider wants its AI-art body — a procedural rider rides the procedural mount). */
+  setMount(kind: MountKind | null, coat = '#6b4a2e', cloth = '#8a2a22', trim = '#d8ac4c', art = this.glbWant !== null): void {
     const k = this.mountKey;
-    // a procedural rider rides the procedural mount (no AI-art horse under a low-poly body)
-    const art = this.glbWant !== null;
     if (kind === k.kind && (!kind || (coat === k.coat && cloth === k.cloth && trim === k.trim && art === k.art))) return;
     k.kind = kind;
     k.coat = coat;
