@@ -2,8 +2,8 @@
 // (software rendering / very old PCs) to 极致 (strong GPUs). Each tier is a
 // clarity setting (render scale, DPR cap) plus cost knobs. Changing preset at
 // runtime is supported; toggling shadows recompiles materials once (brief
-// hitch). The world build (AI-art prop models) follows the tier the match
-// started on (see worldArt below).
+// hitch). The world build (AI-art prop models, 极速's coarser procedural
+// props and terrain chunks) follows the tier the match started on.
 import { QUALITIES, type Quality } from '../game/settings';
 import { WEAPONS } from '../data';
 
@@ -76,8 +76,9 @@ export interface QualityPreset {
    */
   shading: 'basic' | 'lite' | 'full';
   /**
-   * Distance scale of the character LODs (entities/lod.ts): the far body and
-   * the reduced animation rates start this much further out.
+   * Distance scale of the LODs: characters' far bodies and reduced animation
+   * rates (entities/lod.ts), vegetation / prop models' far meshes
+   * (world/propModels.ts PropCuller) start this much further out.
    */
   lodScale: number;
 }
