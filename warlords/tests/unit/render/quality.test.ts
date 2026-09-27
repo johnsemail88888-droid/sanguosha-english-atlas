@@ -214,15 +214,16 @@ describe('draw-distance culling', () => {
     expect(pl.distanceToPoint(new THREE.Vector3(0, 2, 50))).toBeGreaterThan(0);
   });
 
-  it('the terrain skirt splits into 16 + 8 sectors near the map and 4 quadrants beyond', () => {
+  it('the terrain skirt splits into 16-sector bands near the map and 8 sectors beyond 700 m', () => {
     const half = 160;
     const seen = new Set<number>();
-    for (let a = 0; a < Math.PI * 2; a += 0.02) for (const r of [200, 400, 900]) seen.add(skirtTile(Math.cos(a) * r, Math.sin(a) * r, half));
-    expect([...seen].sort((x, y) => x - y)).toEqual(Array.from({ length: 28 }, (_, i) => i));
+    for (let a = 0; a < Math.PI * 2; a += 0.02) for (const r of [200, 400, 700, 1300]) seen.add(skirtTile(Math.cos(a) * r, Math.sin(a) * r, half));
+    expect([...seen].sort((x, y) => x - y)).toEqual(Array.from({ length: 56 }, (_, i) => i));
     expect(skirtTile(170, 0, half)).toBeLessThan(16);
     expect(skirtTile(170 + 150, 0, half)).toBeGreaterThanOrEqual(16);
-    expect(skirtTile(170 + 150, 0, half)).toBeLessThan(24);
-    expect(skirtTile(170 + 400, 0, half)).toBeGreaterThanOrEqual(24);
+    expect(skirtTile(170 + 150, 0, half)).toBeLessThan(32);
+    expect(skirtTile(170 + 400, 0, half)).toBeGreaterThanOrEqual(32);
+    expect(skirtTile(170 + 900, 0, half)).toBeGreaterThanOrEqual(48);
   });
 });
 

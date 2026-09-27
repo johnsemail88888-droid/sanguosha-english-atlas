@@ -735,12 +735,13 @@ function buildSkirt(map: MapData): THREE.Mesh[] {
 /** Skirt bands (m beyond the playable square's edge): the nearer, the finer the tiles. */
 const SKIRT_BANDS: readonly { out: number; sectors: number }[] = [
   { out: 100, sectors: 16 },
-  { out: 300, sectors: 8 },
-  { out: Infinity, sectors: 4 },
+  { out: 300, sectors: 16 },
+  { out: 700, sectors: 16 },
+  { out: Infinity, sectors: 8 },
 ];
 const SKIRT_TILES = SKIRT_BANDS.reduce((n, b) => n + b.sectors, 0);
 
-/** Tile of a skirt cell centred at (x, z): 16 sectors of the first 100 m, 8 out to 300 m, 4 quadrants beyond. */
+/** Tile of a skirt cell centred at (x, z): 16 sectors in each band out to 700 m past the edge, 8 beyond. */
 export function skirtTile(x: number, z: number, half: number): number {
   const a = Math.atan2(z, x) / (Math.PI * 2) + 0.5; // 0..1
   const out = Math.max(Math.abs(x), Math.abs(z)) - half;
