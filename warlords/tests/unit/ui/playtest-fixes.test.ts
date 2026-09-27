@@ -138,6 +138,12 @@ describe('settings (task 15)', () => {
     expect(r.musicVolume).toBe(DEFAULT_SETTINGS.musicVolume);
   });
 
+  it('reset goes back to 自动 and 自动调节画质, and keeps the GPU benchmark (a measurement, not a choice)', () => {
+    const gpuBench = { gpu: 'NVIDIA GeForce RTX 5090', ms: 2, msSmall: 1.8, at: 1 };
+    const r = resetSettings({ ...structuredClone(DEFAULT_SETTINGS), quality: 'low', qualityAuto: false, autoAdjust: false, gpuBench });
+    expect(r).toMatchObject({ qualityAuto: true, autoAdjust: true, gpuBench });
+  });
+
   it('HTTPS/WSS goes off for localhost and private addresses only', () => {
     for (const h of ['localhost', '127.0.0.1', '10.1.2.3', '172.16.0.9', '172.31.255.1', '192.168.1.5', '169.254.3.4', '::1', '[::1]', 'nas.local', 'fd12:3456::1']) expect(isPrivateHost(h), h).toBe(true);
     for (const h of ['', 'example.com', '8.8.8.8', '172.32.0.1', '192.169.0.1', '0.peerjs.com']) expect(isPrivateHost(h), h).toBe(false);
