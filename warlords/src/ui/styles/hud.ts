@@ -447,8 +447,8 @@ export const HUD_CSS = /* css */ `
 .wh-center .x { display: none; font-size: 1.8em; line-height: 1; font-family: var(--font-body); }
 .sg-hud.touch .wh-center .x { display: block; }
 .wh-hint { position: absolute; bottom: -2.2em; left: 0; right: 0; text-align: center; font-size: 0.8em; opacity: 0.8; }
-.hud-pause { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(8, 5, 3, 0.58); backdrop-filter: blur(2px); }
-.hud-pause[data-mode="click"] { background: rgba(8, 5, 3, 0.32); backdrop-filter: none; cursor: pointer; }
+.hud-pause { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(8, 5, 3, 0.58); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+.hud-pause[data-mode="click"] { background: rgba(8, 5, 3, 0.32); -webkit-backdrop-filter: none; backdrop-filter: none; cursor: pointer; }
 .pm-wrap { display: flex; align-items: stretch; justify-content: center; gap: 1em; max-width: 96vw; max-height: calc(100% - 1em); }
 .pm-box { width: min(22em, 90vw); flex: none; display: flex; flex-direction: column; gap: 0.7em; padding: 1.3em 1.6em 1.5em; animation: sg-pop 0.15s ease-out; overflow: auto; }
 .pm-box h2 { color: var(--red-lo); margin-bottom: 0.3em; }

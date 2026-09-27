@@ -507,7 +507,7 @@ export const SCREENS_CSS = /* css */ `
 .tip .tip-text { display: inline; margin: 0; }
 
 /* ── game over ─────────────────────────────────────────── */
-.sg-over { display: flex; align-items: flex-start; justify-content: center; padding: 1.5em 1em; background: rgba(10, 6, 4, 0.72); backdrop-filter: blur(3px); }
+.sg-over { display: flex; align-items: flex-start; justify-content: center; padding: 1.5em 1em; background: rgba(10, 6, 4, 0.72); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .over-sheet { width: min(64em, 100%); padding: 1.3em 1.8em 1.5em; margin: auto 0; }
 .over-banner { display: flex; align-items: center; gap: 1.4em; justify-content: center; margin-bottom: 1em; flex-wrap: wrap; text-align: center; }
 .over-banner .sg-seal { animation: sg-stamp 0.65s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
