@@ -72,6 +72,7 @@ export function gpuShortName(renderer: string): string {
  */
 export function gpuChipName(renderer: string, max = 28): string {
   const n = gpuShortName(renderer)
+    .replace(/,\s*or similar$/i, '') // Firefox's rounded-off names
     .replace(/\((R|TM)\)/gi, '')
     .replace(/\bGeForce\s+/i, '')
     .replace(/\s{2,}/g, ' ')

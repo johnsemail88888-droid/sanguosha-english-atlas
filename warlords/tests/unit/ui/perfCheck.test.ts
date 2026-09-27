@@ -195,6 +195,7 @@ describe('the GPU chip (title, lobby)', () => {
     expect(gpuChipName(GPU.rtx)).toBe('NVIDIA RTX 5090');
     expect(gpuChipName(GPU.uhd)).toBe('Intel UHD Graphics 620');
     expect(gpuChipName(GPU.m1)).toBe('Apple M1');
+    expect(gpuChipName('NVIDIA GeForce GTX 980, or similar')).toBe('NVIDIA GTX 980');
     expect(gpuChipName('A Very Long Graphics Adapter Name Of Some Vendor', 20)).toHaveLength(20);
   });
 
