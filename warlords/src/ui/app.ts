@@ -31,7 +31,7 @@ import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
 import { clearRejoin, inviteLink, isReconnectable, loadRejoin, netFor, refreshRejoin, type RejoinInfo } from './invite';
 import { copyWhenReady, pendingLink, type InviteNotice, type PendingLink } from './quickInvite';
-import { desktopGpuSoftware } from './desktop';
+import { desktopGpuSoftware, desktopInfo } from './desktop';
 import { AutoQualityController, autoPick, autoTuneNeeded } from './autoQuality';
 import { perfVerdict, qualityName } from './perfcheck';
 
@@ -1281,6 +1281,15 @@ class App implements UiCtx {
   // ── global listeners ────────────────────────────────────────────────────────
 
   private installGlobalListeners(): void {
+    // Ctrl is the dodge key and Ctrl+W (⌘W on a Mac) closes the tab — a page cannot
+    // block it. Mid-match the browser asks first (离开此网站？) instead of dropping
+    // the player out of the game. Not in the desktop app (no such shortcut there)
+    // or under automation (tests reload pages on purpose).
+    this.bag.listen(window, 'beforeunload', (ev: BeforeUnloadEvent) => {
+      if (!guardUnload({ inMatch: this.match !== null && (this.screenId === 'match' || this.screenId === 'loading'), desktop: !!desktopInfo(), automated: !!navigator.webdriver })) return;
+      ev.preventDefault();
+      ev.returnValue = '';
+    });
     const unlock = (): void => {
       if (this.unlocked) return;
       this.unlocked = true;
@@ -1374,4 +1383,9 @@ function navigatorIsAutomated(): boolean {
   } catch {
     return false;
   }
+}
+
+/** Should leaving the page ask first? Only mid-match on a web page a person is playing. */
+export function guardUnload(o: { inMatch: boolean; desktop: boolean; automated: boolean }): boolean {
+  return o.inMatch && !o.desktop && !o.automated;
 }
