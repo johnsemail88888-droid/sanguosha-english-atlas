@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { QUALITIES, loadSettingsForTest, migrateQuality, type Quality } from '../../../src/game/settings';
-import { HERO_VIEW_RANGE, QUALITY_PRESETS, atMost, groundVariant, qualityPreset, qualityRank } from '../../../src/render/quality';
+import { HERO_VIEW_RANGE, QUALITY_PRESETS, atMost, groundVariant, presetPixelRatio, qualityPreset, qualityRank } from '../../../src/render/quality';
 import { FrameLimiter } from '../../../src/render/frameCap';
 import { DepthCuller } from '../../../src/render/scene/depthCull';
 import { setFarPlane } from '../../../src/render/world/propModels';
@@ -77,6 +77,19 @@ describe('quality ladder', () => {
     expect(groundVariant('potato')).toBe('plain');
     // heroes stay visible to weapon range on every tier (the far plane stretches to them)
     expect(HERO_VIEW_RANGE).toBeGreaterThan(p.drawDistance);
+  });
+
+  it('极速 keeps its pixel budget in big windows; the other tiers follow DPR only', () => {
+    const P = QUALITY_PRESETS;
+    expect(presetPixelRatio(P.potato, 1, 1280, 720)).toBe(0.5); // 640×360
+    const big = presetPixelRatio(P.potato, 1, 2560, 1440);
+    expect(2560 * 1440 * big * big).toBeCloseTo(P.potato.maxPixels, -2);
+    expect(big).toBeLessThan(0.5);
+    expect(presetPixelRatio(P.potato, 2, 1280, 720)).toBe(0.5); // the cap
+    expect(presetPixelRatio(P.medium, 1, 2560, 1440)).toBe(1);
+    expect(presetPixelRatio(P.medium, 2, 1280, 720)).toBe(1.5);
+    expect(presetPixelRatio(P.ultra, 3, 1280, 720)).toBe(2);
+    expect(presetPixelRatio(P.low, 2, 1280, 720)).toBe(1);
   });
 
   it('极致 is the strong-GPU tier: full DPR, 4096 shadows, MSAA 4, the longest view', () => {

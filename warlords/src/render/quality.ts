@@ -21,6 +21,12 @@ export interface QualityPreset {
   /** multiplier on devicePixelRatio, and an absolute cap (both in canvas pixels per CSS px) */
   pixelRatioScale: number;
   maxPixelRatio: number;
+  /**
+   * Canvas pixel budget (0 = none): a bigger window renders at a lower ratio
+   * instead of multiplying the per-pixel cost (极速: a 2560×1440 window would
+   * otherwise draw 4× the pixels of a 1280×720 one).
+   */
+  maxPixels: number;
   shadows: boolean;
   shadowMapSize: number;
   /** half extent (m) of the orthographic shadow frustum around the player */
@@ -83,6 +89,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
   potato: {
     pixelRatioScale: 0.5,
     maxPixelRatio: 0.5,
+    maxPixels: 280_000,
     shadows: false,
     shadowMapSize: 512,
     shadowExtent: 30,
@@ -107,6 +114,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
   low: {
     pixelRatioScale: 0.75,
     maxPixelRatio: 1,
+    maxPixels: 0,
     shadows: false,
     shadowMapSize: 1024,
     shadowExtent: 30,
@@ -132,6 +140,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
   medium: {
     pixelRatioScale: 1,
     maxPixelRatio: 1.5,
+    maxPixels: 0,
     shadows: true,
     shadowMapSize: 2048,
     shadowExtent: 42,
@@ -156,6 +165,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
   high: {
     pixelRatioScale: 1,
     maxPixelRatio: 2,
+    maxPixels: 0,
     shadows: true,
     shadowMapSize: 4096,
     shadowExtent: 55,
@@ -181,6 +191,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
   ultra: {
     pixelRatioScale: 1,
     maxPixelRatio: 2,
+    maxPixels: 0,
     shadows: true,
     shadowMapSize: 4096,
     shadowExtent: 75,
@@ -204,6 +215,16 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
 };
 
 export const qualityPreset = (q: Quality): QualityPreset => QUALITY_PRESETS[q] ?? QUALITY_PRESETS.medium;
+
+/**
+ * Canvas pixel ratio of a preset for a `w`×`h` CSS px view at devicePixelRatio
+ * `dpr`: the scale and the cap, then the pixel budget.
+ */
+export function presetPixelRatio(p: QualityPreset, dpr: number, w: number, h: number): number {
+  const pr = Math.min(p.maxPixelRatio, dpr * p.pixelRatioScale);
+  const area = Math.max(1, w * h);
+  return p.maxPixels > 0 && area * pr * pr > p.maxPixels ? Math.sqrt(p.maxPixels / area) : pr;
+}
 
 /** Position of a tier on the ladder (0 = 极速 … 4 = 极致); unknown ids rank as 均衡. */
 export function qualityRank(q: Quality): number {

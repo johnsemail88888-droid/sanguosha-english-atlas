@@ -13,7 +13,7 @@ import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { ViewSource } from './view';
-import { HERO_VIEW_RANGE, groundVariant, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
+import { HERO_VIEW_RANGE, groundVariant, presetPixelRatio, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
 import { AdaptiveResolution, adaptiveFloor } from './adaptiveRes';
 import { LocalFirePredictor, type LocalFireGate } from './localFire';
 import { sharedUniforms, disposeSharedMaterials } from './core/materials';
@@ -741,7 +741,7 @@ export class GameRenderer {
   /** The quality preset's pixel ratio on this device: the adaptive resolution's ceiling. */
   private pixelRatio(): number {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    return Math.min(this.preset.maxPixelRatio, dpr * this.preset.pixelRatioScale);
+    return presetPixelRatio(this.preset, dpr, this.size.w, this.size.h);
   }
 
   /** Size the canvas / post targets at the adaptive pixel ratio. */
