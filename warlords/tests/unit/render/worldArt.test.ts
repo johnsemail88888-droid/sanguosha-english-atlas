@@ -699,7 +699,13 @@ describe('world art: prop models', () => {
     expect(plan).not.toBeNull();
     expect(plan!.ratio).toBeLessThan(0.5);
     expect(plan!.distance).toBeGreaterThan(30);
-    expect(propLodPlan('statue', 5000)).toBeNull();
+    expect(propLodPlan('statue', 5000)).toBeNull(); // a handful on the map
+    // camp clutter by the dozen: a coarse far model, switched to sooner
+    const brazier = propLodPlan('brazier', 3108);
+    expect(brazier).not.toBeNull();
+    expect(3108 * brazier!.ratio).toBeLessThanOrEqual(520);
+    expect(brazier!.distance).toBeLessThan(plan!.distance);
+    expect(propLodPlan('crateStack', 800)).toBeNull(); // already cheap
     expect(propLodPlan('tree', 300)).toBeNull(); // already cheap
     // the dense Nanman hut: simplified near model, cheap far one
     const base = propBasePlan('nanmanTent', 56815);

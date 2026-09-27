@@ -189,10 +189,13 @@ export interface PropModel {
  */
 export function propLodPlan(kind: GlbPropType, tris: number): { ratio: number; distance: number } | null {
   const dense = kind === 'tree' || kind === 'pine' || kind === 'bamboo' || kind === 'rock' || kind === 'nanmanTent';
-  if (!dense) return null;
-  const target = kind === 'rock' ? 260 : kind === 'nanmanTent' ? 1500 : 800;
+  // camp / plaza clutter stands in the dozens around every base (the palace plaza alone
+  // shows ~30 braziers of 3k triangles): a coarse far model from ~36 m too
+  const clutter = kind === 'brazier' || kind === 'crateStack' || kind === 'barricade' || kind === 'sandbags' || kind === 'tent';
+  if (!dense && !clutter) return null;
+  const target = kind === 'rock' ? 260 : kind === 'nanmanTent' ? 1500 : clutter ? 500 : 800;
   if (tris < target * 2) return null;
-  return { ratio: Math.max(0.04, target / tris), distance: kind === 'rock' ? 38 : kind === 'nanmanTent' ? 45 : 52 };
+  return { ratio: Math.max(0.04, target / tris), distance: kind === 'rock' ? 38 : kind === 'nanmanTent' ? 45 : clutter ? 36 : 52 };
 }
 
 /**
