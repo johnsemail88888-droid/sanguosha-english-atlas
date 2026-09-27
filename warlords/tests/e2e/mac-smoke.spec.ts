@@ -259,7 +259,7 @@ test('Mac smoke: title → audio → GPU tier → single player: move / aim / fi
   let g: MacPage | null = null;
   try {
     // 自动 quality with the benchmark on (?autotune=1: automated browsers skip it otherwise)
-    g = await open(browser, `${server.url}?debug=1&autotune=1`, { playerName: 'mac', qualityAuto: true }, 'single');
+    g = await open(browser, `${server.url}?debug=1&autotune=1&lang=zh`, { playerName: 'mac', qualityAuto: true }, 'single');
     const { page, errors } = g;
     const shot = (name: string) => page.screenshot({ path: test.info().outputPath(`${browserName}-${name}.png`) });
 
@@ -314,13 +314,18 @@ test('Mac smoke: title → audio → GPU tier → single player: move / aim / fi
       await page.waitForTimeout(50);
     }
     const turned = expect.poll(async () => Math.abs((await yaw()) - y0), { message: 'the mouse turns the hero', timeout: 10_000 }).toBeGreaterThan(0.05);
+    let aimVia = 'mouse';
     if (lockMode === 'real') await turned;
-    else {
-      // an emulated lock only sees whatever movementX the engine gives synthetic mouse moves
-      const ok = await turned.then(() => true, () => false);
-      if (!ok) test.info().annotations.push({ type: 'aim', description: `${browserName}: no turn from synthetic mouse moves under the emulated lock` });
+    else if (!(await turned.then(() => true, () => false))) {
+      // WebKit's synthetic mouse moves carry no movementX (a real locked pointer does): send
+      // the engine's own MouseEvents with movementX, the way a locked pointer reports motion
+      aimVia = 'MouseEvent movementX';
+      await page.evaluate(() => {
+        for (let i = 0; i < 10; i++) document.dispatchEvent(new MouseEvent('mousemove', { movementX: 25, movementY: 0, bubbles: true }));
+      });
+      await expect.poll(async () => Math.abs((await yaw()) - y0), { message: 'movementX turns the hero', timeout: 10_000 }).toBeGreaterThan(0.05);
     }
-    rows.aim = `yaw ${y0.toFixed(2)} → ${(await yaw()).toFixed(2)}`;
+    rows.aim = `yaw ${y0.toFixed(2)} → ${(await yaw()).toFixed(2)} (${aimVia})`;
 
     // fire: ammo goes down
     const ammo = () =>
@@ -415,7 +420,7 @@ test('Mac smoke: P2P join between two WebKit players (PeerJS cloud)', async ({ b
   const pages: MacPage[] = [];
   try {
     const low = { quality: 'low', qualityAuto: false };
-    const host = await open(browser, `${server.url}?debug=1`, { ...low, playerName: '主持人' }, 'p2p-host');
+    const host = await open(browser, `${server.url}?debug=1&lang=zh`, { ...low, playerName: '主持人' }, 'p2p-host');
     pages.push(host);
     await host.page.locator('.sg-menu-btn', { hasText: '联机对战' }).click();
     await expect(host.page.locator('[data-screen="online"]')).toBeVisible();
@@ -426,7 +431,7 @@ test('Mac smoke: P2P join between two WebKit players (PeerJS cloud)', async ({ b
     rows.room = code;
 
     // the guest opens the invite link (public PeerJS cloud) and lands in the host's lobby
-    const guest = await open(browser, `${server.url}?room=${code}&mode=peer&debug=1`, { ...low, playerName: '远客' }, 'p2p-guest');
+    const guest = await open(browser, `${server.url}?room=${code}&mode=peer&debug=1&lang=zh`, { ...low, playerName: '远客' }, 'p2p-guest');
     pages.push(guest);
     await expect(guest.page.locator('[data-screen="lobby"] .room-code .code')).toHaveText(code, { timeout: 90_000 });
     await expect(host.page.locator('.seat:not(.empty):not(.bot)')).toHaveCount(2, { timeout: 60_000 });

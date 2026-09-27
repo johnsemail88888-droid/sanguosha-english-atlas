@@ -29,8 +29,9 @@ import { createSettingsPanel } from './screens/settings';
 import { createPerfCheckPanel } from './screens/perfCheck';
 import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
-import { clearRejoin, isReconnectable, loadRejoin, netFor, refreshRejoin, type RejoinInfo } from './invite';
-import { desktopGpuSoftware } from './desktop';
+import { clearRejoin, inviteLink, isReconnectable, loadRejoin, netFor, refreshRejoin, type RejoinInfo } from './invite';
+import { copyWhenReady, pendingLink, type InviteNotice, type PendingLink } from './quickInvite';
+import { desktopGpuSoftware, desktopInfo } from './desktop';
 import { AutoQualityController, autoPick, autoTuneNeeded } from './autoQuality';
 import { perfVerdict, qualityName } from './perfcheck';
 
@@ -216,6 +217,14 @@ class App implements UiCtx {
   private lobbyChat: LobbyChatLog | null = null;
   /** connection of the current online session (host or guest) */
   private conn: { mode: 'peer' | 'ws'; net: NetServerConfig } | null = null;
+  /**
+   * 邀请朋友一起玩: the room the title's button is creating (`pending`: its link, promised to
+   * the clipboard) and then the lobby's notice (link + copied), until the match starts.
+   */
+  private invite: { notice: InviteNotice; pending: PendingLink; session: GameSession | null } | null = null;
+  private readonly inviteSubs = new Set<(n: InviteNotice | null) => void>();
+  /** the online screen opened by quickInvite() hosts at once */
+  private quickHost = false;
   /**
    * How this tab joined the current online room as a guest: its rejoin record is saved
    * again from this (with a fresh age) on every (re)connect, a drop and a page unload, so
@@ -819,8 +828,79 @@ class App implements UiCtx {
 
   async hostOnline(mode: 'peer' | 'ws'): Promise<void> {
     if (!this.canPlay()) return;
-    const s = await this.deps.hostOnline(this.playerName(), mode);
-    if (this.adoptOnline(s)) this.conn = { mode, net: { ...settings.get().net } };
+    let s: GameSession;
+    try {
+      s = await this.deps.hostOnline(this.playerName(), mode);
+    } catch (err) {
+      this.settleInvite(null);
+      throw err;
+    }
+    if (!this.adoptOnline(s, { mode, net: { ...settings.get().net } })) {
+      this.settleInvite(null);
+      return;
+    }
+    const code = s.lobby?.roomCode;
+    this.settleInvite(code ? { session: s, link: inviteLink(code, location, this.conn ?? undefined) } : null);
+  }
+
+  quickInvite(): void {
+    if (!this.canPlay()) return;
+    this.invite?.pending.settle(null);
+    const pending = pendingLink();
+    const invite = { notice: { link: null, copied: null } as InviteNotice, pending, session: null };
+    this.invite = invite;
+    // inside the click: Safari / Firefox only let the page write the clipboard during the gesture
+    void copyWhenReady(pending.link).then((ok) => {
+      if (this.invite !== invite) return;
+      invite.notice = { ...invite.notice, copied: ok };
+      this.emitInvite();
+    });
+    this.quickHost = true;
+    this.go('online');
+  }
+
+  takeQuickHost(): boolean {
+    const v = this.quickHost;
+    this.quickHost = false;
+    return v;
+  }
+
+  inviteNotice(cb: (n: InviteNotice | null) => void): () => void {
+    this.inviteSubs.add(cb);
+    cb(this.currentInvite());
+    return () => this.inviteSubs.delete(cb);
+  }
+
+  /** The quickInvite() notice of the current session (a pending room has none yet). */
+  private currentInvite(): InviteNotice | null {
+    const i = this.invite;
+    return i && i.session && i.session === this.session ? i.notice : null;
+  }
+
+  private emitInvite(): void {
+    const n = this.currentInvite();
+    for (const cb of [...this.inviteSubs]) cb(n);
+  }
+
+  /** The room quickInvite() asked for exists (its session and link) or never will (null). */
+  private settleInvite(room: { session: GameSession; link: string } | null): void {
+    const i = this.invite;
+    if (!i || i.session) return;
+    i.pending.settle(room?.link ?? null);
+    if (!room) {
+      this.invite = null;
+      return;
+    }
+    i.session = room.session;
+    i.notice = { ...i.notice, link: room.link };
+    this.emitInvite();
+  }
+
+  /** The invite notice ends with its lobby (the match started, the session was left). */
+  private dropInvite(): void {
+    if (!this.invite?.session) return;
+    this.invite = null;
+    this.emitInvite();
   }
 
   async joinOnline(code: string, mode: 'peer' | 'ws'): Promise<void> {
@@ -832,9 +912,8 @@ class App implements UiCtx {
       s.leave();
       return;
     }
-    if (!this.adoptOnline(s)) return;
     const net = { ...settings.get().net };
-    this.conn = { mode, net };
+    if (!this.adoptOnline(s, { mode, net })) return;
     // F5 in the lobby or mid-match rejoins this room the same way (see screens/online.ts)
     this.joined = { code: (s.lobby?.roomCode || code).toUpperCase(), mode, net: netFor(mode, net) };
     this.touchRejoin();
@@ -857,13 +936,15 @@ class App implements UiCtx {
     return this.sessionKind === 'online' ? this.conn : null;
   }
 
-  private adoptOnline(s: GameSession): boolean {
+  /** `conn` is known before the session is attached: the lobby it opens builds its invite link from it. */
+  private adoptOnline(s: GameSession, conn: { mode: 'peer' | 'ws'; net: NetServerConfig }): boolean {
     // the player navigated away while connecting → drop the new session
     if (this.screenId !== 'online') {
       s.leave();
       return false;
     }
     this.leaveSession(false);
+    this.conn = conn;
     this.attachSession(s, 'online');
     return true;
   }
@@ -876,6 +957,7 @@ class App implements UiCtx {
     else clearRejoin();
     this.joined = null;
     this.conn = null;
+    if (s && this.invite?.session === s) this.dropInvite();
     this.sessionBag?.dispose();
     this.sessionBag = null;
     this.session = null;
@@ -955,6 +1037,8 @@ class App implements UiCtx {
     this.lastPhase = phase;
     const s = this.session;
     if (!s) return;
+    // 「已复制，发给朋友…」 belongs to the lobby the button made, not to the next one after a match
+    if (phase !== 'lobby') this.dropInvite();
     switch (phase) {
       case 'lobby':
         this.pickedHero = null;
@@ -1197,6 +1281,15 @@ class App implements UiCtx {
   // ── global listeners ────────────────────────────────────────────────────────
 
   private installGlobalListeners(): void {
+    // Ctrl is the dodge key and Ctrl+W (⌘W on a Mac) closes the tab — a page cannot
+    // block it. Mid-match the browser asks first (离开此网站？) instead of dropping
+    // the player out of the game. Not in the desktop app (no such shortcut there)
+    // or under automation (tests reload pages on purpose).
+    this.bag.listen(window, 'beforeunload', (ev: BeforeUnloadEvent) => {
+      if (!guardUnload({ inMatch: this.match !== null && (this.screenId === 'match' || this.screenId === 'loading'), desktop: !!desktopInfo(), automated: !!navigator.webdriver })) return;
+      ev.preventDefault();
+      ev.returnValue = '';
+    });
     const unlock = (): void => {
       if (this.unlocked) return;
       this.unlocked = true;
@@ -1290,4 +1383,9 @@ function navigatorIsAutomated(): boolean {
   } catch {
     return false;
   }
+}
+
+/** Should leaving the page ask first? Only mid-match on a web page a person is playing. */
+export function guardUnload(o: { inMatch: boolean; desktop: boolean; automated: boolean }): boolean {
+  return o.inMatch && !o.desktop && !o.automated;
 }

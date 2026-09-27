@@ -484,3 +484,34 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
     for (const g of pages) await g.ctx.close();
   }
 });
+
+test('邀请朋友一起玩: one click on the title makes the room (the page\'s default mode: its own relay) and copies the link; the friend opening it lands in the lobby', async () => {
+  test.setTimeout(5 * 60_000);
+  const pages: GamePage[] = [];
+  try {
+    const host = await openGame(browser, `${relay.url}?debug=1`, { viewport: VIEWPORT, name: '主持人' });
+    pages.push(host);
+    await host.ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: relay.url.replace(/\/$/, '') });
+    await host.page.locator('[data-screen="title"] .sg-invite-btn').click();
+    // no second click: the lobby, with the link on the clipboard and shown big
+    const field = host.page.locator('[data-screen="lobby"] .invite-link');
+    await expect(field).toHaveValue(/[?&]room=[A-Z0-9]{4,8}\b/, { timeout: 60_000 });
+    await expect(host.page.locator('.invite-share')).toHaveAttribute('data-copied', 'copied', { timeout: 10_000 });
+    const link = await field.inputValue();
+    expect(await host.page.evaluate(() => navigator.clipboard.readText())).toBe(link);
+    const code = (await host.page.locator('[data-screen="lobby"] .room-code .code').textContent())!.trim();
+    const q = new URL(link).searchParams;
+    // served by our server: 创建房间's default is the same-origin relay — the link says so
+    expect(q.get('room')).toBe(code);
+    expect(q.get('mode')).toBe('ws');
+    console.log(`[online e2e] one-click invite: ${link}`);
+    // the friend: the link itself, zero clicks, into the host's lobby
+    const guest = await openGame(browser, `${link}&debug=1`, { viewport: VIEWPORT, name: '朋友' });
+    pages.push(guest);
+    await expect(guest.page.locator('[data-screen="lobby"] .room-code .code')).toHaveText(code, { timeout: 60_000 });
+    await expect(host.page.locator('.seat:not(.empty):not(.bot)')).toHaveCount(2, { timeout: 30_000 });
+    for (const g of pages) expect(relevantErrors(g.errors)).toEqual([]);
+  } finally {
+    for (const g of pages) await g.ctx.close();
+  }
+});

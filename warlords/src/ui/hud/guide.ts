@@ -6,6 +6,7 @@ import { h } from '../dom';
 import { t, tx } from '../i18n';
 import { touchLabel, type TouchKey } from '../short';
 import { keyCap } from '../widgets';
+import { isMac } from '../perfcheck';
 import { getLang } from '../i18n';
 
 export const GUIDE_KEY = 'sgwl.guide.v1';
@@ -105,8 +106,10 @@ export function createGuideCard(touch: boolean, onClose: () => void): HTMLElemen
     onClose();
   };
   const en = getLang() === 'en';
+  const mac = isMac();
   const keysOf = (l: { keys: string[]; touch?: TouchKey }): HTMLElement[] => {
-    if (!touch) return l.keys.map((k) => keyCap(k));
+    // a Mac dodges on ⌥ Option (⌃ Control + click is a right-click there)
+    if (!touch) return l.keys.map((k) => keyCap(mac && k === 'Ctrl' ? '⌥ Option' : k));
     return l.touch ? [h('span', { class: 'tb-cap' }, touchLabel(l.touch, en ? 'en' : 'zh'))] : [];
   };
   const dismiss = h('button', { class: 'sg-btn small gold', type: 'button' }, t('guide.dismiss'));

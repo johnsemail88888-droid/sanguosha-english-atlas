@@ -18,6 +18,22 @@ export const PERF_CSS = /* css */ `
   .sg-gpu-warn.title { top: 0.4em; left: 0.5em; transform: none; width: min(24em, 36vw); font-size: 0.68em; }
 }
 
+/* ── title / lobby: the GPU chip (green ✓ / red: not using the GPU / amber: integrated) ── */
+.sg-gpu-chip { display: inline-block; max-width: 100%; padding: 0.28em 0.8em; border: 1px solid rgba(214, 173, 82, 0.5); border-radius: 999px; background: rgba(12, 8, 4, 0.72); color: var(--paper, #f3e6c8); font: 700 0.86em/1.25 var(--font-body, sans-serif); letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; text-shadow: none; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+.sg-gpu-chip:hover { filter: brightness(1.2); }
+.sg-gpu-chip:disabled { cursor: default; filter: none; }
+.sg-gpu-chip.ok { color: #a6ecb2; border-color: rgba(90, 190, 115, 0.75); }
+.sg-gpu-chip.soft { color: #ffc2b0; border-color: rgba(235, 85, 60, 0.95); background: rgba(70, 12, 6, 0.88); }
+.sg-gpu-chip.integrated { color: #ffd98a; border-color: rgba(235, 165, 55, 0.9); background: rgba(55, 32, 6, 0.85); }
+.sg-title-top { display: flex; align-items: center; gap: 0.6em; }
+.sg-title-top .sg-gpu-chip { max-width: 22em; }
+.lobby-head .sg-gpu-chip { align-self: center; max-width: 18em; }
+@media (max-height: 520px) {
+  .sg-title-top { top: 0.5em; right: 0.5em; }
+  .sg-title-top .sg-gpu-chip { font-size: 0.72em; max-width: 16em; }
+}
+@media (max-width: 720px) { .lobby-head .sg-gpu-chip { display: none; } }
+
 /* ── settings → 画面: 显卡 line ───────────────────────────── */
 .set-gpu { margin: 0.6em 0 0.2em; padding: 0.5em 0.7em; border-radius: 4px; background: rgba(140, 106, 38, 0.1); border: 1px solid rgba(140, 106, 38, 0.35); font-size: 0.9em; line-height: 1.45; }
 .set-gpu .lbl { opacity: 0.8; }
@@ -56,6 +72,11 @@ export const PERF_CSS = /* css */ `
 .pc-url code { font: 0.85em ui-monospace, Menlo, Consolas, monospace; padding: 0.1em 0.4em; border-radius: 3px; background: rgba(0, 0, 0, 0.06); }
 .pc-url small { opacity: 0.75; }
 .pc-note { margin: 0.35em 0 0; font-size: 0.88em; opacity: 0.85; }
+.pc-note.lead { margin: 0 0 0.2em; }
+.pc-sub { margin-top: 0.35em; }
+.pc-sub > b { display: block; font-size: 0.92em; margin-bottom: 0.1em; color: #7c1d10; }
+.pc-sec.mac { background: rgba(46, 125, 72, 0.08); border-color: rgba(46, 125, 72, 0.35); }
+.pc-sec.mac .pc-note { margin: 0; }
 .pc-sec.dl { display: flex; flex-direction: column; align-items: stretch; gap: 0.35em; background: none; border: 0; padding: 0; }
 .pc-dl { justify-content: center; text-align: center; text-decoration: none; min-height: 2.5em; font-size: 1.05em; }
 .pc-file { font-size: 0.82em; text-align: center; opacity: 0.8; }

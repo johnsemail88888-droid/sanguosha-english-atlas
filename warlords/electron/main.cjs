@@ -304,14 +304,18 @@ if (!app.requestSingleInstanceLock()) {
           { label: '局域网联机地址…', click: showLan },
           { type: 'separator' },
           { role: 'togglefullscreen', label: '全屏' },
-          { role: 'reload', label: '重新载入' },
-          { role: 'toggleDevTools', label: '开发者工具' },
+          // No Ctrl shortcuts here: Ctrl is the dodge key, and a menu accelerator fires
+          // even when the page handles the key — dodge + R (reload the gun) must not
+          // reload the app, dodge + Q (skill) must not quit it.
+          { label: '重新载入', accelerator: 'F5', click: (_item, w) => w?.webContents.reload() },
+          { label: '开发者工具', accelerator: 'F12', click: (_item, w) => w?.webContents.toggleDevTools() },
           { type: 'separator' },
-          { role: 'quit', label: '退出' },
+          isMac ? { role: 'quit', label: '退出' } : { label: '退出', click: () => app.quit() },
         ],
       },
-      // copy / paste (room codes, chat) — macOS routes ⌘C / ⌘V through the menu
-      { role: 'editMenu', label: '编辑' },
+      // copy / paste (room codes, chat): macOS routes ⌘C / ⌘V through the menu;
+      // Windows / Linux edit text natively, and Ctrl+Z / X / C / V are dodge + squad orders
+      ...(isMac ? [{ role: 'editMenu', label: '编辑' }] : []),
       {
         label: '帮助',
         submenu: [

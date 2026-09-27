@@ -160,6 +160,12 @@ export const SCREENS_CSS = /* css */ `
 .sg-invite.sg-rejoin { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.4em 0.8em; }
 .sg-rejoin .rejoin-btn { flex: none; }
 
+/* ── Mac notes (玩法说明 → 操作, 设置 → 操作) ─────────────── */
+.sg-mac-notes { margin: 0.4em 0 0.8em; padding: 0.5em 0.9em 0.6em; border-radius: 5px; border: 1px solid rgba(140, 106, 38, 0.45); background: rgba(214, 173, 82, 0.12); font-size: 0.9em; line-height: 1.45; }
+.sg-mac-notes b { display: block; color: var(--red-lo); font-family: var(--font-display); letter-spacing: 0.06em; margin-bottom: 0.15em; }
+.sg-mac-notes ul { margin: 0; padding-left: 1.2em; display: grid; gap: 0.15em; }
+.sg-mac-notes.settings { margin-top: 0.8em; }
+
 /* ── lobby ─────────────────────────────────────────────── */
 .sg-lobby { display: flex; flex-direction: column; gap: 0.9em; padding: 1.1em 1.5em; }
 .lobby-head { display: flex; align-items: center; gap: 1em; flex-wrap: wrap; }
@@ -167,9 +173,16 @@ export const SCREENS_CSS = /* css */ `
 .code-box { display: flex; align-items: center; gap: 0.7em; margin-left: auto; flex-wrap: wrap; }
 .room-code { display: flex; flex-direction: column; align-items: center; padding: 0.15em 1.1em 0.25em; background: linear-gradient(#2c1f14, #1a120b); border: 1px solid var(--gold); border-radius: 6px; cursor: pointer; color: inherit; box-shadow: inset 0 0 0 3px rgba(214, 173, 82, 0.15); }
 .room-code:hover { border-color: var(--gold-hi); }
-.invite-share { display: flex; flex-direction: column; align-items: stretch; gap: 0.2em; }
-.invite-share .invite-copy { font-size: 1.05em; }
-.invite-share .invite-hint { font-size: 0.78em; color: var(--paper); opacity: 0.85; text-align: center; max-width: 16em; line-height: 1.3; }
+/* the invite link, big and selectable, with 复制 / 分享… and whether it is on the clipboard */
+.invite-share { display: flex; flex-direction: column; align-items: stretch; gap: 0.25em; min-width: 0; }
+.invite-row { display: flex; align-items: center; gap: 0.4em; min-width: 0; }
+.invite-share .invite-link { width: clamp(14em, 34vw, 38em); min-width: 0; flex: 1 1 auto; font: 700 1em/1.3 ui-monospace, Menlo, Consolas, monospace; color: var(--gold-hi); background: rgba(10, 6, 3, 0.75); border: 1px solid var(--gold); padding: 0.45em 0.6em; text-overflow: ellipsis; cursor: text; user-select: all; }
+.invite-share .invite-link:focus { outline: 2px solid var(--gold-hi); outline-offset: 1px; }
+.invite-share .invite-copy { font-size: 1.05em; flex: none; }
+.invite-share .invite-share-btn { flex: none; }
+.invite-share .invite-hint { font-size: 0.8em; color: var(--paper); opacity: 0.85; line-height: 1.3; }
+.invite-share.copied .invite-hint { color: #9be3a8; opacity: 1; font-weight: 700; font-size: 0.9em; }
+.invite-share.manual .invite-hint { color: #ffc27a; opacity: 1; font-weight: 700; font-size: 0.9em; }
 .room-code .lbl { font-size: 0.7em; color: var(--gold); letter-spacing: 0.2em; }
 .room-code .code { font-family: "Consolas", "Menlo", monospace; font-size: 2em; font-weight: 800; letter-spacing: 0.22em; padding-left: 0.22em; color: var(--gold-hi); text-shadow: 0 0 10px rgba(245, 200, 100, 0.35); line-height: 1.1; }
 .lobby-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.9fr); gap: 1em; min-height: 0; }
@@ -242,7 +255,8 @@ export const SCREENS_CSS = /* css */ `
   .lobby-head h1 { font-size: 1.4em; }
   .room-code { padding: 0 0.8em 0.1em; }
   .room-code .code { font-size: 1.35em; }
-  .invite-share .invite-hint { display: none; }
+  .invite-share.idle .invite-hint { display: none; }
+  .invite-share .invite-link { padding: 0.25em 0.5em; font-size: 0.9em; }
   .lobby-grid > section { padding: 0.6em 0.9em; }
   .seat { padding: 0.2em 0.5em; }
   .seat .avatar { width: 1.8em; height: 1.8em; }
@@ -254,6 +268,8 @@ export const SCREENS_CSS = /* css */ `
   .lobby-grid { grid-template-columns: minmax(0, 1fr); flex: none; }
   .lobby-grid > section, .lobby-grid > section.sg-corners, .lobby-grid > section.sg-corners > :is(.seats, .settings) { overflow: visible; }
   .code-box { margin-left: 0; width: 100%; }
+  .code-box .invite-share { flex: 1 1 14em; }
+  .invite-share .invite-link { width: auto; }
   .seat { grid-template-columns: 1.2em 2em minmax(0, 1fr) auto auto; gap: 0.4em; padding: 0.3em 0.4em; }
   .lobby-foot .act { width: 100%; justify-content: space-between; }
   .lobby-foot { position: sticky; bottom: -0.8em; z-index: 3; margin: 0 -0.8em -0.8em; padding: 0.8em; background: linear-gradient(180deg, rgba(14, 9, 6, 0), #0e0906 40%); }
@@ -491,7 +507,7 @@ export const SCREENS_CSS = /* css */ `
 .tip .tip-text { display: inline; margin: 0; }
 
 /* ── game over ─────────────────────────────────────────── */
-.sg-over { display: flex; align-items: flex-start; justify-content: center; padding: 1.5em 1em; background: rgba(10, 6, 4, 0.72); backdrop-filter: blur(3px); }
+.sg-over { display: flex; align-items: flex-start; justify-content: center; padding: 1.5em 1em; background: rgba(10, 6, 4, 0.72); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .over-sheet { width: min(64em, 100%); padding: 1.3em 1.8em 1.5em; margin: auto 0; }
 .over-banner { display: flex; align-items: center; gap: 1.4em; justify-content: center; margin-bottom: 1em; flex-wrap: wrap; text-align: center; }
 .over-banner .sg-seal { animation: sg-stamp 0.65s cubic-bezier(0.2, 1.6, 0.4, 1) both; }

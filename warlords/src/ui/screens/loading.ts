@@ -49,8 +49,8 @@ export const LOADING_TIPS: readonly LoadingTip[] = [
   { zh: '烽火圈外每秒都会受到伤害，且无视护甲与闪避。', en: 'The zone burns you every second outside, ignoring armor and dodges.' },
   { zh: '天降锦囊每 100 秒降落一次，里面有传说级武器。', en: 'Airdrops land every 100 s and carry legendary weapons.' },
   {
-    zh: 'Ctrl / Alt 闪避翻滚有短暂无敌时间。',
-    en: 'Ctrl / Alt dodge-rolls grant brief invulnerability.',
+    zh: 'Ctrl / Alt（Mac：⌥ Option）闪避翻滚有短暂无敌时间。',
+    en: 'Ctrl / Alt (Mac: ⌥ Option) dodge-rolls grant brief invulnerability.',
     touch: [`「${DODGE[0]}」按钮闪避翻滚，有短暂无敌时间。`, `The “${DODGE[1]}” button dodge-rolls with brief invulnerability.`],
   },
   { zh: '内奸必须在最后与主公单挑并获胜。', en: 'The Traitor must be the last one standing against the Lord.' },

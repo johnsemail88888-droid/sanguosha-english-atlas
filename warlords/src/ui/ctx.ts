@@ -5,6 +5,7 @@ import type { NetServerConfig } from '../game/settings';
 import type { AppDeps, LoadProgress } from './app';
 import type { PortraitCache, SfxName } from './widgets';
 import type { LobbyChatLog } from './screens/lobby';
+import type { InviteNotice } from './quickInvite';
 
 export type ScreenId =
   | 'title'
@@ -52,6 +53,15 @@ export interface UiCtx {
   startSingle(patch: Partial<MatchSettings>): void;
   hostOnline(mode: 'peer' | 'ws'): Promise<void>;
   joinOnline(code: string, mode: 'peer' | 'ws'): Promise<void>;
+  /**
+   * 邀请朋友一起玩 (title): create a room in the default mode, copy its invite link (the
+   * clipboard write starts inside this click) and land in the lobby with the link shown.
+   */
+  quickInvite?(): void;
+  /** the online screen was opened by quickInvite(): host at once (consumed once) */
+  takeQuickHost?(): boolean;
+  /** the quickInvite() link of the current lobby and whether it was copied; `cb` now and on every change */
+  inviteNotice?(cb: (n: InviteNotice | null) => void): () => void;
   /** 取消 the join in progress: the session it still produces is left at once */
   cancelJoin?(): void;
   /** leave the current session (and by default return to the title) */
