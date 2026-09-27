@@ -125,16 +125,17 @@ export class MountRig {
   private glb = false;
   private disposed = false;
 
-  constructor(kind: MountKind, coat: string, cloth: string, trim: string) {
+  /** `art` false: the procedural mount only (a procedural rider — the 极速 tier, troops on 流畅). */
+  constructor(kind: MountKind, coat: string, cloth: string, trim: string, art = true) {
     this.kind = kind;
     this.coat = coat;
     this.object = new THREE.Group();
     this.object.scale.setScalar(MOUNT_SCALE[kind]);
-    const tpl = mountTemplateSync(kind);
+    const tpl = art ? mountTemplateSync(kind) : null;
     const [mesh, material] = tpl ? this.buildGlb(tpl) : this.buildProcedural(kind, coat, cloth, trim);
     this.mesh = mesh;
     this.material = material;
-    if (!tpl) {
+    if (!tpl && art) {
       // the AI-art mount swaps in as soon as it is rigged (preloaded in a match: right away)
       void loadMountTemplate(kind, mountSeatHeight(kind)).then((t) => {
         if (t && !this.disposed && !this.glb) this.swapToGlb(t);

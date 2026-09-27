@@ -144,7 +144,8 @@ export class CharacterRig {
   private hold: HoldStyle = 'none';
   private akimbo = false;
   mount: MountRig | null = null;
-  private readonly mountKey: { kind: MountKind | null; coat: string; cloth: string; trim: string } = { kind: null, coat: '', cloth: '', trim: '' };
+  /** the mount built last (`art`: its AI-art model allowed — it follows the rider's body, see useGlb) */
+  private readonly mountKey: { kind: MountKind | null; coat: string; cloth: string; trim: string; art: boolean } = { kind: null, coat: '', cloth: '', trim: '', art: false };
   private glb: GlbBody | null = null;
   /** an unrigged GLB shown on the procedural rig (models/glbRigid.ts) */
   private rigid: RigidBody | null = null;
@@ -332,18 +333,21 @@ export class CharacterRig {
   /** Ride a mount (null = on foot). Cheap (no allocation) when unchanged. */
   setMount(kind: MountKind | null, coat = '#6b4a2e', cloth = '#8a2a22', trim = '#d8ac4c'): void {
     const k = this.mountKey;
-    if (kind === k.kind && (!kind || (coat === k.coat && cloth === k.cloth && trim === k.trim))) return;
+    // a procedural rider rides the procedural mount (no AI-art horse under a low-poly body)
+    const art = this.glbWant !== null;
+    if (kind === k.kind && (!kind || (coat === k.coat && cloth === k.cloth && trim === k.trim && art === k.art))) return;
     k.kind = kind;
     k.coat = coat;
     k.cloth = cloth;
     k.trim = trim;
+    k.art = art;
     if (this.mount) {
       this.mount.object.removeFromParent();
       this.mount.dispose();
       this.mount = null;
     }
     if (kind) {
-      this.mount = new MountRig(kind, coat, cloth, trim);
+      this.mount = new MountRig(kind, coat, cloth, trim, art);
       this.mount.mesh.castShadow = this.castShadows && !this.stealthed;
       this.root.add(this.mount.object);
       this.applyOpacity();
@@ -366,6 +370,9 @@ export class CharacterRig {
     this.glbWant = path;
     this.glbHeight = height;
     this.dropGlb();
+    // the mount follows the body's art tier
+    const mk = this.mountKey;
+    if (mk.kind && mk.art !== (path !== null)) this.setMount(mk.kind, mk.coat, mk.cloth, mk.trim);
     if (!path || this.buildGlb()) return;
     const retry = (): void => {
       if (!this.disposed && this.glbWant === path && !this.glb && !this.rigid) this.buildGlb();
