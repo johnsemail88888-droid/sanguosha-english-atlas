@@ -81,7 +81,8 @@ export function createRelay(opts = {}) {
    * `host` is null while the host's socket is away (grace); `hostQueue` holds the guests'
    * reliable frames for it meanwhile.
    * @type {Map<string, { code: string, secret: string, host: any, clients: Map<string, any>, nextId: number, createdAt: number,
-   *                      graceTimer: any, hostQueue: { flags: number, from: string, payload: Buffer }[], hostQueueBytes: number }>}
+   *                      graceTimer: any, hostQueue: { flags: number, from: string, payload: Buffer }[], hostQueueBytes: number,
+   *                      limit?: number }>}
    */
   const rooms = new Map();
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024, perMessageDeflate: false });
@@ -218,7 +219,7 @@ export function createRelay(opts = {}) {
         ws.close(4004, 'room not found');
         return;
       }
-      if (1 + room.clients.size >= maxPerRoom) {
+      if (1 + room.clients.size >= (room.limit ?? maxPerRoom)) {
         sendJson(ws, { op: 'error', code: 'roomFull' });
         ws.close(4006, 'room full');
         return;
@@ -373,6 +374,19 @@ export function createRelay(opts = {}) {
     /** route an HTTP upgrade (path already matched) into the relay */
     handleUpgrade(req, socket, head) {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    },
+    /**
+     * Sockets room `code` may hold, host included (default maxPerRoom). A server-hosted room's
+     * host is the server itself, not a player: it takes one more so it seats as many humans.
+     */
+    setRoomLimit(code, max) {
+      const room = rooms.get(code);
+      if (room && Number.isFinite(max) && max >= 1) room.limit = Math.floor(max);
+    },
+    /** End room `code` now (its guests hear 'hostLeft'): its host is known to be gone for good. */
+    endRoom(code) {
+      const room = rooms.get(code);
+      if (room) closeRoom(room);
     },
     stats() {
       let players = 0;
