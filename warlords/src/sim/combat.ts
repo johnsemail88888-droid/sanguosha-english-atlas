@@ -20,6 +20,7 @@ import { BTN_FIRE, SIM_DT } from '../core/types';
 import type { WeaponDef } from '../data/types';
 import type { DamageRequest, DamageResult, ProjectileSpec, RayHit, SimApi } from './api';
 import { BULLET_EVASION_CAP } from '../data';
+import { spreadDeg } from '../data/weaponFeel';
 import { armorDef, heroDef, mountDef, usesAmmo, warnOnce, weaponDef } from './defs';
 import type { HitscanOptions } from './ext';
 import { flingGear } from './items/util';
@@ -90,9 +91,6 @@ export function troopFocusDamage(heat: { value: number; at: number }, now: numbe
 export const LAG_COMP_MAX_TICKS = 8;
 const MAX_SHOTS_PER_TICK = 4;
 const BURST_RESET = 0.35;
-/** spread bloom per consecutive shot and its cap (fractions of the base spread) */
-const BLOOM_PER_SHOT = 0.07;
-const BLOOM_MAX = 0.5;
 
 export const DAMAGEABLE: Readonly<Record<Entity['kind'], boolean>> = {
   hero: true,
@@ -874,18 +872,19 @@ const explosionKind = (dtype: DamageType): string =>
   dtype === 'fire' ? 'fire' : dtype === 'thunder' ? 'thunder' : dtype === 'explosive' ? 'rocket' : 'frag';
 
 // ── Hero weapon fire ────────────────────────────────────────────────────────
-/** Spread cone in degrees for the hero's current state. */
+/**
+ * Spread cone in degrees for the hero's current state (data/weaponFeel.ts spreadDeg — the HUD
+ * crosshair draws the same number): hip → aimed eased over the class's ADS time, moving widens
+ * hip fire, airborne ×1.8, bloom while the trigger stays busy (+7 % per shot, capped at +50 %;
+ * was +12 % / ×2 — autos were useless from the hip beyond a few metres, COMBAT-9; ramping guns
+ * and flame streams don't bloom).
+ */
 export function currentSpread(w: World, e: Entity, def: WeaponDef): number {
   const h = e.hero!;
-  let spread = h.ads ? def.spreadAds : def.spreadHip;
-  const moving = Math.hypot(e.vel.x, e.vel.z) > 1;
-  if (moving && !h.ads) spread *= 1.35;
-  if (!e.onGround) spread *= 1.8;
-  // bloom while the trigger stays busy: +7 % per shot, capped at +50 % (was +12 % / ×2 — autos were
-  // useless from the hip beyond a few metres, COMBAT-9); ramping guns and flame streams don't bloom
-  if (def.special !== 'rapid' && def.class !== 'flamer') spread *= 1 + Math.min(BLOOM_MAX, h.burst * BLOOM_PER_SHOT);
-  void w;
-  return Math.max(0, spread);
+  const rt = w.heroRt(e.id);
+  // (no runtime: a bare hero entity in a test aims instantly)
+  const adsT = rt && rt.adsWeapon === def.id ? rt.adsT : h.ads ? 1 : 0;
+  return spreadDeg(def, { adsT, moving: Math.hypot(e.vel.x, e.vel.z) > 1, airborne: !e.onGround, burst: h.burst });
 }
 
 /** Perturb a unit direction by a random angle within a cone of `deg` degrees. */

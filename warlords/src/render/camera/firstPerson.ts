@@ -116,6 +116,8 @@ export interface FpLook {
   yaw: number;
   pitch: number;
   ads: boolean;
+  /** eased aim progress (game/aimFeel.ts): the weapon comes up at the class's own pace */
+  adsBlend?: number;
 }
 
 /** The local character view's parts the first-person view needs (entities/characterView.ts). */
@@ -175,6 +177,7 @@ export class FirstPersonView {
       weaponId: w?.id ?? ent.weapon ?? null,
       heroId: ent.sub,
       ads: look.ads,
+      adsBlend: look.adsBlend,
       hidden: scoped || local.downed || (ent.flags & (VF_DOWNED | VF_DEAD)) !== 0,
       sprinting: (ent.flags & VF_SPRINTING) !== 0,
       reloading: local.reloading > 0,

@@ -172,15 +172,7 @@ export const HUD_CSS = /* css */ `
 .hud-dmgdir { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
 .hud-dmgdir i { position: absolute; left: 0; top: 0; width: ${u(260)}; height: ${u(260)}; border-radius: 50%; border: ${u(7)} solid transparent; border-top-color: rgba(255, 40, 20, 0.9); opacity: 0; transform: translate(-50%, -50%); filter: blur(0.6px); }
 
-/* ── scope ─────────────────────────────────────────────── */
-.hud-scope { position: absolute; inset: 0; display: none; background: radial-gradient(circle at 50% 50%, transparent 0 min(38vw, 42vh), rgba(0, 0, 0, 0.92) calc(min(38vw, 42vh) + 3px)); }
-.hud-scope.on { display: block; }
-/* looking through a scope: no F prompt inside the lens under the reticle (COMBAT-11) */
-.hud-scope.on ~ .hud-interact { visibility: hidden; }
-.hud-scope .lens { position: absolute; left: 50%; top: 50%; width: calc(min(38vw, 42vh) * 2); height: calc(min(38vw, 42vh) * 2); transform: translate(-50%, -50%); border-radius: 50%; box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6), 0 0 0 3px #111; }
-.hud-scope .h { position: absolute; left: 0; right: 0; top: 50%; height: 1.5px; background: rgba(0, 0, 0, 0.9); }
-.hud-scope .v { position: absolute; top: 0; bottom: 0; left: 50%; width: 1.5px; background: rgba(0, 0, 0, 0.9); }
-.hud-scope .ticks { position: absolute; left: 50%; top: 50%; width: 40%; height: 8px; transform: translate(-50%, -50%); background: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.9) 0 2px, transparent 2px 10%); }
+/* ── scope / sights: styles/aim.ts ─────────────────────── */
 
 /* ── interact / channel ────────────────────────────────── */
 .hud-interact { position: absolute; left: 50%; top: calc(50% + ${u(74)}); transform: translateX(-50%); display: flex; align-items: center; gap: ${u(8)}; padding: ${u(6)} ${u(14)}; background: var(--hud-bg); border: 1px solid var(--hud-line); border-radius: ${u(5)}; font-size: ${fs(15, 11)}; white-space: nowrap; pointer-events: auto; transition: opacity 0.15s; }

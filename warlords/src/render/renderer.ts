@@ -12,6 +12,7 @@ import type { EntityId, GameEvent, ViewEntity } from '../core/types';
 import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
+import type { AimSnapshot } from '../game/aimFeel';
 import type { ViewSource } from './view';
 import { HERO_VIEW_RANGE, groundVariant, presetPixelRatio, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
 import { AdaptiveResolution, adaptiveFloor } from './adaptiveRes';
@@ -186,6 +187,8 @@ export class GameRenderer {
   private lastLocalHp = -1;
   private squad = new Set<EntityId>();
   private zoomNow = 1;
+  /** the local aim (InputController → setAim each frame; null: none yet — the look's ADS button and the data zoom) */
+  private aim: Readonly<AimSnapshot> | null = null;
   /** pixel ratio controller (frame time → canvas resolution) */
   private readonly adaptive = new AdaptiveResolution();
   /** 自动's render-scale cap in use (settings.autoRenderScale; Infinity: none) */
@@ -350,7 +353,8 @@ export class GameRenderer {
       }
     }
     // first person: own body hidden from this camera (shadow kept), the weapon viewmodel posed
-    this.fp.sync(d, localEnt, local, localEnt ? this.entities.character(localEnt.id) : undefined, this.look, this.look.ads && this.adsZoom >= 3 && this.zoomNow >= 1.8);
+    const scoped = this.aim ? this.aim.scoped : this.look.ads && this.adsZoom >= 3 && this.zoomNow >= 1.8;
+    this.fp.sync(d, localEnt, local, localEnt ? this.entities.character(localEnt.id) : undefined, { ...this.look, adsBlend: this.aim?.blend }, scoped);
 
     // 3. events → VFX, then re-emit to subscribers
     let evs = view.drainEvents();
@@ -711,13 +715,27 @@ export class GameRenderer {
     return this.fp.active;
   }
 
-  /** ADS zoom of the local hero's active weapon when aiming (1 otherwise). UI draws a scope when ≥ 3. */
+  /**
+   * ADS zoom of the local hero's active weapon when aiming (1 otherwise): the
+   * aim's selected zoom step (a sniper scope's 4× / 8×), else the data zoom.
+   */
   get adsZoom(): number {
     if (this.disposed) return 1;
     const local = this.view.local();
     if (!local || !this.look.ads) return 1;
+    if (this.aim) return this.aim.stepZoom;
     const w = local.weapons[local.activeSlot];
     return (w && WEAPON_BY_ID[w.id]?.adsZoom) || 1;
+  }
+
+  /** The local aim this frame (InputController): zoom on the camera, scope overlay, viewmodel ADS. */
+  setAim(aim: Readonly<AimSnapshot>): void {
+    this.aim = aim;
+  }
+
+  /** The camera's unzoomed vertical FOV (the settings' FOV). */
+  get baseFov(): number {
+    return this.rig.baseFov;
   }
 
   /** Current (smoothed) zoom applied to the camera FOV. */
@@ -1169,7 +1187,9 @@ export class GameRenderer {
     } else if (localEnt && !localDead && !(localEnt.flags & VF_DEAD)) {
       const yaw = this.look.fresh ? this.look.yaw : localEnt.yaw;
       const pitch = this.look.fresh ? this.look.pitch : localEnt.pitch;
-      const zoom = this.adsZoom;
+      // the aim's eased zoom (each class's ADS time, the scope's steps); without one: the data zoom, smoothed
+      const aim = this.aim;
+      const zoom = aim ? aim.zoom : this.adsZoom;
       if (this.look.fp) {
         rig.mode = 'first';
         rig.firstPerson(localEnt, this.fp.eyeHeight(localEnt, dt), yaw, pitch);
@@ -1177,7 +1197,8 @@ export class GameRenderer {
         rig.mode = 'follow';
         rig.follow(this.pickWorld, localEnt, yaw, pitch, dt, false, (localEnt.flags & VF_DOWNED) !== 0, zoom);
       }
-      rig.setZoom(zoom, dt);
+      if (aim) rig.setZoomNow(zoom);
+      else rig.setZoom(zoom, dt);
     } else {
       // dead / not spawned: spectate a target or orbit
       const target = this.spectateId !== null ? this.view.get(this.spectateId) : undefined;

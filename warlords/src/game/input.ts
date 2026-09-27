@@ -5,10 +5,12 @@
 import type { EntityId, InputAction, InputFrame } from '../core/types';
 import type { Vec3 } from '../core/math';
 import { clamp, wrapAngle } from '../core/math';
-import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, BTN_INTERACT, BTN_JUMP, BTN_SPRINT, emptyInput } from '../core/types';
+import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, BTN_INTERACT, BTN_JUMP, BTN_SPRINT, VF_AIRBORNE, VF_DANCING, VF_DOWNED, VF_STUNNED, emptyInput } from '../core/types';
 import type { InputSink } from './input-types';
 import { settings } from './settings';
 import { CAMERA_TOGGLE_KEY, resolveCameraView, toggledCameraView, type CameraView } from '../render/camera/viewMode';
+import { adsSensitivityMul } from '../data/weaponFeel';
+import { AimFeel, type AimSnapshot } from './aimFeel';
 
 /** Radians of yaw/pitch per pixel of mouse movement at sensitivity 1. */
 export const LOOK_RAD_PER_PX = 0.0022;
@@ -20,9 +22,20 @@ export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
 export interface InputRendererLike {
   pick(): { aimPoint: Vec3; aimTargetId?: EntityId };
   setLookAngles?(yaw: number, pitch: number, ads?: boolean, fireHeld?: boolean, firstPerson?: boolean): void;
-  readonly adsZoom?: number;
-  readonly view?: { viewTick(): number; local(): { activeSlot: number; weapons: unknown[] } | null; localId(): EntityId | null; get(id: EntityId): { yaw: number; pitch: number; x?: number; z?: number } | undefined };
+  /** the local aim this frame (zoom, scope overlay, viewmodel) — game/aimFeel.ts */
+  setAim?(aim: Readonly<AimSnapshot>): void;
+  /** the camera's unzoomed vertical FOV (settings.fov when absent) */
+  readonly baseFov?: number;
+  readonly view?: {
+    viewTick(): number;
+    local(): { activeSlot: number; weapons: ({ id: string } | null)[]; reloading?: number; downed?: boolean; statuses?: readonly { id: string; remaining: number }[] } | null;
+    localId(): EntityId | null;
+    get(id: EntityId): { yaw: number; pitch: number; x?: number; z?: number; flags?: number; speed?: number } | undefined;
+  };
 }
+
+/** Statuses that lower the weapon (no aiming): the viewmodel's rule (render/camera/firstPerson.ts). */
+const NO_AIM_STATUS = new Set(['disarm', 'stun', 'dance']);
 
 /** Yaw (core/math convention: forward = (−sin yaw, −cos yaw)) that faces from `a` towards `b`. */
 export function yawToward(a: { x: number; z: number }, b: { x: number; z: number }): number {
@@ -235,7 +248,7 @@ export class InputState {
     this.lookDx = this.lookDy = 0;
   }
 
-  isHeld(btn: 'fire' | 'ads'): boolean {
+  isHeld(btn: 'fire' | 'ads' | 'sprint'): boolean {
     return this.held[btn] || this.touchHeld[btn];
   }
 
@@ -364,6 +377,9 @@ export class InputController implements InputSink {
   /** timed turn towards an entity (张辽 突袭 lands behind the target: face it) */
   private turn: { targetId: EntityId; remaining: number; last: number } | null = null;
   private readonly wheel = new WheelGesture();
+  /** the local aim: ADS progress, zoom steps, scope sway / hold breath (game/aimFeel.ts) */
+  readonly aim = new AimFeel();
+  private lastSample = -1;
 
   constructor(target: HTMLElement, opts: InputControllerOptions = {}) {
     this.target = target;
@@ -404,7 +420,10 @@ export class InputController implements InputSink {
     on(target, 'wheel', (e) => {
       if (!this.locked || !this.state.enabled) return;
       e.preventDefault();
-      if (this.wheel.push(e.deltaY, now())) this.state.pushAction({ a: 'weapon', slot: this.nextWeaponSlot() });
+      if (!this.wheel.push(e.deltaY, now())) return;
+      // looking through a scope with zoom steps: the wheel zooms (up = in) instead of switching weapons
+      if (this.aim.cycleZoom(e.deltaY < 0 ? 1 : -1)) return;
+      this.state.pushAction({ a: 'weapon', slot: this.nextWeaponSlot() });
     }, { passive: false });
     on(document, 'pointerlockchange', () => {
       const now = document.pointerLockElement === this.target;
@@ -576,13 +595,46 @@ export class InputController implements InputSink {
     this.advanceTurn(view);
     const s = settings.get();
     const ads = this.state.isHeld('ads');
-    const zoom = renderer.adsZoom ?? 1;
-    const sens = s.mouseSensitivity * (ads ? s.adsSensitivity / Math.max(1, zoom / 1.5) : 1);
+    const aim = this.updateAim(view);
+    // aiming: slower look, scaled with the zoom actually on screen (a 4× / 8× scope turns as far across the picture as a red dot)
+    const adsMul = adsSensitivityMul(aim.stepZoom, renderer.baseFov ?? s.fov, s.adsSensitivity);
+    const sens = s.mouseSensitivity * (1 + (adsMul - 1) * aim.blend);
     this.state.applyLook(sens, s.invertY);
     this.state.firstPerson = this.view === 'first';
-    renderer.setLookAngles?.(this.state.yaw, this.state.pitch, ads, this.state.isHeld('fire') && this.state.enabled, this.state.firstPerson);
-    const aim = renderer.pick();
-    return this.state.frame(aim, view?.viewTick());
+    // the scope's breathing sway rides on the look angles the host gets: shots follow the reticle
+    const yaw = wrapAngle(this.state.yaw + aim.swayYaw);
+    const pitch = clamp(this.state.pitch + aim.swayPitch, -PITCH_CLAMP, PITCH_CLAMP);
+    renderer.setLookAngles?.(yaw, pitch, ads, this.state.isHeld('fire') && this.state.enabled, this.state.firstPerson);
+    renderer.setAim?.(aim);
+    const f = this.state.frame(renderer.pick(), view?.viewTick());
+    f.yaw = yaw;
+    f.pitch = pitch;
+    return f;
+  }
+
+  /** The local aim this frame (see game/aimFeel.ts). */
+  aimSnapshot(): Readonly<AimSnapshot> {
+    return this.aim.snapshot;
+  }
+
+  private updateAim(view: InputRendererLike['view']): Readonly<AimSnapshot> {
+    const t = now();
+    const dt = this.lastSample < 0 ? 0 : Math.min(0.1, Math.max(0, (t - this.lastSample) / 1000));
+    this.lastSample = t;
+    const local = view?.local() ?? null;
+    const id = view?.localId();
+    const ent = id !== null && id !== undefined ? view?.get(id) : undefined;
+    const flags = ent?.flags ?? 0;
+    let lowered = !!local?.downed || (flags & (VF_DOWNED | VF_STUNNED | VF_DANCING)) !== 0 || (local?.reloading ?? 0) > 0;
+    for (const st of local?.statuses ?? []) if (st.remaining > 0 && NO_AIM_STATUS.has(st.id)) lowered = true;
+    return this.aim.update(dt, {
+      weaponId: local?.weapons[local.activeSlot]?.id ?? null,
+      ads: this.state.isHeld('ads') && this.state.enabled,
+      blocked: lowered,
+      hold: this.state.isHeld('sprint') && this.state.enabled,
+      moving: (ent?.speed ?? 0) > 1,
+      airborne: (flags & VF_AIRBORNE) !== 0,
+    });
   }
 
   dispose(): void {
