@@ -4,7 +4,7 @@
 // blocklisted — every frame is slow however strong the machine is), the F3 panel's
 // lines, and the logic behind 性能体检 (screens/perfCheck.ts): which browser / OS
 // this is, how to turn its GPU on, which desktop build to download, the verdict.
-import { classifyGpu, isSoftwareGpu, type GpuClass, type Quality } from '../game/settings';
+import { classifyGpu, isSoftwareGpu, type Quality } from '../game/settings';
 import type { AutoTunePick } from '../render/adaptiveRes';
 import type { PerfInfo } from './app';
 import { desktopInfo } from './desktop';
@@ -63,6 +63,54 @@ export function gpuShortName(renderer: string): string {
     .replace(/\s*\/(PCIe|SSE2).*$/i, '')
     .trim();
   return r || raw;
+}
+
+/**
+ * The GPU's name for a small chip: gpuShortName without the brand filler
+ * ("NVIDIA GeForce RTX 5090" → "NVIDIA RTX 5090", "Intel(R) UHD Graphics 630" →
+ * "Intel UHD Graphics 630"), at most `max` characters.
+ */
+export function gpuChipName(renderer: string, max = 28): string {
+  const n = gpuShortName(renderer)
+    .replace(/\((R|TM)\)/gi, '')
+    .replace(/\bGeForce\s+/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return n.length > max ? `${n.slice(0, max - 1).trimEnd()}…` : n;
+}
+
+export type GpuChipKind = 'ok' | 'soft' | 'integrated' | 'unknown';
+
+/**
+ * 「显卡：NVIDIA RTX 5090 ✓」 (green) / 「⚠ 浏览器没用显卡」 (red) / 「集成显卡：…」 (amber) —
+ * the title's and the lobby's GPU chip, from the boot probe. null: nothing to say (no
+ * WebGL 2 — the title explains that itself — or no renderer string).
+ */
+export function gpuChipStatus(gpu: { renderer: string; software: boolean }, webgl2 = true): { kind: GpuChipKind; text: string } | null {
+  if (!webgl2 || !gpu.renderer.trim()) return null;
+  if (gpu.software) return { kind: 'soft', text: tx('⚠ 浏览器没用显卡', '⚠ Browser not using the GPU') };
+  const name = gpuChipName(gpu.renderer);
+  switch (classifyGpu(gpu.renderer)) {
+    case 'integrated':
+      return { kind: 'integrated', text: tx(`集成显卡：${name}`, `Integrated GPU: ${name}`) };
+    case 'discrete':
+    case 'apple':
+    case 'mobile':
+      return { kind: 'ok', text: tx(`显卡：${name} ✓`, `GPU: ${name} ✓`) };
+    default:
+      return { kind: 'unknown', text: tx(`显卡：${name}`, `GPU: ${name}`) };
+  }
+}
+
+/** The chip itself: a button to 性能体检 (red / amber: that is where the fix is). */
+export function gpuChip(ctx: { gpu: { renderer: string; software: boolean }; webgl: { ok: boolean }; openPerfCheck?(): void }, cls = ''): HTMLElement | null {
+  const st = gpuChipStatus(ctx.gpu, ctx.webgl.ok);
+  if (!st) return null;
+  const tip = st.kind === 'soft' || st.kind === 'integrated' ? tx('点击查看怎么让游戏用上独立显卡', 'Click: how to get the game onto the graphics card') : tx('点击打开性能体检', 'Click for the performance check');
+  const el = h('button', { class: `sg-gpu-chip ${st.kind} ${cls}`.trim(), type: 'button', title: `${tip}\n${ctx.gpu.renderer}`, data: { gpu: st.kind } }, st.text);
+  el.addEventListener('click', () => ctx.openPerfCheck?.());
+  if (!ctx.openPerfCheck) el.disabled = true;
+  return el;
 }
 
 // ── "not using the GPU" warning ──────────────────────────────────────────────
@@ -198,11 +246,45 @@ export function isDesktopOs(os: OsId): boolean {
   return os === 'windows' || os === 'mac' || os === 'linux';
 }
 
+/** What platformInfo() reads from the navigator (tests pass plain objects). */
+export interface NavLike {
+  userAgent?: string;
+  maxTouchPoints?: number;
+  /** navigator.platform ("MacIntel", "Win32", …; deprecated but everywhere) */
+  platform?: string;
+  /** Chromium's client hints: platform "macOS" / "Windows" / … */
+  userAgentData?: { platform?: string };
+}
+
+/**
+ * The OS from every hint there is: the user agent first, then Chromium's
+ * userAgentData.platform and navigator.platform when the user agent is unhelpful
+ * (a frozen / reduced UA string). A touch "Mac" is an iPad either way.
+ */
+export function detectOsFrom(nav: NavLike | undefined): OsId {
+  const touch = nav?.maxTouchPoints ?? 0;
+  const os = detectOs(nav?.userAgent ?? '', touch);
+  if (os !== 'other') return os;
+  const hint = `${nav?.userAgentData?.platform ?? ''} ${nav?.platform ?? ''}`;
+  if (/mac/i.test(hint)) return touch > 1 ? 'ios' : 'mac';
+  if (/win/i.test(hint)) return 'windows';
+  if (/iphone|ipad|ipod/i.test(hint)) return 'ios';
+  if (/android/i.test(hint)) return 'android';
+  if (/cros|chrome ?os/i.test(hint)) return 'chromeos';
+  if (/linux/i.test(hint)) return 'linux';
+  return 'other';
+}
+
 /** This page's browser / OS / whether it runs inside our desktop app. */
-export function platformInfo(nav: { userAgent?: string; maxTouchPoints?: number } | undefined = globalThis.navigator): { browser: BrowserId; os: OsId; desktopApp: boolean } {
+export function platformInfo(nav: NavLike | undefined = globalThis.navigator as NavLike | undefined): { browser: BrowserId; os: OsId; desktopApp: boolean } {
   const ua = nav?.userAgent ?? '';
   const browser = detectBrowser(ua);
-  return { browser, os: detectOs(ua, nav?.maxTouchPoints ?? 0), desktopApp: browser === 'desktop' || !!desktopInfo() };
+  return { browser, os: detectOsFrom(nav), desktopApp: browser === 'desktop' || !!desktopInfo() };
+}
+
+/** A Mac (not an iPad asking for the desktop site): ⌘ shortcuts, a trackpad, the .dmg. */
+export function isMac(nav: NavLike | undefined = globalThis.navigator as NavLike | undefined): boolean {
+  return detectOsFrom(nav) === 'mac';
 }
 
 /** How to turn the GPU on: a settings address to copy (web pages cannot open chrome:// links) and the steps. */
@@ -282,13 +364,93 @@ export function integratedTip(os: OsId, gpu: string, desktopApp: boolean): strin
   ];
 }
 
-/** The desktop build for this OS (null: no desktop app for it). Windows: the portable one (no install). */
-export function desktopDownload(os: OsId, gpuClass: GpuClass): { os: string; file: string } | null {
-  if (os === 'windows') return { os: 'Windows', file: 'SanguoWarlords-…-Windows-portable.exe' };
-  // Apple silicon reports an "Apple M…" / "Apple GPU" renderer; Intel Macs an Intel / AMD one
-  if (os === 'mac') return { os: 'macOS', file: `SanguoWarlords-…-macOS-${gpuClass === 'apple' ? 'arm64' : 'x64'}.dmg` };
-  if (os === 'linux') return { os: 'Linux', file: 'SanguoWarlords-…-Linux.AppImage' };
+/**
+ * The same machine with an NVIDIA card (a gaming laptop, or a desktop whose browser
+ * was pinned to the integrated GPU): the NVIDIA Control Panel's per-program choice.
+ * null where integratedTip() is null.
+ */
+export function nvidiaPanelTip(os: OsId, gpu: string, desktopApp: boolean): string[] | null {
+  if (!integratedTip(os, gpu, desktopApp)) return null;
+  const app = desktopApp ? 'SanguoWarlords' : tx('你的浏览器（Chrome / Edge）', 'your browser (Chrome / Edge)');
+  return [
+    tx('桌面空白处右键 → NVIDIA 控制面板 → 管理 3D 设置 → 程序设置', 'Right-click the desktop → NVIDIA Control Panel → Manage 3D settings → Program Settings'),
+    tx(`选择${app}（没有就点「添加」）`, `Select ${app} (or “Add” it)`),
+    tx('首选图形处理器选「高性能 NVIDIA 处理器」→ 应用，然后重启它', 'Preferred graphics processor: “High-performance NVIDIA processor” → Apply, then restart it'),
+  ];
+}
+
+/**
+ * A desktop PC (tower) that renders on its integrated GPU although it has a card:
+ * almost always the monitor cable in the motherboard's port. null where
+ * integratedTip() is null.
+ */
+export function desktopPcTip(os: OsId, gpu: string): string[] | null {
+  if (!integratedTip(os, gpu, false)) return null;
+  return [
+    tx('显示器线要插在独立显卡（机箱下方的显卡接口）上，不要插主板', 'Plug the monitor cable into the graphics card (the ports lower down on the back of the case), not the motherboard'),
+    tx('机箱背后上方挨着 USB 口的视频接口是主板的；下方横排、在扩展槽位置的才是显卡的', 'The video ports up top next to the USB sockets are the motherboard’s; the card’s are the row lower down, in the expansion slots'),
+    tx('换好线后重新打开浏览器，再点「重新检测」', 'Reopen the browser afterwards and press “Check again”'),
+  ];
+}
+
+/**
+ * Which Mac build fits: Apple silicon (arm64) or Intel (x64). The WebGL renderer names
+ * the hardware — "Apple M1…" is Apple silicon (even under an x86 browser in Rosetta),
+ * an Intel / AMD / NVIDIA GPU an Intel Mac; Safari only says "Apple GPU" on either, and
+ * then Chromium's client hint (`arch`: "arm" / "x86") decides. null: offer both.
+ */
+export function macArch(renderer: string, arch?: string | null): 'arm64' | 'x64' | null {
+  if (/apple m\d/i.test(renderer)) return 'arm64';
+  if (/intel|amd|radeon|nvidia|geforce/i.test(renderer)) return 'x64';
+  if (arch && /^arm/i.test(arch)) return 'arm64';
+  if (arch && /^x86/i.test(arch)) return 'x64';
   return null;
+}
+
+type HighEntropy = { userAgentData?: { getHighEntropyValues?(hints: string[]): Promise<{ architecture?: string }> } };
+let archHint: string | null = null;
+let archAsk: Promise<string | null> | null = null;
+
+/** Chromium's CPU architecture hint (asked once; null: Safari / Firefox / refused). */
+export function cpuArchHint(nav: HighEntropy | undefined = globalThis.navigator as HighEntropy | undefined): Promise<string | null> {
+  if (archAsk) return archAsk;
+  const uad = nav?.userAgentData;
+  archAsk = uad && typeof uad.getHighEntropyValues === 'function'
+    ? uad.getHighEntropyValues(['architecture']).then((v) => (archHint = v?.architecture || null)).catch(() => null)
+    : Promise.resolve(null);
+  return archAsk;
+}
+
+/** The architecture hint once cpuArchHint() has answered (null before / without one). */
+export function knownCpuArch(): string | null {
+  return archHint;
+}
+
+export interface DesktopFile {
+  file: string;
+  /** which Mac it is for, when both are offered */
+  label: string | null;
+}
+
+/**
+ * The desktop build(s) for this OS (null: no desktop app for it). Windows: the portable
+ * one (no install). A Mac: the .dmg for its chip (macArch) — both when it can't be told.
+ */
+export function desktopDownload(os: OsId, renderer: string, arch?: string | null): { os: string; files: DesktopFile[] } | null {
+  const one = (name: string, file: string): { os: string; files: DesktopFile[] } => ({ os: name, files: [{ file, label: null }] });
+  if (os === 'windows') return one('Windows', 'SanguoWarlords-…-Windows-portable.exe');
+  if (os === 'linux') return one('Linux', 'SanguoWarlords-…-Linux.AppImage');
+  if (os !== 'mac') return null;
+  const dmg = (a: 'arm64' | 'x64'): string => `SanguoWarlords-…-macOS-${a}.dmg`;
+  const a = macArch(renderer, arch);
+  if (a) return one('macOS', dmg(a));
+  return {
+    os: 'macOS',
+    files: [
+      { file: dmg('arm64'), label: tx('Apple 芯片（M1 / M2 / M3 / M4…）', 'Apple silicon (M1 / M2 / M3 / M4…)') },
+      { file: dmg('x64'), label: tx('Intel 芯片的 Mac', 'Intel Mac') },
+    ],
+  };
 }
 
 /** Below this estimated frame rate the machine is flagged 帧率偏低. */
@@ -316,6 +478,8 @@ export function perfVerdict(i: { webgl2: boolean; renderer: string; pick: AutoTu
   const tier = i.pick?.quality ?? null;
   if (!i.webgl2) return { kind: 'nowebgl', gpu, fps: null, tier: null };
   if (isSoftwareGpu(i.renderer)) return { kind: 'software', gpu, fps, tier };
+  // a Mac's browser always draws on its Apple GPU: nothing to fix (自动 has picked the tier for it)
+  if (classifyGpu(i.renderer) === 'apple') return { kind: 'ok', gpu, fps, tier };
   if (fps !== null && (tier === 'potato' || fps < SLOW_FPS)) return { kind: 'slow', gpu, fps, tier };
   return { kind: 'ok', gpu, fps, tier };
 }

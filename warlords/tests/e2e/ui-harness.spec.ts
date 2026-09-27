@@ -343,6 +343,79 @@ test('邀请朋友一起玩: one click on the title → a room, its link on the 
   await ctx2.close();
 });
 
+const WIN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+const MAC_SAFARI_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15';
+const GPUS = {
+  rtx: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 (0x00002B85) Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  uhd: 'ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)',
+  soft: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)',
+};
+
+/** open() as another platform: its user agent (Safari: no Chromium client hints either). */
+async function openAs(query: string, ua: string, width = 1280, height = 720, safari = false): Promise<Opened> {
+  const ctx = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', userAgent: ua });
+  if (safari) await ctx.addInitScript(() => Object.defineProperty(Navigator.prototype, 'userAgentData', { get: () => undefined, configurable: true }));
+  const page = await ctx.newPage();
+  const errors: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(m.text());
+  });
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+  await page.goto(`${URL}?${query}`);
+  return { ctx, page, errors };
+}
+
+test('GPU at a glance: the title / lobby chip (green ✓ · red · amber) opens 性能体检; Windows on its integrated GPU gets the cable / NVIDIA tips', async () => {
+  const shots = process.env.UI_SHOTS;
+  const gpuQ = (g: string): string => `gpu=${encodeURIComponent(g)}`;
+  // an RTX 5090 in use: green, short name
+  const ok = await openAs(`screen=title&${gpuQ(GPUS.rtx)}&benched=4`, WIN_UA);
+  const chip = ok.page.locator('[data-screen="title"] .sg-gpu-chip');
+  await expect(chip).toHaveText('显卡：NVIDIA RTX 5090 ✓');
+  await expect(chip).toHaveAttribute('data-gpu', 'ok');
+  if (shots) await ok.page.waitForTimeout(400).then(() => ok.page.screenshot({ path: `${shots}/title-chip-ok.png` }));
+  await chip.click();
+  await expect(ok.page.locator('[data-screen="perfcheck"] .pc-verdict')).toHaveAttribute('data-verdict', 'ok');
+  expect(ok.errors).toEqual([]);
+  await ok.ctx.close();
+  // hardware acceleration off: red, and the click is the way to the fix
+  const soft = await openAs(`screen=title&${gpuQ(GPUS.soft)}`, WIN_UA);
+  const red = soft.page.locator('[data-screen="title"] .sg-gpu-chip');
+  await expect(red).toHaveText('⚠ 浏览器没用显卡');
+  await expect(red).toHaveAttribute('data-gpu', 'soft');
+  if (shots) await soft.page.waitForTimeout(400).then(() => soft.page.screenshot({ path: `${shots}/title-chip-soft.png` }));
+  await red.click();
+  await expect(soft.page.locator('[data-screen="perfcheck"] .pc-verdict')).toHaveAttribute('data-verdict', 'software');
+  expect(soft.errors).toEqual([]);
+  await soft.ctx.close();
+  // a strong PC drawing on the CPU's Intel graphics: amber → the desktop cable, Windows and NVIDIA tips
+  const igp = await openAs(`screen=title&${gpuQ(GPUS.uhd)}&benched=9`, WIN_UA);
+  const amber = igp.page.locator('[data-screen="title"] .sg-gpu-chip');
+  await expect(amber).toHaveText('集成显卡：Intel UHD Graphics 630');
+  await amber.click();
+  const tip = igp.page.locator('[data-screen="perfcheck"] .pc-sec.tip');
+  await expect(tip).toContainText('显示器线要插在独立显卡（机箱下方的显卡接口）上，不要插主板');
+  await expect(tip).toContainText('高性能 NVIDIA 处理器');
+  await expect(tip).toContainText('ms-settings:display-advancedgraphics');
+  await expect(igp.page.locator('[data-screen="perfcheck"] .pc-file')).toContainText('Windows-portable.exe');
+  if (shots) await igp.page.waitForTimeout(400).then(() => igp.page.screenshot({ path: `${shots}/perfcheck-integrated.png` }));
+  expect(igp.errors).toEqual([]);
+  await igp.ctx.close();
+  // the lobby says it too
+  const lobby = await openAs(`screen=lobby&${gpuQ(GPUS.rtx)}`, WIN_UA);
+  await expect(lobby.page.locator('.lobby-head .sg-gpu-chip')).toHaveText('显卡：NVIDIA RTX 5090 ✓');
+  expect(lobby.errors).toEqual([]);
+  await lobby.ctx.close();
+  // a landscape phone: the chip sits beside 语言, clear of the menu, nothing overflows
+  const phone = await openAs(`screen=title&${gpuQ(GPUS.soft)}`, WIN_UA, 844, 390);
+  const box = await phone.page.locator('.sg-gpu-chip').boundingBox();
+  const menu = await phone.page.locator('.sg-title-menu').boundingBox();
+  expect(box && menu && (box.y + box.height <= menu.y || box.x >= menu.x + menu.width)).toBeTruthy();
+  expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  if (shots) await phone.page.waitForTimeout(400).then(() => phone.page.screenshot({ path: `${shots}/title-chip-phone.png` }));
+  await phone.ctx.close();
+});
+
 test('touch controls on a landscape phone', async () => {
   const { ctx, page, errors } = await open('screen=hud&touch=1', 844, 390);
   await expect(page.locator('.sg-touch .fire')).toBeVisible({ timeout: 15_000 });

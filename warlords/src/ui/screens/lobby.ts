@@ -10,7 +10,7 @@ import { button, field, segmented, toggle } from '../widgets';
 import { rolePreview } from './single';
 import { inviteLink } from '../invite';
 import { canNativeShare, inviteStatus, type InviteNotice } from '../quickInvite';
-import { platformInfo } from '../perfcheck';
+import { gpuChip, platformInfo } from '../perfcheck';
 import { shouldUseTouch } from '../touch';
 import { settings } from '../../game/settings';
 
@@ -118,6 +118,7 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     });
     headBox.replaceChildren(
       h('h1', { class: 'sg-h1' }, t('lobby.title')),
+      ...[gpuChip(ctx, 'lobby')].filter((x): x is HTMLElement => !!x),
       h('div', { class: 'code-box' },
         copyCodeBtn,
         inviteBox(code),

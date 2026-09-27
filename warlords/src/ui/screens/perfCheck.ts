@@ -5,7 +5,7 @@
 // a laptop with an integrated GPU, or the desktop app, which turns the GPU on by
 // itself. Opens by itself when a problem is found (App), from 设置 → 画面 and from
 // the F3 panel; 重新检测 probes the GPU again and runs the 2 s benchmark in place.
-import { classifyGpu, defaultQuality, settings } from '../../game/settings';
+import { defaultQuality, settings } from '../../game/settings';
 import type { AutoTunePick } from '../../render/adaptiveRes';
 import { autoPick, benchFor as storedBench, type GpuState } from '../autoQuality';
 import type { Screen, UiCtx } from '../ctx';
@@ -14,10 +14,14 @@ import { t, tx } from '../i18n';
 import {
   RELEASES_URL,
   WINDOWS_GRAPHICS_URL,
+  cpuArchHint,
   desktopDownload,
+  desktopPcTip,
   externalLink,
   gpuShortName,
   integratedTip,
+  knownCpuArch,
+  nvidiaPanelTip,
   isDesktopOs,
   perfVerdict,
   platformInfo,
@@ -85,12 +89,30 @@ export function createPerfCheckPanel(ctx: UiCtx, onClose: () => void): Screen {
         ),
       );
     }
+    // a strong PC on the wrong GPU (Windows, the renderer is the CPU's Intel / AMD graphics):
+    // a desktop's monitor cable in the motherboard, or a laptop's browser on the power-saving GPU
     const tip = v.kind !== 'software' && v.kind !== 'nowebgl' ? integratedTip(plat.os, gpu.renderer, plat.desktopApp) : null;
     if (tip) {
+      const pc = desktopPcTip(plat.os, gpu.renderer);
+      const nv = nvidiaPanelTip(plat.os, gpu.renderer, plat.desktopApp);
       sections.push(
-        h('section', { class: 'pc-sec tip' },
-          h('h3', { class: 'sg-h3' }, tx('笔记本还有独立显卡？让游戏用上它', 'Laptop with a graphics card too? Let the game use it')),
-          steps(tip, h('span', { class: 'pc-url' }, copyBtn(WINDOWS_GRAPHICS_URL), h('code', null, WINDOWS_GRAPHICS_URL), h('small', null, tx('（按 Win+R，粘贴后回车）', ' (Win+R, paste, Enter)')))),
+        h('section', { class: 'pc-sec tip', data: { tip: 'integrated' } },
+          h('h3', { class: 'sg-h3' }, tx(`现在用的是集成显卡（${gpuShortName(gpu.renderer)}）`, `The game runs on the integrated GPU (${gpuShortName(gpu.renderer)})`)),
+          h('p', { class: 'pc-note lead' }, tx('电脑有独立显卡（NVIDIA / AMD）的话，这样让游戏用上它：', 'If the computer has a graphics card (NVIDIA / AMD), get the game onto it:')),
+          pc ? h('div', { class: 'pc-sub' }, h('b', null, tx('① 台式机', '① Desktop PC')), steps(pc)) : null,
+          h('div', { class: 'pc-sub' },
+            h('b', null, tx('② 笔记本：Windows 图形设置', '② Laptop: Windows graphics settings')),
+            steps(tip, h('span', { class: 'pc-url' }, copyBtn(WINDOWS_GRAPHICS_URL), h('code', null, WINDOWS_GRAPHICS_URL), h('small', null, tx('（按 Win+R，粘贴后回车）', ' (Win+R, paste, Enter)')))),
+          ),
+          nv ? h('div', { class: 'pc-sub' }, h('b', null, tx('③ 有 NVIDIA 显卡：NVIDIA 控制面板', '③ NVIDIA card: NVIDIA Control Panel')), steps(nv)) : null,
+          plat.desktopApp ? null : h('p', { class: 'pc-note' }, tx('最省事：下载桌面版，它会自动用独立显卡。', 'Least fuss: the desktop app picks the graphics card by itself.')),
+        ),
+      );
+    }
+    if (plat.os === 'mac' && v.kind === 'ok') {
+      sections.push(
+        h('section', { class: 'pc-sec mac', data: { tip: 'mac' } },
+          h('p', { class: 'pc-note' }, tx('Mac 上的 Safari / Chrome 总是用显卡绘制，无需设置。画质已按这台 Mac 自动选择。', 'Safari and Chrome on a Mac always draw with the GPU — nothing to set up. The quality is picked for this Mac.')),
         ),
       );
     }
@@ -106,12 +128,12 @@ export function createPerfCheckPanel(ctx: UiCtx, onClose: () => void): Screen {
       );
     }
     // the no-fuss path: the desktop app uses the GPU by itself (web, on an OS it exists for)
-    const dl = !plat.desktopApp && isDesktopOs(plat.os) ? desktopDownload(plat.os, classifyGpu(gpu.renderer)) : null;
+    const dl = !plat.desktopApp && isDesktopOs(plat.os) ? desktopDownload(plat.os, gpu.renderer, knownCpuArch()) : null;
     if (dl) {
       sections.push(
         h('section', { class: 'pc-sec dl' },
           externalLink(RELEASES_URL, tx('下载桌面版（自动使用显卡，更流畅）', 'Get the desktop app (uses the GPU by itself, smoother)'), 'sg-btn gold wide pc-dl'),
-          h('div', { class: 'pc-file' }, `${dl.os}${tx('：', ': ')}`, h('code', null, dl.file)),
+          ...dl.files.map((f) => h('div', { class: 'pc-file' }, `${f.label ?? dl.os}${tx('：', ': ')}`, h('code', null, f.file))),
         ),
       );
     }
@@ -146,6 +168,12 @@ export function createPerfCheckPanel(ctx: UiCtx, onClose: () => void): Screen {
     }
   };
 
+  // a Mac: Chromium says which chip it has (the right .dmg) — asked once, the panel updates
+  if (platformInfo().os === 'mac') {
+    void cpuArchHint().then((a) => {
+      if (a && alive) render();
+    });
+  }
   bag.listen(back, 'pointerdown', (ev) => {
     if (ev.target === back) onClose();
   });
