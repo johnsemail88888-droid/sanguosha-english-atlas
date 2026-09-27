@@ -27,6 +27,8 @@ export const skyArtFogUniforms = {
 };
 
 let artFog = false;
+/** fog colour per vertex (FOG_VERTEX_COLOR in scene/skyfog.ts): the cheap tiers */
+let vertexFog = false;
 let fogSun = new THREE.Vector3(-0.72, 0.5, 0.42).normalize();
 let fogLut: THREE.DataTexture | null = null;
 const fogMats = new Set<THREE.Material>();
@@ -38,7 +40,22 @@ export function skyArtFogOn(): boolean {
 
 /** Program cache key suffix for materials that call applySkyArtFog. */
 export function skyArtFogKey(): string {
-  return artFog ? '_skyfog' : '';
+  return `${artFog ? '_skyfog' : ''}${vertexFog ? '_vfog' : ''}`;
+}
+
+/**
+ * Sky fog colour per vertex instead of per pixel (the 极速 / 流畅 tiers): every
+ * registered material recompiles when this changes.
+ */
+export function setVertexFog(on: boolean): void {
+  if (on === vertexFog) return;
+  vertexFog = on;
+  refreshFogMaterials();
+}
+
+/** True while the fog colour is evaluated per vertex. */
+export function vertexFogOn(): boolean {
+  return vertexFog;
 }
 
 /**
@@ -46,7 +63,7 @@ export function skyArtFogKey(): string {
  * variant while it is active, and remembers the material so it recompiles
  * when the fog mode changes.
  */
-export function applySkyArtFog(shader: { uniforms: Record<string, THREE.IUniform>; fragmentShader: string }, mat: THREE.Material): void {
+export function applySkyArtFog(shader: { uniforms: Record<string, THREE.IUniform>; vertexShader: string; fragmentShader: string }, mat: THREE.Material): void {
   if (!fogMats.has(mat)) {
     fogMats.add(mat);
     // per-instance clones (character bodies) come and go during a match
@@ -56,10 +73,16 @@ export function applySkyArtFog(shader: { uniforms: Record<string, THREE.IUniform
     };
     mat.addEventListener('dispose', onDispose);
   }
-  if (!artFog) return;
-  shader.uniforms.uFogSkyTex = skyArtFogUniforms.uFogSkyTex;
-  shader.uniforms.uFogSkyMap = skyArtFogUniforms.uFogSkyMap;
-  shader.fragmentShader = `#define SKY_ART_FOG\n${shader.fragmentShader}`;
+  let defs = '';
+  if (vertexFog) defs += '#define FOG_VERTEX_COLOR\n';
+  if (artFog) {
+    shader.uniforms.uFogSkyTex = skyArtFogUniforms.uFogSkyTex;
+    shader.uniforms.uFogSkyMap = skyArtFogUniforms.uFogSkyMap;
+    defs += '#define SKY_ART_FOG\n';
+  }
+  if (!defs) return;
+  shader.vertexShader = `${defs}${shader.vertexShader}`;
+  shader.fragmentShader = `${defs}${shader.fragmentShader}`;
 }
 
 /**
@@ -288,6 +311,7 @@ export function buildPaintedFogLut(preview: { px: Uint8ClampedArray | Uint8Array
 export function disposeSkyArtFog(): void {
   if (artFog) refreshFogMaterials();
   artFog = false;
+  vertexFog = false;
   fogLut?.dispose();
   fogLut = null;
   skyArtFogUniforms.uFogSkyTex.value = null;

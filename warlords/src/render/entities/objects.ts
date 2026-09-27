@@ -12,6 +12,15 @@ import { buildWeapon, hasWeaponArt, weaponArtEpoch } from '../models/weapons';
 import { requestWeaponArt } from '../models/weaponGlb';
 import type { EntityCtx } from './context';
 
+/**
+ * How far a loot / crate / turret visual is drawn: its own range, but never
+ * deeper than the tier's fog has swallowed it (0.85 × the draw distance —
+ * 极速's 125 m draw distance would otherwise draw crates 160 m out, invisible).
+ */
+function objectRange(ctx: EntityCtx, own: number): number {
+  return ctx.drawDistance ? Math.min(own, ctx.drawDistance * 0.85) : own;
+}
+
 const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
 const geoCache = new Map<string, THREE.BufferGeometry>();
 const _p = new THREE.Vector3();
@@ -321,7 +330,7 @@ export class LootView implements EntityView {
     this.item.position.y = 0.55 + Math.sin(ctx.time * 2 + this.phase) * 0.06;
     this.item.rotation.y = ctx.time * 1.2 + this.phase;
     const dist = ctx.camPos.distanceTo(this.root.position);
-    this.root.visible = dist < 120;
+    this.root.visible = dist < objectRange(ctx, 120);
     this.shadowCaster.castShadow = ctx.shadows && dist < PROP_SHADOW_DIST;
   }
 
@@ -402,7 +411,7 @@ export class CrateView implements EntityView {
     this.glow.visible = this.openT < 0.5;
     (this.glow.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.25 * Math.sin(ctx.time * 3 + e.id);
     const dist = ctx.camPos.distanceTo(this.root.position);
-    this.root.visible = dist < 160;
+    this.root.visible = dist < objectRange(ctx, 160);
     const shadow = ctx.shadows && dist < PROP_SHADOW_DIST * 2;
     this.body.castShadow = shadow;
     // a closed lid's shadow falls inside the body's
@@ -548,7 +557,7 @@ export class TurretView implements EntityView {
     this.gun.position.z = 0.08 * this.recoil;
     this.legPhase += ctx.dt * e.speed * 3;
     this.legs.forEach((l, i) => (l.rotation.x = Math.sin(this.legPhase + i * Math.PI) * 0.5 * Math.min(1, e.speed)));
-    this.root.visible = ctx.camPos.distanceTo(this.root.position) < 160;
+    this.root.visible = ctx.camPos.distanceTo(this.root.position) < objectRange(ctx, 160);
   }
 
   dispose(): void {

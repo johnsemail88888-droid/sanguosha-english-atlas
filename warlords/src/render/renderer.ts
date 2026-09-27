@@ -13,7 +13,7 @@ import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { ViewSource } from './view';
-import { HERO_VIEW_RANGE, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
+import { HERO_VIEW_RANGE, groundVariant, presetPixelRatio, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
 import { AdaptiveResolution, adaptiveFloor } from './adaptiveRes';
 import { LocalFirePredictor, type LocalFireGate } from './localFire';
 import { sharedUniforms, disposeSharedMaterials } from './core/materials';
@@ -25,6 +25,7 @@ import { displayMap } from './scene/rimShape';
 import { buildWater, type WaterMesh } from './scene/water';
 import { PostChain } from './scene/post';
 import { installSkyFog } from './scene/skyfog';
+import { DepthCuller } from './scene/depthCull';
 import { buildWorld, type WorldBuild } from './world/world';
 import { FireSystem } from './world/fires';
 import { GrassField } from './scene/grass';
@@ -36,10 +37,15 @@ import { EntityManager } from './entities/manager';
 import { preloadCharacterArt } from './models/preload';
 import { evictUnusedTemplates } from './models/glb';
 import { setWorldArtQuality, worldTexturesSettled } from './core/worldArt';
+import { setVertexFog } from './core/skyArtFog';
 import { releaseObjectGeometryCache } from './entities/objects';
 import { releaseModelCaches } from './models';
 import type { EntityCtx } from './entities/context';
-import { updateAuraShared } from './entities/auras';
+import { auraWarmSamples, updateAuraShared } from './entities/auras';
+import { hazardWarmSamples } from './entities/hazards';
+import { Nameplate } from './entities/nameplate';
+import { chibiWarmSample } from './vfx/abilities-wu';
+import { MountRig } from './models/mounts';
 import { Effects } from './vfx/effects';
 import { handleEvents, shotClass } from './vfx/eventVfx';
 import { ZoneVisual } from './vfx/zone';
@@ -137,6 +143,8 @@ export class GameRenderer {
   private readonly fx: Effects;
   private readonly zone: ZoneVisual;
   private readonly fog: THREE.Fog;
+  /** terrain / prop chunks beyond the draw distance (the far plane stretches to far heroes) */
+  private readonly depthCull = new DepthCuller();
   private quality: Quality;
   private preset: QualityPreset;
   private size = { w: 1, h: 1 };
@@ -241,13 +249,17 @@ export class GameRenderer {
     this.scene.fog = this.fog;
     this.scene.background = null;
     this.sky = createSkyLayer(map.size, SUN_DIR);
+    this.scene.add(this.sky.group);
     this.lights = new SceneLights(this.scene);
-    this.terrain = buildTerrain(map);
+    // (short draw distances: finer terrain chunks, culled closer to the view)
+    this.terrain = buildTerrain(map, { chunks: this.preset.drawDistance <= 240 ? 8 : 4 });
     this.scene.add(this.terrain.group);
     this.water = buildWater(map, SUN_DIR);
     if (this.water.mesh) this.scene.add(this.water.mesh);
-    this.world = buildWorld(map);
+    // (the AI-art prop models and the procedural props' detail follow the tier the match starts on)
+    this.world = buildWorld(map, { art: this.preset.worldArt, detail: this.preset.worldDetail });
     this.scene.add(this.world.group);
+    for (const g of [this.terrain.group, this.world.group]) for (const o of g.children) if ((o as THREE.Mesh).isMesh && !(o as THREE.InstancedMesh).isInstancedMesh) this.depthCull.add(o as THREE.Mesh);
     this.fires = new FireSystem(this.scene, this.world.fires);
     this.pickWorld = new PickWorld(map);
     // roof shells / under dock decks: the camera boom stops short of them (no black inside faces)
@@ -372,8 +384,11 @@ export class GameRenderer {
     this.damagePulse = Math.max(0, this.damagePulse - d * 1.6);
     this.post.setDamage(this.damagePulse * 0.9 + (local?.downed ? 0.55 + 0.15 * Math.sin(this.time * 4) : 0));
 
-    // 6. render (far plane stretched so no hero within weapon range is clipped)
+    // 6. render (far plane stretched so no hero within weapon range is clipped;
+    // the world still ends at the draw distance, where the fog has hidden it)
     this.updateFarPlane(localId);
+    this.camera.updateMatrixWorld();
+    this.depthCull.update(this.camera, this.farNow > this.preset.drawDistance ? this.preset.drawDistance : Infinity);
     // (a staged quality switch holds the last picture while it compiles the scene)
     if (!this.holdRender) {
       this.renderer.info.reset();
@@ -434,6 +449,7 @@ export class GameRenderer {
     const ctx = this.entityCtx(0, localId, local);
     ctx.focusPos = this.cameraFocus(localEnt);
     this.entities.sync(view.entities(), ctx);
+    this.addWarmSamples();
     // every object visible for the compile (pools / hidden meshes still need their programs)
     const hidden: THREE.Object3D[] = [];
     this.scene.traverse((o) => {
@@ -442,20 +458,28 @@ export class GameRenderer {
         o.visible = true;
       }
     });
-    // translucent variant of the character material (near-camera / stealth fade)
-    let faded: { setFade(a: number): void } | null = null;
+    // translucent (near-camera fade / stealth) and x-ray (revealed through walls) variants
+    // of both body kinds — AI-art and procedural — so neither compiles in a match frame
+    const probes: { setFade(a: number): void; setXray(on: boolean): void }[] = [];
+    const probed = new Set<boolean>();
     this.entities.forEachCharacter((v) => {
-      if (!faded && v.id !== localId) faded = v.rig;
+      if (v.id === localId || probed.has(v.rig.usesGlb)) return;
+      probed.add(v.rig.usesGlb);
+      probes.push(v.rig);
     });
-    const fadedRig = faded as { setFade(a: number): void } | null;
-    fadedRig?.setFade(0.5);
+    for (const r of probes) {
+      r.setFade(0.5);
+      r.setXray(true);
+    }
     const restore = (): void => {
       for (const o of hidden) o.visible = false;
-      fadedRig?.setFade(1);
+      for (const r of probes) {
+        r.setFade(1);
+        r.setXray(false);
+      }
     };
     try {
-      // the sky layer's own programs (its scene: no lights in their keys), the first-person viewmodel's
-      this.forWorldTarget(() => this.renderer.compile(this.sky.scene, this.sky.camera));
+      // the first-person viewmodel's programs (its own scene, drawn over the world)
       this.forWorldTarget(() => this.fp.viewmodel.compile(this.renderer));
       if (this.renderer.extensions.has('KHR_parallel_shader_compile')) {
         await this.forWorldTarget(() => this.renderer.compileAsync(this.scene, this.camera));
@@ -491,11 +515,60 @@ export class GameRenderer {
     } catch (err) {
       console.warn('[render] shader warm-up failed', err);
     } finally {
-      restore();
-      // one hidden draw: the shadow pass's depth programs and every vertex buffer / texture
-      // upload, instead of in the first visible frame
+      // one hidden draw — with the hidden pools / LODs / warm samples still shown — the shadow
+      // pass's depth programs and every vertex buffer / texture upload, instead of in the first
+      // visible frames. ANGLE (Vulkan, SwiftShader) builds a program's pipelines at its first
+      // DRAW, not at link time: seconds of stall in a match frame on software GL.
       if (!this.disposed && !this.contextLost) this.prerender();
+      restore();
     }
+  }
+
+  /**
+   * Materials that are otherwise created on first use in a match — status
+   * bubbles (the spawn protection of every match start), the pooled fx rings /
+   * shockwaves / pillars, nameplates, hazards, the 火烧赤壁 decal — get a
+   * hidden sample in the scene for the match: the warm-up (and a quality
+   * switch's recompile) compiles their programs, and a sample keeps each
+   * program alive when the last live user is disposed. A first use used to
+   * link a program inside a frame: seconds on software GL, a visible hitch on
+   * a real GPU.
+   */
+  private addWarmSamples(): void {
+    if (this.warmSamples) return;
+    const g = new THREE.Group();
+    g.name = 'warmSamples';
+    g.visible = false;
+    this.fx.fx.prewarm();
+    const plate = new Nameplate();
+    const hazards = hazardWarmSamples();
+    const chibi = chibiWarmSample();
+    this.warmDispose = [
+      plate,
+      ...hazards,
+      {
+        dispose: () => {
+          chibi.geometry.dispose();
+          (chibi.material as THREE.Material).dispose();
+        },
+      },
+    ];
+    const samples: THREE.Object3D[] = [...auraWarmSamples(), ...hazards.map((h) => h.root), chibi, plate.sprite];
+    // the AI-art horse / elephant (preloaded with the character art): a hero who picks up
+    // a mount mid-match no longer compiles its program in that frame
+    if (this.preset.glbCharacters !== 'none') {
+      for (const kind of ['horse', 'elephant'] as const) {
+        const m = new MountRig(kind, '#6b4a2e', '#8a2a22', '#d8ac4c');
+        samples.push(m.object);
+        this.warmDispose.push(m);
+      }
+    }
+    for (const o of samples) {
+      o.frustumCulled = false;
+      g.add(o);
+    }
+    this.warmSamples = g;
+    this.scene.add(g);
   }
 
   resize(w: number, h: number): void {
@@ -536,6 +609,11 @@ export class GameRenderer {
       return;
     }
     void this.applyQualityStaged(q);
+  }
+
+  /** Frame-rate cap of the tier in use (fps, 0 = none): the match loop skips display frames above it (mountGame.ts). */
+  get maxFps(): number {
+    return this.disposed ? 0 : this.preset.maxFps;
   }
 
   /** True while a quality switch is being applied (UI: 「应用中…」). */
@@ -711,6 +789,10 @@ export class GameRenderer {
     this.qualitySeq++;
     this.applyingSubs.clear();
     this.entities.dispose();
+    this.depthCull.clear();
+    for (const d of this.warmDispose) d.dispose();
+    this.warmDispose = [];
+    this.warmSamples = null;
     // the match's character models (textures ~5 MB each) go with it; the next match reloads from the HTTP cache
     evictUnusedTemplates();
     this.fx.dispose();
@@ -755,7 +837,7 @@ export class GameRenderer {
   /** The quality preset's pixel ratio on this device, within 自动's render-scale cap: the adaptive resolution's ceiling. */
   private pixelRatio(): number {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    return Math.min(this.preset.maxPixelRatio, dpr * this.preset.pixelRatioScale, this.scaleCap);
+    return Math.min(presetPixelRatio(this.preset, dpr, this.size.w, this.size.h), this.scaleCap);
   }
 
   /** Size the canvas / post targets at the adaptive pixel ratio. */
@@ -828,7 +910,10 @@ export class GameRenderer {
       const recompiles =
         next.shadows !== this.renderer.shadowMap.enabled ||
         next.glbCharacters !== this.preset.glbCharacters ||
-        (q === 'low') !== (this.quality === 'low'); // the textured ground's cheap variant (terrain.ts GROUND_LQ)
+        // the ground's variant (terrain.ts: procedural / GROUND_LQ / full) and the buildings' material
+        groundVariant(q) !== groundVariant(this.quality) ||
+        next.worldArt !== this.preset.worldArt ||
+        next.shading !== this.preset.shading;
       this.switchQuality(q);
       if (recompiles) {
         this.holdRender = true;
@@ -898,10 +983,11 @@ export class GameRenderer {
     }
   }
 
-  /** Draw the scene once into a 4×4 target (same program variants as the world pass): see applyQualityStaged. */
+  /** Draw the scene once into a 4×4 target (same program variants and target format as the world pass): see applyQualityStaged. */
   private prerender(): void {
     const r = this.renderer;
-    const t = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
+    // the world pass's format and MSAA samples: a pipeline is built per render-target format
+    const t = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: this.post.worldTarget.samples });
     const prev = r.getRenderTarget();
     r.setRenderTarget(t);
     try {
@@ -985,6 +1071,15 @@ export class GameRenderer {
     this.post.configure({ bloom: p.bloom, vignette: p.post, msaa: p.msaa }, this.frameNo > 0);
     // character art tier (AI-art vs procedural bodies) follows the active preset, incl. opts.quality
     this.entities.setCharacterArt(p.glbCharacters);
+    // textured buildings (the ground follows setWorldArtQuality)
+    this.world.setTextured(p.worldArt);
+    this.world.setDrawDistance(p.drawDistance);
+    this.world.setLodScale(p.lodScale);
+    // per-pixel shading cost (quality.ts `shading`): sky / fog per vertex, Lambert world
+    this.sky.setCheap(p.shading !== 'full');
+    setVertexFog(p.shading !== 'full');
+    this.terrain.setLite(p.shading === 'basic');
+    this.world.setLite(p.shading === 'basic');
   }
 
   private onSettings(u: UserSettings): void {
@@ -1016,6 +1111,7 @@ export class GameRenderer {
         blocked: (a, b) => this.pickWorld.segmentBlocked(a, b),
         groundY: (x, z) => this.pickWorld.groundHeight(x, z),
         characterDistance: this.preset.characterDistance,
+        lodScale: this.preset.lodScale,
         badges: this.entities.badges,
         shadows: this.preset.shadows,
         frame: 0,
@@ -1029,8 +1125,14 @@ export class GameRenderer {
     c.local = local;
     c.lang = settings.get().lang;
     c.characterDistance = this.preset.characterDistance;
+    c.drawDistance = this.preset.drawDistance;
+    c.lodScale = this.preset.lodScale;
     c.shadows = this.preset.shadows;
     c.frame = this.frameNo;
+    // (the camera was placed by updateCamera: its frustum drives the characters' off-screen LOD)
+    this.camera.updateMatrixWorld();
+    this.viewProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    c.frustum = this.viewFrustum.setFromProjectionMatrix(this.viewProj);
     return c;
   }
 
@@ -1096,6 +1198,11 @@ export class GameRenderer {
 
   private readonly focusVec = new THREE.Vector3();
   private readonly camDirVec = new THREE.Vector3();
+  private readonly viewProj = new THREE.Matrix4();
+  /** hidden samples of the lazily created materials (addWarmSamples) */
+  private warmSamples: THREE.Group | null = null;
+  private warmDispose: { dispose(): void }[] = [];
+  private readonly viewFrustum = new THREE.Frustum();
   private injected: GameEvent[] = [];
 
   /**

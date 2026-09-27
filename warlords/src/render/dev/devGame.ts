@@ -1,7 +1,7 @@
 // Dev harness: GameRenderer + InputController on a synthetic DevView.
 //   ?hero=<id>      local hero (default guanyu)
 //   ?cam=free       fly camera (WASD + drag, Q/E down/up)
-//   ?quality=low|medium|high
+//   ?quality=potato|low|medium|high|ultra
 //   ?map=showcase   hand-made showcase map (default: the real generated map)
 //   ?at=x,z         lineup origin override
 //   ?far=<m>        a hero standing <m> metres straight ahead (hero visibility at range)
@@ -13,7 +13,7 @@
 import { generateMap } from '../../sim/map/generate';
 import type { MapData } from '../../core/map';
 import { terrainHeight } from '../../core/map';
-import type { Quality } from '../../game/settings';
+import { migrateQuality, type Quality } from '../../game/settings';
 import { GameRenderer } from '../renderer';
 import { InputController } from '../../game/input';
 import { DevView } from './devView';
@@ -72,7 +72,7 @@ function findOpenArea(map: MapData, near: { x: number; z: number }, w = 70, d = 
 export function startDevGame(canvas: HTMLCanvasElement, params: URLSearchParams): void {
   const qp = params.get('quality');
   // dev override only: do not persist into the player's stored settings
-  const quality: Quality | undefined = qp === 'low' || qp === 'medium' || qp === 'high' ? qp : undefined;
+  const quality: Quality | undefined = migrateQuality(qp) ?? undefined;
   // measurement A/B only: the per-tier GLB texture caps off
   if (params.get('texcap') === 'off') for (const p of Object.values(QUALITY_PRESETS)) Object.assign(p, { charTexture: 1 << 14, weaponTexture: 1 << 14 });
   const t0 = performance.now();

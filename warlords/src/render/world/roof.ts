@@ -2,7 +2,7 @@
 // upturned corner eaves, tile-row striping, a dark underside and ridge
 // ornaments. Built into a GeoBuilder in the current local frame.
 import * as THREE from 'three';
-import { GeoBuilder, PRIM, col, shade, trs, type ColorLike } from '../core/geo';
+import { GeoBuilder, PRIM, col, lowBuildDetail, shade, trs, type ColorLike } from '../core/geo';
 import { SURF, packSurf, type SurfId } from '../core/structureMaterial';
 import type { CamOccluderSink } from '../camera/camOccluders';
 
@@ -101,8 +101,10 @@ function hipRoofRaw(b: GeoBuilder, sb: GeoBuilder, cx: number, y0: number, cz: n
   const curve = o.curve ?? 1.7;
   const up = o.upturn ?? Math.min(0.8, 0.12 * Math.min(W, D));
   const th = o.thickness ?? 0.18;
-  const nu = o.nu ?? 6;
-  const nv = o.nv ?? 4;
+  // (low detail: half the tessellation — the curve reads as facets, the silhouette stays)
+  const low = lowBuildDetail();
+  const nu = low ? Math.max(2, Math.ceil((o.nu ?? 6) / 2)) : (o.nu ?? 6);
+  const nv = low ? Math.max(2, Math.ceil((o.nv ?? 4) / 2)) : (o.nv ?? 4);
   const base = col(o.color);
   const dark = shade(o.color, 0.82);
   const under = o.underside ? col(o.underside) : shade('#4a3222', 1);

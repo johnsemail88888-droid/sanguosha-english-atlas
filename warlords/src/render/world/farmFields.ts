@@ -242,7 +242,7 @@ export async function loadFarmTexture(): Promise<THREE.Texture | null> {
     out.minFilter = THREE.LinearMipmapLinearFilter;
     out.generateMipmaps = true;
     // seen at grazing angles like the ground
-    out.anisotropy = q === 'low' ? 2 : 8;
+    out.anisotropy = q === 'low' || q === 'potato' ? 2 : 8;
     out.needsUpdate = true;
     return out;
   } catch (err) {

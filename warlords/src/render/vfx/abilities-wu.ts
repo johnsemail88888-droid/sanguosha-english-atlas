@@ -241,6 +241,27 @@ void main() {
   gl_FragColor = vec4(col, a);
 }`;
 
+/** A hidden 火烧赤壁 decal for the renderer's warm-up group (compiled at load, and its program never released). */
+export function chibiWarmSample(): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+  geo.setAttribute('aLocal', new THREE.BufferAttribute(new Float32Array(6), 2));
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: CHIBI_VERT,
+    fragmentShader: CHIBI_FRAG,
+    uniforms: { uT: { value: 0 }, uFade: { value: 1 }, uR: { value: 1 }, uLen: { value: 1 }, uN: { value: 1 } },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.name = 'vfx_chibi_warm';
+  return m;
+}
+
 interface LiveDecal {
   mesh: THREE.Mesh;
   /** the Effects it lives in (its clock decides expiry) */

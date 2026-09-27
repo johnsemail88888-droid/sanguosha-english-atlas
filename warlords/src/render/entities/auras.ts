@@ -165,6 +165,21 @@ function starSprite(): THREE.Sprite {
   return s;
 }
 
+/**
+ * One hidden object per lazily created aura material (shield / invulnerability
+ * bubbles incl. your own faint ones, crown, mark chevron, stun star): the
+ * renderer keeps them in its warm-up group, so the loading warm-up compiles
+ * their programs — the spawn protection bubble used to compile in the first
+ * second of every match (seconds on software GL).
+ */
+export function auraWarmSamples(): THREE.Object3D[] {
+  if (!bubbleGeo) bubbleGeo = new THREE.IcosahedronGeometry(1, 2);
+  const out: THREE.Object3D[] = [];
+  for (const kind of ['shield', 'invuln'] as const) for (const faint of [false, true]) out.push(new THREE.Mesh(bubbleGeo, bubbleMaterial(kind, faint)));
+  out.push(crownMesh(), chevronSprite(), starSprite());
+  return out;
+}
+
 /** Update shared aura uniforms once per frame. */
 export function updateAuraShared(time: number): void {
   for (const m of bubbleMats.values()) m.uniforms.uTime.value = time;

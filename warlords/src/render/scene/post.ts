@@ -25,7 +25,7 @@ export interface WorldOverlay {
   readonly visible: boolean;
 }
 
-/** Renders the background sky layer, then the world on top (depth cleared in between), then the overlay. */
+/** Renders the world (the sky layer is part of the scene, drawn after the opaque world: see scene/sky.ts), then the overlay. */
 class WorldPass extends Pass {
   overlay: WorldOverlay | null = null;
 
@@ -48,8 +48,6 @@ class WorldPass extends Pass {
     renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
     renderer.clear(true, true, true);
     this.sky.sync(this.camera);
-    renderer.render(this.sky.scene, this.sky.camera);
-    renderer.clearDepth();
     renderer.render(this.scene, this.camera);
     const o = this.overlay;
     if (o?.visible) {
