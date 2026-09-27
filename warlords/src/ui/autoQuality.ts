@@ -157,8 +157,10 @@ export class AutoQualityController {
     if (s.frameMs > 0) this.displayMs = Math.min(this.displayMs, s.frameMs);
     if (this.time <= o.warmupS) return null;
 
-    // down: slow at the lowest resolution the adaptive resolution allows
-    if (s.fps > 0 && s.fps < o.downFps && s.resAtFloor) this.slowFor += s.dt;
+    // down: slow at the lowest resolution the adaptive resolution allows (by the frame time: a
+    // software renderer's frame rate rounds to 0 fps)
+    const fps = s.frameMs > 0 ? 1000 / s.frameMs : s.fps;
+    if (fps > 0 && fps < o.downFps && s.resAtFloor) this.slowFor += s.dt;
     else this.slowFor = 0;
     if (this.slowFor >= o.downHoldS && tierRank(this.tier) > tierRank(o.floor) && this.time - this.lastDownAt >= o.downEveryS) {
       const from = this.tier;

@@ -100,6 +100,15 @@ describe('自动调节画质: down', () => {
     expect(feed(p, 200, slow)).toEqual([]);
   });
 
+  it('judged by the frame time: a frame of seconds (software rendering, 0 fps rounded) is slow too', () => {
+    const c = new AutoQualityController('medium', null);
+    feed(c, 15, {});
+    expect(feed(c, 8.5, { fps: 0, frameMs: 3400 })).toEqual([{ dir: 'down', to: 'low' }]);
+    // 30 fps is not slow
+    const ok = new AutoQualityController('medium', null);
+    expect(feed(ok, 60, { fps: 30, frameMs: 33.3 })).toEqual([]);
+  });
+
   it('the warm-up counts match time on screen only', () => {
     const c = new AutoQualityController('medium', null);
     feed(c, 60, { ...slow, active: false });
