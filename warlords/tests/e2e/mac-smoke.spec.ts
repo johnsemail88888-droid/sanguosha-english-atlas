@@ -121,7 +121,7 @@ async function open(browser: Browser, url: string, settings: Record<string, unkn
         /* no storage */
       }
     },
-    [{ voiceLines: false, ...settings }, { playerCount: 5, mode: 'standard', botDifficulty: 'normal', freePick: true }] as const,
+    [{ voiceLines: false, lang: 'zh', ...settings }, { playerCount: 5, mode: 'standard', botDifficulty: 'normal', freePick: true }] as const,
   );
   await ctx.addInitScript(instrument);
   const page = await ctx.newPage();
