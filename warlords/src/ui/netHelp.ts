@@ -89,10 +89,20 @@ const PROBE_NAMES: Record<ProbeId, Bilingual> = {
 
 const DETAIL_ZH: Record<string, string> = {
   timeout: '超时',
+  unreachable: '无法连接',
+  error: '连接出错',
+  closed: '连接被关闭',
   'not configured': '未配置',
   unsupported: '浏览器不支持',
-  'no relay candidate': '没有中继候选',
 };
+
+function detailZh(d: string): string {
+  if (DETAIL_ZH[d]) return DETAIL_ZH[d];
+  // "no relay candidate (host+srflx)" → 没有中继候选（host+srflx）
+  const m = /^no relay candidate(?: \((.*)\))?$/.exec(d);
+  if (m) return m[1] ? `没有中继候选（${m[1]}）` : '没有中继候选';
+  return d;
+}
 
 /** One row of the check: "✓ P2P 信令服务器 (0.peerjs.com) · 182 ms". */
 export function formatProbe(r: ProbeResult, lang: 'zh' | 'en'): string {
@@ -100,7 +110,7 @@ export function formatProbe(r: ProbeResult, lang: 'zh' | 'en'): string {
   const name = PROBE_NAMES[r.id][lang];
   const target = r.target ? ` (${r.target})` : '';
   const ms = r.ms !== null && r.ok !== null ? ` · ${Math.round(r.ms)} ms` : '';
-  const detail = r.detail ? ` · ${lang === 'zh' ? (DETAIL_ZH[r.detail] ?? r.detail) : r.detail}` : '';
+  const detail = r.detail ? ` · ${lang === 'zh' ? detailZh(r.detail) : r.detail}` : '';
   return `${mark} ${name}${target}${ms}${detail}`;
 }
 

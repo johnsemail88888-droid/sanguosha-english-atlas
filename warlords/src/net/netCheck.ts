@@ -46,7 +46,8 @@ export async function probeSignalling(net: NetServerConfig, timeoutMs = 6000, fe
   } catch (e) {
     const ms = now() - t0;
     const aborted = ms >= timeoutMs - 50 || (e instanceof Error && e.name === 'AbortError');
-    return { id: 'signal', ok: false, ms, target: host, detail: aborted ? 'timeout' : e instanceof Error ? e.message : 'error' };
+    // fetch only says "Failed to fetch" / "NetworkError…": refused, DNS, TLS or CORS — the server is not reachable
+    return { id: 'signal', ok: false, ms, target: host, detail: aborted ? 'timeout' : 'unreachable' };
   } finally {
     clearTimeout(timer);
   }

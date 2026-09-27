@@ -75,6 +75,8 @@ describe('联机检测 rows', () => {
     expect(formatProbe(results[0], 'en')).toBe('✓ P2P signalling server (0.peerjs.com) · 182 ms');
     expect(formatProbe(results[1], 'en')).toBe('✗ STUN/TURN relay (P2P traversal) · 7000 ms · no relay candidate (host+srflx)');
     expect(formatProbe({ id: 'signal', ok: false, ms: 6000, target: '0.peerjs.com', detail: 'timeout' }, 'zh')).toBe('✗ P2P 信令服务器 (0.peerjs.com) · 6000 ms · 超时');
+    expect(formatProbe({ id: 'signal', ok: false, ms: 210, target: '0.peerjs.com', detail: 'unreachable' }, 'zh')).toBe('✗ P2P 信令服务器 (0.peerjs.com) · 210 ms · 无法连接');
+    expect(formatProbe({ id: 'ice', ok: false, ms: 900, detail: 'no relay candidate' }, 'zh')).toBe('✗ STUN/TURN 中继（P2P 穿透） · 900 ms · 没有中继候选');
     expect(formatProbe({ id: 'relay', ok: null, ms: null, detail: 'not configured' }, 'zh')).toBe('– 官方服务器 · 未配置');
     expect(formatProbe({ id: 'relay', ok: null, ms: null, detail: 'not configured' }, 'en')).toBe('– Official server · not configured');
   });
@@ -84,7 +86,7 @@ describe('联机检测 rows', () => {
     expect(text.split('\n')).toEqual([
       '联机检测 2026-09-27 09:05',
       '✓ P2P 信令服务器 (0.peerjs.com) · 182 ms',
-      '✗ STUN/TURN 中继（P2P 穿透） · 7000 ms · no relay candidate (host+srflx)',
+      '✗ STUN/TURN 中继（P2P 穿透） · 7000 ms · 没有中继候选（host+srflx）',
       '✓ 官方服务器 (47-242-10-3.sslip.io) · 45 ms',
     ]);
   });
@@ -105,6 +107,10 @@ describe('联机检测 probes (fakes)', () => {
     expect(ok).toMatchObject({ id: 'signal', ok: true, target: '0.peerjs.com' });
     const bad = await probeSignalling(net(), 1000, (async () => new Response('', { status: 502 })) as typeof fetch);
     expect(bad).toMatchObject({ ok: false, detail: 'HTTP 502' });
+    const refused = await probeSignalling(net(), 1000, (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as typeof fetch);
+    expect(refused).toMatchObject({ ok: false, detail: 'unreachable' });
     const hang = await probeSignalling(net(), 60, ((_u: string, init?: RequestInit) =>
       new Promise((_r, reject) => init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))))) as typeof fetch);
     expect(hang).toMatchObject({ ok: false, detail: 'timeout' });
