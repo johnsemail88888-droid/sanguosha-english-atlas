@@ -104,6 +104,7 @@ function gpuReady(timeoutMs) {
   if (gpuReported) return Promise.resolve(true);
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(false), timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
     gpuWaiters.push(() => {
       clearTimeout(timer);
       resolve(true);
@@ -142,6 +143,10 @@ async function logGpu() {
 // renderer (preload): the WebGL feature status, answered once the GPU process has reported
 // (the page blocks for at most 3 s; a GPU process that never comes up answers the status as is)
 ipcMain.on('sgwl:webgl', (ev) => {
+  if (gpuReported) {
+    ev.returnValue = webglStatus();
+    return;
+  }
   void gpuReady(3000).then(() => {
     ev.returnValue = webglStatus();
   });
