@@ -3,7 +3,7 @@
 // portrait card, your role, the progress bar and a tip.
 import type { Kingdom } from '../../core/types';
 import { HERO_BY_ID, ROLE_BY_ID } from '../../data';
-import type { GameSession } from '../../game/session';
+import { ownsServerRoom, type GameSession } from '../../game/session';
 import { assetListSync } from '../../game/assets';
 import { firstShipped, loadingArtCandidates } from '../art';
 import type { Screen, UiCtx } from '../ctx';
@@ -109,8 +109,8 @@ export function createLoadingScreen(ctx: UiCtx, session: GameSession): Screen {
   const leave = (): void => {
     if (confirming) return;
     confirming = true;
-    // the host's session is the room: leaving closes it for everyone
-    void ctx.confirm(t(session.isHost ? 'pause.hostLeaveConfirm' : 'pause.leaveConfirm')).then((yes) => {
+    // the host's session is the room: leaving closes it for everyone (a server-run room's owner hands it on)
+    void ctx.confirm(t(session.isHost ? 'pause.hostLeaveConfirm' : ownsServerRoom(session) ? 'pause.ownerLeaveConfirm' : 'pause.leaveConfirm')).then((yes) => {
       confirming = false;
       if (yes && el.isConnected) ctx.leaveSession(true);
     });

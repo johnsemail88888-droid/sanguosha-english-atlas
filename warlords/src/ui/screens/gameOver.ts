@@ -2,7 +2,7 @@
 // table with heroes, stats, MVP, and navigation back to the lobby / title.
 import type { EntityId, GameResult, PublicPlayerView, RoleId } from '../../core/types';
 import { HERO_BY_ID } from '../../data';
-import type { GameSession } from '../../game/session';
+import { canManageRoom, type GameSession } from '../../game/session';
 import type { ViewSource } from '../../render/view';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
@@ -151,7 +151,7 @@ export function createGameOverScreen(ctx: UiCtx, session: GameSession, view: Vie
       );
     } else {
       actions.append(h('button', { class: 'sg-btn dark', type: 'button', data: { sfx: 'back' }, on: { click: () => ctx.leaveSession(true) } }, t('over.toTitle')));
-      if (session.isHost) actions.append(h('button', { class: 'sg-btn gold big', type: 'button', data: { sfx: 'confirm' }, on: { click: () => session.returnToLobby() } }, t('over.toLobby')));
+      if (canManageRoom(session)) actions.append(h('button', { class: 'sg-btn gold big', type: 'button', data: { sfx: 'confirm' }, on: { click: () => session.returnToLobby() } }, t('over.toLobby')));
       else actions.append(h('span', { class: 'sg-mute wait' }, h('span', { class: 'sg-spinner' }), ' ', t('over.waitHost')));
     }
 

@@ -46,7 +46,7 @@ import {
 import type { GameSession, LeaveOptions, SessionEvent, SessionEventMap } from '../game/session';
 import type { ViewSource } from '../render/view';
 import type { ClientView } from './clientView';
-import { BIN_SNAPSHOT, isHostMsg, MAX_HERO_ID_LEN, MAX_TOKEN_LEN, sanitizeChat, sanitizeName, type ClientMsg, type HostMsg } from './protocol';
+import { BIN_SNAPSHOT, isHostMsg, MAX_HERO_ID_LEN, MAX_OWNER_KEY_LEN, MAX_TOKEN_LEN, sanitizeChat, sanitizeName, type ClientMsg, type HostMsg, type OwnerMsg } from './protocol';
 import { binaryTag, decodeJson, encodeInputMsg, encodeJson, SnapshotReceiver, StringTable } from './codec';
 import { Emitter } from './emitter';
 import { NetError, type NetErrorCode } from './errors';
@@ -67,6 +67,12 @@ export interface ClientSessionOptions {
   roomCode?: string;
   /** seat token from an earlier session (overrides the stored one) */
   token?: string;
+  /**
+   * Server-run room: the owner key POST /api/rooms handed out. Presented in every hello (also
+   * the automatic rejoins; kept per room in sessionStorage for a reload) — its seat is the
+   * room owner's, with the lobby powers (canManage).
+   */
+  ownerKey?: string;
   /** opens a new transport to the same room: enables automatic rejoin after a drop */
   reconnect?: () => Promise<Transport>;
   /** delays (ms) before the first rejoin attempts; default [0, 1500, 3000, 5000], then every 5 s */
@@ -185,6 +191,7 @@ export const WAITING_HOST_KEY = 'waitingHost';
 export const HOST_UNREACHABLE_KEY = 'hostUnreachable';
 
 const TOKEN_KEY = (room: string): string => `sgwl-seat-${room}`;
+const OWNER_KEY = (room: string): string => `sgwl-owner-${room}`;
 
 /** This tab holds a seat token for `room` (it was in that room before a reload). */
 export function hasSeatToken(room: string): boolean {
@@ -221,6 +228,29 @@ function saveToken(room: string | undefined, token: string | null): void {
   }
 }
 
+/** The owner key of the server-run room `room` this tab created (a reload presents it again). */
+function loadOwnerKey(room: string | undefined): string | null {
+  if (!room) return null;
+  try {
+    const v = sessionStore()?.getItem(OWNER_KEY(room)) ?? null;
+    return v && v.length <= MAX_OWNER_KEY_LEN ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveOwnerKey(room: string | undefined, key: string | null): void {
+  if (!room) return;
+  try {
+    const s = sessionStore();
+    if (!s) return;
+    if (key) s.setItem(OWNER_KEY(room), key);
+    else s.removeItem(OWNER_KEY(room));
+  } catch {
+    /* storage blocked: the seat token still keeps ownership through a reload's grace */
+  }
+}
+
 export class ClientSession implements GameSession {
   readonly isHost = false;
 
@@ -246,6 +276,8 @@ export class ClientSession implements GameSession {
   private myIdValue: PlayerId;
   private seat = -1;
   private token: string | null;
+  /** server-run room: the owner key presented in every hello (ClientSessionOptions.ownerKey) */
+  private readonly ownerKey: string | null;
   private phaseValue: MatchPhase = 'lobby';
   private lobbyValue: LobbyState | null = null;
   private rolesValue: RoleDealView | null = null;
@@ -329,6 +361,9 @@ export class ClientSession implements GameSession {
     this.hostLoadingTimeoutMs = opts.hostLoadingTimeoutMs ?? 60_000;
     this.hostWarmUp = new WarmUp(Math.max(0, opts.hostWarmUpMs ?? 10_000), now);
     this.token = opts.token ?? loadToken(opts.roomCode);
+    const ownerKey = typeof opts.ownerKey === 'string' && opts.ownerKey.length > 0 && opts.ownerKey.length <= MAX_OWNER_KEY_LEN ? opts.ownerKey : null;
+    if (ownerKey) saveOwnerKey(opts.roomCode, ownerKey);
+    this.ownerKey = ownerKey ?? loadOwnerKey(opts.roomCode);
     this.attach(opts.transport);
     this.unwatchFocus = watchPageFocus({
       onHidden: () => {
@@ -390,6 +425,7 @@ export class ClientSession implements GameSession {
       };
       const hello: ClientMsg = { t: 'hello', v: PROTOCOL_VERSION, name: this.name };
       if (this.token) hello.token = this.token;
+      if (this.ownerKey) hello.owner = this.ownerKey;
       this.send(hello);
     });
   }
@@ -448,6 +484,22 @@ export class ClientSession implements GameSession {
   /** This player's secret seat token (pass as `token` to reclaim the seat from a new session). */
   get seatToken(): string | null {
     return this.token;
+  }
+
+  /** The match runs on the server (a server-run room): the room survives any player leaving. */
+  get headless(): boolean {
+    return this.lobbyValue?.headless === true;
+  }
+
+  /** This player owns the server-run room: the lobby powers are theirs (see canManage). */
+  get isOwner(): boolean {
+    const o = this.lobbyValue?.ownerSeat;
+    return this.lobbyValue?.headless === true && typeof o === 'number' && this.seat >= 0 && o === this.seat;
+  }
+
+  /** The UI shows the host controls: only to the owner of a server-run room. */
+  get canManage(): boolean {
+    return this.isOwner;
   }
 
   /** true while the host has been silent for a few seconds (status key 'waitingHost'). */
@@ -530,17 +582,44 @@ export class ClientSession implements GameSession {
     // (a reload says so: the lobby holds the seat for the tab that comes back with its token)
     this.send(opts?.keepToken ? { t: 'leave', reload: true } : { t: 'leave' });
     // leaving on purpose (Leave button, back to the title after game over): the next join is a new seat
-    if (!opts?.keepToken) saveToken(this.roomCode, null);
+    if (!opts?.keepToken) {
+      saveToken(this.roomCode, null);
+      saveOwnerKey(this.roomCode, null);
+    }
     this.dispose();
   }
 
-  // host-only controls are no-ops on clients
-  updateSettings(_patch: Partial<MatchSettings>): void {}
-  addBot(): void {}
-  removeBot(_seat: number): void {}
-  kick(_seat: number): void {}
-  start(): void {}
-  returnToLobby(): void {}
+  // host-only controls: no-ops on clients — except the owner of a server-run room, whose
+  // requests the server carries out (the same code paths as a host's own controls)
+  updateSettings(patch: Partial<MatchSettings>): void {
+    if (this.phaseValue === 'lobby' && patch && typeof patch === 'object') this.sendOwner({ t: 'owner', op: 'settings', patch: { ...patch } });
+  }
+
+  addBot(): void {
+    if (this.phaseValue === 'lobby') this.sendOwner({ t: 'owner', op: 'addBot' });
+  }
+
+  removeBot(seat: number): void {
+    if (this.phaseValue === 'lobby') this.sendOwner({ t: 'owner', op: 'removeBot', seat });
+  }
+
+  kick(seat: number): void {
+    this.sendOwner({ t: 'owner', op: 'kick', seat });
+  }
+
+  start(): void {
+    if (this.phaseValue === 'lobby') this.sendOwner({ t: 'owner', op: 'start' });
+  }
+
+  /** After game over 返回大厅; mid-match the pause menu's 结束对局 (endMatch). */
+  returnToLobby(): void {
+    if (this.phaseValue === 'lobby') return;
+    this.sendOwner({ t: 'owner', op: this.phaseValue === 'gameOver' ? 'returnToLobby' : 'endMatch' });
+  }
+
+  private sendOwner(msg: OwnerMsg): void {
+    if (this.isOwner && this.welcomed) this.send(msg);
+  }
 
   // ── inbound ──────────────────────────────────────────────────────────────
   private onMessage(from: PeerId, data: Payload, _ch: Channel): void {
@@ -687,11 +766,13 @@ export class ClientSession implements GameSession {
         break;
       case 'kick':
         saveToken(this.roomCode, null);
+        saveOwnerKey(this.roomCode, null);
         this.token = null;
         this.fatal(new NetError('kicked'));
         break;
       case 'leave':
-        this.fatal(new NetError('hostLeft'));
+        // a server-run room is closed by the server (restart / update), not by a player leaving
+        this.fatal(new NetError(this.lobbyValue?.headless === true ? 'serverClosed' : 'hostLeft'));
         break;
       default:
         break;

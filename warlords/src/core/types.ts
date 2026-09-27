@@ -613,6 +613,13 @@ export interface LobbyState {
   hostId: PlayerId;
   settings: MatchSettings;
   seats: LobbySeat[];
+  /**
+   * Server-run (headless) room: the seat of the room owner — the player with the lobby
+   * powers the host has elsewhere (its LobbySeat.isHost is true). Absent: nobody / not headless.
+   */
+  ownerSeat?: number;
+  /** the match runs on the server (src/headless), not in a player's browser */
+  headless?: boolean;
 }
 
 /** Pre-match flow phases, driven by the host. */

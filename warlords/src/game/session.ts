@@ -45,7 +45,15 @@ export interface LeaveOptions {
 }
 
 export interface GameSession {
+  /** this page runs the room (host / single player); a guest — also the owner of a server-run room — is not */
   readonly isHost: boolean;
+  /**
+   * This player has the lobby powers (settings, bots, kick, start, back to the lobby): the host,
+   * or the owner of a server-run room. Absent: same as isHost (see canManageRoom).
+   */
+  readonly canManage?: boolean;
+  /** the match runs on the server (a server-run room), not in any player's browser */
+  readonly headless?: boolean;
   readonly myId: PlayerId;
   readonly phase: MatchPhase;
   readonly lobby: LobbyState | null;
@@ -70,7 +78,7 @@ export interface GameSession {
    */
   leave(opts?: LeaveOptions): void;
 
-  // host only (no-ops on clients)
+  // host only (no-ops on clients — except the owner of a server-run room, see canManage)
   updateSettings(patch: Partial<MatchSettings>): void;
   addBot(): void;
   removeBot(seat: number): void;
@@ -121,4 +129,17 @@ export interface GameSession {
    * — the loading screen can say 等待房主加载… once the own view is ready (MP2-1).
    */
   readonly awaitingHostStart?: boolean;
+}
+
+/** The UI shows the host controls (settings, bots, kick, start, 返回大厅, 结束对局) to this player. */
+export function canManageRoom(s: Pick<GameSession, 'isHost' | 'canManage'>): boolean {
+  return s.canManage ?? s.isHost;
+}
+
+/**
+ * The owner of a server-run room: leaving hands the room to the next player instead of
+ * closing it (the leave confirmation says so).
+ */
+export function ownsServerRoom(s: Pick<GameSession, 'isHost' | 'canManage' | 'headless'>): boolean {
+  return !s.isHost && s.headless === true && s.canManage === true;
 }

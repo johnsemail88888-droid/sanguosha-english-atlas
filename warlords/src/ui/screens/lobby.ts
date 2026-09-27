@@ -1,7 +1,7 @@
 // Lobby: seats (bots / humans / ready / host crown), host controls, big room
 // code + invite link, match settings, chat.
 import type { BotDifficulty, GameMode, LobbySeat, LobbyState, MatchSettings } from '../../core/types';
-import type { GameSession } from '../../game/session';
+import { canManageRoom, ownsServerRoom, type GameSession } from '../../game/session';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, appendChildren, copyText, h } from '../dom';
 import { colon, getLang, t, tx } from '../i18n';
@@ -124,8 +124,8 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
         inviteBox(code),
       ),
       button(t('lobby.leave'), () => {
-        // the host's session IS the room
-        void ctx.confirm(t(session.isHost ? 'lobby.hostLeaveConfirm' : 'lobby.leaveConfirm')).then((yes) => {
+        // the host's session IS the room (a server-run room's owner only hands it on)
+        void ctx.confirm(t(session.isHost ? 'lobby.hostLeaveConfirm' : ownsServerRoom(session) ? 'lobby.ownerLeaveConfirm' : 'lobby.leaveConfirm')).then((yes) => {
           if (yes) ctx.leaveSession(true);
         });
       }, { cls: 'small ghost', sfx: 'back' }),
@@ -185,7 +185,8 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
 
   const renderSeats = (lobby: LobbyState): void => {
     const count = lobby.settings.playerCount;
-    const isHost = session.isHost;
+    // the host — or the owner of a server-run room — manages the seats
+    const isHost = canManageRoom(session);
     const list = h('ol', { class: 'seat-list' });
     const seats = [...lobby.seats].sort((a, b) => a.seat - b.seat);
     const bySeat = new Map(seats.map((x) => [x.seat, x]));
@@ -234,12 +235,13 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
           : null,
       ),
       list,
+      lobby.headless ? h('p', { class: 'sg-mute lobby-headless' }, t('lobby.headlessNote')) : null,
     );
   };
 
   const renderSettings = (lobby: LobbyState): void => {
     const st = lobby.settings;
-    const isHost = session.isHost;
+    const isHost = canManageRoom(session);
     const upd = (patch: Partial<MatchSettings>): void => session.updateSettings(patch);
     const ro = (text: string): HTMLElement => h('span', { class: 'ro' }, text);
     const modeLabel = (m: GameMode): string => (m === 'chaos' ? t('single.modeChaos') : t('single.modeStandard'));
@@ -272,7 +274,7 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     const mySeat = me(lobby);
     const status = h('div', { class: 'status' }, statusText ? tx(statusText.zh, statusText.en) : '');
     let action: HTMLElement;
-    if (session.isHost) {
+    if (canManageRoom(session)) {
       const notReady = lobby.seats.some((x) => !x.isBot && !x.isHost && !x.ready);
       action = h('div', { class: 'act' },
         notReady ? h('span', { class: 'sg-mute warn' }, t('lobby.notAllReady')) : null,

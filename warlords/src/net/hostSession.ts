@@ -30,11 +30,13 @@ import {
   BIN_INPUT,
   isClientMsg,
   MAX_HERO_ID_LEN,
+  MAX_OWNER_KEY_LEN,
   MAX_TOKEN_LEN,
   sanitizeChat,
   sanitizeName,
   type ClientMsg,
   type HostMsg,
+  type OwnerMsg,
   type SeatInfo,
 } from './protocol';
 import { binaryTag, buildMatchStrings, decodeInputMsg, decodeJson, encodeJson, encodeSnapshotMsg, heroKingdom, StringTable } from './codec';
@@ -126,6 +128,11 @@ export interface FlowTimings {
    * player not at the controls yet is never shot at (MP2-1).
    */
   spawnShield: number;
+  /**
+   * Server-run room (headless): after game over the room goes back to the lobby by itself
+   * this long later when the owner has not (s).
+   */
+  autoLobby: number;
 }
 
 export const DEFAULT_TIMINGS: FlowTimings = {
@@ -144,6 +151,7 @@ export const DEFAULT_TIMINGS: FlowTimings = {
   lobbyDropGrace: 20,
   warmUp: 10,
   spawnShield: 300,
+  autoLobby: 90,
 };
 
 export const MAX_PLAYERS = 8;
@@ -219,6 +227,17 @@ export interface HostSessionOptions {
   settings?: Partial<MatchSettings>;
   /** use a Worker-based ticker when available (default true) */
   preferWorkerTicker?: boolean;
+  /**
+   * Server-run room (src/headless): there is no local player — no seat 0 host, no local
+   * view, input, chat or debug cheats; every seat is a client, and the room owner (see
+   * ownerKey) has the lobby powers through 'owner' messages. Needs a transport.
+   */
+  headless?: boolean;
+  /**
+   * Headless: the secret the room was created with — the hello presenting it makes that seat
+   * the room owner (always, also taking it back from someone else).
+   */
+  ownerKey?: string;
 }
 
 interface SeatRec {
@@ -268,6 +287,8 @@ interface PeerRec {
   snapAck: number;
   loaded: boolean;
   chatTimes: number[];
+  /** recent owner messages (flood control) */
+  ownerTimes: number[];
   /** loading the match (matchStart sent, 'loaded' not yet received): timed out after loadGrace, not peerTimeout */
   loading: boolean;
   /** after 'loaded': the loading timeouts apply until its input flows steadily (timings.warmUp) */
@@ -293,6 +314,46 @@ const now = (): number => performance.now();
 
 const TOKEN_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
 
+/** Owner messages accepted per OWNER_FLOOD_MS from one connection (a settings click is one each). */
+const OWNER_FLOOD_MAX = 20;
+const OWNER_FLOOD_MS = 2000;
+
+/** Compare two secrets without an early exit on the first differing character. */
+function sameSecret(a: string, b: string): boolean {
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < b.length; i++) diff |= (i < a.length ? a.charCodeAt(i) : 0) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+const isSeatIndex = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < MAX_PLAYERS;
+
+/**
+ * An owner's settings patch, strictly typed: only known keys with the right value types (the
+ * ranges are clamped by sanitizeSettings). null when nothing usable is left.
+ */
+function cleanSettingsPatch(raw: unknown): Partial<MatchSettings> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const p = raw as Record<string, unknown>;
+  const out: Partial<MatchSettings> = {};
+  const num = (k: 'heroChoices' | 'mapSeed' | 'troopsPerHero'): void => {
+    const v = p[k];
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+  };
+  if (typeof p.playerCount === 'number' && Number.isFinite(p.playerCount)) out.playerCount = clampPlayerCount(p.playerCount);
+  const bool = (k: 'freePick' | 'friendlyFire'): void => {
+    const v = p[k];
+    if (typeof v === 'boolean') out[k] = v;
+  };
+  num('heroChoices');
+  num('mapSeed');
+  num('troopsPerHero');
+  bool('freePick');
+  bool('friendlyFire');
+  if (p.mode === 'standard' || p.mode === 'chaos') out.mode = p.mode;
+  if (p.botDifficulty === 'easy' || p.botDifficulty === 'normal' || p.botDifficulty === 'hard') out.botDifficulty = p.botDifficulty;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** Unguessable seat reclaim token (crypto RNG when available). */
 function randomToken(): string {
   const bytes = new Uint8Array(20);
@@ -307,6 +368,8 @@ function randomToken(): string {
 export class HostSession implements GameSession {
   readonly isHost = true;
   readonly myId: PlayerId;
+  /** server-run room: no local player, the room owner manages the lobby (HostSessionOptions.headless) */
+  readonly headless: boolean;
 
   private readonly emitter = new Emitter<SessionEventMap>();
   private readonly transport: Transport | null;
@@ -372,20 +435,30 @@ export class HostSession implements GameSession {
   private readonly shielded = new Set<number>();
   /** sim time at which the spawn shields run out by themselves */
   private shieldEnd = 0;
+  /** headless: HostSessionOptions.ownerKey */
+  private readonly ownerKey: string | null;
+  /** headless: the seat with the lobby powers (ownership lives on the seat: a token rejoin keeps it) */
+  private owner: SeatRec | null = null;
+  /** headless: humans who ever took a seat (the server closes a room nobody came to) */
+  private humansJoined = 0;
 
   constructor(opts: HostSessionOptions) {
     this.transport = opts.transport ?? null;
     this.myId = opts.myId ?? this.transport?.selfId ?? 'local';
     this.roomCode = opts.roomCode ?? '';
+    this.headless = opts.headless === true && this.transport !== null;
+    this.ownerKey = this.headless && typeof opts.ownerKey === 'string' && opts.ownerKey.length > 0 ? opts.ownerKey : null;
     this.createMatchFn = opts.createMatch ?? loadAndCreateMatch;
     this.pool = opts.heroes ?? HEROES;
     this.heroById = Object.fromEntries(this.pool.map((h) => [h.id, h]));
     this.timings = { ...DEFAULT_TIMINGS, ...opts.timings };
     this.rng = new Rng(opts.seed ?? randomSeed());
-    this.preferWorker = opts.preferWorkerTicker ?? true;
+    // (headless: a server has no throttled background tab to work around)
+    this.preferWorker = !this.headless && (opts.preferWorkerTicker ?? true);
     this.settings = sanitizeSettings({ ...defaultSettings(), ...opts.settings }, 1);
     this.hostCount = this.settings.playerCount;
-    this.seats.set(0, {
+    // the host player's own seat (a server-run room has none: every seat is a client)
+    if (!this.headless) this.seats.set(0, {
       seat: 0,
       playerId: this.myId,
       name: sanitizeName(opts.name),
@@ -425,11 +498,17 @@ export class HostSession implements GameSession {
   }
 
   get roles(): RoleDealView | null {
-    return this.deal ? roleDealViewFor(this.deal, 0) : null;
+    // (headless: no player of its own — nothing here may show a seat's secrets)
+    return this.deal && !this.headless ? roleDealViewFor(this.deal, 0) : null;
   }
 
   get heroSelect(): HeroSelectView | null {
-    return this.pick && this.phaseValue === 'heroSelect' ? this.heroSelectViewFor(0) : null;
+    return this.pick && this.phaseValue === 'heroSelect' && !this.headless ? this.heroSelectViewFor(0) : null;
+  }
+
+  /** The lobby powers are this page's (a server-run room's are its owner's, over the network). */
+  get canManage(): boolean {
+    return !this.headless;
   }
 
   get view(): ViewSource | null {
@@ -447,7 +526,7 @@ export class HostSession implements GameSession {
   // ── everyone ─────────────────────────────────────────────────────────────
   setName(name: string): void {
     const rec = this.seats.get(0);
-    if (!rec || this.phaseValue !== 'lobby') return;
+    if (!rec || this.phaseValue !== 'lobby' || this.headless) return;
     rec.name = this.uniqueName(sanitizeName(name), 0);
     this.lobbyChanged();
   }
@@ -457,10 +536,11 @@ export class HostSession implements GameSession {
   }
 
   pickHero(heroId: string): void {
-    this.tryPick(0, heroId);
+    if (!this.headless) this.tryPick(0, heroId);
   }
 
   sendChat(text: string): void {
+    if (this.headless) return;
     const clean = sanitizeChat(text);
     if (!clean) return;
     this.relayChat(this.seats.get(0)?.name ?? '', clean);
@@ -512,7 +592,7 @@ export class HostSession implements GameSession {
 
   kick(seat: number): void {
     const rec = this.seats.get(seat);
-    if (!rec || rec.isHost) return;
+    if (!rec || rec.isHost || (this.headless && rec === this.owner)) return;
     if (rec.isBot) {
       this.removeBot(seat);
       return;
@@ -602,6 +682,7 @@ export class HostSession implements GameSession {
     this.resultValue = null;
     this.fitSeatsToCount();
     this.restoreHostLobby();
+    this.checkOwner();
     this.setPhase('lobby');
     this.broadcast({ t: 'returnToLobby', lobby: this.lobbyState() });
     this.emitter.emit('lobby', this.lobbyState());
@@ -632,7 +713,7 @@ export class HostSession implements GameSession {
 
   /** Hero select: remember the hero the host player is looking at (auto-pick uses it). */
   focusHero(heroId: string): void {
-    this.setPickHint(0, heroId);
+    if (!this.headless) this.setPickHint(0, heroId);
   }
 
   /**
@@ -642,7 +723,7 @@ export class HostSession implements GameSession {
    * reported 'loaded' (the old behaviour).
    */
   setLocalLoading(ready: Promise<void>): void {
-    if (this.disposed || this.phaseValue !== 'loading' || !this.loop || this.loop.isRunning) return;
+    if (this.disposed || this.headless || this.phaseValue !== 'loading' || !this.loop || this.loop.isRunning) return;
     const serial = this.matchSerial;
     this.localLoading = true;
     const done = (): void => {
@@ -658,6 +739,7 @@ export class HostSession implements GameSession {
 
   /** Debug / e2e only (INTEGRATION_REQUESTS APP-1): run the sim `scale`× faster than real time (0.1..10). */
   setDebugTimeScale(scale: number): void {
+    if (this.headless) return; // (debug cheats are local-only: a server-run room has none)
     this.debugTimeScale = Number.isFinite(scale) ? Math.max(0.1, Math.min(10, scale)) : 1;
     this.loop?.setTimeScale(this.debugTimeScale);
   }
@@ -669,7 +751,7 @@ export class HostSession implements GameSession {
    */
   readonly debugCheats: HostDebugCheats = {
     god: (playerId, on) => {
-      const w = this.cheatWorld();
+      const w = this.debugWorld();
       const id = w ? this.sim?.entityOf(playerId) ?? null : null;
       if (!w || id === null || !w.applyStatus) return false;
       if (on) {
@@ -682,33 +764,33 @@ export class HostSession implements GameSession {
       return true;
     },
     give: (playerId, itemId, count = 1) => {
-      const w = this.cheatWorld();
+      const w = this.debugWorld();
       const id = w ? this.sim?.entityOf(playerId) ?? null : null;
       return !!(w?.giveItem && id !== null && w.giveItem(id, itemId, count));
     },
     giveWeapon: (playerId, weaponId) => {
-      const w = this.cheatWorld();
+      const w = this.debugWorld();
       const id = w ? this.sim?.entityOf(playerId) ?? null : null;
       if (!w?.giveWeapon || id === null) return false;
       w.giveWeapon(id, weaponId);
       return true;
     },
     teleport: (playerId, x, z) => {
-      const w = this.cheatWorld();
+      const w = this.debugWorld();
       const id = w ? this.sim?.entityOf(playerId) ?? null : null;
       if (!w?.teleport || id === null || !Number.isFinite(x) || !Number.isFinite(z)) return false;
       w.teleport(id, { x, y: w.groundHeight ? w.groundHeight(x, z) : 0, z });
       return true;
     },
     killHero: (entityId) => {
-      const w = this.cheatWorld();
+      const w = this.debugWorld();
       const e = w?.get?.(entityId);
       if (!w?.killHero || !e || e.kind !== 'hero' || e.dead) return false;
       w.killHero(e, undefined);
       return true;
     },
     setCooldownsReady: (playerId) => {
-      const w = this.cheatWorld();
+      const w = this.debugWorld();
       const sim = this.sim;
       const id = sim?.entityOf(playerId) ?? null;
       if (!w?.setCooldown || !sim || id === null) return false;
@@ -720,6 +802,11 @@ export class HostSession implements GameSession {
 
   private cheatWorld(): CheatWorld | null {
     return this.sim ? (this.sim as unknown as CheatWorld) : null;
+  }
+
+  /** The sim for debugCheats: none in a server-run room (cheats are local-only). */
+  private debugWorld(): CheatWorld | null {
+    return this.headless ? null : this.cheatWorld();
   }
 
   private applyGod(w: CheatWorld, id: EntityId): void {
@@ -804,20 +891,122 @@ export class HostSession implements GameSession {
 
   // ── lobby helpers ────────────────────────────────────────────────────────
   private lobbyState(): LobbyState {
+    // headless: the owner's seat is shown as the host's (crown, counts as ready — also in older UIs)
+    const ownerSeat = this.headless ? this.ownerSeat : undefined;
     const seats: LobbySeat[] = [...this.seats.values()]
       .sort((a, b) => a.seat - b.seat)
-      .map((r) => ({
-        seat: r.seat,
-        playerId: r.playerId,
-        name: r.name,
-        isBot: r.isBot || (!r.isHost && !r.connected),
-        isHost: r.isHost,
-        ready: r.isHost || r.isBot || r.ready,
-      }));
-    return { roomCode: this.roomCode, hostId: this.myId, settings: { ...this.settings }, seats };
+      .map((r) => {
+        const host = this.headless ? r.seat === ownerSeat : r.isHost;
+        return {
+          seat: r.seat,
+          playerId: r.playerId,
+          name: r.name,
+          isBot: r.isBot || (!r.isHost && !r.connected),
+          isHost: host,
+          ready: host || r.isBot || r.ready,
+        };
+      });
+    const lobby: LobbyState = { roomCode: this.roomCode, hostId: this.myId, settings: { ...this.settings }, seats };
+    if (this.headless) {
+      lobby.headless = true;
+      if (ownerSeat !== undefined) lobby.ownerSeat = ownerSeat;
+    }
+    return lobby;
+  }
+
+  // ── headless room ownership ──────────────────────────────────────────────
+  /** Headless: the room owner's seat (undefined: nobody owns the room right now / not headless). */
+  get ownerSeat(): number | undefined {
+    const o = this.owner;
+    return o && this.seats.get(o.seat) === o ? o.seat : undefined;
+  }
+
+  /** Headless: `key` is the room's owner key (hello.owner; compared in constant time). */
+  private isOwnerKey(key: unknown): boolean {
+    return this.ownerKey !== null && typeof key === 'string' && key.length > 0 && key.length <= MAX_OWNER_KEY_LEN && sameSecret(key, this.ownerKey);
+  }
+
+  /**
+   * Headless: keep the room owned. The owner's seat keeps ownership through a reload / drop
+   * grace (the player comes back with the seat token); after a real leave, or once the grace
+   * ran out, it passes to the lowest connected human seat (「X 成为房主」). Nobody connected:
+   * nobody owns it until the next human takes a seat. Returns the news (「X 成为房主」), sent
+   * right away when `announce` (else by the caller, after the welcome of whoever joined).
+   */
+  private checkOwner(announce = true): { zh: string; en: string } | null {
+    if (!this.headless) return null;
+    const o = this.owner;
+    if (o && this.seats.get(o.seat) === o && o.human && o.connected) return null;
+    const next = [...this.seats.values()].filter((r) => r.human && r.connected && r.peer !== null).sort((a, b) => a.seat - b.seat)[0] ?? null;
+    this.owner = next;
+    // (the first player of a room nobody owned yet is no news)
+    const news = next && o ? { zh: `${next.name} 成为房主`, en: `${next.name} is now the room owner` } : null;
+    if (news && announce) this.notice(news.zh, news.en, this.phaseValue === 'lobby');
+    return news;
+  }
+
+  /** Headless: `rec` presented the owner key — the room is theirs (taken back from anyone else). */
+  private claimOwner(rec: SeatRec): { zh: string; en: string } | null {
+    const prev = this.owner;
+    this.owner = rec;
+    const had = prev !== null && prev !== rec && this.seats.get(prev.seat) === prev;
+    return had ? { zh: `${rec.name} 成为房主`, en: `${rec.name} is now the room owner` } : null;
+  }
+
+  /**
+   * Headless: an 'owner' message from the room owner — the same code paths as the host's own
+   * controls (the pause menu's 结束对局 is returnToLobby, like 返回大厅 after game over).
+   */
+  private onOwnerMsg(peer: PeerRec, rec: SeatRec, msg: OwnerMsg): void {
+    const t = now();
+    peer.ownerTimes = peer.ownerTimes.filter((x) => t - x < OWNER_FLOOD_MS);
+    if (peer.ownerTimes.length >= OWNER_FLOOD_MAX) return;
+    peer.ownerTimes.push(t);
+    const m = msg as { op?: unknown; patch?: unknown; seat?: unknown };
+    switch (m.op) {
+      case 'settings': {
+        const patch = cleanSettingsPatch(m.patch);
+        if (patch) this.updateSettings(patch);
+        break;
+      }
+      case 'addBot':
+        this.addBot();
+        break;
+      case 'removeBot':
+        if (isSeatIndex(m.seat)) this.removeBot(m.seat);
+        break;
+      case 'kick':
+        if (isSeatIndex(m.seat) && m.seat !== rec.seat) this.kick(m.seat);
+        break;
+      case 'start':
+        this.start();
+        break;
+      case 'returnToLobby':
+      case 'endMatch':
+        this.returnToLobby();
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Headless: who is in the room right now (the server's status line / idle check). `humans`:
+   * humans connected at the moment; `bots`: seats a bot plays; `players`: occupied seats;
+   * `humansJoined`: humans who ever took a seat.
+   */
+  roomStats(): { humans: number; bots: number; players: number; humansJoined: number } {
+    let humans = 0;
+    let bots = 0;
+    for (const r of this.seats.values()) {
+      if (r.human && r.connected && r.peer !== null) humans++;
+      else if (this.seatBotControlled(r.seat)) bots++;
+    }
+    return { humans, bots, players: this.seats.size, humansJoined: this.humansJoined };
   }
 
   private lobbyChanged(): void {
+    this.checkOwner();
     this.broadcastLobby();
     this.emitter.emit('lobby', this.lobbyState());
   }
@@ -875,7 +1064,8 @@ export class HostSession implements GameSession {
   }
 
   private firstFreeSeat(limit: number): number | null {
-    for (let s = 1; s < Math.min(limit, MAX_PLAYERS); s++) if (!this.seats.has(s)) return s;
+    // (seat 0 is the host player's — a server-run room has none)
+    for (let s = this.headless ? 0 : 1; s < Math.min(limit, MAX_PLAYERS); s++) if (!this.seats.has(s)) return s;
     return null;
   }
 
@@ -946,6 +1136,7 @@ export class HostSession implements GameSession {
       snapAck: -1,
       loaded: false,
       chatTimes: [],
+      ownerTimes: [],
       loading: false,
       lastInputAt: 0,
       inputGapMs: 0,
@@ -1161,6 +1352,10 @@ export class HostSession implements GameSession {
         this.transport?.disconnect(from);
         this.onPeerLeave(from, true, msg.reload === true);
         break;
+      case 'owner':
+        // a server-run room's owner uses a lobby power; from anyone else (or elsewhere): ignored
+        if (this.headless && this.owner === rec) this.onOwnerMsg(peer, rec, msg);
+        break;
       default:
         break;
     }
@@ -1173,6 +1368,8 @@ export class HostSession implements GameSession {
       return;
     }
     const name = sanitizeName(typeof msg.name === 'string' ? msg.name : '');
+    // server-run room: the secret the room was created with makes this seat the owner's
+    const ownerClaim = this.isOwnerKey(msg.owner);
     // a returning player (auto-rejoin after a blip, page reload) presents the
     // seat's secret token: reclaim that seat in any phase, even if the host has
     // not noticed the old connection dying yet
@@ -1184,7 +1381,7 @@ export class HostSession implements GameSession {
       }
       const owned = [...this.seats.values()].find((r) => r.human && !r.isHost && r.token === token);
       if (owned) {
-        this.reclaim(peer, owned);
+        this.reclaim(peer, owned, ownerClaim);
         return;
       }
     }
@@ -1225,6 +1422,9 @@ export class HostSession implements GameSession {
       };
       this.seats.set(seat, rec);
       peer.seat = seat;
+      this.humansJoined++;
+      // (headless: the welcome already shows who owns the room)
+      const news = ownerClaim ? this.claimOwner(rec) : this.checkOwner(false);
       this.sendTo(peer.id, {
         t: 'welcome',
         v: PROTOCOL_VERSION,
@@ -1235,6 +1435,7 @@ export class HostSession implements GameSession {
         token: rec.token ?? undefined,
       });
       this.notice(`${rec.name} 加入了房间`, `${rec.name} joined the room`, true);
+      if (news) this.notice(news.zh, news.en, true);
       this.lobbyChanged();
       return;
     }
@@ -1247,7 +1448,7 @@ export class HostSession implements GameSession {
       this.reject(peer.id, 'inProgress');
       return;
     }
-    this.reclaim(peer, rec);
+    this.reclaim(peer, rec, ownerClaim);
   }
 
   /** The seat's connection has been silent for several ping intervals. */
@@ -1263,7 +1464,8 @@ export class HostSession implements GameSession {
     return Math.max(1, this.timings.pingInterval * 1.5 + 0.5) * 1000;
   }
 
-  private reclaim(peer: PeerRec, rec: SeatRec): void {
+  /** `ownerClaim`: the hello presented the owner key of this server-run room. */
+  private reclaim(peer: PeerRec, rec: SeatRec, ownerClaim = false): void {
     // replace a connection the host still believes alive (dead link, duplicate tab). A live
     // one (the same player's other tab — a duplicated tab holds the same token) is told why:
     // final, it must not rejoin and take the seat back, or the two tabs swap it forever (MP2-4)
@@ -1285,6 +1487,8 @@ export class HostSession implements GameSession {
     rec.connected = true;
     rec.token ??= randomToken();
     peer.seat = rec.seat;
+    // headless: back within the grace the seat still owns the room; the owner key takes it back
+    const news = ownerClaim ? this.claimOwner(rec) : this.checkOwner(false);
     this.sendTo(peer.id, {
       t: 'welcome',
       v: PROTOCOL_VERSION,
@@ -1313,6 +1517,7 @@ export class HostSession implements GameSession {
       this.sendTo(peer.id, { t: 'gameOver', result: this.resultValue, players: this.finalPlayersFor(rec) });
     }
     if (wasBot) this.notice(`${rec.name} 重新连接`, `${rec.name} reconnected`, false, peer.id);
+    if (news) this.notice(news.zh, news.en, this.phaseValue === 'lobby');
     this.lobbyChanged();
   }
 
@@ -1575,7 +1780,7 @@ export class HostSession implements GameSession {
     for (const rec of this.seats.values()) {
       if (rec.peer && rec.connected) this.sendTo(rec.peer, { t: 'heroSelect', view: this.heroSelectViewFor(rec.seat) });
     }
-    this.emitter.emit('heroSelect', this.heroSelectViewFor(0));
+    if (!this.headless) this.emitter.emit('heroSelect', this.heroSelectViewFor(0));
   }
 
   // ── match ────────────────────────────────────────────────────────────────
@@ -1665,20 +1870,25 @@ export class HostSession implements GameSession {
     });
     if (this.debugTimeScale !== 1) loop.setTimeScale(this.debugTimeScale);
     this.loop = loop;
-    this.localView = new LocalView(sim, this.myId, () => loop.alpha(), (f) => {
-      // the host player took the controls: the spawn shield ends (MP2-1)
-      if (this.shielded.has(0) && isActiveInput(f)) this.unshield(0);
-    });
-    // host player: release the controls while the tab is hidden / unfocused
-    // (the worker keeps the sim ticking with the last input otherwise)
-    const view = this.localView;
-    if (isPageHidden()) view.setSuspended(true);
-    this.unwatchFocus?.();
-    this.unwatchFocus = watchPageFocus({
-      onHidden: () => view.setSuspended(true),
-      onVisible: () => view.setSuspended(false),
-      onBlur: () => view.releaseInput(),
-    });
+    // the host player's own view (a server-run room has no player of its own)
+    const view = this.headless
+      ? null
+      : new LocalView(sim, this.myId, () => loop.alpha(), (f) => {
+          // the host player took the controls: the spawn shield ends (MP2-1)
+          if (this.shielded.has(0) && isActiveInput(f)) this.unshield(0);
+        });
+    this.localView = view;
+    if (view) {
+      // host player: release the controls while the tab is hidden / unfocused
+      // (the worker keeps the sim ticking with the last input otherwise)
+      if (isPageHidden()) view.setSuspended(true);
+      this.unwatchFocus?.();
+      this.unwatchFocus = watchPageFocus({
+        onHidden: () => view.setSuspended(true),
+        onVisible: () => view.setSuspended(false),
+        onBlur: () => view.releaseInput(),
+      });
+    }
     this.extraEvents = [];
     this.waitingLoad.clear();
     for (const peer of this.peers.values()) {
@@ -1701,7 +1911,7 @@ export class HostSession implements GameSession {
     });
     // the UI mounts the view here and may call setLocalLoading() synchronously:
     // this must happen before maybeBeginPlaying() can start the clock
-    this.emitter.emit('matchStart', this.localView);
+    if (view) this.emitter.emit('matchStart', view);
     if (this.phaseValue === 'loading' && this.sim === sim) this.maybeBeginPlaying();
   }
 
@@ -1957,6 +2167,13 @@ export class HostSession implements GameSession {
       this.sendTo(peer.id, players ? { t: 'gameOver', result: r, players } : { t: 'gameOver', result: r });
     }
     this.emitter.emit('gameOver', r);
+    // a server-run room goes back to the lobby by itself when its owner does not
+    if (this.headless) {
+      const token = this.flowToken;
+      this.after(this.timings.autoLobby, () => {
+        if (token === this.flowToken && this.phaseValue === 'gameOver') this.returnToLobby();
+      });
+    }
   }
 
   private stopMatch(): void {

@@ -835,11 +835,17 @@ class App implements UiCtx {
       this.settleInvite(null);
       throw err;
     }
-    if (!this.adoptOnline(s, { mode, net: { ...settings.get().net } })) {
+    const net = { ...settings.get().net };
+    if (!this.adoptOnline(s, { mode, net })) {
       this.settleInvite(null);
       return;
     }
     const code = s.lobby?.roomCode;
+    // a server-run room: this page is its owner but a guest of it — F5 / a drop rejoins it like a guest's room
+    if (!s.isHost && code) {
+      this.joined = { code: code.toUpperCase(), mode, net: netFor(mode, net) };
+      this.touchRejoin();
+    }
     this.settleInvite(code ? { session: s, link: inviteLink(code, location, this.conn ?? undefined) } : null);
   }
 

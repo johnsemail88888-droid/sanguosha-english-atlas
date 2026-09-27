@@ -43,8 +43,11 @@ export interface SeatInfo {
 
 // ── client → host ───────────────────────────────────────────────────────────
 export type ClientMsg =
-  /** join / rejoin; `token` (from a previous welcome) reclaims that seat */
-  | { t: 'hello'; v: number; name: string; token?: string }
+  /**
+   * join / rejoin; `token` (from a previous welcome) reclaims that seat; `owner`: the secret
+   * a server-run room was created with (POST /api/rooms) — its seat becomes the room owner
+   */
+  | { t: 'hello'; v: number; name: string; token?: string; owner?: string }
   | { t: 'setName'; name: string }
   | { t: 'ready'; ready: boolean }
   | { t: 'pick'; heroId: string }
@@ -69,7 +72,19 @@ export type ClientMsg =
    * player — it comes back with its seat token: the lobby keeps the seat for a moment
    * instead of announcing 「X 离开了房间」 + 「X 加入了房间」 (ONL3). Additive.
    */
-  | { t: 'leave'; reload?: boolean };
+  | { t: 'leave'; reload?: boolean }
+  /** the room owner of a server-run room uses a lobby power (ignored from anyone else). Additive. */
+  | OwnerMsg;
+
+/** The lobby powers of a server-run room's owner (the host's own GameSession methods elsewhere). */
+export type OwnerMsg =
+  | { t: 'owner'; op: 'settings'; patch: Partial<MatchSettings> }
+  | { t: 'owner'; op: 'addBot' }
+  | { t: 'owner'; op: 'removeBot'; seat: number }
+  | { t: 'owner'; op: 'kick'; seat: number }
+  | { t: 'owner'; op: 'start' }
+  | { t: 'owner'; op: 'returnToLobby' }
+  | { t: 'owner'; op: 'endMatch' };
 
 // ── host → client ───────────────────────────────────────────────────────────
 export type HostMsg =
@@ -143,6 +158,7 @@ const CLIENT_TYPES: ReadonlySet<string> = new Set<ClientMsgType>([
   'pong',
   'ack',
   'leave',
+  'owner',
 ]);
 
 const HOST_TYPES: ReadonlySet<string> = new Set<HostMsgType>([
@@ -190,6 +206,8 @@ export const MAX_CHAT_LEN = 200;
 export const MAX_NAME_LEN = 16;
 /** Max reclaim token length (characters). */
 export const MAX_TOKEN_LEN = 64;
+/** Max room owner key length (characters, hello.owner). */
+export const MAX_OWNER_KEY_LEN = 128;
 /** Max hero id length accepted in client messages (characters). */
 export const MAX_HERO_ID_LEN = 32;
 
