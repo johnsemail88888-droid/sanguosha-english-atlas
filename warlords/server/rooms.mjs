@@ -203,7 +203,10 @@ export function createHeadlessRooms(opts) {
             room.players = count(msg.players);
             break;
           case 'log':
-            if (typeof msg.msg === 'string') log(`${tag(room)} ${msg.msg}`);
+            if (typeof msg.msg === 'string') {
+              const text = msg.msg.slice(0, 2000);
+              log(text.startsWith(tag(room)) ? text : `${tag(room)} ${text}`);
+            }
             break;
           case 'closing':
             room.closing = typeof msg.reason === 'string' ? msg.reason : 'error';

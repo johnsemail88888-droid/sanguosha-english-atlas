@@ -386,7 +386,13 @@ export function createRelay(opts = {}) {
     /** End room `code` now (its guests hear 'hostLeft'): its host is known to be gone for good. */
     endRoom(code) {
       const room = rooms.get(code);
-      if (room) closeRoom(room);
+      if (!room) return;
+      const host = room.host;
+      closeRoom(room);
+      if (host) {
+        host.room = null;
+        host.ws.terminate();
+      }
     },
     stats() {
       let players = 0;
