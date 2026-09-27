@@ -198,10 +198,13 @@ async function createWindow() {
     win = null;
   });
   // start-up trail for bug reports and the Mac CI (ELECTRON_ENABLE_LOGGING=1 prints it)
+  // (logging only: never let it stop the window from loading)
   const wc = win.webContents;
-  wc.on('did-finish-load', () => console.info('[desktop] page loaded', wc.getURL()));
-  wc.on('did-fail-load', (_e, code, desc, url) => console.warn('[desktop] page failed to load', code, desc, url));
-  wc.on('render-process-gone', (_e, d) => console.error('[desktop] renderer gone', JSON.stringify(d)));
+  if (wc && typeof wc.on === 'function') {
+    wc.on('did-finish-load', () => console.info('[desktop] page loaded', typeof wc.getURL === 'function' ? wc.getURL() : ''));
+    wc.on('did-fail-load', (_e, code, desc, url) => console.warn('[desktop] page failed to load', code, desc, url));
+    wc.on('render-process-gone', (_e, d) => console.error('[desktop] renderer gone', JSON.stringify(d)));
+  }
   await win.loadURL(`http://127.0.0.1:${port}/?desktop=1`);
   const smoke = Number(process.env.SGWL_DESKTOP_SMOKE);
   if (smoke > 0) setTimeout(() => void smokeReport(), smoke * 1000);

@@ -117,12 +117,18 @@ export function servedByLocalServer(): boolean {
   return serverKnown === true;
 }
 
+/** The published web version: anyone on the internet can open it. */
+export const PUBLIC_WEB_URL = 'https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/';
+
 /**
- * Base URL (origin + path) other players should open: on the desktop app the
- * page itself is http://127.0.0.1:<port>/, so use the first LAN address.
+ * Base URL (origin + path) other players should open. On the desktop app the
+ * page itself is http://127.0.0.1:<port>/: a P2P room is reachable from the
+ * public web version, so friends anywhere get that; a room on the app's own
+ * relay server (mode 'ws') only from the LAN, so they get the first LAN address.
  */
-export function shareBase(loc: { origin: string; pathname: string } = location): string {
+export function shareBase(loc: { origin: string; pathname: string } = location, mode?: 'peer' | 'ws'): string {
   const d = desktopInfo();
+  if (d && mode !== 'ws') return PUBLIC_WEB_URL;
   if (d && d.lanUrls.length) return d.lanUrls[0].replace(/\/?$/, '/');
   const origin = loc.origin && loc.origin !== 'null' ? loc.origin : '';
   return `${origin}${loc.pathname}`;
