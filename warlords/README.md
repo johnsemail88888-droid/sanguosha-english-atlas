@@ -117,8 +117,29 @@ English section below → [English](#english).*
 标题画面 →「联机对战」（或一键「邀请朋友一起玩」），选择连接方式。配置了官方服务器的版本默认使用「官方服务器（推荐）」：
 所有数据经官方服务器中转，不需要 P2P 直连，任何网络都能连。连不上时点联机界面的「联机检测」，把结果截图发给我们。
 
-### 官方联机服务器（一键部署）
-公共 P2P 依赖海外的 0.peerjs.com 和 NAT 穿透，在国内经常「连接超时」。租一台小云服务器，粘贴一行命令，就有了自己的官方服务器：
+### 用自己的电脑当服务器（Mac mini / Linux，推荐：免费）
+家里一台常开的 Mac mini（或 Linux 电脑，如 DGX Spark / Ubuntu）就能当官方服务器。用 Tailscale Funnel 得到固定的
+公网 HTTPS 地址 `https://<机器名>.<tailnet>.ts.net/`，不用改路由器、不用买域名：
+
+1. **装 Tailscale 并登录（一次）**：Mac 从 https://tailscale.com/download/mac 下载安装（或 `brew install --cask tailscale-app`），
+   点菜单栏图标 → Log in；Linux：`curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`。
+2. **打开「终端」，粘贴这一行，回车**（用自己的账号，不要加 sudo；约 5 分钟，可重复运行）：
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/johnsemail88888-droid/sanguosha-english-atlas/main/warlords/deploy/home-host.sh | bash
+   ```
+   第一次开 Funnel 时终端会打印一个 login.tailscale.com 链接：用浏览器打开 → Enable，脚本自动继续。
+3. **保持开机**：游戏服务运行时 Mac 不会睡眠；脚本会提示一条 `sudo pmset -a sleep 0 autorestart 1 womp 1`
+   （永不睡眠 + 停电恢复后自动开机）。重启后登录一次（或开自动登录），服务和 Tailscale 会自动启动。
+4. **把最后打印的两行发给 Claude**（`https://<机器名>.<tailnet>.ts.net/` 和 `wss://<机器名>.<tailnet>.ts.net/ws`）。
+   朋友直接打开游戏网址就能玩。
+
+每天 05:07 自动更新（有人在玩时跳过）；日志在 `~/sanguo-warlords/`。检查状态（房间数、玩家数、网址）：
+`curl … | bash -s -- status`；停止：`curl … | bash -s -- stop`。不想用 Tailscale 时的备选（无需账号，但网址每次重启都会变）：
+`cloudflared tunnel --url http://localhost:8787`。
+
+### 租云服务器（VPS，一键部署）
+公共 P2P 依赖海外的 0.peerjs.com 和 NAT 穿透，在国内经常「连接超时」。租一台小云服务器，粘贴一行命令，就有了自己的官方服务器
+（在美国：任意 $5–6/月 的 VPS，选美国地域、Ubuntu 22.04/24.04，用下面同一条命令；在亚洲：香港）：
 
 1. **买服务器**：阿里云 ECS / 轻量应用服务器，或腾讯云轻量应用服务器（Lighthouse）。
    - 地域选 **中国香港**（国内访问快，且 80/443 端口不需要 ICP 备案；内地地域必须备案才能用网页端口）。
@@ -312,9 +333,32 @@ Builds with an official server start on **Official server (recommended)**: every
 works on any network (no direct P2P connection needed). If connecting fails, press **Connection check** on the online
 screen and send us a screenshot.
 
-#### Official online server (one-command deploy)
+#### Host it on your own computer (Mac mini / Linux — recommended, free)
+An always-on Mac mini (or a Linux box such as a DGX Spark / Ubuntu) at home can be the official server. Tailscale Funnel
+gives it a stable public HTTPS address `https://<machine>.<tailnet>.ts.net/` — no router port forwarding, no domain:
+
+1. **Install Tailscale and log in (once)**: on a Mac from https://tailscale.com/download/mac (or
+   `brew install --cask tailscale-app`), then menu-bar icon → Log in; on Linux
+   `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`.
+2. **Open Terminal, paste this line, press Enter** (as yourself, no sudo; ~5 minutes; safe to run again):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/johnsemail88888-droid/sanguosha-english-atlas/main/warlords/deploy/home-host.sh | bash
+   ```
+   The first time Funnel is turned on, the CLI prints a login.tailscale.com link: open it → Enable; the script carries on.
+3. **Keep it on**: the Mac does not sleep while the game server runs; the script prints the one command
+   `sudo pmset -a sleep 0 autorestart 1 womp 1` (never sleep + start after a power failure). After a restart log in
+   once (or turn on automatic login): the server and Tailscale start by themselves.
+4. **Send the two printed lines back to Claude** (`https://<machine>.<tailnet>.ts.net/` and
+   `wss://<machine>.<tailnet>.ts.net/ws`). Friends can play straight from the game URL.
+
+It updates itself daily at 05:07 (skipped while anyone plays); logs are in `~/sanguo-warlords/`. Status (rooms, players,
+URL): `curl … | bash -s -- status`; stop: `curl … | bash -s -- stop`. Without Tailscale (no account, but the URL changes
+on every restart): `cloudflared tunnel --url http://localhost:8787`.
+
+#### Rent a cloud server (VPS, one-command deploy)
 Public P2P depends on 0.peerjs.com (abroad) and NAT traversal, which often time out from mainland China. A small
-cloud server plus one pasted command gives you your own official server:
+cloud server plus one pasted command gives you your own official server (in the US: any $5–6/month VPS in a US region
+with Ubuntu 22.04/24.04 and the same command; in Asia: Hong Kong):
 
 1. **Buy a server**: Alibaba Cloud ECS / Simple Application Server or Tencent Cloud Lighthouse, region
    **Hong Kong** (fast from the mainland, and ports 80/443 need no ICP filing), **1 vCPU / 1 GB – 2 vCPU / 2 GB**

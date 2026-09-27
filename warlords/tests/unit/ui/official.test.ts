@@ -140,6 +140,19 @@ describe('invite links with an official server', () => {
     expect(shareBase({ origin: 'http://localhost:5173', pathname: '/' }, 'ws', OFF.relay)).toBe('http://localhost:5173/');
   });
 
+  it('a home server behind Tailscale Funnel (*.ts.net, deploy/home-host.sh) works like any other', () => {
+    const TS = { web: 'https://mac-mini.tail1234.ts.net/', relay: 'wss://mac-mini.tail1234.ts.net/ws' };
+    // what home-host.sh passes to vite build
+    expect(officialFrom(OFFICIAL_SERVER, { VITE_OFFICIAL_WEB: TS.web, VITE_OFFICIAL_RELAY: TS.relay })).toEqual(TS);
+    setOfficialServerForTests(TS);
+    expect(isOfficialRelay('https://mac-mini.tail1234.ts.net')).toBe(true);
+    expect(isOfficialWeb('https://mac-mini.tail1234.ts.net')).toBe(true);
+    expect(choiceOf('ws', TS.relay)).toBe('official');
+    // GitHub Pages invites open the Mac's page; its own page invites to itself
+    expect(inviteLink('KX7QD', PAGES, { mode: 'ws', net: net({ mode: 'ws', wsUrl: TS.relay }) }).startsWith(`${TS.web}?room=KX7QD`)).toBe(true);
+    expect(shareBase({ origin: 'https://mac-mini.tail1234.ts.net', pathname: '/' }, 'ws', TS.relay)).toBe(TS.web);
+  });
+
   it('without an official server: GitHub Pages links stay on GitHub Pages', () => {
     setOfficialServerForTests(null);
     expect(inviteLink('KX7QD', PAGES, conn)).toBe(`${PAGES.origin}${PAGES.pathname}?room=KX7QD&mode=ws&ws=${encodeURIComponent(OFF.relay)}`);

@@ -22,6 +22,9 @@
 #
 # Tests source this file with SGWL_LIB=1 (functions only, nothing runs):
 #   tests/unit/deploy/install.test.ts
+# deploy/home-host.sh (your own Mac / Linux machine as the server) sources it the same way and
+# reuses the Node, download and build steps below — keep those portable (macOS: no GNU
+# timeout / sha256sum, and /usr/bin/git may be only the Xcode-tools installer stub).
 set -Eeuo pipefail
 
 REPO_SLUG=johnsemail88888-droid/sanguosha-english-atlas
@@ -131,11 +134,11 @@ write_caddyfile() {
   return 0
 }
 
-# systemd_unit NODE_BIN APP_DIR PORT USER → the sgwl.service unit
+# systemd_unit NODE_BIN APP_DIR PORT USER [WRITER] → the sgwl.service unit
 systemd_unit() {
-  local node=$1 dir=$2 port=$3 user=$4
+  local node=$1 dir=$2 port=$3 user=$4 writer=${5:-install.sh}
   cat <<EOF
-# 三国杀·枪火乱世 official server — written by warlords/deploy/install.sh
+# 三国杀·枪火乱世 official server — written by warlords/deploy/${writer}
 [Unit]
 Description=Sanguo Warlords game server (web + WebSocket relay + PeerJS signalling)
 After=network-online.target
@@ -163,6 +166,35 @@ EOF
 
 # ── system ──────────────────────────────────────────────────────────────────
 PKG=
+
+# run_timeout SECONDS CMD… — GNU timeout where there is one (Linux); perl's alarm on macOS
+run_timeout() {
+  local secs=$1
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  elif command -v perl >/dev/null 2>&1; then
+    perl -e 'alarm shift; exec @ARGV or die "$ARGV[0]: $!\n"' "$secs" "$@"
+  else
+    "$@"
+  fi
+}
+
+# sha256_of FILE → hex digest (sha256sum on Linux, shasum on macOS)
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+# git_ok → a working git (on a Mac without the Xcode command line tools /usr/bin/git only
+# pops up an installer dialog: use the tarball instead)
+git_ok() {
+  command -v git >/dev/null 2>&1 || return 1
+  [[ $(uname -s) != Darwin ]] || xcode-select -p >/dev/null 2>&1
+}
 
 detect_pkg() {
   if command -v apt-get >/dev/null 2>&1; then
@@ -326,9 +358,13 @@ fetch_tarball() {
 
 fetch_source() {
   mkdir -p "$INSTALL_DIR"
+  if ! git_ok; then
+    fetch_tarball || die "无法下载游戏源码 / could not download the game"
+    return 0
+  fi
   if [[ -d $SRC_DIR/.git ]]; then
     log "更新源码 / updating the source (git)"
-    if timeout 600 git -C "$SRC_DIR" fetch --depth 1 origin "$BRANCH" && git -C "$SRC_DIR" reset -q --hard FETCH_HEAD; then
+    if run_timeout 600 git -C "$SRC_DIR" fetch --depth 1 origin "$BRANCH" && git -C "$SRC_DIR" reset -q --hard FETCH_HEAD; then
       return 0
     fi
     warn "git 更新失败，改用源码包 / git update failed, using the tarball"
@@ -344,13 +380,13 @@ fetch_source() {
   # whatever an interrupted earlier run left behind
   rm -rf "$tmp" "$SRC_DIR"
   log "下载游戏 / cloning the game (github.com, shallow)"
-  if timeout 900 git clone -q --depth 1 --branch "$BRANCH" --filter=blob:none --sparse "https://github.com/${REPO_SLUG}.git" "$tmp" &&
+  if run_timeout 900 git clone -q --depth 1 --branch "$BRANCH" --filter=blob:none --sparse "https://github.com/${REPO_SLUG}.git" "$tmp" &&
     git -C "$tmp" sparse-checkout set warlords; then
     mv "$tmp" "$SRC_DIR"
     return 0
   fi
   rm -rf "$tmp"
-  if timeout 900 git clone -q --depth 1 --branch "$BRANCH" "https://github.com/${REPO_SLUG}.git" "$tmp"; then
+  if run_timeout 900 git clone -q --depth 1 --branch "$BRANCH" "https://github.com/${REPO_SLUG}.git" "$tmp"; then
     mv "$tmp" "$SRC_DIR"
     return 0
   fi
@@ -364,14 +400,15 @@ build_game() {
   # no desktop-app / browser binaries on a server
   export ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm_config_fund=false npm_config_audit=false npm_config_update_notifier=false
   local lock_sha stamp=node_modules/.sgwl-lock.sha256
-  lock_sha=$(sha256sum package-lock.json | cut -d' ' -f1)
+  lock_sha=$(sha256_of package-lock.json)
   if [[ -f $stamp && $(cat "$stamp") == "$lock_sha" && -d node_modules/vite ]]; then
     log "依赖未变化 / dependencies unchanged"
   else
     log "安装依赖 / npm ci"
-    if ! timeout 1200 npm ci --no-audit --no-fund; then
+    # --ignore-scripts: the server needs no install script (fsevents would try to compile on a Mac)
+    if ! run_timeout 1200 npm ci --no-audit --no-fund --ignore-scripts; then
       warn "npm 官方源失败，改用国内镜像 / npm registry failed, using $NPM_MIRROR"
-      timeout 1800 npm ci --no-audit --no-fund --registry="$NPM_MIRROR" || die "npm ci 失败 / npm ci failed"
+      run_timeout 1800 npm ci --no-audit --no-fund --ignore-scripts --registry="$NPM_MIRROR" || die "npm ci 失败 / npm ci failed"
     fi
     echo "$lock_sha" >"$stamp"
   fi
