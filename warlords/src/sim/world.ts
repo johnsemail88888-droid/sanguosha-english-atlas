@@ -208,6 +208,8 @@ export interface HeroRuntime {
   move: MoveState;
   /** tick of the last movement step (dashes / knockbacks started later in a tick begin next tick) */
   movedTick: number;
+  /** decayed damage taken from each commander's troops / summons / turrets (sim/combat.ts troopFocusDamage) */
+  troopHeat: Map<EntityId, { value: number; at: number }>;
 }
 
 export interface PlayerSlot {
@@ -497,6 +499,7 @@ export class World implements SimExt, SimHost {
         lastMount: null,
         move: { pos: e.pos, vel: e.vel, onGround: true },
         movedTick: -1,
+        troopHeat: new Map(),
       };
       this.heroRts.set(e.id, rt);
       const slot: PlayerSlot = {

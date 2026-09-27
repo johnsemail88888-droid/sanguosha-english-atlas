@@ -10,6 +10,7 @@ import { HERO_BY_ID, isPassiveAbility } from '../../../src/data';
 import type { AbilityDef } from '../../../src/data/types';
 import { getAbility, hasAbility } from '../../../src/sim/abilities';
 import { aimAnglesFor } from '../../../src/sim/aim';
+import { TROOP_VS_HERO_MUL } from '../../../src/sim/combat';
 import type { DamageRequest } from '../../../src/sim/api';
 import type { AbilityImplEx } from '../../../src/sim/ext';
 import type { MatchInit } from '../../../src/sim/host';
@@ -944,7 +945,8 @@ describe('孟获 Meng Huo', () => {
     expect(w.isHostileTo(barb, mh)).toBe(false);
     expect(w.isHostileTo(barb, other)).toBe(true);
     expect(w.dealDamage({ targetId: mh.id, sourceId: barb.id, amount: 30, type: 'melee', weaponId: 'troop_melee' }).dealt).toBe(0);
-    expect(w.dealDamage({ targetId: other.id, sourceId: barb.id, amount: 30, type: 'melee', weaponId: 'troop_melee' }).dealt).toBe(30);
+    // (a summoned barbarian's hit on a hero lands × TROOP_VS_HERO_MUL)
+    expect(w.dealDamage({ targetId: other.id, sourceId: barb.id, amount: 30, type: 'melee', weaponId: 'troop_melee' }).dealt).toBeCloseTo(30 * TROOP_VS_HERO_MUL, 6);
     stepN(w, T(4));
     expect(mh.hp).toBe(mh.maxHp);
   });

@@ -20,6 +20,15 @@ import { ownRole } from './knowledge';
 import { aimPointOf, dist2d, hasLineOfSight } from './perception';
 
 const SLOTS: AbilitySlot[] = ['q', 'e', 'lord'];
+/**
+ * The bot 主公 and a hero in his sights (「一下就死了」): his offensive abilities wait
+ * `openingDelay` s after he turns on that hero (his gun and guards open the fight; the hero
+ * sees it coming and can react), and are held while the hero is already dropping fast (lost
+ * `pileOn` of its max HP in the last `pileWindow` s) — no 雷击 on top of a squad's volley.
+ * Not when he is in trouble himself (HP under `desperate`). Tunables (tests/unit/ai/bal.test.ts
+ * BAL_NEUTRAL switches them off).
+ */
+export const LORD_RESTRAINT = { openingDelay: 2.5, pileOn: 0.3, pileWindow: 2, desperate: 0.5 };
 const FAIL_BACKOFF = 5;
 /** could not get the crosshair onto the target in time: try again a little later */
 const AIM_BACKOFF = 1.5;
@@ -61,6 +70,11 @@ export class AbilityUser {
   private pending: Pending | null = null;
   /** abilities fired this match (metrics) */
   used = 0;
+  /** the combat target and since when (LORD_RESTRAINT.openingDelay) */
+  private tgtId: number | undefined;
+  private tgtSince = 0;
+  /** the target's HP samples over the last LORD_RESTRAINT.pileWindow s (the lord's pile-on check) */
+  private readonly tgtHp: { t: number; hp: number }[] = [];
 
   /** Pick at most one ability to cast now (HeroBot aims it, then calls pressed()). */
   consider(v: BotView): AbilityPlan | null {
@@ -71,6 +85,7 @@ export class AbilityUser {
     if (sim.hasStatus(self.id, 'silence') || sim.hasStatus(self.id, 'dance') || sim.hasStatus(self.id, 'stun')) return null;
     const hero = sim.heroDef(self);
     if (!hero) return null;
+    this.trackTarget(v);
     for (const slot of SLOTS) {
       const def = hero.abilities.find((a) => a.slot === slot);
       if (!def || isPassiveAbility(def)) continue;
@@ -81,9 +96,36 @@ export class AbilityUser {
       if (!this.ready(v, def)) continue;
       const plan = this.plan(v, def, slot);
       if (plan && !this.safeForFriends(v, def, plan)) continue;
+      if (plan && this.lordRestrained(v, def, plan)) continue;
       if (plan) return plan;
     }
     return null;
+  }
+
+  private trackTarget(v: BotView): void {
+    const t = v.target;
+    const id = t?.kind === 'hero' ? t.id : undefined;
+    if (id !== this.tgtId) {
+      this.tgtId = id;
+      this.tgtSince = v.now;
+      this.tgtHp.length = 0;
+    }
+    if (!t || id === undefined) return;
+    const h = this.tgtHp;
+    h.push({ t: v.now, hp: t.hp });
+    while (h.length > 1 && v.now - h[0].t > LORD_RESTRAINT.pileWindow) h.shift();
+  }
+
+  /** The bot lord's restraint on a hero target (see LORD_RESTRAINT). */
+  private lordRestrained(v: BotView, def: AbilityDef, plan: AbilityPlan): boolean {
+    if (ownRole(v.self) !== 'lord' || (def.aiHint ?? 'utility') !== 'offense') return false;
+    const t = plan.targetId !== undefined ? v.sim.get(plan.targetId) : v.target;
+    if (!t || t.kind !== 'hero' || t.id !== this.tgtId) return false;
+    const r = LORD_RESTRAINT;
+    if (v.self.hp < v.self.maxHp * r.desperate) return false;
+    if (v.now - this.tgtSince < r.openingDelay) return true;
+    const first = this.tgtHp[0];
+    return !!first && first.hp - t.hp >= t.maxHp * r.pileOn;
   }
 
   /** Is the planned ability still ready (cooldown / charges), e.g. after aiming for a while? */

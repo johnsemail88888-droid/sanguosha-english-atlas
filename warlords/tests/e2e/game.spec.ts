@@ -181,6 +181,23 @@ test('single player: full flow, controls, HUD, pause, cards, bots fight, leave',
     await page.mouse.up({ button: 'right' });
     await page.keyboard.press(qilinSlot === 0 ? '2' : '1');
 
+    // 「主公卫队正在攻击你」: three of the Lord's soldiers hitting you raise the squad focus warning
+    // (their shots injected through the renderer, exactly like drained host events)
+    const guards = await page.evaluate(() => {
+      const g = (window as SgwlWindow).__sgwl!;
+      const me = g.localId()!;
+      const lord = g.players().find((p) => p.role === 'lord')!;
+      const troops = g.entities().filter((e) => e.kind === 'troop' && e.owner === lord.entityId).slice(0, 3);
+      const my = g.localEntity()!;
+      const evs = troops.map((t) => ({ t: 'shot', src: t.id, weapon: 'troop_rifle', from: { x: t.x, y: t.y + 1.5, z: t.z }, to: { x: my.x, y: my.y + 1.1, z: my.z }, hit: me }));
+      (g.handle as { renderer: { injectEvents(e: unknown[]): void } }).renderer.injectEvents(evs);
+      return troops.length;
+    });
+    if (guards >= 3) {
+      await expect(page.locator('.hud-focuswarn.on .line'), 'squad focus warning').toContainText('主公卫队', { timeout: 15_000 });
+      await shot('02e-guard-focus-warning');
+    } else console.log(`[game e2e] the Lord has ${guards} soldiers left: focus warning not checked`);
+
     // Q and E start their cooldowns (the HUD ability icon dims with a sweep)
     for (const key of ['q', 'e']) {
       const ab = page.locator(`.hud-abilities .ab.slot-${key}`);

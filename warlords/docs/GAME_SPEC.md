@@ -308,6 +308,18 @@ removed). Mounts: offensive −1 马 赤兔/大宛/紫骍 (+30–40 % speed); de
   his own hand in the last few seconds), a mark or an order. A charm duel (离间 / 反间) is no reason: the hits and aim it forces don't count, both
   heroes' squads (and turrets) sit it out, and both sides forget it when the charm ends.
   Troops don't respawn; recruit with 征兵令 / abilities.
+- **Troops vs heroes** (`sim/combat.ts TROOP_VS_HERO`): units a hero commands (troops, summons,
+  turrets; not the wild camps) deal 80 % of their weapon damage to heroes, and past 55 damage a second
+  from ONE commander's units on one hero only 30 % of the rest lands (a decaying one-second heat per
+  target and commander) — a 4-man squad (≈ 60 DPS) barely notices, a lord's 12-man guard focusing one
+  hero lands ≈ 65 a second instead of 200+, and two squads on one hero are still two squads (a
+  per-target cap made the Lord, focused by every rebel squad, too hard to kill). Their fire drains a
+  downed hero's bleed-out at 40 %. The bot Lord opens a fight with his gun and guard, not his
+  offensive abilities (2.5 s), and holds them while his target is already dropping fast (−30 % HP
+  in 2 s) unless he is in trouble himself. A hero focused by the Lord and his whole guard at 18 m
+  now lasts 3.5–6.8 s, median 4.5 (was 1.1–2.7 s, median 2.1, and dead as little as 0.3 s after
+  going down); the HUD warns
+  「主公卫队正在攻击你」 (red screen edges) while ≥ 3 soldiers of one commander keep hitting you.
 - 黄巾 camps (4–6 bandits + bronze crate) guard the best early loot; they leash back home.
 
 ## 9. Map — 虎牢·赤壁 (`src/sim/map/`)

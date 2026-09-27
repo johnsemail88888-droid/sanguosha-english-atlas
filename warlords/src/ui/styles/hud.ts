@@ -104,6 +104,14 @@ export const HUD_CSS = /* css */ `
 .hud-zonewarn.on { display: flex; }
 .hud-zonewarn .arrow { display: inline-block; font-style: normal; color: #ffd0a0; font-size: ${fs(20, 14)}; transition: transform 0.15s linear; }
 .hud-zonewarn .dist { display: block; font-size: ${fs(12, 10)}; font-weight: 400; opacity: 0.9; }
+/* a squad focusing you (「主公卫队正在攻击你」): red pulsing screen edges + a line under the zone warning */
+.hud-focuswarn { position: absolute; inset: 0; pointer-events: none; display: none; }
+.hud-focuswarn.on { display: block; }
+.hud-focuswarn .edge { position: absolute; inset: 0; box-shadow: inset 0 0 ${u(80)} ${u(36)} rgba(225, 18, 8, 0.8), inset 0 0 0 ${u(4)} rgba(255, 60, 30, 0.65); animation: sg-focus-pulse 0.55s ease-in-out infinite alternate; }
+.hud-focuswarn .line { position: absolute; top: ${u(128)}; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: ${u(8)}; padding: ${u(5)} ${u(16)}; white-space: nowrap; background: rgba(110, 12, 8, 0.82); border: 1px solid #ff5a3a; border-radius: ${u(5)}; font-weight: 700; color: #ffe6d8; }
+.hud-focuswarn .line b { color: #ffcf6a; }
+.hud-focuswarn.lord .line { border-color: #ffcf6a; }
+@keyframes sg-focus-pulse { from { opacity: 0.6; } to { opacity: 1; } }
 
 /* ── duel ─────────────────────────────────────────────── */
 .hud-duel { position: absolute; top: ${u(118)}; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: ${u(8)}; padding: ${u(4)} ${u(14)} ${u(4)} ${u(6)}; background: rgba(90, 16, 10, 0.78); border: 1px solid #ff8a6a; border-radius: 999px; font-family: var(--font-display); font-size: ${fs(15, 11)}; white-space: nowrap; }

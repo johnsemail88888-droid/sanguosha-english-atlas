@@ -30,6 +30,62 @@ import type { HeroRuntime, World } from './world';
 
 /** seconds of bleed-out removed per point of damage taken while downed */
 export const DOWNED_DAMAGE_TO_SECONDS = 0.1;
+
+// ── troops vs heroes (「怎么我一下主公一下就死了？」) ─────────────────────────
+// A squad is dangerous, never a firing squad: a lord's 6–12 guards used to put
+// 150–260 damage a second into one hero (a 400 HP hero down in 1.1–2.7 s, dead as
+// little as 0.3 s later). Units a hero commands (his troops, summons,
+// turrets) now deal `mul` of their weapon damage to heroes, and past
+// `focusDps` a second of ONE commander's fire on one hero only `over` of the
+// rest lands (a decaying one-second "heat" per target and commander): 4
+// riflemen (≈ 60 DPS) barely notice it, 12 focusing one hero (≈ 200) land ≈ 65
+// a second. The cap is per squad, not per target: the 主公 focused by four
+// rebel squads still takes four squads' fire (a per-target cap tipped the
+// balance sample to the lord side, 46 → 57 %). Heroes' own guns and
+// abilities are not capped — the fight between heroes stays as it was — and
+// neither are the wild camps (黄巾 bandits keep their own tuning). A downed hero's bleed-out drains at
+// `downedMul` under their fire: a squad used to shred the 12 s 濒死 in under a
+// second (no time for a 桃 / a rescue). Tunables (the balance sample can switch
+// them off: tests/unit/ai/bal.test.ts BAL_NEUTRAL).
+export const TROOP_VS_HERO = {
+  /** share of a commanded unit's weapon damage that a hero takes */
+  mul: 0.8,
+  /** one commander's troop damage a second on one hero that lands in full… */
+  focusDps: 55,
+  /** …and the share of the rest that still lands */
+  over: 0.3,
+  /** time constant of the troop-damage heat (s) */
+  tau: 1,
+  /** bleed-out drain of a downed hero under troop fire */
+  downedMul: 0.4,
+};
+export const TROOP_VS_HERO_MUL = TROOP_VS_HERO.mul;
+export const TROOP_FOCUS_DPS = TROOP_VS_HERO.focusDps;
+export const TROOP_FOCUS_OVER = TROOP_VS_HERO.over;
+
+/** The non-hero unit behind a hit (a troop's / NPC's own projectile included), or undefined. */
+function unitShooter(w: World, src: Entity | undefined): Entity | undefined {
+  if (!src) return undefined;
+  const s = src.kind === 'projectile' && src.ownerId !== undefined ? w.ents.get(src.ownerId) : src;
+  return s && (s.kind === 'troop' || s.kind === 'npc' || s.kind === 'turret') ? s : undefined;
+}
+
+/**
+ * Damage a hero takes from non-hero units after the troop rules above; `heat`
+ * is the hero's decayed troop damage (updated in place).
+ */
+export function troopFocusDamage(heat: { value: number; at: number }, now: number, amount: number): number {
+  const r = TROOP_VS_HERO;
+  heat.value *= Math.exp(-Math.max(0, now - heat.at) / r.tau);
+  heat.at = now;
+  const a = amount * r.mul;
+  const room = Math.max(0, r.focusDps * r.tau - heat.value);
+  const full = Math.min(a, room);
+  const out = full + (a - full) * r.over;
+  heat.value += out;
+  return out;
+}
+
 /** lag compensation window */
 export const LAG_COMP_MAX_TICKS = 8;
 const MAX_SHOTS_PER_TICK = 4;
@@ -434,6 +490,18 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
       }
     }
     if (target.kind === 'hero' && amount > 0) amount = w.hooks.modifyIncoming(target, src, req, amount);
+    // a hero's troops / summons / turrets on a hero: reduced, soft-capped per second (TROOP_VS_HERO);
+    // not a hero ability a summon delivers (孟获's elephant trample is his ability, not a volley)
+    const abilityHit = req.abilityId !== undefined && !req.abilityId.startsWith('status:');
+    if (h && amount > 0 && !passThrough && !isTrue && !abilityHit) {
+      const rt = unitShooter(w, src) && credit?.hero ? w.heroRt(target.id) : undefined;
+      if (rt && credit) {
+        // one heat per commander: his squad is capped, two squads on one hero are two squads
+        let heat = rt.troopHeat.get(credit.id);
+        if (!heat) rt.troopHeat.set(credit.id, (heat = { value: 0, at: now }));
+        amount = troopFocusDamage(heat, now, amount) * (h.downed ? TROOP_VS_HERO.downedMul : 1);
+      }
+    }
   }
   // handed to another unit (SimExt.redirectDamage — 流离): the shooter sees it deflected
   if (frame.redirected && !(amount > 0)) return blockedEvent('redirect');

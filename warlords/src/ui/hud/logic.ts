@@ -110,6 +110,67 @@ export function cooldownFraction(remaining: number, total: number | undefined): 
   return Math.max(0, Math.min(1, remaining / tot));
 }
 
+// ── squad focus warning ──────────────────────────────────────────────────────
+
+/** Distinct enemy soldiers hitting you within FOCUS_WINDOW s that raise the warning. */
+export const FOCUS_MIN_SHOOTERS = 3;
+export const FOCUS_WINDOW = 2.5;
+/** the warning stays up this long after the last qualifying hit (s) */
+export const FOCUS_HOLD = 2.5;
+
+export interface SquadFocus {
+  /** the soldiers' commander (undefined: wild units — camps, summons without an owner) */
+  commander: EntityId | undefined;
+  /** distinct units that hit you in the window */
+  shooters: number;
+}
+
+/**
+ * Tracks the troops / NPCs / turrets whose shots hit the local hero and says
+ * when a squad focuses you (「主公卫队正在攻击你」): FOCUS_MIN_SHOOTERS distinct
+ * units of one commander (or of none) within FOCUS_WINDOW s. Pure (unit-tested).
+ */
+export class SquadFocusTracker {
+  private readonly hits: { t: number; shooter: EntityId; commander: EntityId | undefined }[] = [];
+  private shown: SquadFocus | null = null;
+  private shownUntil = -Infinity;
+
+  /** A shot of `shooter` (commanded by `commander`) hit you at `now` (s). */
+  note(shooter: EntityId, commander: EntityId | undefined, now: number): void {
+    this.hits.push({ t: now, shooter, commander });
+    if (this.hits.length > 64) this.hits.shift();
+    this.evaluate(now);
+  }
+
+  /** The focusing squad to warn about at `now`, or null. */
+  current(now: number): SquadFocus | null {
+    while (this.hits.length && now - this.hits[0].t > FOCUS_WINDOW) this.hits.shift();
+    return now <= this.shownUntil ? this.shown : null;
+  }
+
+  reset(): void {
+    this.hits.length = 0;
+    this.shown = null;
+    this.shownUntil = -Infinity;
+  }
+
+  private evaluate(now: number): void {
+    const by = new Map<EntityId | undefined, Set<EntityId>>();
+    for (const h of this.hits) {
+      if (now - h.t > FOCUS_WINDOW) continue;
+      let set = by.get(h.commander);
+      if (!set) by.set(h.commander, (set = new Set()));
+      set.add(h.shooter);
+    }
+    let best: SquadFocus | null = null;
+    for (const [commander, set] of by) if (set.size >= FOCUS_MIN_SHOOTERS && (!best || set.size > best.shooters)) best = { commander, shooters: set.size };
+    if (best) {
+      this.shown = best;
+      this.shownUntil = now + FOCUS_HOLD;
+    }
+  }
+}
+
 // ── crosshair ────────────────────────────────────────────────────────────────
 
 export type CrosshairStyle = 'cross' | 'circle' | 'dot' | 'launcher' | 'bow' | 'flame' | 'melee';

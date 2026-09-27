@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Entity, GameEvent, RoleId } from '../../../src/core/types';
 import { BTN_INTERACT, BTN_SPRINT, emptyInput } from '../../../src/core/types';
 import { circleAttack } from '../../../src/sim/abilities/common';
-import { registerProjectileKind } from '../../../src/sim/combat';
+import { TROOP_VS_HERO_MUL, registerProjectileKind } from '../../../src/sim/combat';
 import type { AbilityCast, AbilityImplEx } from '../../../src/sim/ext';
 import { registerHazardKind } from '../../../src/sim/hazards';
 import type { TroopBrain } from '../../../src/sim/ai/types';
@@ -109,7 +109,8 @@ describe('QUN-2: shieldPierce comes from the hero’s own hits only', () => {
     const [soldier] = w.spawnTroops(lb.id, 'shu_rifleman', 1);
     const r2 = w.dealDamage({ targetId: foe.id, sourceId: soldier.id, amount: 60, type: 'normal', weaponId: 'troop_rifle' });
     expect(r2.dealt).toBe(0);
-    expect(r2.absorbed).toBeCloseTo(60, 6);
+    // (a soldier's hit on a hero lands at TROOP_VS_HERO_MUL — 「一下就死了」), none of it pierces
+    expect(r2.absorbed).toBeCloseTo(60 * TROOP_VS_HERO_MUL, 6);
   });
 });
 
