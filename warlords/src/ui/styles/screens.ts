@@ -148,6 +148,14 @@ export const SCREENS_CSS = /* css */ `
 .sg-code-input { font-family: "Consolas", "Menlo", monospace; font-size: 1.3em; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; }
 .sg-online-status { min-height: 1.6em; margin-top: 1.1em; text-align: center; }
 .sg-online-status .err { color: var(--red); font-weight: 600; }
+.sg-online-status .p2p-help { margin-top: 0.5em; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.4em 0.8em; }
+.sg-netcheck { margin-top: 0.8em; padding: 0.5em 0.8em; border: 1px solid rgba(140, 106, 38, 0.5); background: rgba(214, 173, 82, 0.1); border-radius: 4px; font-size: 0.92em; }
+.sg-netcheck .head { display: flex; align-items: center; justify-content: space-between; gap: 0.8em; }
+.sg-netcheck .rows { list-style: none; margin: 0.4em 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.2em; font-family: ui-monospace, Consolas, monospace; word-break: break-word; }
+.sg-netcheck .rows .ok { color: #2e7d32; }
+.sg-netcheck .rows .bad { color: var(--red); font-weight: 600; }
+.sg-netcheck .rows .na { color: var(--paper-mute); }
+.sg-netcheck .verdict { margin: 0.4em 0 0; font-weight: 600; }
 .sg-note { margin-top: 0.8em; padding: 0.45em 0.8em; border: 1px solid rgba(140, 106, 38, 0.5); background: rgba(214, 173, 82, 0.1); border-radius: 4px; font-size: 0.92em; }
 .sg-lan { margin-top: 1em; padding-top: 0.6em; border-top: 1px dashed rgba(140, 106, 38, 0.45); }
 .sg-lan .sg-h2 { margin: 0 0 0.3em; }

@@ -51,18 +51,27 @@ const MESSAGES: Record<NetErrorCode, { zh: string; en: string }> = {
   relayLost: { zh: '与中转服务器的连接已断开', en: 'Lost the connection to the relay server' },
 };
 
+/**
+ * Why a P2P connection failed (src/ui/netHelp.ts turns it into advice):
+ * 'signal' = the PeerJS signalling server was unreachable (0.peerjs.com: blocked / slow abroad),
+ * 'ice' = the signalling worked but no WebRTC path to the other side opened (NAT / firewall).
+ */
+export type NetFailReason = 'signal' | 'ice';
+
 export class NetError extends Error {
   readonly code: NetErrorCode;
   readonly zh: string;
   readonly en: string;
+  readonly reason?: NetFailReason;
 
-  constructor(code: NetErrorCode, detail?: string) {
+  constructor(code: NetErrorCode, detail?: string, reason?: NetFailReason) {
     const m = MESSAGES[code];
     super(detail ? `${m.en} (${detail})` : m.en);
     this.name = 'NetError';
     this.code = code;
     this.zh = m.zh;
     this.en = detail ? `${m.en} (${detail})` : m.en;
+    if (reason) this.reason = reason;
   }
 
   /** Payload shape used by GameSession 'error' events. */

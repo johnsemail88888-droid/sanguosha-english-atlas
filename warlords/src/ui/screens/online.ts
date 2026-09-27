@@ -3,7 +3,7 @@
 import { settings } from '../../game/settings';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, copyText, h } from '../dom';
-import { t, tx } from '../i18n';
+import { getLang, t, tx } from '../i18n';
 import { button, segmented } from '../widgets';
 import { desktopInfo, detectLocalServer, refreshLanUrls, servedByLocalServer } from '../desktop';
 import {
@@ -27,6 +27,8 @@ import {
   type RejoinInfo,
 } from '../invite';
 import { isOfficialWeb, officialServer } from '../../net/official';
+import type { ProbeResult } from '../../net/netCheck';
+import { checkVerdict, classifyP2pFailure, formatCheck, formatProbe, p2pFailureText, p2pFix, type P2pFailure } from '../netHelp';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
 export function normalizeRoomCode(raw: string): string {
@@ -151,6 +153,10 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   let errorText = '';
   /** after 房间不存在: offer the other connection mode */
   let suggest: ConnChoice | null = null;
+  /** a P2P create / join failed for a known reason: say why and offer the fix (改用官方服务器重试) */
+  let p2pFail: { kind: P2pFailure; action: 'host' | 'join' } | null = null;
+  /** 联机检测: running (results null) or its last result */
+  let check: { results: ProbeResult[] | null; at: Date } | null = null;
   let runRef: ((kind: 'host' | 'join') => Promise<void>) | null = null;
   const runJoin = (): Promise<void> => runRef?.('join') ?? Promise.resolve();
   const sameOrigin = (): boolean => servedByLocalServer() && !ownWsUrl().trim();
@@ -160,6 +166,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     busy = null;
     errorText = '';
     retryJoin = false;
+    p2pFail = null;
     ctx.cancelJoin?.();
     if (el.isConnected) render();
   };
@@ -185,6 +192,26 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
               suggest = null;
               void run('join');
             }, { cls: 'small gold switch-mode', sfx: 'confirm' }),
+          ),
+        );
+      }
+      if (p2pFail) {
+        const failed = p2pFail;
+        const fix = p2pFix(failed.kind, { official: !!official, host: failed.action === 'host' });
+        status.append(
+          h('div', { class: 'p2p-help', data: { reason: failed.kind } },
+            h('span', { class: 'sg-mute' }, tx(fix.hint.zh, fix.hint.en)), ' ',
+            button(tx(fix.label.zh, fix.label.en), () => {
+              pick(fix.action);
+              modeTouched = true;
+              markModeChosen();
+              settings.update({ net: { ...settings.get().net, ...choicePatch(fix.action, settings.get().net) } });
+              p2pFail = null;
+              errorText = '';
+              // the official server: straight into the same attempt; server mode may still need its address
+              if (fix.action === 'official') void run(failed.action);
+              else render();
+            }, { cls: 'small gold p2p-fix', sfx: 'confirm' }),
           ),
         );
       }
@@ -221,6 +248,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       errorText = '';
       suggest = null;
       retryJoin = false;
+      p2pFail = null;
       commitChoice();
       render();
       try {
@@ -230,6 +258,13 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         if (mine !== attempt) return; // cancelled: nobody is waiting for this answer
         errorText = t('online.failed', { msg: errorMessage(err) });
         retryJoin = kind === 'join';
+        // public P2P: say which part failed (signalling / NAT / no room) in plain words, and offer the fix
+        const why = choice === 'peer' ? classifyP2pFailure(err) : null;
+        if (why) {
+          const text = p2pFailureText(why);
+          errorText = t('online.failed', { msg: tx(text.zh, text.en) });
+          if (why !== 'notFound') p2pFail = { kind: why, action: kind };
+        }
         // the room may be on the other network: P2P rooms and relay rooms are separate
         if (kind === 'join' && isRoomNotFound(err)) suggest = choice === 'peer' ? (official ? 'official' : 'ws') : 'peer';
         // a room that is gone / full / refuses us is forgotten; a link that timed out can be retried (重新加入)
@@ -267,11 +302,14 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
             settings.update({ net: { ...settings.get().net, ...choicePatch(v, settings.get().net) } });
             errorText = '';
             suggest = null;
+            p2pFail = null;
             render();
           }, { disabled: !!busy, name: t('online.via') }),
           h('span', { class: 'sg-mute desc' }, choice === 'official' ? t('online.officialDesc') : choice === 'peer' ? t('online.peerDesc') : t('online.wsDesc')),
           button(t('online.serverSettings'), () => ctx.openSettings('network'), { cls: 'ghost small' }),
+          button(tx('联机检测', 'Connection check'), () => void runCheck(), { cls: 'ghost small net-check-btn', disabled: !!check && !check.results }),
         ),
+        checkBox(),
         wsMissing ? h('div', { class: 'sg-warn' }, t('online.noWsUrl')) : null,
         choice === 'ws' && sameOrigin()
           ? h('div', { class: 'sg-note' }, tx(`使用本机服务器中继：${location.host}/ws`, `Relaying through this server: ${location.host}/ws`))
@@ -295,6 +333,44 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     );
     if (invited && !busy) queueMicrotask(() => codeInput.focus());
   };
+
+  /** 联机检测: signalling, STUN/TURN and the official relay, probed at once (a few seconds). */
+  async function runCheck(): Promise<void> {
+    if (check && !check.results) return;
+    check = { results: null, at: new Date() };
+    render();
+    let results: ProbeResult[];
+    try {
+      const { runNetCheck } = await import('../../net/netCheck');
+      results = await runNetCheck(settings.get().net, official?.relay ?? null);
+    } catch (e) {
+      console.warn('[ui] connection check failed', e);
+      results = [];
+    }
+    check = { results, at: new Date() };
+    if (el.isConnected) render();
+  }
+
+  /** The check's rows (✓/✗ + ms) — made to be screenshotted or copied for us. */
+  function checkBox(): HTMLElement | null {
+    if (!check) return null;
+    const results = check.results;
+    const lang = getLang();
+    const verdict = results?.length ? checkVerdict(results) : null;
+    return h('div', { class: 'sg-netcheck', aria: { live: 'polite' } },
+      h('div', { class: 'head' },
+        h('strong', null, tx('联机检测', 'Connection check')),
+        results
+          ? button(t('common.copy'), () => {
+              const text = formatCheck(results, lang, check?.at);
+              void copyText(text).then((ok) => ctx.toast(ok ? t('common.copied') : text));
+            }, { cls: 'small dark net-check-copy' })
+          : h('span', { class: 'sg-mute' }, h('span', { class: 'sg-spinner' }), ' ', tx('检测中…（约 5 秒）', 'Checking… (about 5 s)')),
+      ),
+      results ? h('ul', { class: 'rows' }, results.map((r) => h('li', { class: r.ok === null ? 'na' : r.ok ? 'ok' : 'bad', data: { probe: r.id } }, formatProbe(r, lang)))) : null,
+      verdict ? h('p', { class: 'verdict' }, tx(verdict.zh, verdict.en)) : null,
+    );
+  }
 
   /** The saved room: where you were, and 重新加入 {CODE} in the room's own mode (MP2-3). */
   function rejoinBox(r: RejoinInfo): HTMLElement {

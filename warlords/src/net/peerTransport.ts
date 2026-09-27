@@ -98,8 +98,9 @@ export function mapPeerError(type: string | undefined, fallback: NetError['code'
     case 'socket-error':
     case 'socket-closed':
     case 'ssl-unavailable':
+      return new NetError('networkRestricted', type, 'signal');
     case 'webrtc':
-      return new NetError('networkRestricted', type);
+      return new NetError('networkRestricted', type, 'ice');
     default:
       return new NetError(fallback, type);
   }
@@ -144,7 +145,7 @@ function withLossyUnreliableChannel<T>(fn: () => T): T {
 /** Why a DataConnection that never opened failed: NAT / ICE trouble unless the room is gone. */
 export function preOpenFailure(err?: { type?: string } | null): NetError {
   if (err?.type === 'peer-unavailable') return new NetError('roomNotFound');
-  return new NetError('networkRestricted', err?.type ?? 'data channel closed before opening');
+  return new NetError('networkRestricted', err?.type ?? 'data channel closed before opening', 'ice');
 }
 
 export class PeerTransport extends BaseTransport {
@@ -172,7 +173,7 @@ export class PeerTransport extends BaseTransport {
   static async host(net: NetServerConfig, opts: PeerConnectOptions & { code?: string } = {}): Promise<PeerTransport> {
     if (!opts.PeerImpl && !hasWebRtc()) throw new NetError('unsupported');
     const PeerImpl = opts.PeerImpl ?? (await loadPeer());
-    let lastErr: NetError = new NetError('networkRestricted');
+    let lastErr: NetError = new NetError('networkRestricted', undefined, 'signal');
     for (let attempt = 0; attempt < 5; attempt++) {
       const code = attempt === 0 && opts.code ? opts.code : generateRoomCode();
       try {
@@ -213,7 +214,7 @@ export class PeerTransport extends BaseTransport {
       console.warn('[net] peer error', err.type ?? err);
       if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-closed') this.scheduleReconnect();
     });
-    this.peer.on('close', () => this.fail(new NetError('networkRestricted', 'signalling closed')));
+    this.peer.on('close', () => this.fail(new NetError('networkRestricted', 'signalling closed', 'signal')));
   }
 
   private scheduleReconnect(): void {
@@ -291,7 +292,8 @@ export class PeerTransport extends BaseTransport {
       const timer = new StallAwareTimeout(timeoutMs, () => {
         // the host answered but ICE never connected ⇒ NAT / firewall trouble
         const ice = r?.peerConnection?.iceConnectionState;
-        done(ice === 'checking' || ice === 'failed' || ice === 'disconnected' ? new NetError('networkRestricted', `ICE ${ice}`) : new NetError('timeout'));
+        // either way the room exists (no 'peer-unavailable') and no WebRTC path opened
+        done(ice === 'checking' || ice === 'failed' || ice === 'disconnected' ? new NetError('networkRestricted', `ICE ${ice}`, 'ice') : new NetError('timeout', 'no answer from the host', 'ice'));
       });
       // peer-level errors: 'peer-unavailable' = no such room, else signalling trouble
       const onPeerError = (err: { type?: string }): void => done(mapPeerError(err.type));
@@ -304,11 +306,11 @@ export class PeerTransport extends BaseTransport {
           this.peer.connect(this.hostId, { reliable: false, serialization: 'raw', label: UNRELIABLE_LABEL, metadata: { ch: UNRELIABLE_LABEL } }),
         );
       } catch (e) {
-        done(new NetError('networkRestricted', e instanceof Error ? e.message : undefined));
+        done(new NetError('networkRestricted', e instanceof Error ? e.message : undefined, 'ice'));
         return;
       }
       if (!r) {
-        done(new NetError('networkRestricted'));
+        done(new NetError('networkRestricted', undefined, 'ice'));
         return;
       }
       link.r = r;
@@ -452,7 +454,7 @@ function openPeer(PeerImpl: PeerCtor, id: string | null, net: NetServerConfig, t
     };
     const onOpen = (): void => finish(null);
     const onError = (err: { type?: string }): void => finish(mapPeerError(err.type));
-    const timer = new StallAwareTimeout(timeoutMs, () => finish(new NetError('networkRestricted', 'signalling timeout')));
+    const timer = new StallAwareTimeout(timeoutMs, () => finish(new NetError('networkRestricted', 'signalling timeout', 'signal')));
     peer.on('open', onOpen);
     peer.on('error', onError);
   });
