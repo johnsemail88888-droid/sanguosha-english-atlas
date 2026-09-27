@@ -1,0 +1,149 @@
+name: Warlords · Mac check
+
+# The game on a Mac (macos-14 = Apple silicon):
+#  - web: the production build in WebKit (Safari's engine) and Chromium (Chrome on
+#    macOS) — tests/e2e/mac-smoke.spec.ts through playwright.mac.config.ts; the GPU
+#    each engine draws with, the tier 自动 picked and the fps go to the step summary,
+#    screenshots + console logs to the artifacts.
+#  - desktop: the arm64 .dmg as players get it — ad-hoc signed (unsigned arm64 apps
+#    from the web are 「已损坏，无法打开」), mounted, launched for ~20 s with logging.
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['warlords/**', '.github/workflows/warlords-mac.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warlords-mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Safari (WebKit) + Chrome on macOS
+    runs-on: macos-14
+    timeout-minutes: 50
+    defaults:
+      run:
+        working-directory: warlords
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: warlords/package-lock.json
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run build
+      - name: Install Playwright WebKit + Chromium
+        run: npx playwright install --with-deps webkit chromium
+      - name: Machine
+        run: |
+          sw_vers
+          sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
+          system_profiler SPDisplaysDataType | sed -n '1,30p'
+      - name: Mac smoke (WebKit + Chromium)
+        run: npx playwright test -c playwright.mac.config.ts
+        env:
+          # serve the `npm run build` output in dist/
+          SGWL_E2E_CACHE: .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-web-results
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            warlords/test-results-mac/
+            warlords/playwright-report-mac/
+
+  desktop:
+    name: macOS app · arm64 dmg (ad-hoc signed) opens
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: warlords
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: warlords/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Build the arm64 dmg
+        run: npx electron-builder --mac dmg --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Signature (ad-hoc) and Gatekeeper
+        run: |
+          APP="release/mac-arm64/SanguoWarlords.app"
+          mkdir -p ../mac-desktop
+          {
+            echo "== codesign -dv --verbose=2"; codesign -dv --verbose=2 "$APP" 2>&1
+            echo "== codesign --verify --deep --strict"; codesign --verify --deep --strict --verbose=2 "$APP" 2>&1
+            echo "== spctl -a -vv (not notarized: rejected is expected; 'no usable signature' would mean unsigned)"; spctl -a -vv -t exec "$APP" 2>&1 || true
+          } | tee ../mac-desktop/signing.log
+          grep -q 'Signature=adhoc' ../mac-desktop/signing.log
+          grep -q 'satisfies its Designated Requirement' ../mac-desktop/signing.log
+          echo "### macOS app signature" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat ../mac-desktop/signing.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Mount the dmg and launch the app (~20 s)
+        run: |
+          DMG=$(ls release/*-macOS-arm64.dmg)
+          MNT="$RUNNER_TEMP/dmg"
+          mkdir -p "$MNT"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "$DMG"
+          ls -la "$MNT"
+          rm -rf "$RUNNER_TEMP/SanguoWarlords.app"
+          cp -R "$MNT/SanguoWarlords.app" "$RUNNER_TEMP/"
+          hdiutil detach "$MNT"
+          APP="$RUNNER_TEMP/SanguoWarlords.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          # as if downloaded with Safari: quarantined → what Gatekeeper answers (the Finder
+          # then offers 「仍要打开」 for a valid ad-hoc signature, 「已损坏」 for a broken one)
+          xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" "$APP"
+          { echo "== quarantined: spctl -a -vv"; spctl -a -vv -t exec "$APP" 2>&1 || true; } | tee -a ../mac-desktop/signing.log
+          xattr -dr com.apple.quarantine "$APP"
+          # the app prints `[desktop] smoke ok|FAILED {…}` 20 s after the page loaded and quits
+          set +e
+          SGWL_DESKTOP_SMOKE=20 ELECTRON_ENABLE_LOGGING=1 "$APP/Contents/MacOS/SanguoWarlords" > ../mac-desktop/desktop.log 2>&1 &
+          PID=$!
+          ( sleep 90; kill "$PID" 2>/dev/null ) &
+          wait "$PID"
+          CODE=$?
+          set -e
+          cat ../mac-desktop/desktop.log
+          echo "exit code $CODE"
+          {
+            echo "### macOS app launch (exit code $CODE)"
+            echo '```'
+            grep -E '^\[desktop\]|GPU|gpu' ../mac-desktop/desktop.log | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -q '\[desktop\] page loaded' ../mac-desktop/desktop.log
+          grep -q '\[desktop\] GPU feature status' ../mac-desktop/desktop.log
+          grep -q '\[desktop\] smoke ok' ../mac-desktop/desktop.log
+          if grep -E '\[desktop\] (renderer|child process) gone' ../mac-desktop/desktop.log; then exit 1; fi
+          test "$CODE" = 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-desktop-logs
+          if-no-files-found: warn
+          retention-days: 14
+          path: mac-desktop/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg-arm64
+          retention-days: 7
+          compression-level: 0
+          path: warlords/release/*-macOS-arm64.dmg
