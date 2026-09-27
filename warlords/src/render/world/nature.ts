@@ -1,12 +1,17 @@
-// Instanced vegetation and boulders. Each (type, style) pair is ONE
-// InstancedMesh for the whole map; unit geometry (canopy diameter 1, height 1)
-// is scaled per instance to the prop's sx/sy/sz.
+// Instanced vegetation and boulders. Each (type, style) pair is one batch for
+// the whole map; unit geometry (canopy diameter 1, height 1) is scaled per
+// instance to the prop's sx/sy/sz. Like the AI-art prop models, the batches are
+// culled per instance every frame (view frustum ∪ sun shadow frustum, within
+// the draw distance: world/propModels.ts PropCuller) — one whole-map mesh per
+// style used to run the vertex shader for every tree on the map, twice with
+// shadows (the procedural forests are ~230k triangles).
 import * as THREE from 'three';
 import type { MapProp } from '../../core/map';
 import { GeoBuilder, PRIM, col, mixCol, shade, trs } from '../core/geo';
 import { foliageMaterial, worldMaterial } from '../core/materials';
 import { hashString, makeRand, valueNoise2 } from '../core/noise';
 import { NATURE } from '../palette';
+import { InstanceBatch, PropCuller, type InstanceArrays } from './propModels';
 
 const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
 
@@ -166,7 +171,8 @@ export function natureStyle(p: MapProp): string | null {
 }
 
 export interface NatureMeshes {
-  group: THREE.Group;
+  /** a PropCuller: set its maxDistance to the draw distance */
+  group: PropCuller;
   count: number;
   /** Hide (and free) every instanced style of these prop types — prop models took them over. */
   removeTypes(types: ReadonlySet<string>): void;
@@ -174,7 +180,7 @@ export interface NatureMeshes {
 }
 
 export function buildNature(props: readonly MapProp[]): NatureMeshes {
-  const group = new THREE.Group();
+  const group = new PropCuller();
   group.name = 'nature';
   const buckets = new Map<string, MapProp[]>();
   for (const p of props) {
@@ -185,8 +191,9 @@ export function buildNature(props: readonly MapProp[]): NatureMeshes {
     arr.push(p);
   }
   const geos: THREE.BufferGeometry[] = [];
-  const byType = new Map<string, { mesh: THREE.InstancedMesh; geo: THREE.BufferGeometry }[]>();
+  const byType = new Map<string, { batch: InstanceBatch; geo: THREE.BufferGeometry }[]>();
   const m4 = new THREE.Matrix4();
+  const sphere = new THREE.Sphere();
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
   const pos = new THREE.Vector3();
@@ -197,8 +204,9 @@ export function buildNature(props: readonly MapProp[]): NatureMeshes {
     const style = STYLES[key];
     const geo = style.build();
     geos.push(geo);
-    const mesh = new THREE.InstancedMesh(geo, style.foliage ? foliageMaterial() : worldMaterial(), list.length);
-    mesh.name = `nature_${key}`;
+    if (!geo.boundingSphere) geo.computeBoundingSphere();
+    const n = list.length;
+    const inst: InstanceArrays = { mats: new Float32Array(n * 16), cols: new Float32Array(n * 3), spheres: new Float32Array(n * 4) };
     list.forEach((p, i) => {
       const h = hashString(`${p.x.toFixed(2)},${p.z.toFixed(2)}`);
       const yawJ = p.type === 'rock' ? 0 : ((h % 628) / 100) * 1;
@@ -208,45 +216,44 @@ export function buildNature(props: readonly MapProp[]): NatureMeshes {
       const sz = p.type === 'tree' || p.type === 'pine' || p.type === 'bamboo' ? p.sx : p.sz;
       scl.set(p.sx, p.sy, sz);
       m4.compose(pos, q, scl);
-      mesh.setMatrixAt(i, m4);
+      m4.toArray(inst.mats, i * 16);
       const jitter = 0.88 + ((h >>> 8) % 100) / 400;
       if (p.color) tint.set(p.color).lerp(new THREE.Color(1, 1, 1), 0.35).multiplyScalar(jitter);
       else tint.setRGB(jitter, jitter * (0.97 + ((h >>> 16) % 10) / 200), jitter);
-      mesh.setColorAt(i, tint);
+      tint.toArray(inst.cols, i * 3);
+      sphere.copy(geo.boundingSphere!).applyMatrix4(m4);
+      inst.spheres[i * 4] = sphere.center.x;
+      inst.spheres[i * 4 + 1] = sphere.center.y;
+      inst.spheres[i * 4 + 2] = sphere.center.z;
+      inst.spheres[i * 4 + 3] = sphere.radius;
     });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.computeBoundingSphere();
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-    count += list.length;
+    const batch = new InstanceBatch({ name: `nature_${key}`, geometry: geo, lod: null, lodDistance: Infinity, material: style.foliage ? foliageMaterial() : worldMaterial() }, inst);
+    group.addBatch(batch);
+    count += n;
     const t = list[0].type;
     let arr = byType.get(t);
     if (!arr) byType.set(t, (arr = []));
-    arr.push({ mesh, geo });
+    arr.push({ batch, geo });
   }
   return {
     group,
     count,
     removeTypes(types: ReadonlySet<string>): void {
       for (const t of types) {
-        for (const { mesh, geo } of byType.get(t) ?? []) {
-          group.remove(mesh);
-          mesh.dispose();
+        for (const { batch, geo } of byType.get(t) ?? []) {
+          group.removeBatch(batch);
+          batch.dispose();
           geo.dispose();
           const i = geos.indexOf(geo);
           if (i >= 0) geos.splice(i, 1);
-          count -= mesh.count;
+          count -= batch.count;
         }
         byType.delete(t);
       }
     },
     dispose(): void {
       for (const g of geos) g.dispose();
-      group.traverse((o) => {
-        if (o instanceof THREE.InstancedMesh) o.dispose();
-      });
+      group.dispose();
     },
   };
 }

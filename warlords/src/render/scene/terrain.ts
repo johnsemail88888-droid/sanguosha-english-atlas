@@ -16,6 +16,7 @@ import { NATURE } from '../palette';
 import { col } from '../core/geo';
 import { fbm2, valueNoise2 } from '../core/noise';
 import { onWorldArtQuality, requestGroundSet, worldArtQuality, type TexArraySet } from '../core/worldArt';
+import { groundVariant } from '../quality';
 import { computeGroundSplat, dryness, FLOW_STRIDE, SPLAT_STRIDE, type GroundSplat } from './terrainSplat';
 import { applySkyArtFog, skyArtFogKey } from '../core/skyArtFog';
 import { displayMap } from './rimShape';
@@ -359,9 +360,11 @@ float tNoise(vec2 p) {
 function applyArtDefines(m: THREE.MeshStandardMaterial, set: TexArraySet | null): void {
   const d = (m.defines ??= {});
   const before = `${d.WORLD_TEX !== undefined}${d.GROUND_LQ !== undefined}`;
-  if (set) d.WORLD_TEX = '';
+  // (极速: the procedural ground — vertex colours + a little noise, far cheaper per pixel)
+  const v = groundVariant(worldArtQuality());
+  if (set && v !== 'plain') d.WORLD_TEX = '';
   else delete d.WORLD_TEX;
-  if (set && worldArtQuality() === 'low') d.GROUND_LQ = '';
+  if (set && v === 'lq') d.GROUND_LQ = '';
   else delete d.GROUND_LQ;
   if (`${d.WORLD_TEX !== undefined}${d.GROUND_LQ !== undefined}` !== before) m.needsUpdate = true;
 }

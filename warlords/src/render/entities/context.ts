@@ -22,6 +22,8 @@ export interface EntityCtx {
   groundY(x: number, z: number): number;
   /** troops / NPCs beyond this are hidden (heroes are never distance-culled) */
   characterDistance: number;
+  /** the quality tier's LOD distance scale (entities/lod.ts; default 1) */
+  lodScale?: number;
   /** shared batch for troop / NPC overhead markers (one draw call) */
   badges: TroopBadgeLayer;
   shadows: boolean;

@@ -1,7 +1,12 @@
 // Background layer: ink-wash gradient sky dome with sun glow + drifting brush
-// clouds, and three rings of layered mountain silhouettes. Rendered in its own
-// scene/camera (huge far plane) BEFORE the main scene so the main camera keeps
-// a tight near/far range (good depth precision, no z-fighting).
+// clouds, and three rings of layered mountain silhouettes. A group in the main
+// scene drawn AFTER the opaque world at the far plane (depth = 1, no depth
+// writes, before anything translucent): its fragment shader only runs where no
+// world surface was drawn — in a TPS view the ground and buildings cover most
+// of the screen, and the painted dome is one of the costlier full-screen
+// shaders (a software rasteriser spent ~10 % of a frame on pixels it then
+// painted over). The main camera keeps its tight near/far range: every vertex
+// of the layer is pushed to the far plane (z = w), so nothing is clipped.
 //
 // AI-art mode (env/sky.webp shipped): the dome shows the painted panorama
 // instead — wrapped once around 360° and squeezed to 80° of elevation (see
@@ -28,13 +33,17 @@ import {
 } from '../core/skyArtFog';
 
 export interface SkyLayer {
-  scene: THREE.Scene;
-  camera: THREE.PerspectiveCamera;
+  /** add to the main scene (dome + mountain rings; drawn after the opaque world) */
+  group: THREE.Group;
   /** direction TO the sun (normalised) */
   sunDir: THREE.Vector3;
+  /** centre the dome on the camera (before rendering) */
   sync(main: THREE.PerspectiveCamera): void;
   dispose(): void;
 }
+
+/** renderOrder of the sky layer: after every opaque world object (translucent ones sort separately). */
+export const SKY_RENDER_ORDER = 1e6;
 
 const SKY_VERT = /* glsl */ `
 varying vec3 vDir;
@@ -153,8 +162,8 @@ void main() {
 
 /** Build the background sky + mountain silhouettes. */
 export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer {
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(60, 1, 5, 12000);
+  const group = new THREE.Group();
+  group.name = 'sky';
   const sunN = sunDir.clone().normalize();
 
   const skyMat = new THREE.ShaderMaterial({
@@ -179,12 +188,14 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
     },
     side: THREE.BackSide,
     depthWrite: false,
-    depthTest: false,
+    // at the far plane (SKY_VERT: z = w): drawn only where the world left the cleared depth
+    depthTest: true,
     fog: false,
   });
   const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(5000, 48, 24), skyMat);
-  skyMesh.renderOrder = -10;
+  skyMesh.renderOrder = SKY_RENDER_ORDER;
   skyMesh.frustumCulled = false;
+  skyMesh.name = 'skyDome';
   // the painted sky is pre-compensated for the renderer's tone mapping exposure
   let paintedFog = false;
   skyMesh.onBeforeRender = (r) => {
@@ -193,7 +204,7 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
     // the painted fog LUT is stored for exposure 1, like the dome's invACES()
     if (paintedFog) setSkyArtFogGain(1 / exposure);
   };
-  scene.add(skyMesh);
+  group.add(skyMesh);
 
   // Mountain rings: far = pale, near = darker ink. Colours pre-blended toward haze.
   const layers: { r: number; h: number; color: string; seed: number; seg: number }[] = [
@@ -201,16 +212,22 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
     { r: 2500, h: 380, color: SKY.mountainMid, seed: 7, seg: 200 },
     { r: 1500 + mapSize * 0.5, h: 210, color: SKY.mountainNear, seed: 11, seg: 180 },
   ];
-  const mtnMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide });
+  // (painted far → near over the dome: all at the far plane, no depth writes, renderOrder decides)
+  const mtnMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, side: THREE.DoubleSide, depthWrite: false });
+  mtnMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n\tgl_Position.z = gl_Position.w;');
+  };
+  mtnMat.customProgramCacheKey = () => 'skyMountains';
   const mountains = new THREE.Group();
+  mountains.name = 'skyMountains';
   layers.forEach((L, li) => {
     const geo = mountainRing(L.r, L.h, L.seg, L.seed, L.color, li);
     const m = new THREE.Mesh(geo, mtnMat);
-    m.renderOrder = -9 + li;
+    m.renderOrder = SKY_RENDER_ORDER + 1 + li;
     m.frustumCulled = false;
     mountains.add(m);
   });
-  scene.add(mountains);
+  group.add(mountains);
 
   const sunDirN = sunDir.clone().normalize();
 
@@ -239,17 +256,10 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
     mtnMat.color.copy(art.horizon).multiplyScalar(1 / Math.max(0.05, (art.horizon.r + art.horizon.g + art.horizon.b) / 3)).lerp(new THREE.Color(1, 1, 1), 0.55);
   });
   return {
-    scene,
-    camera,
+    group,
     sunDir: sunDirN,
     sync(main: THREE.PerspectiveCamera): void {
-      camera.position.copy(main.position);
-      camera.quaternion.copy(main.quaternion);
-      if (camera.fov !== main.fov || camera.aspect !== main.aspect) {
-        camera.fov = main.fov;
-        camera.aspect = main.aspect;
-        camera.updateProjectionMatrix();
-      }
+      // the dome travels with the camera; the mountain rings stay around the map
       skyMesh.position.copy(main.position);
     },
     dispose(): void {

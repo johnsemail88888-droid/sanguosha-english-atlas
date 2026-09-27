@@ -564,6 +564,17 @@ export interface PropModelSet {
 const _sphere = new THREE.Sphere();
 const _mat = new THREE.Matrix4();
 
+/**
+ * Make `plane` a far plane `dist` metres ahead of a camera (its world matrix
+ * elements): points deeper along the view direction are outside.
+ */
+export function setFarPlane(plane: THREE.Plane, e: ArrayLike<number>, dist: number): THREE.Plane {
+  // forward = −(e[8], e[9], e[10]); inside: forward · (p − cam) ≤ dist
+  plane.normal.set(e[8], e[9], e[10]).normalize();
+  plane.constant = -(plane.normal.x * e[12] + plane.normal.y * e[13] + plane.normal.z * e[14]) + dist;
+  return plane;
+}
+
 /** True when the sphere (cx, cy, cz, r) is not entirely outside one of the frustum's planes. */
 function sphereInFrustum(f: THREE.Frustum, cx: number, cy: number, cz: number, r: number): boolean {
   const planes = f.planes;
@@ -641,15 +652,56 @@ class PackedMesh {
   }
 }
 
+/** Per-instance data of a batch, precomputed once (flat arrays, instance order). */
+export interface InstanceArrays {
+  /** column-major 4×4 matrices, 16 floats per instance */
+  mats: Float32Array;
+  /** linear rgb tint, 3 floats per instance */
+  cols: Float32Array;
+  /** world bounding sphere per instance: x, y, z, r */
+  spheres: Float32Array;
+}
+
+/** What a batch draws: its model (and far LOD) and the mesh name prefix. */
+export interface BatchModel {
+  name: string;
+  geometry: THREE.BufferGeometry;
+  lod: THREE.BufferGeometry | null;
+  /** camera distance (m) beyond which an instance switches to `lod` */
+  lodDistance: number;
+  material: THREE.Material;
+}
+
+/** Matrices / tints / bounds of a prop model's instances (fitted to their MapProps). */
+export function propInstanceArrays(model: PropModel, list: readonly MapProp[]): InstanceArrays {
+  const n = list.length;
+  const out: InstanceArrays = { mats: new Float32Array(n * 16), cols: new Float32Array(n * 3), spheres: new Float32Array(n * 4) };
+  if (!model.geometry.boundingSphere) model.geometry.computeBoundingSphere();
+  const bs = model.geometry.boundingSphere!;
+  const tint = new THREE.Color();
+  list.forEach((p, i) => {
+    fitPropMatrix(model.kind, p, model.bounds, _mat).toArray(out.mats, i * 16);
+    propTint(model.kind, p, tint).toArray(out.cols, i * 3);
+    _sphere.copy(bs).applyMatrix4(_mat);
+    out.spheres[i * 4] = _sphere.center.x;
+    out.spheres[i * 4 + 1] = _sphere.center.y;
+    out.spheres[i * 4 + 2] = _sphere.center.z;
+    out.spheres[i * 4 + 3] = _sphere.radius;
+  });
+  return out;
+}
+
 /**
- * Every instance of one prop kind on the map: the full model near the camera,
+ * Every instance of one model on the map: the full model near the camera,
  * the simplified one (if any) beyond its LOD distance — each as a colour-pass
  * mesh (instances in the view frustum) and a shadow-pass mesh (instances in
- * the sun's shadow frustum), so neither pass draws the other's instances. No
- * allocation after construction.
+ * the sun's shadow frustum), so neither pass draws the other's instances.
+ * Instances beyond the draw distance are dropped too (the camera's far plane
+ * stretches to far heroes; fog has hidden the world there). No allocation
+ * after construction.
  */
-export class PropBatch {
-  readonly kind: GlbPropType;
+export class InstanceBatch {
+  readonly name: string;
   readonly count: number;
   /** colour pass: full / far model */
   readonly near: THREE.InstancedMesh;
@@ -665,33 +717,21 @@ export class PropBatch {
   private readonly dist2: number;
   private shadowOn = false;
 
-  constructor(model: PropModel, list: readonly MapProp[]) {
-    this.kind = model.kind;
-    const n = list.length;
+  constructor(model: BatchModel, inst: InstanceArrays) {
+    this.name = model.name;
+    const n = inst.spheres.length / 4;
     this.count = n;
-    this.mats = new Float32Array(n * 16);
-    this.cols = new Float32Array(n * 3);
-    this.spheres = new Float32Array(n * 4);
-    if (!model.geometry.boundingSphere) model.geometry.computeBoundingSphere();
-    const bs = model.geometry.boundingSphere!;
-    const tint = new THREE.Color();
-    list.forEach((p, i) => {
-      fitPropMatrix(model.kind, p, model.bounds, _mat).toArray(this.mats, i * 16);
-      propTint(model.kind, p, tint).toArray(this.cols, i * 3);
-      _sphere.copy(bs).applyMatrix4(_mat);
-      this.spheres[i * 4] = _sphere.center.x;
-      this.spheres[i * 4 + 1] = _sphere.center.y;
-      this.spheres[i * 4 + 2] = _sphere.center.z;
-      this.spheres[i * 4 + 3] = _sphere.radius;
-    });
+    this.mats = inst.mats;
+    this.cols = inst.cols;
+    this.spheres = inst.spheres;
     this.dist2 = model.lod ? model.lodDistance * model.lodDistance : Infinity;
-    const k = model.kind;
+    const k = model.name;
     const lod = model.lod;
     this.packs = [
-      new PackedMesh(model.geometry, model.material, n, `prop_${k}`, false),
-      new PackedMesh(lod ?? model.geometry, model.material, lod ? n : 0, `prop_${k}_far`, false),
-      new PackedMesh(model.geometry, model.material, n, `prop_${k}_shadow`, true),
-      new PackedMesh(lod ?? model.geometry, model.material, lod ? n : 0, `prop_${k}_far_shadow`, true),
+      new PackedMesh(model.geometry, model.material, n, k, false),
+      new PackedMesh(lod ?? model.geometry, model.material, lod ? n : 0, `${k}_far`, false),
+      new PackedMesh(model.geometry, model.material, n, `${k}_shadow`, true),
+      new PackedMesh(lod ?? model.geometry, model.material, lod ? n : 0, `${k}_far_shadow`, true),
     ];
     this.near = this.packs[0].mesh;
     this.far = lod ? this.packs[1].mesh : null;
@@ -762,6 +802,16 @@ export class PropBatch {
   }
 }
 
+/** Every instance of one prop kind on the map (see InstanceBatch). */
+export class PropBatch extends InstanceBatch {
+  readonly kind: GlbPropType;
+
+  constructor(model: PropModel, list: readonly MapProp[]) {
+    super({ name: `prop_${model.kind}`, geometry: model.geometry, lod: model.lod, lodDistance: model.lodDistance, material: model.material }, propInstanceArrays(model, list));
+    this.kind = model.kind;
+  }
+}
+
 const _view = new THREE.Frustum();
 
 /**
@@ -789,7 +839,13 @@ class ShadowGate extends THREE.LOD {
  * frustum (the scene's shadow-casting directional light, found once).
  */
 export class PropCuller extends THREE.LOD {
-  readonly batches: PropBatch[] = [];
+  readonly batches: InstanceBatch[] = [];
+  /**
+   * Draw distance (m): instances entirely deeper than this in the view are
+   * skipped — the camera's far plane stretches to far heroes, but the fog has
+   * hidden the world there (the renderer sets the tier's).
+   */
+  maxDistance = Infinity;
   private readonly gate = new ShadowGate(this);
   private sun: THREE.DirectionalLight | null = null;
   private sunLooked = false;
@@ -800,12 +856,20 @@ export class PropCuller extends THREE.LOD {
     this.add(this.gate);
   }
 
-  addBatch(b: PropBatch): void {
+  addBatch(b: InstanceBatch): void {
     this.batches.push(b);
     for (const m of b.meshes()) this.add(m);
     // keep the gate last in the traversal order
     this.remove(this.gate);
     this.add(this.gate);
+  }
+
+  /** Take a batch out (not disposed). */
+  removeBatch(b: InstanceBatch): void {
+    const i = this.batches.indexOf(b);
+    if (i < 0) return;
+    this.batches.splice(i, 1);
+    for (const m of b.meshes()) this.remove(m);
   }
 
   private shadowLight(): THREE.DirectionalLight | null {
@@ -826,6 +890,9 @@ export class PropCuller extends THREE.LOD {
   override update(camera: THREE.Camera): this {
     _mat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     _view.setFromProjectionMatrix(_mat);
+    const e = camera.matrixWorld.elements;
+    // a nearer far plane at the draw distance (planes[4]: normal = −forward)
+    if (this.maxDistance < Infinity) setFarPlane(_view.planes[4], e, this.maxDistance);
     const sun = this.shadowLight();
     let shadow: THREE.Frustum | null = null;
     if (sun && sun.castShadow) {
@@ -833,7 +900,6 @@ export class PropCuller extends THREE.LOD {
       sun.shadow.updateMatrices(sun);
       shadow = sun.shadow.getFrustum();
     }
-    const e = camera.matrixWorld.elements;
     for (const b of this.batches) b.cull(_view, shadow, e[12], e[14]);
     return this;
   }

@@ -13,7 +13,7 @@ import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { ViewSource } from './view';
-import { HERO_VIEW_RANGE, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
+import { HERO_VIEW_RANGE, groundVariant, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
 import { AdaptiveResolution, adaptiveFloor } from './adaptiveRes';
 import { LocalFirePredictor, type LocalFireGate } from './localFire';
 import { sharedUniforms, disposeSharedMaterials } from './core/materials';
@@ -25,6 +25,7 @@ import { displayMap } from './scene/rimShape';
 import { buildWater, type WaterMesh } from './scene/water';
 import { PostChain } from './scene/post';
 import { installSkyFog } from './scene/skyfog';
+import { DepthCuller } from './scene/depthCull';
 import { buildWorld, type WorldBuild } from './world/world';
 import { FireSystem } from './world/fires';
 import { GrassField } from './scene/grass';
@@ -106,6 +107,8 @@ export class GameRenderer {
   private readonly fx: Effects;
   private readonly zone: ZoneVisual;
   private readonly fog: THREE.Fog;
+  /** terrain / prop chunks beyond the draw distance (the far plane stretches to far heroes) */
+  private readonly depthCull = new DepthCuller();
   private quality: Quality;
   private preset: QualityPreset;
   private size = { w: 1, h: 1 };
@@ -198,13 +201,16 @@ export class GameRenderer {
     this.scene.fog = this.fog;
     this.scene.background = null;
     this.sky = createSkyLayer(map.size, SUN_DIR);
+    this.scene.add(this.sky.group);
     this.lights = new SceneLights(this.scene);
     this.terrain = buildTerrain(map);
     this.scene.add(this.terrain.group);
     this.water = buildWater(map, SUN_DIR);
     if (this.water.mesh) this.scene.add(this.water.mesh);
-    this.world = buildWorld(map);
+    // (极速 builds the procedural props: the AI-art prop models follow the tier the match starts on)
+    this.world = buildWorld(map, { art: this.preset.worldArt });
     this.scene.add(this.world.group);
+    for (const g of [this.terrain.group, this.world.group]) for (const o of g.children) if ((o as THREE.Mesh).isMesh && !(o as THREE.InstancedMesh).isInstancedMesh) this.depthCull.add(o as THREE.Mesh);
     this.fires = new FireSystem(this.scene, this.world.fires);
     this.pickWorld = new PickWorld(map);
     // roof shells / under dock decks: the camera boom stops short of them (no black inside faces)
@@ -325,8 +331,11 @@ export class GameRenderer {
     this.damagePulse = Math.max(0, this.damagePulse - d * 1.6);
     this.post.setDamage(this.damagePulse * 0.9 + (local?.downed ? 0.55 + 0.15 * Math.sin(this.time * 4) : 0));
 
-    // 6. render (far plane stretched so no hero within weapon range is clipped)
+    // 6. render (far plane stretched so no hero within weapon range is clipped;
+    // the world still ends at the draw distance, where the fog has hidden it)
     this.updateFarPlane(localId);
+    this.camera.updateMatrixWorld();
+    this.depthCull.update(this.camera, this.farNow > this.preset.drawDistance ? this.preset.drawDistance : Infinity);
     // (a staged quality switch holds the last picture while it compiles the scene)
     if (!this.holdRender) {
       this.renderer.info.reset();
@@ -403,8 +412,6 @@ export class GameRenderer {
       fadedRig?.setFade(1);
     };
     try {
-      // the sky layer's own programs (its scene: no lights in their keys)
-      this.forWorldTarget(() => this.renderer.compile(this.sky.scene, this.sky.camera));
       if (this.renderer.extensions.has('KHR_parallel_shader_compile')) {
         await this.forWorldTarget(() => this.renderer.compileAsync(this.scene, this.camera));
         shaderProgress?.(1);
@@ -483,6 +490,11 @@ export class GameRenderer {
       return;
     }
     void this.applyQualityStaged(q);
+  }
+
+  /** Frame-rate cap of the tier in use (fps, 0 = none): the match loop skips display frames above it (mountGame.ts). */
+  get maxFps(): number {
+    return this.disposed ? 0 : this.preset.maxFps;
   }
 
   /** True while a quality switch is being applied (UI: 「应用中…」). */
@@ -630,6 +642,7 @@ export class GameRenderer {
     this.qualitySeq++;
     this.applyingSubs.clear();
     this.entities.dispose();
+    this.depthCull.clear();
     // the match's character models (textures ~5 MB each) go with it; the next match reloads from the HTTP cache
     evictUnusedTemplates();
     this.fx.dispose();
@@ -744,7 +757,9 @@ export class GameRenderer {
       const recompiles =
         next.shadows !== this.renderer.shadowMap.enabled ||
         next.glbCharacters !== this.preset.glbCharacters ||
-        (q === 'low') !== (this.quality === 'low'); // the textured ground's cheap variant (terrain.ts GROUND_LQ)
+        // the ground's variant (terrain.ts: procedural / GROUND_LQ / full) and the buildings' material
+        groundVariant(q) !== groundVariant(this.quality) ||
+        next.worldArt !== this.preset.worldArt;
       this.switchQuality(q);
       if (recompiles) {
         this.holdRender = true;
@@ -901,6 +916,9 @@ export class GameRenderer {
     this.post.configure({ bloom: p.bloom, vignette: p.post, msaa: p.msaa }, this.frameNo > 0);
     // character art tier (AI-art vs procedural bodies) follows the active preset, incl. opts.quality
     this.entities.setCharacterArt(p.glbCharacters);
+    // textured buildings (the ground follows setWorldArtQuality)
+    this.world.setTextured(p.worldArt);
+    this.world.setDrawDistance(p.drawDistance);
   }
 
   private onSettings(u: UserSettings): void {
@@ -926,6 +944,7 @@ export class GameRenderer {
         blocked: (a, b) => this.pickWorld.segmentBlocked(a, b),
         groundY: (x, z) => this.pickWorld.groundHeight(x, z),
         characterDistance: this.preset.characterDistance,
+        lodScale: this.preset.lodScale,
         badges: this.entities.badges,
         shadows: this.preset.shadows,
         frame: 0,
@@ -939,6 +958,7 @@ export class GameRenderer {
     c.local = local;
     c.lang = settings.get().lang;
     c.characterDistance = this.preset.characterDistance;
+    c.lodScale = this.preset.lodScale;
     c.shadows = this.preset.shadows;
     c.frame = this.frameNo;
     return c;

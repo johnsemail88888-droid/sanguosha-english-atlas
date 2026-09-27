@@ -2,7 +2,20 @@
 // Read by render (fov/quality), input (sensitivity), audio (volumes), net (server), UI (everything).
 
 export type Lang = 'zh' | 'en';
-export type Quality = 'low' | 'medium' | 'high';
+/** Graphics tiers, cheapest first: 极速 / 流畅 / 均衡 / 高清 / 极致 (render/quality.ts). */
+export type Quality = 'potato' | 'low' | 'medium' | 'high' | 'ultra';
+export const QUALITIES: readonly Quality[] = ['potato', 'low', 'medium', 'high', 'ultra'];
+
+/**
+ * A stored quality value → a tier: the five ids (any case / padding; the
+ * three older ones keep their meaning), null for anything else (the first-run
+ * default then applies).
+ */
+export function migrateQuality(v: unknown): Quality | null {
+  if (typeof v !== 'string') return null;
+  const q = v.trim().toLowerCase();
+  return (QUALITIES as readonly string[]).includes(q) ? (q as Quality) : null;
+}
 
 export interface NetServerConfig {
   /** 'peer' = PeerJS WebRTC (default public cloud or custom), 'ws' = WebSocket relay server */
@@ -97,8 +110,7 @@ function load(): UserSettings {
     const raw = globalThis.localStorage?.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<UserSettings>;
-      const q = parsed.quality;
-      const quality: Quality = q === 'low' || q === 'medium' || q === 'high' ? q : defaultQuality();
+      const quality: Quality = migrateQuality(parsed.quality) ?? defaultQuality();
       return { ...DEFAULT_SETTINGS, ...parsed, quality, net: { ...DEFAULT_SETTINGS.net, ...(parsed.net ?? {}) } };
     }
   } catch {

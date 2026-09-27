@@ -18,7 +18,7 @@ export function fullscreenTriangle(): THREE.BufferGeometry {
   return g;
 }
 
-/** Renders the background sky layer, then the world on top (depth cleared in between). */
+/** Renders the world; the sky layer is part of the scene (drawn after the opaque world, see scene/sky.ts). */
 class WorldPass extends Pass {
   constructor(
     private readonly sky: SkyLayer,
@@ -39,8 +39,6 @@ class WorldPass extends Pass {
     renderer.setRenderTarget(this.renderToScreen ? null : readBuffer);
     renderer.clear(true, true, true);
     this.sky.sync(this.camera);
-    renderer.render(this.sky.scene, this.sky.camera);
-    renderer.clearDepth();
     renderer.render(this.scene, this.camera);
     renderer.autoClear = oldAuto;
   }

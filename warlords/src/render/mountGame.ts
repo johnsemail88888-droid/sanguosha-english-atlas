@@ -12,6 +12,7 @@ import type { Vec3 } from '../core/math';
 import type { EntityId, GameEvent } from '../core/types';
 import { InputController } from '../game/input';
 import { GameRenderer } from './renderer';
+import { FrameLimiter } from './frameCap';
 import type { ViewSource } from './view';
 
 export type LoadStage = 'scene' | 'models' | 'shaders' | 'warmup' | 'ready' | 'failed';
@@ -80,6 +81,8 @@ export function mountGameView(container: HTMLElement, viewSource: ViewSource, op
   let disposed = false;
   let raf = 0;
   let last = performance.now();
+  /** the tier's frame-rate cap (极速: 30 fps — the time between frames goes to the sim / network) */
+  const limiter = new FrameLimiter();
 
   const setProgress = (p: LoadProgress): void => {
     progress = p;
@@ -111,6 +114,8 @@ export function mountGameView(container: HTMLElement, viewSource: ViewSource, op
   const loop = (now: number): void => {
     if (disposed) return;
     raf = requestAnimationFrame(loop);
+    limiter.fps = renderer?.maxFps ?? 0;
+    if (!limiter.due(now)) return;
     const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
     last = now;
     try {
@@ -148,6 +153,7 @@ export function mountGameView(container: HTMLElement, viewSource: ViewSource, op
   const start = (): void => {
     if (disposed) return;
     last = performance.now();
+    limiter.reset();
     setProgress({ progress: 1, stage: 'ready' });
     raf = requestAnimationFrame(loop);
   };

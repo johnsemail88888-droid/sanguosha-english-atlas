@@ -92,8 +92,9 @@ export interface TexSizes {
  * Structures stay at 512 even on high: 2.3 m per repeat is ~220 texels per metre.
  */
 export function texSizesFor(q: Quality): TexSizes {
-  if (q === 'low') return { ground: 512, struct: 256, props: 256, sky: 1024 };
-  if (q === 'high') return { ground: 1024, struct: 512, props: 1024, sky: 2560 };
+  // 极速 shows the procedural world (the painted sky only): 流畅's sizes, should it switch up mid-match
+  if (q === 'low' || q === 'potato') return { ground: 512, struct: 256, props: 256, sky: 1024 };
+  if (q === 'high' || q === 'ultra') return { ground: 1024, struct: 512, props: 1024, sky: 2560 };
   return { ground: 1024, struct: 512, props: 512, sky: 2048 };
 }
 
@@ -352,7 +353,7 @@ export function requestGroundSet(cb: (set: TexArraySet) => void): void {
       if (!groundPlanUsable(plan)) return;
       // the ground is seen at grazing angles: full anisotropy (low tier: cheap filtering)
       const q = worldArtQuality();
-      groundSet = buildSet(GROUND_LAYERS, plan, texSizesFor(q).ground, q === 'low' ? 2 : 8);
+      groundSet = buildSet(GROUND_LAYERS, plan, texSizesFor(q).ground, q === 'low' || q === 'potato' ? 2 : 8);
     }
     cb(groundSet);
   });
@@ -370,7 +371,7 @@ export function requestStructSet(cb: (set: TexArraySet) => void): void {
       if (!structPlanUsable(plan)) return;
       // walls and roofs face the camera: 4× is plenty (low tier: none)
       const q = worldArtQuality();
-      structSet = buildSet(STRUCT_LAYERS, plan, texSizesFor(q).struct, q === 'low' ? 1 : 4);
+      structSet = buildSet(STRUCT_LAYERS, plan, texSizesFor(q).struct, q === 'low' || q === 'potato' ? 1 : 4);
     }
     cb(structSet);
   });

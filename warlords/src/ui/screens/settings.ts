@@ -1,6 +1,6 @@
 // Settings modal: language, name, controls, graphics, audio, network
 // (explains 公共P2P vs 局域网/自建服务器 and `npm run server`).
-import { DEFAULT_SETTINGS, defaultQuality, settings, type Lang, type Quality, type UserSettings } from '../../game/settings';
+import { DEFAULT_SETTINGS, QUALITIES, defaultQuality, settings, type Lang, type UserSettings } from '../../game/settings';
 import type { Screen, SettingsTab, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
@@ -86,12 +86,8 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
     const st = settings.get();
     return [
       field(t('settings.fov'), slider(st.fov, 60, 100, 1, (v) => upd({ fov: v }), (v) => `${v}°`, t('settings.fov'))),
-      field(t('settings.quality'), segmented([
-        { value: 'low' as Quality, label: t('settings.quality.low') },
-        { value: 'medium' as Quality, label: t('settings.quality.medium') },
-        { value: 'high' as Quality, label: t('settings.quality.high') },
-      ], st.quality, (v) => upd({ quality: v }), { name: t('settings.quality') }),
-      tx('集成显卡或手机请选择“流畅”。', 'Pick “Low” on integrated GPUs and phones.')),
+      field(t('settings.quality'), segmented(QUALITIES.map((q) => ({ value: q, label: t(`settings.quality.${q}`) })), st.quality, (v) => upd({ quality: v }), { name: t('settings.quality') }),
+      tx('集成显卡或手机选“流畅”；很卡或没有独立显卡（软件渲染）选“极速”。', 'Pick “Low” on integrated GPUs and phones; “Lowest” when it still stutters (no GPU / software rendering).')),
       field(t('settings.fps'), toggle(st.showFps, (v) => upd({ showFps: v }), t('settings.fps'))),
     ];
   };

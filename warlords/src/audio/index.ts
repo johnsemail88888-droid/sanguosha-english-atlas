@@ -116,7 +116,7 @@ export class AudioEngine {
   private build(ctx: AudioContext): void {
     const s = settings.get();
     this.graph = new MixGraph(ctx, s.quality, true);
-    this.sfx = new SfxEngine(this.graph, s.quality === 'low' ? 20 : 32, () => ctx.state === 'running');
+    this.sfx = new SfxEngine(this.graph, s.quality === 'low' || s.quality === 'potato' ? 20 : 32, () => ctx.state === 'running');
     this.player = new MusicPlayer(this.graph);
     this.applySettings(s);
     this.unsubscribe = settings.subscribe((next) => this.applySettings(next));
@@ -140,7 +140,7 @@ export class AudioEngine {
       g.setVolumes(s.masterVolume, s.musicVolume, s.sfxVolume);
       if (g.quality !== s.quality) {
         g.setQuality(s.quality);
-        this.sfx?.pool.setCapacity(s.quality === 'low' ? 20 : 32);
+        this.sfx?.pool.setCapacity(s.quality === 'low' || s.quality === 'potato' ? 20 : 32);
       }
     } catch (err) {
       warnOnce('settings apply failed', err);
