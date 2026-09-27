@@ -835,13 +835,12 @@ class App implements UiCtx {
       this.settleInvite(null);
       throw err;
     }
-    if (!this.adoptOnline(s)) {
+    if (!this.adoptOnline(s, { mode, net: { ...settings.get().net } })) {
       this.settleInvite(null);
       return;
     }
-    this.conn = { mode, net: { ...settings.get().net } };
     const code = s.lobby?.roomCode;
-    this.settleInvite(code ? { session: s, link: inviteLink(code, location, this.conn) } : null);
+    this.settleInvite(code ? { session: s, link: inviteLink(code, location, this.conn ?? undefined) } : null);
   }
 
   quickInvite(): void {
@@ -913,9 +912,8 @@ class App implements UiCtx {
       s.leave();
       return;
     }
-    if (!this.adoptOnline(s)) return;
     const net = { ...settings.get().net };
-    this.conn = { mode, net };
+    if (!this.adoptOnline(s, { mode, net })) return;
     // F5 in the lobby or mid-match rejoins this room the same way (see screens/online.ts)
     this.joined = { code: (s.lobby?.roomCode || code).toUpperCase(), mode, net: netFor(mode, net) };
     this.touchRejoin();
@@ -938,13 +936,15 @@ class App implements UiCtx {
     return this.sessionKind === 'online' ? this.conn : null;
   }
 
-  private adoptOnline(s: GameSession): boolean {
+  /** `conn` is known before the session is attached: the lobby it opens builds its invite link from it. */
+  private adoptOnline(s: GameSession, conn: { mode: 'peer' | 'ws'; net: NetServerConfig }): boolean {
     // the player navigated away while connecting → drop the new session
     if (this.screenId !== 'online') {
       s.leave();
       return false;
     }
     this.leaveSession(false);
+    this.conn = conn;
     this.attachSession(s, 'online');
     return true;
   }

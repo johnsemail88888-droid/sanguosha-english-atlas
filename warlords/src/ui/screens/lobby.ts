@@ -139,7 +139,8 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
    * refused, the link is selected for 长按 / Ctrl+C.
    */
   const inviteBox = (code: string): HTMLElement => {
-    const link = code ? inviteLink(code, location, ctx.connection?.() ?? undefined) : '';
+    const linkNow = (): string => (code ? inviteLink(code, location, ctx.connection?.() ?? undefined) : '');
+    const link = linkNow();
     const plat = platformInfo();
     const touch = shouldUseTouch(settings.get().touchControls);
     const st = inviteStatus(copied, plat.os, touch);
@@ -157,7 +158,7 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     field.addEventListener('focus', selectAll);
     field.addEventListener('click', selectAll);
     const copyBtn = button(copied ? t('lobby.copyAgain') : t('lobby.copyLink'), () => {
-      void copyText(link).then((ok) => {
+      void copyText(linkNow()).then((ok) => {
         copied = ok;
         if (ok) ctx.toast(`${t('common.copied')} · ${t('lobby.inviteHint')}`);
         const lobby = session.lobby;
@@ -166,7 +167,7 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     }, { cls: 'gold invite-copy', sfx: 'confirm', disabled: !link });
     const share = link && canNativeShare(globalThis.navigator as Parameters<typeof canNativeShare>[0], plat.os, link)
       ? button(t('lobby.share'), () => {
-          void navigator.share({ title: tx('三国杀·枪火乱世', 'Sanguo Warlords'), text: tx('来和我一起玩三国杀·枪火乱世！点开链接就能进房间：', 'Join my Sanguo Warlords room — open the link:'), url: link }).catch(() => undefined);
+          void navigator.share({ title: tx('三国杀·枪火乱世', 'Sanguo Warlords'), text: tx('来和我一起玩三国杀·枪火乱世！点开链接就能进房间：', 'Join my Sanguo Warlords room — open the link:'), url: linkNow() }).catch(() => undefined);
         }, { cls: 'dark invite-share-btn', sfx: 'confirm' })
       : null;
     // the clipboard refused: the link is selected, ready for 长按 / Ctrl+C (once: later renders leave the focus alone)
