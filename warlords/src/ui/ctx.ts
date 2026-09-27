@@ -37,6 +37,8 @@ export interface UiCtx {
   readonly sessionKind: 'single' | 'online' | null;
   /** WebGL 2 probe at boot: without it no match can render (the title explains and blocks play) */
   readonly webgl: { ok: boolean; reason: string | null };
+  /** the GPU the browser renders WebGL with ('' = unknown); `software`: hardware acceleration is off (the game crawls) */
+  readonly gpu: { renderer: string; software: boolean };
   sfx(name: SfxName): void;
   toast(text: string, kind?: 'info' | 'error'): void;
   confirm(text: string, opts?: { ok?: string; cancel?: string; title?: string }): Promise<boolean>;
