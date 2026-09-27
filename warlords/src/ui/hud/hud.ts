@@ -30,6 +30,9 @@ import { prewarmWeapons } from '../artIcons';
 import type { HudFrame } from './types';
 import { trackViewport } from './viewport';
 import { gpuWarnDismissed, gpuWarning, isMac, perfLines } from '../perfcheck';
+import type { AbilityDef } from '../../data/types';
+import type { SkillAimInfo } from '../../game/input';
+import { SkillAimHint, SkillCastFeed, SkillCastTracker, SkillReadyTips, SkillTooltip, heldDef } from './skills';
 
 /** `setPaused` of a local single-player session (GameSession G2 extension; optional). */
 type PausableSession = GameSession & { setPaused?(paused: boolean): void };
@@ -149,6 +152,14 @@ export class Hud {
   private readonly swallowed = new Set<string>();
   /** touch mode + language the touch bar was last built for */
   private touchBarKey = '';
+  // skill clarity (hud/skills.ts): tooltip, held-skill hint, cast results, first-ready tips
+  private readonly skillTip = new SkillTooltip();
+  private readonly skillAim = new SkillAimHint();
+  private readonly skillFeed = new SkillCastFeed((id) => this.nameOf(id));
+  private readonly skillTips = new SkillReadyTips();
+  private readonly castTracker = new SkillCastTracker();
+  /** the skill icon under the pointer */
+  private hoverSkill: AbilityDef | null = null;
 
   constructor(private readonly ctx: UiCtx, deps: HudDeps) {
     this.view = deps.view;
@@ -166,6 +177,8 @@ export class Hud {
     this.abilities = new AbilityBar((slot, index) => {
       if (slot === 'item') this.handle.input.pushAction({ a: 'item', slot: index ?? 0 });
       else this.handle.input.pushAction({ a: 'ability', slot });
+    }, (def) => {
+      this.hoverSkill = def;
     });
     this.squad = new SquadPanel((o: SquadOrderKind) => this.handle.input.pushAction({ a: 'command', order: o }));
     this.top = new TopBar((id) => entityLabel(this.view, id, getLang())?.name ?? `#${id}`);
@@ -243,6 +256,8 @@ export class Hud {
       this.focusWarn.el,
       this.dmg.el,
       this.crosshair.el,
+      this.skillAim.el,
+      this.skillFeed.el,
       this.killStamp.el,
       this.top.el,
       this.minimapWrap,
@@ -255,6 +270,8 @@ export class Hud {
       this.chat.el,
       h('div', { class: 'hud-left' }, this.squad.el, this.vitals.el),
       this.abilities.el,
+      this.skillTips.el,
+      this.skillTip.el,
       this.pickups.el,
       this.weapon.el,
       this.spectate.el,
@@ -464,6 +481,7 @@ export class Hud {
     this.vitals.update(f);
     this.weapon.update(f);
     this.abilities.update(f);
+    this.updateSkills(f);
     this.squad.update(f);
     this.top.update(f);
     const scoped = this.scope.update(f);
@@ -518,6 +536,23 @@ export class Hud {
       this.scoreboard.update(f.players, f.me, this.view.localId());
     }
     this.handleDeath(f);
+  }
+
+  /** The held / hovered skill's tooltip and hint, first-ready tips, closing cast results. */
+  private updateSkills(f: HudFrame): void {
+    const me = f.me;
+    const alive = !!me && !me.dead;
+    const aim = (this.handle.input as { aimingInfo?(): SkillAimInfo | null }).aimingInfo?.() ?? null;
+    const held = alive && aim ? heldDef(me!.heroId, aim.slot) : null;
+    this.abilities.setHeld(held ? aim!.slot : null);
+    this.skillAim.update(held, aim?.valid ?? true, f.lang);
+    const show = held ?? (alive ? this.hoverSkill : null);
+    if (show) this.skillTip.show(show, f.lang, !!held, show.slot === 'lord' && me!.role !== 'lord');
+    else this.skillTip.hide();
+    setClass(this.el, 'sktip-open', !!show);
+    this.skillTips.update(f);
+    for (const r of this.castTracker.tick(f.now)) this.skillFeed.show(r, f.lang, f.now);
+    this.skillFeed.update(f.now);
   }
 
   private readFrame(now: number, dt: number): HudFrame {
@@ -597,6 +632,14 @@ export class Hud {
       this.causes.ingest(evs, now);
     } catch (err) {
       console.error('[hud] kill causes failed', err);
+    }
+    // what my skill casts did (「青龙斩 命中 3」)
+    try {
+      const own = (id: EntityId): boolean => id === myId || squad.has(id) || (myId !== null && this.view.get(id)?.owner === myId);
+      const results = this.castTracker.push(evs, me && myId !== null ? { id: myId, heroId: me.heroId } : null, now, { isOwn: own, isHero: (id) => this.view.get(id)?.kind === 'hero' });
+      for (const r of results) this.skillFeed.show(r, lang, now);
+    } catch (err) {
+      console.error('[hud] skill results failed', err);
     }
     for (const ev of evs) {
       try {

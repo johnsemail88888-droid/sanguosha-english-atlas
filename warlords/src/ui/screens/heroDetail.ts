@@ -11,6 +11,7 @@ import { difficultyStars, kingdomBadge, magatamaRow } from '../widgets';
 import { gearArt } from '../cardArt';
 import { abilityArt, setArt } from '../artIcons';
 import { abilityShort } from '../short';
+import { addsToLine, aimTag, skillChips, skillLineEl } from '../skillCard';
 
 export const SLOT_ORDER: Record<AbilityDef['slot'], number> = { passive: 0, q: 1, e: 2, lord: 3 };
 export const SLOT_KEY: Record<AbilityDef['slot'], string> = { passive: '', q: 'Q', e: 'E', lord: 'G' };
@@ -26,24 +27,27 @@ export function slotLabel(slot: AbilityDef['slot'], passive = false): string {
 }
 
 export function abilityBlock(a: AbilityDef, opts: { dimLord?: boolean } = {}): HTMLElement {
-  const meta: string[] = [];
-  if (a.cooldown) meta.push(t('select.cooldown', { n: a.cooldown }));
-  if (a.charges && a.charges > 1) meta.push(t('select.charges', { n: a.charges }));
   const dim = a.slot === 'lord' && opts.dimLord;
   // the painted skill icon beside the text (a hidden slot without art); while the file loads the
   // slot shows the skill's short name on a disc, like the HUD (NP-4) — never an empty indent
   const en = getLang() === 'en';
-  const ico = h('span', { class: 'ab-ico' }, h('span', { class: `g${en ? ' en' : ''}`, aria: { hidden: 'true' } }, abilityShort(a, en ? 'en' : 'zh')));
+  const lang = en ? 'en' : 'zh';
+  const ico = h('span', { class: 'ab-ico' }, h('span', { class: `g${en ? ' en' : ''}`, aria: { hidden: 'true' } }, abilityShort(a, lang)));
   setArt(ico, abilityArt(a.id), { lazy: true });
+  // what it does in one line + its numbers (伤害 / 射程 / 范围 / 持续 / 冷却, generated from the
+  // ability's params) first; the full rules under them
   return h('div', { class: `sg-ability slot-${a.slot}${dim ? ' dim' : ''}` },
     ico,
     h('div', { class: 'ab-head' },
       h('span', { class: `ab-key k-${a.slot}` }, slotLabel(a.slot, isPassiveAbility(a))),
       h('span', { class: 'ab-name' }, tx(a.nameZh, a.nameEn)),
       a.sgsSkill && a.sgsSkill !== a.nameZh ? h('span', { class: 'ab-sgs' }, `〔${a.sgsSkill}〕`) : null,
-      meta.length ? h('span', { class: 'ab-meta' }, meta.join(' · ')) : null,
+      isPassiveAbility(a) ? null : aimTag(a, lang),
     ),
-    h('p', { class: 'ab-desc' }, tx(a.descZh, a.descEn)),
+    skillLineEl(a, lang),
+    skillChips(a, lang),
+    // (a description that only repeats the line is left out: 权衡 「所有武器换弹速度 +20%」)
+    addsToLine(a, lang) ? h('p', { class: 'ab-desc' }, tx(a.descZh, a.descEn)) : null,
     dim ? h('p', { class: 'ab-note' }, t('select.lordOnly')) : null,
   );
 }
