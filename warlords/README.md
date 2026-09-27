@@ -114,7 +114,37 @@ English section below → [English](#english).*
 
 ## 联机
 
-标题画面 →「联机对战」，选择连接方式：
+标题画面 →「联机对战」（或一键「邀请朋友一起玩」），选择连接方式。配置了官方服务器的版本默认使用「官方服务器（推荐）」：
+所有数据经官方服务器中转，不需要 P2P 直连，任何网络都能连。连不上时点联机界面的「联机检测」，把结果截图发给我们。
+
+### 官方联机服务器（一键部署）
+公共 P2P 依赖海外的 0.peerjs.com 和 NAT 穿透，在国内经常「连接超时」。租一台小云服务器，粘贴一行命令，就有了自己的官方服务器：
+
+1. **买服务器**：阿里云 ECS / 轻量应用服务器，或腾讯云轻量应用服务器（Lighthouse）。
+   - 地域选 **中国香港**（国内访问快，且 80/443 端口不需要 ICP 备案；内地地域必须备案才能用网页端口）。
+   - 配置 **1 核 1 GB ~ 2 核 2 GB** 就够（一台可同时跑很多房间），系统镜像选 **Ubuntu 22.04**（24.04 / Debian 12 也可以）。
+   - 价格约 **¥24–35 / 月**。
+   - 在控制台的「防火墙 / 安全组」里放行 **TCP 80 和 443**（轻量服务器默认已放行）。
+2. **打开网页终端**：控制台 → 该服务器 →「远程连接 / 登录」（阿里云 Workbench、腾讯云 OrcaTerm），用浏览器登录即可，不需要装任何软件。
+3. **粘贴这一行，回车**（约 5–10 分钟，可以重复运行）：
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/johnsemail88888-droid/sanguosha-english-atlas/main/warlords/deploy/install.sh | sudo bash
+   ```
+   如果 raw.githubusercontent.com 打不开，用镜像：
+   ```bash
+   curl -fsSL https://cdn.jsdelivr.net/gh/johnsemail88888-droid/sanguosha-english-atlas@main/warlords/deploy/install.sh | sudo bash
+   ```
+4. **把最后打印的两行发给 Claude**：
+   ```
+   游戏网址 Game:   https://1-2-3-4.sslip.io/
+   中继地址 Relay:  wss://1-2-3-4.sslip.io/ws
+   ```
+   这两行填进游戏（`src/net/official.ts`）后，所有版本（网页、桌面版）默认就走这台服务器；朋友也可以直接打开「游戏网址」玩。
+
+脚本会安装 Node.js 22、下载并构建游戏、以 systemd 服务 `sgwl` 常驻运行，并用 Caddy 自动申请 HTTPS 证书
+（`<IP>.sslip.io` 域名自动指向你的服务器，无需买域名；有自己的域名可用 `curl … | sudo DOMAIN=你的域名 bash`）。
+以后更新游戏：`curl … | sudo bash -s -- update`；检查状态：`curl … | sudo bash -s -- status`（会再次打印那两行）。
+出错时把窗口最后 30 行（或 `/var/log/sgwl-install.log`）发给 Claude。
 
 ### 1. 公共 P2P（房间码）
 主机「创建房间」后得到 5 位房间码（或复制邀请链接——链接里带着连接方式和自定义服务器，朋友打开即用同样的方式连接），朋友「加入房间」输入房间码即可。刷新页面（F5）会用原来的方式自动重新加入。通过 WebRTC 直连，
@@ -278,6 +308,38 @@ All 30 heroes with every number and ability: **[docs/HEROES.md](docs/HEROES.md)*
 | Meng Huo | Chief Culprit / Resurgence | Barbarian Invasion | Elephant Corps | — |
 
 ### Online play
+Builds with an official server start on **Official server (recommended)**: everything is relayed by that server, so it
+works on any network (no direct P2P connection needed). If connecting fails, press **Connection check** on the online
+screen and send us a screenshot.
+
+#### Official online server (one-command deploy)
+Public P2P depends on 0.peerjs.com (abroad) and NAT traversal, which often time out from mainland China. A small
+cloud server plus one pasted command gives you your own official server:
+
+1. **Buy a server**: Alibaba Cloud ECS / Simple Application Server or Tencent Cloud Lighthouse, region
+   **Hong Kong** (fast from the mainland, and ports 80/443 need no ICP filing), **1 vCPU / 1 GB – 2 vCPU / 2 GB**
+   (plenty for many rooms), image **Ubuntu 22.04** (24.04 / Debian 12 work too), about **¥24–35 / month**. Allow
+   **TCP 80 and 443** in its firewall / security group (Lighthouse allows them by default).
+2. **Open the web console**: the provider's "Remote connection / Login" (Alibaba Workbench, Tencent OrcaTerm) — a
+   terminal in the browser, nothing to install.
+3. **Paste this line and press Enter** (5–10 minutes; safe to run again):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/johnsemail88888-droid/sanguosha-english-atlas/main/warlords/deploy/install.sh | sudo bash
+   ```
+   Mirror if raw.githubusercontent.com is unreachable:
+   ```bash
+   curl -fsSL https://cdn.jsdelivr.net/gh/johnsemail88888-droid/sanguosha-english-atlas@main/warlords/deploy/install.sh | sudo bash
+   ```
+4. **Send the two printed lines back to Claude** (game URL `https://<a-b-c-d>.sslip.io/` and relay
+   `wss://<a-b-c-d>.sslip.io/ws`). Once they are in `src/net/official.ts`, every build (web, desktop) uses the server by
+   default; friends can also play straight from the game URL.
+
+The script installs Node.js 22, downloads and builds the game, runs it as the systemd service `sgwl` and puts Caddy in
+front with an automatic HTTPS certificate (`<ip>.sslip.io` resolves to your server — no domain needed; with your own
+domain: `curl … | sudo DOMAIN=your.domain bash`). Update later with `curl … | sudo bash -s -- update`, check with
+`curl … | sudo bash -s -- status` (prints the two lines again). On failure send the last 30 lines of the window (or
+`/var/log/sgwl-install.log`) to Claude.
+
 - **Public P2P (room code):** Play Online → Public P2P → Host a room; friends join with the 5-character code or the
   invite link (it carries the connection mode and any custom server, so friends connect the same way; a reload (F5)
   rejoins the same way too). WebRTC through the public PeerJS signalling cloud; empty seats are bots, dropped players are taken over
