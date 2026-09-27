@@ -61,7 +61,10 @@ jobs:
           # a manual run tags the commit that was built, not the default branch's head
           target_commitish: ${{ github.sha }}
           name: 三国杀·枪火乱世 ${{ github.ref_type == 'tag' && github.ref_name || format('build {0}', github.run_number) }}
-          prerelease: ${{ github.ref_type != 'tag' }}
+          # every build is the newest game release: the in-game 「下载桌面版」 links open
+          # releases/latest, which skips pre-releases (it showed the old atlas v1.1.1)
+          prerelease: false
+          make_latest: true
           files: out/*
           body: |
             ## 三国杀·枪火乱世 桌面版
