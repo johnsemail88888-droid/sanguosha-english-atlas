@@ -48,6 +48,14 @@ export const ADAPTIVE_RES_DEFAULTS: AdaptiveResolutionOptions = {
   pauseS: 5,
 };
 
+/**
+ * 自动's render-scale cap (settings.autoRenderScale, what the GPU benchmark allows
+ * on this screen): Infinity when the player picked the tier, or there is none.
+ */
+export function autoScaleCap(s: { qualityAuto: boolean; autoRenderScale: number }): number {
+  return s.qualityAuto && s.autoRenderScale > 0 ? s.autoRenderScale : Infinity;
+}
+
 /** Lowest pixel ratio the controller may pick: 1.0, 0.75 on 'low', 0.5 on 'potato'. */
 export function adaptiveFloor(quality: string): number {
   return quality === 'potato' ? 0.5 : quality === 'low' ? 0.75 : 1;

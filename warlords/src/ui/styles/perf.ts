@@ -26,6 +26,13 @@ export const PERF_CSS = /* css */ `
 .set-gpu code { display: block; margin-top: 0.2em; font: 0.8em/1.35 ui-monospace, Menlo, Consolas, monospace; opacity: 0.7; overflow-wrap: anywhere; }
 .set-gpu .pc-open { float: right; margin: -0.1em 0 0.3em 0.6em; }
 
+/* ── 设置 → 画质: 自动（当前：…）over the five tiers ─────────── */
+.set-quality { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35em; min-width: 0; }
+.set-quality .q-auto { min-height: 2.2em; padding: 0.3em 0.9em; border: 1px solid var(--gold-lo); border-radius: 4px; background: rgba(255, 250, 235, 0.35); color: var(--paper-ink); font: inherit; font-weight: 700; cursor: pointer; }
+.set-quality .q-auto[aria-pressed="true"] { background: linear-gradient(180deg, #b23a25, #7c1d10); color: var(--gold-hi); text-shadow: 0 1px 0 #000; cursor: default; }
+/* on 自动 the tier in use is marked, not chosen */
+.set-quality .sg-seg.auto > button[aria-pressed="true"] { background: rgba(178, 58, 37, 0.16); color: #7c1d10; text-shadow: none; box-shadow: inset 0 -3px 0 #b23a25; }
+
 /* ── title: 下载桌面版 (web, computers) ─────────────────── */
 .sg-dl-link { color: var(--gold-hi, #f5dc98); text-decoration: underline; text-underline-offset: 2px; opacity: 0.9; }
 .sg-dl-link:hover { opacity: 1; }

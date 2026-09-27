@@ -132,10 +132,12 @@ describe('verdict', () => {
   });
 
   it('⚠ low frame rate: the best fit is 极速, or its estimate is under 40 fps', () => {
-    const v = perfVerdict({ webgl2: true, renderer: GPU.uhd, pick: pick('potato', 52), lowFps: 31 });
-    expect(v).toMatchObject({ kind: 'slow', tier: 'potato', lowFps: 31 });
-    expect(verdictText(v)).toBe('⚠ 帧率偏低：Intel(R) UHD Graphics 620（「流畅」约 31 帧，建议「极速」，约 52 帧）');
-    expect(perfVerdict({ webgl2: true, renderer: GPU.uhd, pick: pick('low', 35) }).kind).toBe('slow');
+    const v = perfVerdict({ webgl2: true, renderer: GPU.uhd, pick: pick('potato', 52) });
+    expect(v).toMatchObject({ kind: 'slow', tier: 'potato' });
+    expect(verdictText(v)).toBe('⚠ 帧率偏低：Intel(R) UHD Graphics 620 较弱，只有「极速」画质能流畅运行');
+    const low = perfVerdict({ webgl2: true, renderer: GPU.uhd, pick: pick('low', 35) });
+    expect(low.kind).toBe('slow');
+    expect(verdictText(low)).toBe('⚠ 帧率偏低：Intel(R) UHD Graphics 620（「流畅」预计约 35 帧）');
     expect(perfVerdict({ webgl2: true, renderer: GPU.uhd, pick: pick('low', 45) }).kind).toBe('ok');
   });
 

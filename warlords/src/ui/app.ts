@@ -4,7 +4,7 @@
 import type { GameEvent, HeroSelectView, MatchPhase, MatchSettings, Vec3 } from '../core/types';
 import type { GameSession } from '../game/session';
 import type { InputSink } from '../game/input-types';
-import { isSoftwareGpu, probeGpu, settings, type NetServerConfig, type Quality } from '../game/settings';
+import { defaultQuality, isSoftwareGpu, probeGpu, settings, type NetServerConfig, type Quality } from '../game/settings';
 import type { ViewSource } from '../render/view';
 import type { ScreenId, Screen, SettingsTab, UiCtx } from './ctx';
 import { Bag, h, clear } from './dom';
@@ -31,6 +31,8 @@ import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
 import { clearRejoin, isReconnectable, loadRejoin, netFor, refreshRejoin, type RejoinInfo } from './invite';
 import { desktopGpuSoftware } from './desktop';
+import { AutoQualityController, autoPick, autoTuneNeeded } from './autoQuality';
+import { perfVerdict, qualityName } from './perfcheck';
 
 export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
 
@@ -92,6 +94,8 @@ export interface PerfInfo {
   frameMs: number;
   /** main-thread time of a frame (ms, smoothed) */
   jsMs: number;
+  /** GPU time of a frame (ms, smoothed; -1 / absent: the browser cannot measure it) */
+  gpuMs?: number;
   drawCalls: number;
   triangles: number;
   /** render scale now, and its adaptive range on this tier */
@@ -132,6 +136,21 @@ export interface MountAppOptions {
   autoPerfCheck?: boolean;
   /** open 性能体检 right after mounting (dev harness) */
   initialPerfCheck?: boolean;
+  /**
+   * 自动 quality: benchmark the GPU (first launch / a new GPU) and use its pick.
+   * Default: on, except in automated browsers unless the URL has `autotune=1` (the
+   * e2e suites run on SwiftShader: every fresh profile would drop to 极速).
+   */
+  autoTune?: boolean;
+}
+
+/** Menu screens with nothing else on the GPU: the benchmark may run there (hero select / gallery spin a 3D hero). */
+const BENCH_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(['title', 'single', 'online', 'lobby', 'roles', 'help']);
+
+/** The view 自动 picks for: the window's CSS pixels and its devicePixelRatio. */
+function viewSize(): { cssPixels: number; dpr: number } {
+  const g = globalThis as { innerWidth?: number; innerHeight?: number; devicePixelRatio?: number };
+  return { cssPixels: (g.innerWidth || 1280) * (g.innerHeight || 720), dpr: g.devicePixelRatio || 1 };
 }
 
 type MusicTrack = 'menu' | 'battle' | 'victory' | 'defeat' | null;
@@ -220,6 +239,16 @@ class App implements UiCtx {
   private readonly gpuOverride: string | undefined;
   /** 性能体检 (modal) */
   private perfPanel: Screen | null = null;
+  /** 性能体检 may open by itself (a problem found) */
+  private readonly autoPerfCheckOn: boolean;
+  /** 自动 quality may benchmark this GPU (MountAppOptions.autoTune) */
+  private readonly autoTune: boolean;
+  /** the GPU benchmark in progress (aborted when a match starts: it runs again on the next quiet menu) */
+  private benchRun: { signal: { aborted: boolean }; done: Promise<void> } | null = null;
+  private benchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 自动调节画质 during the current match */
+  private adjust: { ctl: AutoQualityController; timer: ReturnType<typeof setInterval>; last: number } | null = null;
+  private disposed = false;
   /** the 3D view of the current match failed to start (the failure modal is up) */
   private loadFailed = false;
   /** blurred key art behind the menu screens (dropped during a match to free the decoded image) */
@@ -283,8 +312,13 @@ class App implements UiCtx {
       if (kind === 'single' && session.phase === 'lobby') this.go('single');
     }
     if (opts.initialSettings) this.openSettings(opts.initialSettings);
+    this.autoPerfCheckOn = opts.autoPerfCheck ?? !navigatorIsAutomated();
+    this.autoTune = opts.autoTune ?? (!navigatorIsAutomated() || urlFlag('autotune'));
     if (opts.initialPerfCheck) this.openPerfCheck();
-    else if (opts.autoPerfCheck ?? !navigatorIsAutomated()) this.autoPerfCheck();
+    else if (this.autoPerfCheckOn) this.autoPerfCheck();
+    // 自动: a software renderer needs no benchmark (极速 at once); hardware is measured on a quiet menu
+    if (this.autoTune && this.gpu.software) void this.runBenchmark(false);
+    else this.scheduleAutoTune();
   }
 
   /**
@@ -414,17 +448,167 @@ class App implements UiCtx {
     if (!this.settingsPanel) this.match?.hud.setSettingsOpen(false);
   }
 
-  /** 重新检测: probe the GPU again (the harness keeps its pretend GPU) and benchmark it (not a software renderer: nothing to measure). */
+  /** 重新检测: probe the GPU again (the harness keeps its pretend GPU) and benchmark it (a software renderer: nothing to measure). */
   async recheckGpu(): Promise<void> {
     if (this.gpuOverride === undefined && this.webgl.ok) {
       const g = probeGpu(this.root.ownerDocument, true);
       this.gpu = { renderer: g.renderer, software: isSoftwareGpu(g.renderer) || desktopGpuSoftware() };
     }
+    await this.runBenchmark(true);
+  }
+
+  autoTuning(): boolean {
+    return !!this.benchRun;
+  }
+
+  // ── 自动 quality ────────────────────────────────────────────────────────────
+
+  /** Benchmark this GPU on the next quiet menu, when 自动 needs it (first launch, a new GPU). */
+  private scheduleAutoTune(delayMs = 1500): void {
+    if (!this.autoTune || !this.webgl.ok || this.benchRun || this.benchTimer !== null || this.disposed) return;
+    if (!autoTuneNeeded(settings.get(), this.gpu)) return;
+    this.benchTimer = setTimeout(() => {
+      this.benchTimer = null;
+      // a match / a 3D screen came first: the next quiet menu schedules it again (go())
+      if (this.match || !this.screenId || !BENCH_SCREENS.has(this.screenId)) return;
+      void this.runBenchmark(false);
+    }, delayMs);
+  }
+
+  /**
+   * Measure this GPU (render/bench.ts, ~2 s offscreen; a software renderer needs no
+   * measuring) and keep the result; on 自动 its pick becomes the tier. `asked`:
+   * 重新检测 — whatever is stored, and even in a match (the player asked).
+   */
+  private runBenchmark(asked: boolean): Promise<void> {
+    if (this.benchRun) return this.benchRun.done;
+    const gpu = { ...this.gpu };
+    if (!this.webgl.ok || !gpu.renderer || (!asked && !autoTuneNeeded(settings.get(), gpu))) return Promise.resolve();
+    if (gpu.software) {
+      this.storeBench(gpu, 0, 0, asked);
+      return Promise.resolve();
+    }
     const bench = this.deps.benchmarkGpu;
-    if (!bench || this.gpu.software || !this.webgl.ok) return;
-    const r = await bench({ durationMs: 2000 });
-    if (r.ms > 0) settings.update({ gpuBench: { gpu: this.gpu.renderer, ms: r.ms, msSmall: r.msSmall, at: Date.now() } });
-    else console.warn('[ui] GPU benchmark did not run:', r.error);
+    if (!bench) return Promise.resolve();
+    const signal = { aborted: false };
+    const done = (async (): Promise<void> => {
+      let r: { ms: number; msSmall: number; error?: string };
+      try {
+        r = await bench({ durationMs: 2000, signal });
+      } catch (err) {
+        r = { ms: 0, msSmall: 0, error: err instanceof Error ? err.message : String(err) };
+      } finally {
+        if (this.benchRun?.signal === signal) this.benchRun = null;
+      }
+      // a match started meanwhile: measured again on the next quiet menu
+      if (signal.aborted || this.disposed) return;
+      if (!(r.ms > 0)) console.warn('[ui] GPU benchmark did not run:', r.error);
+      else console.info(`[ui] GPU benchmark: ${r.ms.toFixed(2)} ms @ 1280×720, ${r.msSmall.toFixed(2)} ms @ 640×360 (${gpu.renderer})`);
+      this.storeBench(gpu, r.ms > 0 ? r.ms : 0, r.ms > 0 ? r.msSmall : 0, asked);
+    })();
+    this.benchRun = { signal, done };
+    this.refreshPanels();
+    return done;
+  }
+
+  private storeBench(gpu: { renderer: string; software: boolean }, ms: number, msSmall: number, asked: boolean): void {
+    settings.update({ gpuBench: { gpu: gpu.renderer, ms, msSmall, at: Date.now() } });
+    this.applyAutoQuality(true);
+    this.refreshPanels();
+    // a slow machine: 性能体检 says so (once per benchmark — it runs once per GPU)
+    if (asked || !this.autoPerfCheckOn || this.perfPanel || this.match) return;
+    const pick = autoPick(settings.get(), gpu, viewSize(), defaultQuality());
+    if (perfVerdict({ webgl2: this.webgl.ok, renderer: gpu.renderer, pick }).kind === 'slow') this.openPerfCheck();
+  }
+
+  /** 自动: the benchmark's pick becomes the tier and the render-scale cap (a toast when the tier changes). */
+  private applyAutoQuality(toast: boolean): void {
+    const s = settings.get();
+    if (!s.qualityAuto) return;
+    const pick = autoPick(s, this.gpu, viewSize(), defaultQuality());
+    if (!pick) return;
+    const changed = pick.quality !== s.quality;
+    if (changed || pick.maxPixelRatio !== s.autoRenderScale) settings.update({ quality: pick.quality, autoRenderScale: pick.maxPixelRatio });
+    this.adjust?.ctl.setTier(pick.quality, pick.quality);
+    if (changed && toast) {
+      const name = qualityName(pick.quality);
+      this.toast(tx(`已按显卡自动设置画质：${name}（可在设置中更改）`, `Graphics quality set for your GPU: ${name} (change it in Settings)`));
+    }
+  }
+
+  setQualityAuto(): void {
+    settings.update({ qualityAuto: true });
+    if (autoTuneNeeded(settings.get(), this.gpu)) {
+      // (in a match: after it — the benchmark would take the GPU from the fight)
+      if (!this.match) void this.runBenchmark(false);
+    } else this.applyAutoQuality(false);
+  }
+
+  /** The settings / 性能体检 panels show the benchmark's state: redraw them. */
+  private refreshPanels(): void {
+    this.settingsPanel?.relabel?.();
+  }
+
+  // ── 自动调节画质 (in a match) ────────────────────────────────────────────────
+
+  /** The richest tier a step up may reach on 自动 (the benchmark's pick; null: none known — no steps up). */
+  private autoCeiling(): Quality | null {
+    const s = settings.get();
+    return s.qualityAuto ? (autoPick(s, this.gpu, viewSize(), defaultQuality())?.quality ?? null) : null;
+  }
+
+  private startAutoAdjust(): void {
+    this.stopAutoAdjust();
+    const m = this.match;
+    if (!m?.handle.perf) return;
+    const ctl = new AutoQualityController(settings.get().quality, this.autoCeiling());
+    this.adjust = { ctl, timer: setInterval(() => this.tickAutoAdjust(), 500), last: performance.now() };
+  }
+
+  private stopAutoAdjust(): void {
+    if (!this.adjust) return;
+    clearInterval(this.adjust.timer);
+    this.adjust = null;
+  }
+
+  private tickAutoAdjust(): void {
+    const m = this.match;
+    const a = this.adjust;
+    if (!m || !a) return;
+    const now = performance.now();
+    const dt = (now - a.last) / 1000;
+    a.last = now;
+    const s = settings.get();
+    if (!s.autoAdjust) return;
+    let p: PerfInfo | null = null;
+    try {
+      p = m.handle.perf?.() ?? null;
+    } catch {
+      p = null;
+    }
+    if (!p) return;
+    // the player picked another tier (or turned 自动 on / off) meanwhile
+    if (s.quality !== a.ctl.tier) a.ctl.setTier(s.quality, this.autoCeiling());
+    const paused = m.hud.pauseRequested;
+    const hidden = this.root.ownerDocument.visibilityState === 'hidden';
+    const active = this.screenId === 'match' && this.matchReady() && !paused && !hidden && !this.applyingQuality && !p.applying;
+    const step = a.ctl.update({ dt, fps: p.fps, frameMs: p.frameMs, jsMs: p.jsMs, gpuMs: p.gpuMs ?? -1, active, resAtFloor: p.pixelRatio <= p.pixelRatioMin + 0.01 });
+    if (step) {
+      console.info(`[ui] 自动调节画质: ${p.fps} fps → ${step.to}`);
+      settings.update({ quality: step.to });
+      this.toast(tx('画面较卡，已自动调低画质（可在设置中改回）', 'The game is lagging: graphics quality lowered (you can change it back in Settings)'));
+    }
+    // a step up waits for a single-player pause (the sim waits for the switch there)
+    if (a.ctl.pendingUp && paused && this.sessionKind === 'single') this.applyUp(a.ctl.takeUp());
+  }
+
+  /** A step up 自动调节画质 made ready: applied at a pause or after the match. */
+  private applyUp(up: Quality | null): void {
+    const s = settings.get();
+    if (!up || !s.qualityAuto || !s.autoAdjust || up === s.quality) return;
+    console.info(`[ui] 自动调节画质: headroom → ${up}`);
+    settings.update({ quality: up });
+    this.toast(tx(`画面流畅，已自动提高画质：${qualityName(up)}`, `Running smoothly: graphics quality raised to ${qualityName(up)}`));
   }
 
   loadProgress(cb: (p: LoadProgress | null) => void): () => void {
@@ -552,6 +736,10 @@ class App implements UiCtx {
       prev.el.remove();
     }
     this.screenId = id;
+    // the GPU benchmark only runs on quiet menus: a 3D screen stops it, a quiet one may start it
+    if (!BENCH_SCREENS.has(id)) {
+      if (this.benchRun) this.benchRun.signal.aborted = true;
+    } else this.scheduleAutoTune();
     this.syncMenuArt(id);
     const s = this.createScreen(id);
     this.screen = s;
@@ -822,6 +1010,8 @@ class App implements UiCtx {
     if (!s) return;
     if (this.match && this.match.view === view) return;
     this.unmountMatch();
+    // the match's own build needs the GPU: no benchmark now (again on the next quiet menu)
+    if (this.benchRun) this.benchRun.signal.aborted = true;
     const container = h('div', { class: 'sg-game' });
     this.gameLayer.appendChild(container);
     let handle: GameHandle;
@@ -844,6 +1034,8 @@ class App implements UiCtx {
     });
     const match = { handle, hud, container, view, offLoad: () => undefined as void, settleLoad: settle, offQuality: null as (() => void) | null };
     this.match = match;
+    // 自动调节画质 watches this match's frame rate (its warm-up counts from the first frames on screen)
+    this.startAutoAdjust();
     // the renderer's staged quality switch (PLATFORM-4): only once the view is built (before that a switch applies at once)
     const watchQuality = (): void => {
       if (match.offQuality || !handle.onQualityApplying || this.match !== match) return;
@@ -884,6 +1076,9 @@ class App implements UiCtx {
     const m = this.match;
     if (!m) return;
     this.match = null;
+    // a step up the match earned applies to the next one (its renderer builds at that tier)
+    const up = this.adjust?.ctl.takeUp() ?? null;
+    this.stopAutoAdjust();
     m.settleLoad();
     m.offLoad();
     m.offQuality?.();
@@ -903,6 +1098,7 @@ class App implements UiCtx {
     }
     m.container.remove();
     clear(this.hudLayer);
+    this.applyUp(up);
   }
 
   // ── screens ───────────────────────────────────────────────────────────────
@@ -1033,6 +1229,10 @@ class App implements UiCtx {
   }
 
   dispose(): void {
+    this.disposed = true;
+    if (this.benchTimer !== null) clearTimeout(this.benchTimer);
+    if (this.benchRun) this.benchRun.signal.aborted = true;
+    this.stopAutoAdjust();
     if (this.prefetchTimer !== null) clearTimeout(this.prefetchTimer);
     this.menuArt?.dispose();
     this.closeSettings();
@@ -1056,6 +1256,15 @@ class App implements UiCtx {
 export function mountApp(root: HTMLElement, deps: AppDeps, opts: MountAppOptions = {}): { dispose(): void } {
   const app = new App(root, deps, opts);
   return { dispose: () => app.dispose() };
+}
+
+/** `?name=1` in the page URL (test switches). */
+function urlFlag(name: string): boolean {
+  try {
+    return new URLSearchParams(globalThis.location?.search ?? '').get(name) === '1';
+  } catch {
+    return false;
+  }
 }
 
 /** An automated browser (WebDriver / Playwright): no unasked-for dialogs over the page. */

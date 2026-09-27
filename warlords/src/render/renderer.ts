@@ -42,6 +42,8 @@ import { updateAuraShared } from './entities/auras';
 import { Effects } from './vfx/effects';
 import { handleEvents, shotClass } from './vfx/eventVfx';
 import { ZoneVisual } from './vfx/zone';
+import { autoScaleCap } from './adaptiveRes';
+import { GpuTimer } from './gpuTimer';
 
 export { registerAbilityVfx } from './vfx/abilities';
 export type { AbilityVfxFn, AbilityVfxContext, AbilityEvent } from './vfx/abilities';
@@ -92,6 +94,8 @@ export interface PerfSnapshot {
   frameMs: number;
   /** smoothed main-thread time of a frame (ms): from the frame's start (its rAF time) to the end of the render call — input, sim, scene update and draw submission */
   jsMs: number;
+  /** smoothed GPU time of a frame (ms; timer queries — desktop Chrome / Edge); -1 unknown */
+  gpuMs: number;
   /** draw calls / triangles of the last frame */
   drawCalls: number;
   triangles: number;
@@ -138,7 +142,7 @@ export class GameRenderer {
   private fps = 60;
   /** smoothed main-thread ms per frame (PerfSnapshot.jsMs) */
   private jsMs = 0;
-  private readonly perfOut: PerfSnapshot = { fps: 0, frameMs: 0, jsMs: 0, drawCalls: 0, triangles: 0, pixelRatio: 1, pixelRatioMin: 1, pixelRatioMax: 1, quality: 'medium', applying: false };
+  private readonly perfOut: PerfSnapshot = { fps: 0, frameMs: 0, jsMs: 0, gpuMs: -1, drawCalls: 0, triangles: 0, pixelRatio: 1, pixelRatioMin: 1, pixelRatioMax: 1, quality: 'medium', applying: false };
   private disposed = false;
   private contextLost = false;
   private readonly onContextLost = (e: Event): void => {
@@ -148,6 +152,8 @@ export class GameRenderer {
   };
   private readonly onContextRestored = (): void => {
     this.contextLost = false;
+    // (the old context's queries are gone)
+    this.gpuTimer = GpuTimer.create(this.renderer.getContext());
     this.applyQuality();
     this.resize(this.size.w, this.size.h);
   };
@@ -171,6 +177,10 @@ export class GameRenderer {
   private zoomNow = 1;
   /** pixel ratio controller (frame time → canvas resolution) */
   private readonly adaptive = new AdaptiveResolution();
+  /** 自动's render-scale cap in use (settings.autoRenderScale; Infinity: none) */
+  private scaleCap = Infinity;
+  /** GPU time per frame (null: the browser has no timer queries) */
+  private gpuTimer: GpuTimer | null = null;
   private lastFrameAt = -1;
   /**
    * Point lights allocated to braziers / VFX flashes. Their number is part of
@@ -210,6 +220,8 @@ export class GameRenderer {
     this.renderer.toneMappingExposure = 1.15;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.info.autoReset = false;
+    this.gpuTimer = GpuTimer.create(this.renderer.getContext());
+    this.scaleCap = autoScaleCap(s);
     this.renderer.autoClear = false;
     canvas.addEventListener('webglcontextlost', this.onContextLost, false);
     canvas.addEventListener('webglcontextrestored', this.onContextRestored, false);
@@ -358,7 +370,9 @@ export class GameRenderer {
     // (a staged quality switch holds the last picture while it compiles the scene)
     if (!this.holdRender) {
       this.renderer.info.reset();
+      this.gpuTimer?.begin();
       this.post.render(d);
+      this.gpuTimer?.end();
     }
 
     if (evs.length) {
@@ -654,6 +668,7 @@ export class GameRenderer {
     o.fps = Math.round(this.fps);
     o.frameMs = this.adaptive.frameMs;
     o.jsMs = this.jsMs;
+    o.gpuMs = this.gpuTimer?.ms ?? -1;
     if (!this.disposed) {
       o.drawCalls = this.renderer.info.render.calls;
       o.triangles = this.renderer.info.render.triangles;
@@ -690,6 +705,8 @@ export class GameRenderer {
     this.sky.dispose();
     this.post.dispose();
     disposeSharedMaterials();
+    this.gpuTimer?.dispose();
+    this.gpuTimer = null;
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.releaseMatchData();
@@ -716,10 +733,10 @@ export class GameRenderer {
 
   // ── internals ──────────────────────────────────────────────────────────────
 
-  /** The quality preset's pixel ratio on this device: the adaptive resolution's ceiling. */
+  /** The quality preset's pixel ratio on this device, within 自动's render-scale cap: the adaptive resolution's ceiling. */
   private pixelRatio(): number {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    return Math.min(this.preset.maxPixelRatio, dpr * this.preset.pixelRatioScale);
+    return Math.min(this.preset.maxPixelRatio, dpr * this.preset.pixelRatioScale, this.scaleCap);
   }
 
   /** Size the canvas / post targets at the adaptive pixel ratio. */
@@ -955,6 +972,12 @@ export class GameRenderer {
     // (against the tier asked for last: switching back mid-switch cancels it)
     if (u.quality !== this.wantedQuality) this.setQuality(u.quality);
     this.rig.baseFov = u.fov;
+    // 自动's render-scale cap moved (a new benchmark, 自动 turned on / off): a new adaptive ceiling
+    const cap = autoScaleCap(u);
+    if (cap !== this.scaleCap) {
+      this.scaleCap = cap;
+      this.resize(this.size.w, this.size.h);
+    }
   }
 
   private entityCtx(dt: number, localId: EntityId | null, local: ReturnType<ViewSource['local']>): EntityCtx {

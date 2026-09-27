@@ -5,8 +5,9 @@
 // a laptop with an integrated GPU, or the desktop app, which turns the GPU on by
 // itself. Opens by itself when a problem is found (App), from 设置 → 画面 and from
 // the F3 panel; 重新检测 probes the GPU again and runs the 2 s benchmark in place.
-import { classifyGpu, settings } from '../../game/settings';
-import { estimateFps, pickAutoTune, type AutoTunePick } from '../../render/adaptiveRes';
+import { classifyGpu, defaultQuality, settings } from '../../game/settings';
+import type { AutoTunePick } from '../../render/adaptiveRes';
+import { autoPick, benchFor as storedBench, type GpuState } from '../autoQuality';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, copyText, h } from '../dom';
 import { t, tx } from '../i18n';
@@ -28,17 +29,16 @@ import { button } from '../widgets';
 
 const viewPixels = (): number => (globalThis.innerWidth || 1280) * (globalThis.innerHeight || 720);
 
-/** This GPU's stored benchmark (null: not benchmarked on it). */
-function benchFor(renderer: string): { ms: number; msSmall: number } | null {
-  const b = settings.get().gpuBench;
-  return b && b.gpu === renderer && b.ms > 0 ? b : null;
+/** This GPU's stored benchmark, when it measured something (null: not benchmarked on it, or it failed). */
+function benchFor(gpu: GpuState): { ms: number; msSmall: number } | null {
+  const b = storedBench(settings.get(), gpu);
+  return b && b.ms > 0 ? b : null;
 }
 
 /** What the stored benchmark (this GPU's) says this machine can run; null: not benchmarked. */
-export function currentPick(gpu: { renderer: string; software: boolean }): AutoTunePick | null {
-  const bench = benchFor(gpu.renderer);
-  if (!bench && !gpu.software) return null;
-  return pickAutoTune({ benchMs: bench?.ms ?? null, benchSmallMs: bench?.msSmall ?? null, software: gpu.software, cssPixels: viewPixels(), dpr: globalThis.devicePixelRatio || 1 });
+export function currentPick(gpu: GpuState): AutoTunePick | null {
+  if (!gpu.software && !benchFor(gpu)) return null;
+  return autoPick(settings.get(), gpu, { cssPixels: viewPixels(), dpr: globalThis.devicePixelRatio || 1 }, defaultQuality());
 }
 
 export function createPerfCheckPanel(ctx: UiCtx, onClose: () => void): Screen {
@@ -60,8 +60,9 @@ export function createPerfCheckPanel(ctx: UiCtx, onClose: () => void): Screen {
   const render = (): void => {
     const gpu = ctx.gpu;
     const pick = currentPick(gpu);
-    const b = benchFor(gpu.renderer);
-    const v = perfVerdict({ webgl2: ctx.webgl.ok, renderer: gpu.renderer, pick, lowFps: b ? estimateFps(b.ms, b.msSmall, 'low', viewPixels()) : null });
+    const b = benchFor(gpu);
+    const st = settings.get();
+    const v = perfVerdict({ webgl2: ctx.webgl.ok, renderer: gpu.renderer, pick });
     const plat = platformInfo();
     const benched = b;
 
@@ -70,6 +71,7 @@ export function createPerfCheckPanel(ctx: UiCtx, onClose: () => void): Screen {
       gpu.renderer ? h('code', { class: 'raw' }, gpu.renderer) : null,
       benched ? h('div', null, h('span', { class: 'k' }, tx('测速', 'Benchmark')), `${benched.ms.toFixed(1)} ms @ 1280×720 · ${benched.msSmall.toFixed(1)} ms @ 640×360`) : null,
       pick ? h('div', null, h('span', { class: 'k' }, tx('适合', 'Best fit')), `${qualityName(pick.quality)} · ${tx('渲染比例', 'render scale')} ≤ ${pick.maxPixelRatio.toFixed(2)}×`) : null,
+      h('div', { class: 'now' }, h('span', { class: 'k' }, tx('当前画质', 'Quality now')), st.qualityAuto ? tx(`自动（${qualityName(st.quality)}）`, `Auto (${qualityName(st.quality)})`) : qualityName(st.quality)),
     );
 
     const sections: (HTMLElement | null)[] = [];

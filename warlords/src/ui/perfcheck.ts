@@ -148,13 +148,15 @@ function triangles(n: number): string {
 
 /**
  * The F3 panel's lines — made to be screenshotted and sent to us: frame rate and
- * time, main-thread (JS) time, draw calls, triangles, render scale, tier, GPU.
+ * time, main-thread (JS) time, GPU time (where measurable), draw calls, triangles,
+ * render scale, tier, GPU.
  * Without the 3D view's numbers (harness / not built yet): the HUD's own frame rate.
  */
 export function perfLines(p: PerfInfo | null, hud: { fps: number; ms: number }, gpu: string): string[] {
   const out: string[] = [];
   if (p) {
-    out.push(`${Math.round(p.fps)} FPS · ${p.frameMs.toFixed(1)} ms · JS ${p.jsMs.toFixed(1)} ms`);
+    const gpuMs = p.gpuMs !== undefined && p.gpuMs >= 0 ? ` · GPU ${p.gpuMs.toFixed(1)} ms` : '';
+    out.push(`${Math.round(p.fps)} FPS · ${p.frameMs.toFixed(1)} ms · JS ${p.jsMs.toFixed(1)} ms${gpuMs}`);
     const range = p.pixelRatioMax - p.pixelRatioMin > 0.01 ? ` (${p.pixelRatioMin.toFixed(2)}–${p.pixelRatioMax.toFixed(2)})` : '';
     out.push(`${p.drawCalls} DC · ${triangles(p.triangles)} △ · ${tx('渲染', 'scale')} ${p.pixelRatio.toFixed(2)}×${range} · ${qualityName(p.quality)}${p.applying ? '…' : ''}`);
   } else {
@@ -302,22 +304,20 @@ export interface Verdict {
   fps: number | null;
   /** the best fit's tier (null: not benchmarked) */
   tier: Quality | null;
-  /** 帧率偏低: the estimated frame rate on 流畅 (null otherwise) */
-  lowFps: number | null;
 }
 
 /**
  * 性能体检's verdict: no WebGL 2 / not using the GPU / slow (the benchmark says even
  * 流畅 is too heavy — the best fit is 极速 — or the frame rate stays low) / fine.
  */
-export function perfVerdict(i: { webgl2: boolean; renderer: string; pick: AutoTunePick | null; lowFps?: number | null }): Verdict {
+export function perfVerdict(i: { webgl2: boolean; renderer: string; pick: AutoTunePick | null }): Verdict {
   const gpu = gpuShortName(i.renderer);
   const fps = i.pick?.fps ?? null;
   const tier = i.pick?.quality ?? null;
-  if (!i.webgl2) return { kind: 'nowebgl', gpu, fps: null, tier: null, lowFps: null };
-  if (isSoftwareGpu(i.renderer)) return { kind: 'software', gpu, fps, tier, lowFps: null };
-  if (fps !== null && (tier === 'potato' || fps < SLOW_FPS)) return { kind: 'slow', gpu, fps, tier, lowFps: i.lowFps ?? null };
-  return { kind: 'ok', gpu, fps, tier, lowFps: null };
+  if (!i.webgl2) return { kind: 'nowebgl', gpu, fps: null, tier: null };
+  if (isSoftwareGpu(i.renderer)) return { kind: 'software', gpu, fps, tier };
+  if (fps !== null && (tier === 'potato' || fps < SLOW_FPS)) return { kind: 'slow', gpu, fps, tier };
+  return { kind: 'ok', gpu, fps, tier };
 }
 
 const fpsText = (n: number): string => (n > 240 ? '240+' : String(n));
@@ -331,9 +331,11 @@ export function verdictText(v: Verdict): string {
     case 'software':
       return tx(`⚠ 浏览器没用上显卡（当前：${gpu}），游戏会非常卡`, `⚠ The browser is not using the graphics card (now: ${gpu}): the game will be very slow`);
     case 'slow': {
-      const tier = v.tier ? qualityName(v.tier) : '';
-      const low = v.lowFps !== null ? tx(`「${qualityName('low')}」约 ${fpsText(v.lowFps)} 帧，`, `“${qualityName('low')}” about ${fpsText(v.lowFps)} fps, `) : '';
-      return tx(`⚠ 帧率偏低：${gpu}（${low}建议「${tier}」，约 ${fpsText(v.fps ?? 0)} 帧）`, `⚠ Low frame rate: ${gpu} (${low}“${tier}” recommended, about ${fpsText(v.fps ?? 0)} fps)`);
+      const tier = qualityName(v.tier ?? 'potato');
+      // (the lowest tier is the only smooth one: its estimate is no news)
+      return v.tier === 'potato' || v.tier === null
+        ? tx(`⚠ 帧率偏低：${gpu} 较弱，只有「${tier}」画质能流畅运行`, `⚠ Low frame rate: ${gpu} is weak — only “${tier}” runs smoothly`)
+        : tx(`⚠ 帧率偏低：${gpu}（「${tier}」预计约 ${fpsText(v.fps ?? 0)} 帧）`, `⚠ Low frame rate: ${gpu} (“${tier}” about ${fpsText(v.fps ?? 0)} fps)`);
     }
     default:
       return v.fps !== null

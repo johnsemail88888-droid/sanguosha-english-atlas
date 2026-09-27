@@ -76,6 +76,10 @@ export interface UiCtx {
   connection?(): { mode: 'peer' | 'ws'; net: NetServerConfig } | null;
   /** open 性能体检 (is the GPU used, how fast, how to fix it) */
   openPerfCheck?(): void;
-  /** probe the GPU again and run the 2 s benchmark (性能体检's 重新检测); ctx.gpu / the stored benchmark update */
+  /** probe the GPU again and run the 2 s benchmark (性能体检's 重新检测); ctx.gpu / the stored benchmark update, and on 自动 the tier */
   recheckGpu?(): Promise<void>;
+  /** 设置 → 画质 → 自动 turned on: the benchmark's pick becomes the tier (the benchmark runs first when this GPU has none) */
+  setQualityAuto?(): void;
+  /** the GPU benchmark is running (设置 shows 「自动（检测中…）」) */
+  autoTuning?(): boolean;
 }

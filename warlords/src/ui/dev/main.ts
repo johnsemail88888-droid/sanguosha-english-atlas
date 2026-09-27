@@ -16,7 +16,7 @@
 //   &awaitHost=1 (loading: the view is built, the host has not started the clock → 等待房主加载…)
 //   &gpu=<renderer string> (the GPU the probe reports; SwiftShader → the software-renderer warning)
 //   &perfcheck=1 (open 性能体检)  &autocheck=1 (it opens by itself on a problem)  &bench=<ms> (fake benchmark)
-//   &benched=<ms> (a stored benchmark result for that GPU)
+//   &benched=<ms> (a stored benchmark result for that GPU)  &autotune=1 (自动 quality benchmarks the ?gpu like the game)
 import type { RoleId, StatusId } from '../../core/types';
 import { setAssetListForTests } from '../../game/assets';
 import { settings } from '../../game/settings';
@@ -73,6 +73,7 @@ const opts: MountAppOptions = {
   // `?perfcheck=1` opens 性能体检; `?autocheck=1` lets it open by itself like the game does
   initialPerfCheck: params.get('perfcheck') === '1',
   autoPerfCheck: params.get('autocheck') === '1',
+  autoTune: params.get('autotune') === '1',
   ...(params.get('nowebgl') === '1' ? { webgl: false } : {}),
 };
 // `?bench=<ms>`: what the fake GPU benchmark measures (0: it fails); `?benched=<ms>`: a stored result for the ?gpu
