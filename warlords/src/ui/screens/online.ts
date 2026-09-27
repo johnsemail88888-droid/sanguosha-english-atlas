@@ -314,6 +314,11 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       if (ok) {
         if (!modeTouched && !busy && !settings.get().net.wsUrl.trim()) mode = 'ws';
         if (!busy) render();
+        // a relay invite (mode=ws) on a page our own server serves: its relay turned out to be right here
+        if (!plan && !quick && !busy && autoJoinPlan({ invited: rejoin ? null : invited, rejoin: false, inviteTried, canJoin: true }) === 'invite') {
+          inviteTried = true;
+          void runJoin();
+        }
       }
       quickHost();
     });
