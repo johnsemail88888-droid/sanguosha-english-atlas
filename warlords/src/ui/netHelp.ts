@@ -73,8 +73,8 @@ export function p2pFix(kind: P2pFailure, o: { official: boolean; host: boolean }
     action: 'ws',
     label: { zh: '改用服务器模式', en: 'Switch to server mode' },
     hint: {
-      zh: '服务器模式需要一台中转服务器：局域网内任意电脑运行 npm run server，或按 README「官方联机服务器（一键部署）」租一台云服务器。',
-      en: 'Server mode needs a relay server: run `npm run server` on any machine on your network, or rent a cloud server (README: “Official online server — one-command deploy”).',
+      zh: '服务器模式需要一台中转服务器：局域网内任意电脑运行 npm run server，或按 README「用自己的电脑当服务器」（Mac mini / Linux）或「租云服务器」搭一台官方服务器。',
+      en: 'Server mode needs a relay server: run `npm run server` on any machine on your network, or set up an official server (README: “Host it on your own computer” or “Rent a cloud server”).',
     },
   };
 }
