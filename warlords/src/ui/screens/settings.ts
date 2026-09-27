@@ -115,6 +115,12 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
     return [
       field(t('settings.master'), slider(st.masterVolume, 0, 1, 0.01, (v) => upd({ masterVolume: v }), pct, t('settings.master'))),
       field(t('settings.music'), slider(st.musicVolume, 0, 1, 0.01, (v) => upd({ musicVolume: v }), pct, t('settings.music'))),
+      field(tx('配乐', 'Soundtrack'), segmented([
+        { value: 'noname' as const, label: tx('无名杀', 'Noname') },
+        { value: 'original' as const, label: tx('原创国风', 'Original') },
+      ], st.musicSource === 'original' ? 'original' : 'noname', (v) => upd({ musicSource: v }), { name: tx('配乐', 'Soundtrack') }),
+        tx('「无名杀」曲目在线加载自开源项目 无名杀（github.com/libnoname/noname），版权归原作者；加载不到时自动改用原创国风配乐。',
+          'The Noname tracks stream from the open-source project 无名杀 (github.com/libnoname/noname), rights with their authors; if they can’t load, the original score plays instead.')),
       field(t('settings.sfx'), slider(st.sfxVolume, 0, 1, 0.01, (v) => upd({ sfxVolume: v }), pct, t('settings.sfx'))),
       field(t('settings.voice'), toggle(st.voiceLines, (v) => upd({ voiceLines: v }), t('settings.voice'))),
     ];

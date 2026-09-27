@@ -19,7 +19,7 @@ import { defaultBakePlan, SampleBank } from './bake';
 import type { SfxName } from './catalog';
 import { audioContextCtor, hasWebAudio } from './env';
 import { MixGraph } from './graph';
-import { MusicPlayer } from './music';
+import { MusicPlayer } from './musicPlayer';
 import type { MusicTrack } from './music';
 import type { UiSound } from './recipes/ui';
 import { EventRouter } from './router';

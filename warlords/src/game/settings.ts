@@ -33,6 +33,8 @@ export interface UserSettings {
   musicVolume: number;
   sfxVolume: number;
   voiceLines: boolean; // speak hero quotes (speechSynthesis)
+  /** background music: 'noname' = 无名杀 recordings (streamed), 'original' = the procedural score */
+  musicSource: 'noname' | 'original';
   touchControls: 'auto' | 'on' | 'off';
   net: NetServerConfig;
 }
@@ -50,6 +52,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   musicVolume: 0.5,
   sfxVolume: 0.9,
   voiceLines: true,
+  musicSource: 'noname',
   touchControls: 'auto',
   net: {
     mode: 'peer',
