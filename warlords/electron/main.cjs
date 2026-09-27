@@ -86,28 +86,71 @@ function windowIcon() {
 }
 
 /**
- * How Chromium runs WebGL here (app.getGPUFeatureStatus(): 'enabled…' = on the GPU;
- * 'software' / 'unavailable_software' / 'disabled…' = not), logged at start-up with the
- * GPU's name; the page gets it (preload: sgwlDesktop.webgl) and warns when it is not
- * hardware, like the web version does for a software renderer.
+ * Chromium's GPU feature status is only real once the GPU process has started and
+ * reported (the first 'gpu-info-update'; Chromium stores the feature status before it
+ * notifies). Until then every feature reads 'disabled_software' / 'disabled_off' — on
+ * macOS the window used to open before that, and the page took the Mac's Metal GPU for
+ * software rendering (极速 tier + the "not using the graphics card" warning).
  */
-function gpuStatus() {
-  let status = {};
+let gpuReported = false;
+const gpuWaiters = [];
+app.on('gpu-info-update', () => {
+  gpuReported = true;
+  for (const done of gpuWaiters.splice(0)) done();
+});
+
+/** Resolves true once the GPU process has reported, false after `timeoutMs` without it (no GPU process: the status says why). */
+function gpuReady(timeoutMs) {
+  if (gpuReported) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    gpuWaiters.push(() => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
+/**
+ * How Chromium runs WebGL here (app.getGPUFeatureStatus(): 'enabled…' = on the GPU;
+ * 'software' / 'unavailable_software' / 'disabled…' = not) — ask after gpuReady(). The
+ * page gets it (preload: sgwlDesktop.webgl) and warns when it is not hardware, like the
+ * web version does for a software renderer.
+ */
+function webglStatus() {
   try {
-    status = app.getGPUFeatureStatus() || {};
-    console.info('[desktop] GPU feature status', JSON.stringify(status));
-    app
-      .getGPUInfo('basic')
-      .then((info) => {
-        const devices = (info && info.gpuDevice) || [];
-        console.info('[desktop] GPUs', JSON.stringify(devices.map((d) => ({ vendorId: d.vendorId, deviceId: d.deviceId, active: d.active, driver: d.driverVersion }))));
-      })
-      .catch(() => undefined);
+    const status = app.getGPUFeatureStatus() || {};
+    return String(status.webgl2 || status.webgl || '');
+  } catch {
+    return '';
+  }
+}
+
+/** Start-up log: the GPU feature status and the GPUs, once the GPU process has reported. */
+async function logGpu() {
+  const reported = await gpuReady(15000);
+  try {
+    console.info(`[desktop] GPU feature status${reported ? '' : ' (the GPU process did not report)'}`, JSON.stringify(app.getGPUFeatureStatus() || {}));
+    const info = await app.getGPUInfo('basic');
+    const devices = (info && info.gpuDevice) || [];
+    console.info('[desktop] GPUs', JSON.stringify(devices.map((d) => ({ vendorId: d.vendorId, deviceId: d.deviceId, active: d.active, driver: d.driverVersion }))));
   } catch (err) {
     console.warn('[desktop] GPU feature status unavailable', err);
   }
-  return String(status.webgl2 || status.webgl || '');
 }
+
+// renderer (preload): the WebGL feature status, answered once the GPU process has reported
+// (the page blocks for at most 3 s; a GPU process that never comes up answers the status as is)
+ipcMain.on('sgwl:webgl', (ev) => {
+  if (gpuReported) {
+    ev.returnValue = webglStatus();
+    return;
+  }
+  void gpuReady(3000).then(() => {
+    ev.returnValue = webglStatus();
+  });
+});
 
 async function createWindow() {
   if (!lan) {
@@ -119,7 +162,7 @@ async function createWindow() {
   }
   if (!server) server = await startEmbeddedServer();
   const port = server.port;
-  const webgl = gpuStatus();
+  void logGpu();
 
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
     cb(permission === 'pointerLock' || permission === 'fullscreen' || permission === 'clipboard-sanitized-write');
@@ -143,7 +186,7 @@ async function createWindow() {
       sandbox: false,
       backgroundThrottling: false, // the host keeps simulating while unfocused
       // the initial list; the page asks for a fresh one through sgwlDesktop.getLanUrls()
-      additionalArguments: [`--sgwl-port=${port}`, `--sgwl-lan=${encodeURIComponent(JSON.stringify(lanUrls(port)))}`, `--sgwl-webgl=${encodeURIComponent(webgl)}`],
+      additionalArguments: [`--sgwl-port=${port}`, `--sgwl-lan=${encodeURIComponent(JSON.stringify(lanUrls(port)))}`],
     },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -154,7 +197,47 @@ async function createWindow() {
   win.on('closed', () => {
     win = null;
   });
+  // start-up trail for bug reports and the Mac CI (ELECTRON_ENABLE_LOGGING=1 prints it)
+  // (logging only: never let it stop the window from loading)
+  const wc = win.webContents;
+  if (wc && typeof wc.on === 'function') {
+    wc.on('did-finish-load', () => console.info('[desktop] page loaded', typeof wc.getURL === 'function' ? wc.getURL() : ''));
+    wc.on('did-fail-load', (_e, code, desc, url) => console.warn('[desktop] page failed to load', code, desc, url));
+    wc.on('render-process-gone', (_e, d) => console.error('[desktop] renderer gone', JSON.stringify(d)));
+  }
   await win.loadURL(`http://127.0.0.1:${port}/?desktop=1`);
+  const smoke = Number(process.env.SGWL_DESKTOP_SMOKE);
+  if (smoke > 0) setTimeout(() => void smokeReport(), smoke * 1000);
+}
+
+/**
+ * CI smoke test (.github/workflows/warlords-mac.yml): SGWL_DESKTOP_SMOKE=<seconds>
+ * after the page loaded, print what it shows (title screen, WebGL 2, the GPU it
+ * draws with) as `[desktop] smoke ok|FAILED {…}` and quit (exit code 0 / 1).
+ */
+async function smokeReport() {
+  let r = null;
+  try {
+    r = await win.webContents.executeJavaScript(`(() => {
+      const gl = document.createElement('canvas').getContext('webgl2');
+      let renderer = '';
+      if (gl) {
+        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        renderer = String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+        gl.getExtension('WEBGL_lose_context')?.loseContext();
+      }
+      const menu = document.querySelector('.sg-menu-btn.primary');
+      const bridge = window.sgwlDesktop;
+      return { title: document.title, menu: menu ? menu.textContent : null, webgl2: !!gl, renderer, desktop: !!bridge, pageWebgl: bridge ? bridge.webgl : null };
+    })()`);
+  } catch (err) {
+    r = { error: String(err) };
+  }
+  // the page must know WebGL runs on the GPU (else it drops to 极速 and warns) unless it really is a software renderer
+  const software = /swiftshader|llvmpipe|software/i.test((r && r.renderer) || '');
+  const ok = !!r && !!r.webgl2 && typeof r.menu === 'string' && /单人练习|Single Player/.test(r.menu) && (software || /^enabled/.test(r.pageWebgl || ''));
+  console.info(`[desktop] smoke ${ok ? 'ok' : 'FAILED'}`, JSON.stringify({ ...r, gpu: app.getGPUFeatureStatus() }));
+  app.exit(ok ? 0 : 1);
 }
 
 function focusWindow() {
@@ -253,5 +336,10 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on('before-quit', () => {
     if (server) void server.close();
+  });
+  // the GPU process crashing is how a bad driver shows up (Chromium then falls back to software)
+  app.on('child-process-gone', (_e, d) => {
+    if (d.reason === 'clean-exit') console.info('[desktop] child process exited', d.type);
+    else console.error('[desktop] child process gone', JSON.stringify(d));
   });
 }

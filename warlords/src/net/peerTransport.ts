@@ -14,12 +14,26 @@ import { generateRoomCode, hostPeerIdFor } from './roomCode';
 import { StallAwareTimeout } from './stall';
 import { BaseTransport, toPayload, type Channel, type Payload, type PeerId } from './transport';
 
-/** China-reachable STUN first, then global fallbacks (GAME_SPEC §11). */
+/**
+ * PeerJS's public TURN relays (the ones PeerJS itself uses when no config is
+ * given). Without a relay, two players behind strict NATs (mobile data, campus /
+ * office networks, carrier-grade NAT) cannot connect at all; the relay carries
+ * the traffic when a direct path fails. Overriding `config.iceServers` drops
+ * PeerJS's defaults, so they are listed here explicitly.
+ */
+export const PEERJS_TURN: RTCIceServer = {
+  urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'],
+  username: 'peerjs',
+  credential: 'peerjsp',
+};
+
+/** China-reachable STUN first, then global fallbacks (GAME_SPEC §11), then the TURN relays. */
 export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.miwifi.com:3478' },
   { urls: 'stun:stun.chat.bilibili.com:3478' },
   { urls: 'stun:stun.cloudflare.com:3478' },
   { urls: 'stun:stun.l.google.com:19302' },
+  PEERJS_TURN,
 ];
 
 /** Unreliable sends are dropped while this much is queued on the data channel (~4 snapshots). */
@@ -32,7 +46,8 @@ const UNRELIABLE_LABEL = 'u';
 export function iceServersFor(net: NetServerConfig): RTCIceServer[] {
   const list = [...DEFAULT_ICE_SERVERS];
   if (net.turnUrl.trim()) {
-    list.push({ urls: net.turnUrl.trim(), username: net.turnUser || undefined, credential: net.turnPass || undefined });
+    // the player's own TURN server is tried before the public relays
+    list.splice(list.indexOf(PEERJS_TURN), 0, { urls: net.turnUrl.trim(), username: net.turnUser || undefined, credential: net.turnPass || undefined });
   }
   return list;
 }

@@ -311,6 +311,28 @@ export class InputState {
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** Quiet time (ms) that ends a wheel gesture (see WheelGesture). */
+export const WHEEL_GESTURE_GAP_MS = 180;
+
+/**
+ * Mouse wheel → one weapon switch per gesture. A wheel notch is one event, but a
+ * Mac trackpad / Magic Mouse swipe sends dozens of small deltas and then about a
+ * second of momentum: switching on every event flipped between the two weapons
+ * dozens of times and left a random one in hand. The first event of a gesture
+ * switches; the rest of it (events less than WHEEL_GESTURE_GAP_MS apart) does not.
+ */
+export class WheelGesture {
+  private last = -Infinity;
+
+  /** A wheel event (vertical delta, time in ms): true when it should switch the weapon. */
+  push(deltaY: number, t: number): boolean {
+    if (deltaY === 0) return false;
+    const fresh = t - this.last >= WHEEL_GESTURE_GAP_MS;
+    this.last = t;
+    return fresh;
+  }
+}
+
 const isEditable = (t: EventTarget | null): boolean => {
   const el = t as HTMLElement | null;
   if (!el || typeof el.tagName !== 'string') return false;
@@ -341,6 +363,7 @@ export class InputController implements InputSink {
   private viewOverride: CameraView | null = null;
   /** timed turn towards an entity (张辽 突袭 lands behind the target: face it) */
   private turn: { targetId: EntityId; remaining: number; last: number } | null = null;
+  private readonly wheel = new WheelGesture();
 
   constructor(target: HTMLElement, opts: InputControllerOptions = {}) {
     this.target = target;
@@ -381,7 +404,7 @@ export class InputController implements InputSink {
     on(target, 'wheel', (e) => {
       if (!this.locked || !this.state.enabled) return;
       e.preventDefault();
-      if (e.deltaY !== 0) this.state.pushAction({ a: 'weapon', slot: this.nextWeaponSlot() });
+      if (this.wheel.push(e.deltaY, now())) this.state.pushAction({ a: 'weapon', slot: this.nextWeaponSlot() });
     }, { passive: false });
     on(document, 'pointerlockchange', () => {
       const now = document.pointerLockElement === this.target;

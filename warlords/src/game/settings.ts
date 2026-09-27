@@ -287,6 +287,32 @@ export function setGpuInfoForTests(info: GpuInfo | null): void {
   gpuCache = info;
 }
 
+/** 'zh' / 'en' from a language tag or URL value ('zh-CN', 'cn', 'en-US', …); null for anything else. */
+export function langFrom(v: unknown): Lang | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim().toLowerCase();
+  if (t.startsWith('zh') || t === 'cn') return 'zh';
+  if (t.startsWith('en')) return 'en';
+  return null;
+}
+
+/** First-run language: the browser's / OS's language (Chinese → 中文, anything else → English). */
+export function defaultLang(g: { document?: unknown; navigator?: { language?: string; languages?: readonly string[] } } = globalThis as never): Lang {
+  // a page only (Node has a navigator too, always en-US: tests and tools keep the default)
+  const tag = g.document ? (g.navigator?.languages?.[0] ?? g.navigator?.language) : undefined;
+  if (!tag) return DEFAULT_SETTINGS.lang;
+  return langFrom(tag) ?? 'en';
+}
+
+/** `?lang=zh|en` in the page URL (a 中文 / English link to the game); null when absent. */
+export function urlLang(search: string = globalThis.location?.search ?? ''): Lang | null {
+  try {
+    return langFrom(new URLSearchParams(search).get('lang'));
+  } catch {
+    return null;
+  }
+}
+
 function load(): UserSettings {
   try {
     const raw = globalThis.localStorage?.getItem(KEY);
@@ -301,7 +327,7 @@ function load(): UserSettings {
     /* storage unavailable (private mode / file://) */
   }
   const hints = deviceHints();
-  return { ...structuredClone(DEFAULT_SETTINGS), quality: defaultQuality(hints), autoRenderScale: defaultRenderScale(hints) };
+  return { ...structuredClone(DEFAULT_SETTINGS), lang: defaultLang(), quality: defaultQuality(hints), autoRenderScale: defaultRenderScale(hints) };
 }
 
 /** Test hook: settings as a fresh load from storage would produce them. */
@@ -330,3 +356,9 @@ export const settings = {
     return () => listeners.delete(l);
   },
 };
+
+// a 中文 / English link (?lang=zh|en) switches the language and keeps it
+{
+  const l = urlLang();
+  if (l && current.lang !== l) settings.update({ lang: l });
+}

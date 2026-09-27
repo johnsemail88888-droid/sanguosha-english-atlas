@@ -97,9 +97,9 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     applyNet(saved.net);
   } else if (link && urlMode) applyNet(link.net);
   if (rejoin) rejoinTried = true;
-  // the desktop app (embedded server) and pages served by `npm run server` relay on
-  // the same origin: default to server mode there (the player can still pick P2P)
-  let mode: NetMode = saved?.mode ?? urlMode ?? (desktop && !modeChosen() ? 'ws' : settings.get().net.mode);
+  // the desktop app used to default to its LAN server: its invite links (a LAN address) then failed for friends
+  // elsewhere — every page starts on the saved mode (public P2P unless the player picked the server)
+  let mode: NetMode = saved?.mode ?? urlMode ?? settings.get().net.mode;
   // a mode from the URL / the saved room (a P2P room stays P2P on a self-hosted page), or one the player picked, is never auto-switched
   let modeTouched = !!saved || !!urlMode || modeChosen();
   let busy: 'host' | 'join' | null = null;

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { HOST_UNREACHABLE, LinkStatus, OK_CHIP_SECS, TROUBLE_LOG_AFTER, WAITING_HOST, hostWording, linkActions, linkChipText, linkStateOf, silentSecs, type StatusMsg } from '../../../src/ui/hud/connstatus';
 import { loadStageText } from '../../../src/ui/screens/loading';
 import { overrideLang } from '../../../src/ui/i18n';
-import { cleanUrls, desktopInfo, refreshLanUrls, resetLanUrlsForTests, shareBase } from '../../../src/ui/desktop';
+import { cleanUrls, desktopInfo, PUBLIC_WEB_URL, refreshLanUrls, resetLanUrlsForTests, shareBase } from '../../../src/ui/desktop';
 import { HOST_UNREACHABLE_KEY, WAITING_HOST_KEY } from '../../../src/net/clientSession';
 
 // the exact lines src/net/clientSession.ts emits
@@ -209,11 +209,14 @@ describe('NET-1 desktop LAN addresses', () => {
     expect(refreshLanUrls()).toEqual(['http://192.168.1.5:8787/']);
     expect(calls).toBe(1);
     expect(desktopInfo()?.lanUrls).toEqual(['http://192.168.1.5:8787/']);
-    expect(shareBase({ origin: 'http://127.0.0.1:8787', pathname: '/' })).toBe('http://192.168.1.5:8787/');
+    expect(shareBase({ origin: 'http://127.0.0.1:8787', pathname: '/' }, 'ws')).toBe('http://192.168.1.5:8787/');
+    // a P2P room is reachable from anywhere: friends get the public web version, not a LAN address
+    expect(shareBase({ origin: 'http://127.0.0.1:8787', pathname: '/' }, 'peer')).toBe(PUBLIC_WEB_URL);
+    expect(shareBase({ origin: 'http://127.0.0.1:8787', pathname: '/' })).toBe(PUBLIC_WEB_URL);
     // the network changed again
     now = ['http://172.20.1.9:8787/', 'http://192.168.56.1:8787/'];
     expect(refreshLanUrls()).toEqual(now);
-    expect(shareBase({ origin: 'http://127.0.0.1:8787', pathname: '/' })).toBe('http://172.20.1.9:8787/');
+    expect(shareBase({ origin: 'http://127.0.0.1:8787', pathname: '/' }, 'ws')).toBe('http://172.20.1.9:8787/');
     // offline: an empty list is a real answer
     now = [];
     expect(refreshLanUrls()).toEqual([]);
