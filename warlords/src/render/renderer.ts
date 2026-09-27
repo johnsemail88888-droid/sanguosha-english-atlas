@@ -36,6 +36,7 @@ import { EntityManager } from './entities/manager';
 import { preloadCharacterArt } from './models/preload';
 import { evictUnusedTemplates } from './models/glb';
 import { setWorldArtQuality, worldTexturesSettled } from './core/worldArt';
+import { setVertexFog } from './core/skyArtFog';
 import { releaseObjectGeometryCache } from './entities/objects';
 import { releaseModelCaches } from './models';
 import type { EntityCtx } from './entities/context';
@@ -203,7 +204,8 @@ export class GameRenderer {
     this.sky = createSkyLayer(map.size, SUN_DIR);
     this.scene.add(this.sky.group);
     this.lights = new SceneLights(this.scene);
-    this.terrain = buildTerrain(map);
+    // (short draw distances: finer terrain chunks, culled closer to the view)
+    this.terrain = buildTerrain(map, { chunks: this.preset.drawDistance <= 200 ? 8 : 4 });
     this.scene.add(this.terrain.group);
     this.water = buildWater(map, SUN_DIR);
     if (this.water.mesh) this.scene.add(this.water.mesh);
@@ -759,7 +761,8 @@ export class GameRenderer {
         next.glbCharacters !== this.preset.glbCharacters ||
         // the ground's variant (terrain.ts: procedural / GROUND_LQ / full) and the buildings' material
         groundVariant(q) !== groundVariant(this.quality) ||
-        next.worldArt !== this.preset.worldArt;
+        next.worldArt !== this.preset.worldArt ||
+        next.shading !== this.preset.shading;
       this.switchQuality(q);
       if (recompiles) {
         this.holdRender = true;
@@ -919,6 +922,12 @@ export class GameRenderer {
     // textured buildings (the ground follows setWorldArtQuality)
     this.world.setTextured(p.worldArt);
     this.world.setDrawDistance(p.drawDistance);
+    this.world.setLodScale(p.lodScale);
+    // per-pixel shading cost (quality.ts `shading`): sky / fog per vertex, Lambert world
+    this.sky.setCheap(p.shading !== 'full');
+    setVertexFog(p.shading !== 'full');
+    this.terrain.setLite(p.shading === 'basic');
+    this.world.setLite(p.shading === 'basic');
   }
 
   private onSettings(u: UserSettings): void {
@@ -961,6 +970,10 @@ export class GameRenderer {
     c.lodScale = this.preset.lodScale;
     c.shadows = this.preset.shadows;
     c.frame = this.frameNo;
+    // (the camera was placed by updateCamera: its frustum drives the characters' off-screen LOD)
+    this.camera.updateMatrixWorld();
+    this.viewProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    c.frustum = this.viewFrustum.setFromProjectionMatrix(this.viewProj);
     return c;
   }
 
@@ -1020,6 +1033,8 @@ export class GameRenderer {
 
   private readonly focusVec = new THREE.Vector3();
   private readonly camDirVec = new THREE.Vector3();
+  private readonly viewProj = new THREE.Matrix4();
+  private readonly viewFrustum = new THREE.Frustum();
   private injected: GameEvent[] = [];
 
   /**

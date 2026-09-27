@@ -21,9 +21,10 @@ import { computeGroundSplat, dryness, FLOW_STRIDE, SPLAT_STRIDE, type GroundSpla
 import { applySkyArtFog, skyArtFogKey } from '../core/skyArtFog';
 import { displayMap } from './rimShape';
 
-const CHUNKS = 4;
+const DEFAULT_CHUNKS = 4;
 
 let terrainMat: THREE.MeshStandardMaterial | null = null;
+let terrainLite: THREE.MeshLambertMaterial | null = null;
 
 /** Uniforms of the textured variant (shared objects: swapping a value never recompiles). */
 const artUniforms = {
@@ -308,6 +309,25 @@ export function terrainMaterial(): THREE.MeshStandardMaterial {
   if (terrainMat) return terrainMat;
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   m.name = 'terrain';
+  installTerrainShader(m, false);
+  terrainMat = m;
+  return m;
+}
+
+/**
+ * Diffuse-only twin of terrainMaterial (the 极速 tier's 'basic' shading):
+ * Lambert, the procedural ground only, one detail-noise octave instead of three.
+ */
+export function terrainMaterialLite(): THREE.MeshLambertMaterial {
+  if (terrainLite) return terrainLite;
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true });
+  m.name = 'terrainLite';
+  installTerrainShader(m, true);
+  terrainLite = m;
+  return m;
+}
+
+function installTerrainShader(m: THREE.Material, lite: boolean): void {
   m.onBeforeCompile = (shader) => {
     applySkyArtFog(shader, m);
     const art = m.defines?.WORLD_TEX !== undefined;
@@ -339,7 +359,10 @@ float tNoise(vec2 p) {
       )
       .replace(
         '#include <color_fragment>',
-        `#include <color_fragment>
+        lite
+          ? `#include <color_fragment>
+diffuseColor.rgb *= 0.93 + 0.14 * tNoise(vWorldPosT.xz * 0.35);`
+          : `#include <color_fragment>
 #ifndef WORLD_TEX
 {
   vec2 wp = vWorldPosT.xz;
@@ -351,9 +374,7 @@ float tNoise(vec2 p) {
 #endif${ART_FRAGMENT}`,
       );
   };
-  m.customProgramCacheKey = () => `terrain_v3${skyArtFogKey()}`;
-  terrainMat = m;
-  return m;
+  m.customProgramCacheKey = () => `terrain_v3${lite ? '_lite' : ''}${skyArtFogKey()}`;
 }
 
 /** Switch the (shared) terrain material to its textured variant / sample count. */
@@ -399,6 +420,8 @@ function smooth(a: number, b: number, v: number): number {
 
 export interface TerrainMeshes {
   group: THREE.Group;
+  /** The diffuse-only procedural ground (the 极速 tier), swapped in place. */
+  setLite(on: boolean): void;
   dispose(): void;
 }
 
@@ -431,8 +454,17 @@ interface ChunkInfo {
   d: number;
 }
 
+export interface TerrainOptions {
+  /**
+   * Chunks per side (default 4 = 80 m squares). Short draw distances (极速)
+   * take 8: 40 m squares cull far closer to the view (renderer depthCull).
+   */
+  chunks?: number;
+}
+
 /** Build chunked terrain + outer skirt (the rim beyond the walls in its display shape: rimShape.ts). */
-export function buildTerrain(simMap: MapData): TerrainMeshes {
+export function buildTerrain(simMap: MapData, opts: TerrainOptions = {}): TerrainMeshes {
+  const CHUNKS = Math.max(1, Math.round(opts.chunks ?? DEFAULT_CHUNKS));
   const map = displayMap(simMap);
   const group = new THREE.Group();
   group.name = 'terrain';
@@ -510,7 +542,7 @@ export function buildTerrain(simMap: MapData): TerrainMeshes {
     }
   }
   const skirt = buildSkirt(map);
-  group.add(skirt);
+  for (const m of skirt) group.add(m);
 
   // AI-art ground: splat attributes + textured program (as soon as the listing is known)
   let disposed = false;
@@ -522,7 +554,7 @@ export function buildTerrain(simMap: MapData): TerrainMeshes {
     if (disposed) return;
     const splat = computeGroundSplat(map);
     for (const ch of chunks) addSplatAttributes(ch, splat, map.res);
-    addSkirtSplat(skirt.geometry);
+    addSkirtSplat(skirt);
     artUniforms.uGroundTex.value = set.uniform.value;
     artUniforms.uWaterLevel.value = map.waterLevel;
     artUniforms.uGrassAvg.value.copy(col(NATURE.grass));
@@ -544,8 +576,17 @@ export function buildTerrain(simMap: MapData): TerrainMeshes {
       for (const cb of groundArtSubs) cb();
     });
   });
+  let lite = false;
   return {
     group,
+    setLite(on: boolean): void {
+      if (on === lite || disposed) return;
+      lite = on;
+      const lm = on ? terrainMaterialLite() : mat;
+      group.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.material = lm;
+      });
+    },
     dispose(): void {
       disposed = true;
       unsubQ();
@@ -579,17 +620,27 @@ function addSplatAttributes(ch: ChunkInfo, g: GroundSplat, res: number): void {
   ch.geo.setAttribute('aFlow', new THREE.BufferAttribute(flow, 2));
 }
 
-/** Skirt: no structures out there — only the macro dryness. */
-function addSkirtSplat(geo: THREE.BufferGeometry): void {
-  const P = geo.getAttribute('position') as THREE.BufferAttribute;
+/** Skirt: no structures out there — only the macro dryness (one attribute pair, shared by the tiles). */
+function addSkirtSplat(tiles: readonly THREE.Mesh[]): void {
+  if (!tiles.length) return;
+  const P = tiles[0].geometry.getAttribute('position') as THREE.BufferAttribute;
   const splat = new Float32Array(P.count * 4);
   for (let i = 0; i < P.count; i++) splat[i * 4 + 3] = dryness(P.getX(i), P.getZ(i), P.getY(i));
-  geo.setAttribute('aSplat', new THREE.BufferAttribute(splat, 4));
-  geo.setAttribute('aFlow', new THREE.BufferAttribute(new Float32Array(P.count * 2), 2));
+  const aSplat = new THREE.BufferAttribute(splat, 4);
+  const aFlow = new THREE.BufferAttribute(new Float32Array(P.count * 2), 2);
+  for (const t of tiles) {
+    t.geometry.setAttribute('aSplat', aSplat);
+    t.geometry.setAttribute('aFlow', aFlow);
+  }
 }
 
-/** Coarse hills around the playable square, fading from the edge heights into rolling ridges. */
-function buildSkirt(map: MapData): THREE.Mesh {
+/**
+ * Coarse hills around the playable square, fading from the edge heights into
+ * rolling ridges. Split into tiles (one vertex grid, an index per tile) so the
+ * frustum / draw-distance culling drops what the view cannot reach: eight
+ * sectors of the ring nearest the map, four quadrants beyond (SKIRT_NEAR).
+ */
+function buildSkirt(map: MapData): THREE.Mesh[] {
   const half = map.size / 2;
   const cell = 20;
   const cellsIn = Math.ceil(half / cell);
@@ -631,6 +682,7 @@ function buildSkirt(map: MapData): THREE.Mesh {
     }
   }
   const idx: number[] = [];
+  const tileOf: number[] = [];
   for (let j = 0; j < N; j++) {
     for (let i = 0; i < N; i++) {
       const x0 = origin + i * cell;
@@ -642,17 +694,51 @@ function buildSkirt(map: MapData): THREE.Mesh {
       const c = a + verts;
       const e = c + 1;
       idx.push(a, c, b, b, c, e);
+      tileOf.push(skirtTile(x0 + cell / 2, z0 + cell / 2, half));
     }
   }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.BufferAttribute(clr, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  g.computeBoundingSphere();
-  const mesh = new THREE.Mesh(g, terrainMaterial());
-  mesh.receiveShadow = false;
-  mesh.name = 'terrain_skirt';
-  mesh.matrixAutoUpdate = false;
-  return mesh;
+  // normals over the whole grid (no lighting seams between tiles)
+  const whole = new THREE.BufferGeometry();
+  const aPos = new THREE.BufferAttribute(pos, 3);
+  const aClr = new THREE.BufferAttribute(clr, 3);
+  whole.setAttribute('position', aPos);
+  whole.setIndex(idx);
+  whole.computeVertexNormals();
+  const aNrm = whole.getAttribute('normal');
+  whole.dispose();
+  const tiles: THREE.Mesh[] = [];
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  for (let t = 0; t < SKIRT_TILES; t++) {
+    const ti: number[] = [];
+    for (let k = 0; k < tileOf.length; k++) if (tileOf[k] === t) ti.push(idx[k * 6], idx[k * 6 + 1], idx[k * 6 + 2], idx[k * 6 + 3], idx[k * 6 + 4], idx[k * 6 + 5]);
+    if (!ti.length) continue;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', aPos);
+    g.setAttribute('normal', aNrm);
+    g.setAttribute('color', aClr);
+    g.setIndex(ti);
+    // bounds of this tile's vertices only (the attributes span the whole skirt)
+    box.makeEmpty();
+    for (const k of ti) box.expandByPoint(v.fromBufferAttribute(aPos, k));
+    g.boundingBox = box.clone();
+    g.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+    const mesh = new THREE.Mesh(g, terrainMaterial());
+    mesh.receiveShadow = false;
+    mesh.name = `terrain_skirt_${t}`;
+    mesh.matrixAutoUpdate = false;
+    tiles.push(mesh);
+  }
+  return tiles;
+}
+
+/** Skirt ring nearest the playable square (m beyond its edge): split finer than the rest. */
+const SKIRT_NEAR = 240;
+const SKIRT_TILES = 12;
+
+/** Tile of a skirt cell centred at (x, z): 0–7 = sectors of the near ring, 8–11 = quadrants beyond. */
+export function skirtTile(x: number, z: number, half: number): number {
+  const a = Math.atan2(z, x) / (Math.PI * 2) + 0.5; // 0..1
+  const out = Math.max(Math.abs(x), Math.abs(z)) - half;
+  return out < SKIRT_NEAR ? Math.min(7, Math.floor(a * 8)) : 8 + Math.min(3, Math.floor(a * 4));
 }

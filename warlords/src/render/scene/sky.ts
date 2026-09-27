@@ -39,16 +39,104 @@ export interface SkyLayer {
   sunDir: THREE.Vector3;
   /** centre the dome on the camera (before rendering) */
   sync(main: THREE.PerspectiveCamera): void;
+  /** The cheap dome shader (per-vertex sky, one texture read per pixel, no anisotropy): the 极速 / 流畅 tiers. */
+  setCheap(on: boolean): void;
   dispose(): void;
 }
 
 /** renderOrder of the sky layer: after every opaque world object (translucent ones sort separately). */
 export const SKY_RENDER_ORDER = 1e6;
 
+// Shared by both stages: uniforms, the procedural sky and (AI-art mode) the
+// painting's mapping helpers. SKY_CHEAP (the 极速 / 流畅 tiers, see
+// createSkyLayer's setCheap) evaluates everything but a texture read per
+// VERTEX of the dome: its fragment shader is one lookup and a few mixes —
+// the full one (atan / asin / derivatives / anisotropic textureGrad, or eight
+// noise octaves) cost a software rasteriser ~20 % of a frame.
+const SKY_COMMON = /* glsl */ `
+uniform vec3 uZenith;
+uniform vec3 uHorizon;
+uniform vec3 uHaze;
+uniform vec3 uSunColor;
+uniform vec3 uSunDir;
+uniform float uTime;
+${'${SKY_ART_PARS}'}
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p); vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float fbm(vec2 p) {
+  float s = 0.0; float a = 0.5;
+  for (int i = 0; i < 4; i++) { s += noise(p) * a; p *= 2.07; a *= 0.5; }
+  return s;
+}
+// ink-wash sky in direction d (no sun disc): gradient, haze, sun glow, brush clouds
+vec3 proceduralSky(vec3 d) {
+  float h = clamp(d.y, -0.2, 1.0);
+  // ink-wash vertical gradient: warm horizon haze -> muted blue-grey zenith
+  float t = pow(clamp(h, 0.0, 1.0), 0.55);
+  vec3 c = mix(uHorizon, uZenith, t);
+  c = mix(c, uHaze, smoothstep(0.08, -0.12, h));
+  // sun glow
+  float sd = max(dot(d, uSunDir), 0.0);
+  c += uSunColor * (pow(sd, 6.0) * 0.28 + pow(sd, 64.0) * 0.55);
+  // brush-stroke clouds: a seamless planar cloud layer, stretched along one axis
+  vec2 uv = d.xz / max(d.y + 0.12, 0.04);
+  uv = vec2(uv.x * 0.9 + uTime * 0.01, uv.y * 2.6);
+  float n = fbm(uv * 0.55 + 7.0);
+  float band = smoothstep(0.5, 0.78, n) * smoothstep(0.03, 0.2, h) * smoothstep(0.85, 0.35, h);
+  vec3 cloudCol = mix(vec3(0.98, 0.94, 0.86), uSunColor, pow(sd, 3.0) * 0.6);
+  c = mix(c, cloudCol, band * 0.55);
+  // faint dark ink wash near the top
+  c *= 1.0 - smoothstep(0.55, 1.0, h) * 0.12 * fbm(uv * 0.2 + 3.0);
+  return c;
+}
+#ifdef SKY_ART
+// the painting's zenith blend and the horizon's fog colour / blend at elevation el, azimuth turns a
+float artZenithMix(float el) {
+  float topEl = uHorizonV / uVPerRad;
+  return smoothstep(topEl - 0.32, topEl - 0.02, el);
+}
+vec3 artFogColor(float a, float el) {
+  return texture2D(uFogSkyTex, vec2(fract(uFogSkyMap.x - a), clamp((el + uFogSkyMap.y) * uFogSkyMap.z, 0.0, 1.0))).rgb * uFogSkyMap.w;
+}
+float artFogMix(float dy) {
+  return smoothstep(0.09, -0.04, dy) * 0.85;
+}
+#endif`;
+
 const SKY_VERT = /* glsl */ `
 varying vec3 vDir;
+#ifdef SKY_CHEAP
+${'${SKY_COMMON}'}
+#ifdef SKY_ART
+varying vec2 vSkyUv;
+varying vec3 vFogCol;
+varying vec2 vMix;
+#else
+varying vec3 vSkyCol;
+#endif
+#endif
 void main() {
   vDir = normalize(position);
+#ifdef SKY_CHEAP
+  vec3 d = vDir;
+  #ifdef SKY_ART
+  // SphereGeometry: azimuth atan(x, z) = 2π (uv.x − 1/4) and elevation = π (uv.y − 1/2),
+  // both linear across every triangle: u is continuous (the seam column repeats it
+  // one whole turn on, which the repeat wrap maps to the same texels)
+  float a = uv.x - 0.25;
+  float el = (uv.y - 0.5) * 3.14159265;
+  vSkyUv = vec2(uSunUV.x + uSunAz / 6.2831853 - a, 1.0 - (uHorizonV - el * uVPerRad));
+  vMix = vec2(artZenithMix(el), artFogMix(d.y));
+  vFogCol = artFogColor(a, el);
+  #else
+  vSkyCol = proceduralSky(d);
+  #endif
+#endif
   vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   gl_Position = p.xyww;
 }`;
@@ -85,28 +173,36 @@ vec3 invACES(vec3 c) {
 #endif`;
 
 const SKY_FRAG = /* glsl */ `
-uniform vec3 uZenith;
-uniform vec3 uHorizon;
-uniform vec3 uHaze;
-uniform vec3 uSunColor;
-uniform vec3 uSunDir;
-uniform float uTime;
 varying vec3 vDir;
-${'${SKY_ART_PARS}'}
-
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float noise(vec2 p) {
-  vec2 i = floor(p); vec2 f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-}
-float fbm(vec2 p) {
-  float s = 0.0; float a = 0.5;
-  for (int i = 0; i < 4; i++) { s += noise(p) * a; p *= 2.07; a *= 0.5; }
-  return s;
-}
+${'${SKY_COMMON}'}
+#ifdef SKY_CHEAP
+#ifdef SKY_ART
+varying vec2 vSkyUv;
+varying vec3 vFogCol;
+varying vec2 vMix;
+#else
+varying vec3 vSkyCol;
+#endif
+#endif
 
 void main() {
+#ifdef SKY_CHEAP
+  {
+    #ifdef SKY_ART
+    vec3 c = texture2D(uSkyTex, vSkyUv).rgb;
+    c = invACES(mix(c, uArtZenith, vMix.x));
+    c = mix(c, vFogCol, vMix.y);
+    #else
+    vec3 c = vSkyCol;
+    // the sun disc stays sharp
+    c = mix(c, uSunColor * 1.6, smoothstep(0.9993, 0.9997, dot(normalize(vDir), uSunDir)));
+    #endif
+    gl_FragColor = vec4(c, 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+    return;
+  }
+#endif
   vec3 d = normalize(vDir);
 #ifdef SKY_ART
   {
@@ -125,36 +221,19 @@ void main() {
     // u = 0 / 1 is seamless — also under bilinear / mip filtering
     vec3 c = textureGrad(uSkyTex, vec2(u, 1.0 - v), vec2(du.x, -dv.x), vec2(du.y, -dv.y)).rgb;
     // above the painting's top edge: its zenith colour (no clamp streaks, no pinch at the pole)
-    float topEl = uHorizonV / uVPerRad;
-    c = mix(c, uArtZenith, smoothstep(topEl - 0.32, topEl - 0.02, el));
+    c = mix(c, uArtZenith, artZenithMix(el));
     c = invACES(c);
     // horizon: melt into the sky-matched fog colour the far terrain fades to (the fog LUT of this painting)
-    vec3 fogC = texture2D(uFogSkyTex, vec2(fract(uFogSkyMap.x - a), clamp((el + uFogSkyMap.y) * uFogSkyMap.z, 0.0, 1.0))).rgb * uFogSkyMap.w;
-    c = mix(c, fogC, smoothstep(0.09, -0.04, d.y) * 0.85);
+    c = mix(c, artFogColor(a, el), artFogMix(d.y));
     gl_FragColor = vec4(c, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
     return;
   }
 #endif
-  float h = clamp(d.y, -0.2, 1.0);
-  // ink-wash vertical gradient: warm horizon haze -> muted blue-grey zenith
-  float t = pow(clamp(h, 0.0, 1.0), 0.55);
-  vec3 c = mix(uHorizon, uZenith, t);
-  c = mix(c, uHaze, smoothstep(0.08, -0.12, h));
-  // sun glow + disc
+  vec3 c = proceduralSky(d);
   float sd = max(dot(d, uSunDir), 0.0);
-  c += uSunColor * (pow(sd, 6.0) * 0.28 + pow(sd, 64.0) * 0.55);
   c = mix(c, uSunColor * 1.6, smoothstep(0.9993, 0.9997, sd));
-  // brush-stroke clouds: a seamless planar cloud layer, stretched along one axis
-  vec2 uv = d.xz / max(d.y + 0.12, 0.04);
-  uv = vec2(uv.x * 0.9 + uTime * 0.01, uv.y * 2.6);
-  float n = fbm(uv * 0.55 + 7.0);
-  float band = smoothstep(0.5, 0.78, n) * smoothstep(0.03, 0.2, h) * smoothstep(0.85, 0.35, h);
-  vec3 cloudCol = mix(vec3(0.98, 0.94, 0.86), uSunColor, pow(sd, 3.0) * 0.6);
-  c = mix(c, cloudCol, band * 0.55);
-  // faint dark ink wash near the top
-  c *= 1.0 - smoothstep(0.55, 1.0, h) * 0.12 * fbm(uv * 0.2 + 3.0);
   gl_FragColor = vec4(c, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -167,8 +246,8 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
   const sunN = sunDir.clone().normalize();
 
   const skyMat = new THREE.ShaderMaterial({
-    vertexShader: SKY_VERT,
-    fragmentShader: SKY_FRAG.replace('${SKY_ART_PARS}', SKY_ART_PARS),
+    vertexShader: SKY_VERT.replace('${SKY_COMMON}', SKY_COMMON).replace('${SKY_ART_PARS}', SKY_ART_PARS),
+    fragmentShader: SKY_FRAG.replace('${SKY_COMMON}', SKY_COMMON).replace('${SKY_ART_PARS}', SKY_ART_PARS),
     uniforms: {
       uZenith: { value: col(SKY.zenith).clone() },
       uHorizon: { value: col(SKY.horizon).clone() },
@@ -192,7 +271,8 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
     depthTest: true,
     fog: false,
   });
-  const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(5000, 48, 24), skyMat);
+  // (48 rows: the cheap variant interpolates the horizon / zenith blends between them)
+  const skyMesh = new THREE.Mesh(new THREE.SphereGeometry(5000, 48, 48), skyMat);
   skyMesh.renderOrder = SKY_RENDER_ORDER;
   skyMesh.frustumCulled = false;
   skyMesh.name = 'skyDome';
@@ -233,6 +313,15 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
 
   // AI-art panorama (callback only when shipped + decoded)
   let disposed = false;
+  let cheap = false;
+  // anisotropic filtering is several texture reads per pixel on a software rasteriser
+  // (the texture outlives the match: set it either way)
+  const setAnisotropy = (tex: THREE.Texture): void => {
+    const want = cheap ? 1 : 4;
+    if (tex.anisotropy === want) return;
+    tex.anisotropy = want;
+    tex.needsUpdate = true;
+  };
   setSkySunElevation(Math.asin(Math.min(1, Math.max(-1, sunDirN.y))));
   // the deploy ships a painting: world materials compile the LUT fog right away
   // (procedural gradient in the LUT until the painting has decoded)
@@ -252,6 +341,7 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
     paintedFog = true;
     skyMat.defines = { ...skyMat.defines, SKY_ART: '' };
     skyMat.needsUpdate = true;
+    setAnisotropy(art.tex);
     // distant ridges pick up the painting's horizon haze
     mtnMat.color.copy(art.horizon).multiplyScalar(1 / Math.max(0.05, (art.horizon.r + art.horizon.g + art.horizon.b) / 3)).lerp(new THREE.Color(1, 1, 1), 0.55);
   });
@@ -261,6 +351,17 @@ export function createSkyLayer(mapSize: number, sunDir: THREE.Vector3): SkyLayer
     sync(main: THREE.PerspectiveCamera): void {
       // the dome travels with the camera; the mountain rings stay around the map
       skyMesh.position.copy(main.position);
+    },
+    setCheap(on: boolean): void {
+      if (on === cheap || disposed) return;
+      cheap = on;
+      const d = { ...skyMat.defines };
+      if (on) d.SKY_CHEAP = '';
+      else delete d.SKY_CHEAP;
+      skyMat.defines = d;
+      skyMat.needsUpdate = true;
+      const tex = skyMat.uniforms.uSkyTex.value;
+      if (tex) setAnisotropy(tex);
     },
     dispose(): void {
       disposed = true;

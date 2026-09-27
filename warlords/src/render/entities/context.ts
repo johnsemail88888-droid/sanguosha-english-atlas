@@ -24,6 +24,8 @@ export interface EntityCtx {
   characterDistance: number;
   /** the quality tier's LOD distance scale (entities/lod.ts; default 1) */
   lodScale?: number;
+  /** this frame's camera frustum (off-screen characters animate less often: entities/lod.ts) */
+  frustum?: THREE.Frustum | null;
   /** shared batch for troop / NPC overhead markers (one draw call) */
   badges: TroopBadgeLayer;
   shadows: boolean;

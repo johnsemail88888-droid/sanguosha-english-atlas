@@ -750,8 +750,9 @@ export class InstanceBatch {
    * camera position for the LOD split. Leaves the shadow meshes hidden: see
    * showShadows().
    */
-  cull(view: THREE.Frustum, shadow: THREE.Frustum | null, cx: number, cz: number): void {
+  cull(view: THREE.Frustum, shadow: THREE.Frustum | null, cx: number, cz: number, lodScale = 1): void {
     const s = this.spheres;
+    const d2 = this.dist2 * lodScale * lodScale;
     const [vn, vf, sn, sf] = this.packs;
     for (const p of this.packs) p.reset();
     for (let i = 0; i < this.count; i++) {
@@ -764,7 +765,7 @@ export class InstanceBatch {
       if (!inView && !inShadow) continue;
       const dx = x - cx;
       const dz = z - cz;
-      const near = dx * dx + dz * dz < this.dist2;
+      const near = dx * dx + dz * dz < d2;
       if (inView) (near ? vn : vf).push(i);
       if (inShadow) (near ? sn : sf).push(i);
     }
@@ -846,6 +847,8 @@ export class PropCuller extends THREE.LOD {
    * hidden the world there (the renderer sets the tier's).
    */
   maxDistance = Infinity;
+  /** The tier's LOD distance scale (quality.ts lodScale): far models start this much further out. */
+  lodScale = 1;
   private readonly gate = new ShadowGate(this);
   private sun: THREE.DirectionalLight | null = null;
   private sunLooked = false;
@@ -900,7 +903,7 @@ export class PropCuller extends THREE.LOD {
       sun.shadow.updateMatrices(sun);
       shadow = sun.shadow.getFrustum();
     }
-    for (const b of this.batches) b.cull(_view, shadow, e[12], e[14]);
+    for (const b of this.batches) b.cull(_view, shadow, e[12], e[14], this.lodScale);
     return this;
   }
 

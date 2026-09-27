@@ -69,6 +69,8 @@ import {
   skyArtFogKey,
   skyArtFogOn,
   skyArtFogUniforms,
+  setVertexFog,
+  vertexFogOn,
 } from '../../../src/render/core/skyArtFog';
 import { SKY } from '../../../src/render/palette';
 
@@ -1050,7 +1052,7 @@ describe('world art: painted-sky fog', () => {
 
   it('compiles the LUT fog only while active and recompiles registered materials', () => {
     const mat = new THREE.MeshStandardMaterial();
-    const shader = { uniforms: {} as Record<string, THREE.IUniform>, fragmentShader: 'void main() {}' };
+    const shader = { uniforms: {} as Record<string, THREE.IUniform>, vertexShader: 'void main() {}', fragmentShader: 'void main() {}' };
     applySkyArtFog(shader, mat);
     expect(shader.fragmentShader).not.toContain('SKY_ART_FOG');
     expect(skyArtFogKey()).toBe('');
@@ -1059,11 +1061,25 @@ describe('world art: painted-sky fog', () => {
     expect(skyArtFogOn()).toBe(true);
     expect(mat.version).toBeGreaterThan(v); // needsUpdate
     expect(skyArtFogKey()).not.toBe('');
-    const s2 = { uniforms: {} as Record<string, THREE.IUniform>, fragmentShader: 'void main() {}' };
+    const s2 = { uniforms: {} as Record<string, THREE.IUniform>, vertexShader: 'void main() {}', fragmentShader: 'void main() {}' };
     applySkyArtFog(s2, mat);
     expect(s2.fragmentShader.startsWith('#define SKY_ART_FOG')).toBe(true);
     expect(s2.uniforms.uFogSkyTex).toBe(skyArtFogUniforms.uFogSkyTex);
     expect(skyArtFogUniforms.uFogSkyTex.value).not.toBeNull();
+    // the cheap tiers: fog colour per vertex — its own program key, both stages defined, a recompile
+    const v2 = mat.version;
+    setVertexFog(true);
+    expect(vertexFogOn()).toBe(true);
+    expect(mat.version).toBeGreaterThan(v2);
+    expect(skyArtFogKey()).toContain('_vfog');
+    const s3 = { uniforms: {} as Record<string, THREE.IUniform>, vertexShader: 'void main() {}', fragmentShader: 'void main() {}' };
+    applySkyArtFog(s3, mat);
+    for (const src of [s3.vertexShader, s3.fragmentShader]) {
+      expect(src).toContain('#define FOG_VERTEX_COLOR');
+      expect(src).toContain('#define SKY_ART_FOG');
+    }
+    setVertexFog(false);
+    expect(skyArtFogKey()).not.toContain('_vfog');
     disposeSkyArtFog();
     expect(skyArtFogOn()).toBe(false);
     expect(skyArtFogUniforms.uFogSkyTex.value).toBeNull();

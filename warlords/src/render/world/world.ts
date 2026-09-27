@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import type { MapData, MapProp, PropType } from '../../core/map';
 import { GeoBuilder, trs } from '../core/geo';
-import { glowMaterial, worldMaterial, worldMaterialDouble } from '../core/materials';
+import { glowMaterial, worldMaterial, worldMaterialDouble, worldMaterialLite, worldMaterialLiteDouble } from '../core/materials';
 import { bindStructureSet, structureMaterial, structureMaterialDouble } from '../core/structureMaterial';
 import { requestStructSet, withWorldArtListing, worldArtPossible } from '../core/worldArt';
 import { assetListSync } from '../../game/assets';
@@ -88,6 +88,13 @@ export interface WorldBuild {
   setTextured(on: boolean): void;
   /** The tier's draw distance (m): instanced props / vegetation deeper in the view are not drawn. */
   setDrawDistance(d: number): void;
+  /** The tier's LOD distance scale: instanced props / vegetation switch to their far models this much further out. */
+  setLodScale(s: number): void;
+  /**
+   * Diffuse-only (Lambert) materials on the untextured chunks and the
+   * vegetation (the 极速 tier's 'basic' shading), swapped in place.
+   */
+  setLite(on: boolean): void;
   dispose(): void;
 }
 
@@ -254,12 +261,13 @@ export function buildWorld(map: MapData, opts: WorldBuildOptions = {}): WorldBui
   let disposed = false;
   let structSet = false;
   let textured = art;
+  let lite = false;
   const applyStructMaterials = (): void => {
     const on = structSet && textured;
-    const m = on ? structureMaterial() : worldMaterial();
+    const m = on ? structureMaterial() : lite ? worldMaterialLite() : worldMaterial();
     for (const mesh of opaqueMeshes) mesh.material = m;
     // double-sided cloth chunks hold the roof shells: textured tiles, still no culled faces
-    const md = on ? structureMaterialDouble() : worldMaterialDouble();
+    const md = on ? structureMaterialDouble() : lite ? worldMaterialLiteDouble() : worldMaterialDouble();
     for (const mesh of clothMeshes) mesh.material = md;
   };
   requestStructSet((set) => {
@@ -285,6 +293,7 @@ export function buildWorld(map: MapData, opts: WorldBuildOptions = {}): WorldBui
   };
   let models: PropModelSet | null = null;
   let drawDistance = Infinity;
+  let lodScale = 1;
   let farm: FarmArt | null = null;
   let settle: () => void = () => undefined;
   const artReady = new Promise<void>((res) => (settle = res));
@@ -297,6 +306,7 @@ export function buildWorld(map: MapData, opts: WorldBuildOptions = {}): WorldBui
         }
         models = set;
         (set.group as PropCuller).maxDistance = drawDistance;
+        (set.group as PropCuller).lodScale = lodScale;
         group.add(set.group);
         nature.removeTypes(fullyReplacedTypes(set.kinds));
         for (const k of set.kinds) retire(k);
@@ -330,10 +340,21 @@ export function buildWorld(map: MapData, opts: WorldBuildOptions = {}): WorldBui
       textured = on;
       if (structSet) applyStructMaterials();
     },
+    setLite(on: boolean): void {
+      if (on === lite || disposed) return;
+      lite = on;
+      applyStructMaterials();
+      nature.setLite(on);
+    },
     setDrawDistance(d: number): void {
       drawDistance = d;
       nature.group.maxDistance = d;
       if (models) (models.group as PropCuller).maxDistance = d;
+    },
+    setLodScale(v: number): void {
+      lodScale = v;
+      nature.group.lodScale = v;
+      if (models) (models.group as PropCuller).lodScale = v;
     },
     dispose(): void {
       disposed = true;

@@ -63,6 +63,13 @@ export interface QualityPreset {
   /** frame-rate cap of the match loop (fps); 0 = the display's rate */
   maxFps: number;
   /**
+   * Per-pixel shading cost: 'full' = PBR world, painted sky and sky fog per
+   * pixel; 'lite' = sky dome and fog colour evaluated per vertex (scene/sky.ts
+   * SKY_CHEAP, scene/skyfog.ts FOG_VERTEX_COLOR); 'basic' = lite + diffuse-only
+   * (Lambert) ground, buildings and vegetation.
+   */
+  shading: 'basic' | 'lite' | 'full';
+  /**
    * Distance scale of the character LODs (entities/lod.ts): the far body and
    * the reduced animation rates start this much further out.
    */
@@ -93,6 +100,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     weaponTexture: 256,
     worldArt: false,
     maxFps: 30,
+    shading: 'basic',
     lodScale: 0.7,
   },
   // 流畅
@@ -117,6 +125,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     weaponTexture: 256,
     worldArt: true,
     maxFps: 0,
+    shading: 'lite',
     lodScale: 0.8,
   },
   // 均衡
@@ -140,6 +149,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     weaponTexture: 512,
     worldArt: true,
     maxFps: 0,
+    shading: 'full',
     lodScale: 1,
   },
   // 高清
@@ -163,6 +173,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     weaponTexture: 512,
     worldArt: true,
     maxFps: 0,
+    shading: 'full',
     lodScale: 1.25,
   },
   // 极致: strong discrete GPUs — full DPR, wider shadow frustum, the longest
@@ -187,6 +198,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     weaponTexture: 512,
     worldArt: true,
     maxFps: 0,
+    shading: 'full',
     lodScale: 1.6,
   },
 };

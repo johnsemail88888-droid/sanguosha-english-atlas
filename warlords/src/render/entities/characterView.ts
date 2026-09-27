@@ -2,9 +2,9 @@
 // status tints, auras, stealth, mounts and nameplates.
 //
 // Visibility: heroes are NEVER distance-culled (at most 8; a sniper must see
-// what can shoot it on every quality preset) — far heroes only drop to a
-// cheaper animation rate. Troops / NPCs are hidden beyond the preset's
-// characterDistance.
+// what can shoot it on every quality preset) — far heroes only drop to the
+// decimated body and a cheaper animation rate (./lod.ts). Troops / NPCs are
+// hidden beyond the preset's characterDistance.
 import * as THREE from 'three';
 import { lerpAngle } from '../../core/math';
 import type { RoleId, ViewEntity } from '../../core/types';
@@ -35,6 +35,7 @@ import type { EntityCtx } from './context';
 import { CAM_FADE_HIDDEN, cameraFadeTarget, type CamFadeOptions } from './camFade';
 import { LOS_MAX_AGE_HERO, LosCache, needsLos, overheadTarget, stepOcclusion, type OverheadVisibility } from './occlusion';
 import { displayName } from '../../game/names';
+import { animDue, animStride, farBody, inViewSides } from './lod';
 
 const _v = new THREE.Vector3();
 const _losTop = new THREE.Vector3();
@@ -52,14 +53,6 @@ const EMISSIVE = {
 const WHITE = new THREE.Color(1, 1, 1);
 const ICE = new THREE.Color(0.72, 0.88, 1.25);
 
-/** Beyond this distance (m) a non-local hero animates at a third of the frame rate. */
-export const HERO_ANIM_LOD_DIST = 120;
-/** GLB bodies switch to their far LOD beyond these distances (m; 10 % hysteresis). */
-export const HERO_LOD_DIST = 45;
-export const TROOP_LOD_DIST = 28;
-/** Troops / NPCs beyond these distances (m) animate every 2nd / 3rd frame (accumulated dt). */
-export const TROOP_ANIM_LOD_NEAR = 35;
-export const TROOP_ANIM_LOD_FAR = 70;
 /** Heroes cast shadows within this distance (m) of the camera. */
 export const HERO_SHADOW_DIST = 60;
 /** Troops / NPCs cast shadows within this distance (m) of the camera. */
@@ -246,9 +239,14 @@ export class CharacterView {
     }
     this.rig.setWeapon(e.weapon ?? this.defaultWeapon);
 
-    // animation (far heroes: every third frame; troops thin out with distance) with the accumulated dt
+    // animation: far / off-screen characters skip frames (./lod.ts), with the accumulated dt
     this.animDt += dt;
-    const animNow = isLocal || (isHero ? dist < HERO_ANIM_LOD_DIST || (ctx.frame + this.id) % 3 === 0 : dist < TROOP_ANIM_LOD_NEAR || (ctx.frame + this.id) % (dist < TROOP_ANIM_LOD_FAR ? 2 : 3) === 0);
+    const lodScale = ctx.lodScale ?? 1;
+    let animNow = isLocal;
+    if (!animNow) {
+      const onScreen = !ctx.frustum || inViewSides(ctx.frustum, pos.x, pos.y + 1, pos.z, 2.5 * this.rig.root.scale.y);
+      animNow = animDue(animStride(isHero, dist, lodScale, onScreen, dt), ctx.frame, this.id);
+    }
     if (animNow) {
       // movement direction in the character frame
       const sp = Math.hypot(this.vel.x, this.vel.z);
@@ -276,10 +274,7 @@ export class CharacterView {
     const shadow = ctx.shadows && dist < (isHero ? HERO_SHADOW_DIST : TROOP_SHADOW_DIST);
     this.rig.setShadows(shadow, shadow && dist < (isHero ? HERO_WEAPON_SHADOW_DIST : TROOP_WEAPON_SHADOW_DIST));
     // far LOD (the local hero never; hysteresis so it does not flicker at the threshold)
-    const lodDist = isHero ? HERO_LOD_DIST : TROOP_LOD_DIST;
-    if (isLocal) this.farLod = false;
-    else if (dist > lodDist * 1.05) this.farLod = true;
-    else if (dist < lodDist * 0.95) this.farLod = false;
+    this.farLod = !isLocal && farBody(isHero, dist, lodScale, this.farLod);
     this.rig.setLod(this.farLod);
     this.applyTint(e.flags, dt, ctx.time, isLocal);
     const inSquad = ctx.squad.has(e.id);

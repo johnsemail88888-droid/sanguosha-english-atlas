@@ -15,6 +15,12 @@ let worldMat: THREE.MeshStandardMaterial | null = null;
 let worldMatDouble: THREE.MeshStandardMaterial | null = null;
 let glowMat: THREE.MeshBasicMaterial | null = null;
 let foliageMat: THREE.MeshStandardMaterial | null = null;
+// Lambert twins of the three (the 极速 tier's 'basic' shading): diffuse only,
+// no PBR specular / multi-scattering — a fraction of the per-pixel cost on a
+// software rasteriser; the systems that use them swap in place (setLite)
+let worldLite: THREE.MeshLambertMaterial | null = null;
+let worldLiteDouble: THREE.MeshLambertMaterial | null = null;
+let foliageLite: THREE.MeshLambertMaterial | null = null;
 
 /** Opaque, vertex-coloured, flat-shaded world material (props, buildings). */
 export function worldMaterial(): THREE.MeshStandardMaterial {
@@ -40,6 +46,52 @@ export function worldMaterialDouble(): THREE.MeshStandardMaterial {
     withSkyArtFog(worldMatDouble, 'worldDouble');
   }
   return worldMatDouble;
+}
+
+/** Diffuse-only twin of worldMaterial (the 极速 tier). */
+export function worldMaterialLite(): THREE.MeshLambertMaterial {
+  if (!worldLite) {
+    worldLite = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    worldLite.name = 'worldLite';
+    withSkyArtFog(worldLite, 'worldLite');
+  }
+  return worldLite;
+}
+
+/** Diffuse-only twin of worldMaterialDouble (the 极速 tier). */
+export function worldMaterialLiteDouble(): THREE.MeshLambertMaterial {
+  if (!worldLiteDouble) {
+    worldLiteDouble = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
+    worldLiteDouble.name = 'worldLiteDouble';
+    withSkyArtFog(worldLiteDouble, 'worldLiteDouble');
+  }
+  return worldLiteDouble;
+}
+
+/** Diffuse-only twin of foliageMaterial (the 极速 tier). */
+export function foliageMaterialLite(): THREE.MeshLambertMaterial {
+  if (!foliageLite) {
+    foliageLite = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    foliageLite.name = 'foliageLite';
+    addWindSway(foliageLite, 0.05, 0.22);
+  }
+  return foliageLite;
+}
+
+/** The lite twin of a shared world material (itself when it has none). */
+export function liteTwin(m: THREE.Material): THREE.Material {
+  if (m === worldMat) return worldMaterialLite();
+  if (m === worldMatDouble) return worldMaterialLiteDouble();
+  if (m === foliageMat) return foliageMaterialLite();
+  return m;
+}
+
+/** The full material of a lite twin (itself when it is none). */
+export function fullTwin(m: THREE.Material): THREE.Material {
+  if (m === worldLite) return worldMaterial();
+  if (m === worldLiteDouble) return worldMaterialDouble();
+  if (m === foliageLite) return foliageMaterial();
+  return m;
 }
 
 /** Painted-sky fog for a material without other shader changes (core/skyArtFog.ts). */
@@ -147,7 +199,11 @@ export function disposeSharedMaterials(): void {
   worldMatDouble?.dispose();
   glowMat?.dispose();
   foliageMat?.dispose();
+  worldLite?.dispose();
+  worldLiteDouble?.dispose();
+  foliageLite?.dispose();
   worldMat = worldMatDouble = foliageMat = null;
+  worldLite = worldLiteDouble = foliageLite = null;
   glowMat = null;
   disposeStructureMaterial();
   disposeWorldArt();
