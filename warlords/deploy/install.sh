@@ -341,7 +341,8 @@ fetch_source() {
     return 0
   fi
   local tmp="$INSTALL_DIR/src.tmp"
-  rm -rf "$tmp"
+  # whatever an interrupted earlier run left behind
+  rm -rf "$tmp" "$SRC_DIR"
   log "下载游戏 / cloning the game (github.com, shallow)"
   if timeout 900 git clone -q --depth 1 --branch "$BRANCH" --filter=blob:none --sparse "https://github.com/${REPO_SLUG}.git" "$tmp" &&
     git -C "$tmp" sparse-checkout set warlords; then
