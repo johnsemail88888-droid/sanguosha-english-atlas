@@ -391,7 +391,8 @@ export async function startServer(opts = {}) {
   const serveStatic = createStaticHandler(distDir);
   const headlessOpts = typeof opts.headless === 'object' && opts.headless ? opts.headless : {};
   const workerPath = opts.workerPath ?? process.env.HEADLESS_WORKER ?? DEFAULT_WORKER;
-  const maxRooms = headlessOpts.maxRooms ?? (Number(process.env.HEADLESS_MAX_ROOMS) || 4);
+  const envMax = Number.parseInt(process.env.HEADLESS_MAX_ROOMS ?? '', 10);
+  const maxRooms = headlessOpts.maxRooms ?? (Number.isFinite(envMax) && envMax >= 0 ? envMax : 4);
   /** @type {http.Server | undefined} */
   let server;
   const rooms = createHeadlessRooms({

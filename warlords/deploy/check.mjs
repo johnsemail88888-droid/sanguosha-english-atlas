@@ -259,7 +259,7 @@ export async function checkServer(baseUrl, opts = {}) {
     } else {
       headless = 'off';
       lines.push(
-        '⚠ 服务器托管对局：未开启（房间由房主的浏览器运行；需要 npm run build:headless，或已设 HEADLESS=0）/ Server-hosted matches: off (rooms run in the host player\'s browser; needs npm run build:headless, or HEADLESS=0 is set)',
+        '⚠ 服务器托管对局：未开启（房间由房主的浏览器运行；需要 npm run build:headless，或设了 HEADLESS=0，或连续启动失败后暂停中——见服务器日志）/ Server-hosted matches: off (rooms run in the host player\'s browser; needs npm run build:headless, or HEADLESS=0 is set, or paused after failed starts — see the server log)',
       );
     }
   }
