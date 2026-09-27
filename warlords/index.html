@@ -33,6 +33,22 @@
         <div class="msg">正在加载… · Loading…</div>
       </div>
     </div>
+    <script>
+      // A browser too old for the bundle (three.js uses ES2022 class static blocks: Safari
+      // 16.4+, Chrome 94+) never runs src/main.ts: say so instead of an endless 正在加载…
+      (function () {
+        try {
+          new Function('class A { static { A.ok = 1; } } return A.ok;')();
+          return;
+        } catch (e) {
+          /* too old */
+        }
+        var msg = document.querySelector('.sgwl-boot .msg');
+        if (msg) msg.innerHTML = '浏览器版本太旧，无法运行游戏：请更新 Safari（系统设置 → 软件更新）或改用最新版 Chrome / Edge。<br>This browser is too old for the game: update Safari (System Settings → Software Update) or use the latest Chrome / Edge.';
+        var bar = document.querySelector('.sgwl-boot .bar');
+        if (bar) bar.style.display = 'none';
+      })();
+    </script>
     <noscript>
       <p style="color:#f3e6c8;font:16px system-ui,sans-serif;text-align:center;margin-top:40vh">
         请启用 JavaScript 以运行游戏。 · Please enable JavaScript to play.
