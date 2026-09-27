@@ -5,12 +5,12 @@
 // are one waving mesh; brazier flames one instanced mesh.
 import * as THREE from 'three';
 import type { MapData, MapProp, PropType } from '../../core/map';
-import { GeoBuilder, trs } from '../core/geo';
-import { glowMaterial, worldMaterial, worldMaterialDouble } from '../core/materials';
+import { GeoBuilder, trs, withBuildDetail } from '../core/geo';
+import { glowMaterial, worldMaterial, worldMaterialDouble, worldMaterialLite, worldMaterialLiteDouble } from '../core/materials';
 import { bindStructureSet, structureMaterial, structureMaterialDouble } from '../core/structureMaterial';
 import { requestStructSet, withWorldArtListing, worldArtPossible } from '../core/worldArt';
 import { assetListSync } from '../../game/assets';
-import { buildPropModels, fullyReplacedTypes, glbPropKind, propModelPath, type GlbPropType, type PropModelSet } from './propModels';
+import { PropCuller, buildPropModels, fullyReplacedTypes, glbPropKind, propModelPath, type GlbPropType, type PropModelSet } from './propModels';
 import { FARM_TEX, buildFarmArt, loadFarmTexture, type FarmArt } from './farmFields';
 import { buildGateTower, buildHouse, buildPalace, buildPavilion, buildWall, buildWatchtower } from './buildings';
 import {
@@ -79,7 +79,34 @@ export interface WorldBuild {
   artReady: Promise<void>;
   /** camera-only occluder boxes (roof shells, under dock decks) — see camera/camOccluders.ts */
   cameraOccluders: BoxCollider[];
+  /**
+   * Textured buildings on / off (the quality tier's worldArt): the merged
+   * chunks switch between the structure-texture material (once the textures
+   * are known) and the plain vertex-colour one. Prop models / farm art are
+   * decided once, by buildWorld's `art` option.
+   */
+  setTextured(on: boolean): void;
+  /** The tier's draw distance (m): instanced props / vegetation deeper in the view are not drawn. */
+  setDrawDistance(d: number): void;
+  /** The tier's LOD distance scale: instanced props / vegetation switch to their far models this much further out. */
+  setLodScale(s: number): void;
+  /**
+   * Diffuse-only (Lambert) materials on the untextured chunks and the
+   * vegetation (the 极速 tier's 'basic' shading), swapped in place.
+   */
+  setLite(on: boolean): void;
   dispose(): void;
+}
+
+export interface WorldBuildOptions {
+  /**
+   * AI-art prop models and farm-field art for this match (default true; still
+   * only when the page can show world art at all). false: the procedural props
+   * (the 极速 tier's cheap world).
+   */
+  art?: boolean;
+  /** 'low': the coarser procedural props (core/geo.ts withBuildDetail; the 极速 tier). Default 'full'. */
+  detail?: 'low' | 'full';
 }
 
 /** What replaces a group of procedural props in AI-art mode: a prop model, or the textured farm fields. */
@@ -91,7 +118,8 @@ type SwapKey = GlbPropType | 'farm';
  * instead of the merged chunks — only when the listing has the file, or is not
  * known yet.
  */
-function swappable(p: MapProp, files: ReadonlySet<string> | null): SwapKey | null {
+function swappable(p: MapProp, files: ReadonlySet<string> | null, art = true): SwapKey | null {
+  if (!art) return null;
   if (p.type === 'farmField') {
     if (!worldArtPossible()) return null;
     return files === null || files.has(FARM_TEX) ? 'farm' : null;
@@ -122,7 +150,8 @@ export function buildPropGeometry(
   return { opaque: opaque.build(), cloth: cloth.build(), glow: glow.build() };
 }
 
-export function buildWorld(map: MapData): WorldBuild {
+export function buildWorld(map: MapData, opts: WorldBuildOptions = {}): WorldBuild {
+  const art = opts.art !== false;
   const group = new THREE.Group();
   group.name = 'world';
   const chunks = new Map<string, Chunk>();
@@ -155,31 +184,34 @@ export function buildWorld(map: MapData): WorldBuild {
     }
     return ch;
   };
-  for (const p of map.props) {
-    if (p.type === 'brazier') fires.push({ pos: new THREE.Vector3(p.x, p.y + p.sy + 0.05, p.z), size: Math.max(0.6, p.sx * 0.9) });
-    if (natureStyle(p)) continue;
-    const fn = BUILDERS[p.type];
-    if (!fn) continue;
-    const sk = swappable(p, listing);
-    const ch = sk ? swapOf(sk) : chunkOf(p.x, p.z);
-    const m = trs(p.x, p.y, p.z, 0, p.rot, 0);
-    ch.opaque.push(m);
-    ch.cloth.push(m);
-    ch.glow.push(m);
-    ch.opaque.extra = 0; // every prop starts plain; builders pick their surfaces
-    ch.cloth.extra = 0;
-    try {
-      fn(makePropCtx(ch.opaque, ch.cloth, ch.glow, p, map, occ));
-      built++;
-    } catch (err) {
-      failed++;
-      if (failed <= 3) console.warn('[render] prop build failed', p.type, err);
-    } finally {
-      ch.opaque.pop();
-      ch.cloth.pop();
-      ch.glow.pop();
+  // (极速: the coarser props — core/geo.ts withBuildDetail)
+  withBuildDetail(opts.detail === 'low', () => {
+    for (const p of map.props) {
+      if (p.type === 'brazier') fires.push({ pos: new THREE.Vector3(p.x, p.y + p.sy + 0.05, p.z), size: Math.max(0.6, p.sx * 0.9) });
+      if (natureStyle(p)) continue;
+      const fn = BUILDERS[p.type];
+      if (!fn) continue;
+      const sk = swappable(p, listing, art);
+      const ch = sk ? swapOf(sk) : chunkOf(p.x, p.z);
+      const m = trs(p.x, p.y, p.z, 0, p.rot, 0);
+      ch.opaque.push(m);
+      ch.cloth.push(m);
+      ch.glow.push(m);
+      ch.opaque.extra = 0; // every prop starts plain; builders pick their surfaces
+      ch.cloth.extra = 0;
+      try {
+        fn(makePropCtx(ch.opaque, ch.cloth, ch.glow, p, map, occ));
+        built++;
+      } catch (err) {
+        failed++;
+        if (failed <= 3) console.warn('[render] prop build failed', p.type, err);
+      } finally {
+        ch.opaque.pop();
+        ch.cloth.pop();
+        ch.glow.pop();
+      }
     }
-  }
+  });
   let triangles = 0;
   const geos: THREE.BufferGeometry[] = [];
   const opaqueMeshes: THREE.Mesh[] = [];
@@ -232,14 +264,22 @@ export function buildWorld(map: MapData): WorldBuild {
   // AI-art structure textures: swap the merged chunks to the textured variant
   // as soon as the listing is known (before the shader warm-up)
   let disposed = false;
+  let structSet = false;
+  let textured = art;
+  let lite = false;
+  const applyStructMaterials = (): void => {
+    const on = structSet && textured;
+    const m = on ? structureMaterial() : lite ? worldMaterialLite() : worldMaterial();
+    for (const mesh of opaqueMeshes) mesh.material = m;
+    // double-sided cloth chunks hold the roof shells: textured tiles, still no culled faces
+    const md = on ? structureMaterialDouble() : lite ? worldMaterialLiteDouble() : worldMaterialDouble();
+    for (const mesh of clothMeshes) mesh.material = md;
+  };
   requestStructSet((set) => {
     if (disposed) return;
     bindStructureSet(set);
-    const m = structureMaterial();
-    for (const mesh of opaqueMeshes) mesh.material = m;
-    // double-sided cloth chunks hold the roof shells: textured tiles, still no culled faces
-    const md = structureMaterialDouble();
-    for (const mesh of clothMeshes) mesh.material = md;
+    structSet = true;
+    if (textured) applyStructMaterials();
   });
   // AI-art prop models / farm fields: build them, then retire the procedural stand-ins
   const stats: WorldStats = { props: built, chunks: chunkCount, instanced: nature.count, triangles: Math.round(triangles), failed };
@@ -257,10 +297,12 @@ export function buildWorld(map: MapData): WorldBuild {
     swapMeshes.delete(k);
   };
   let models: PropModelSet | null = null;
+  let drawDistance = Infinity;
+  let lodScale = 1;
   let farm: FarmArt | null = null;
   let settle: () => void = () => undefined;
   const artReady = new Promise<void>((res) => (settle = res));
-  const artOn = withWorldArtListing((files) => {
+  const artOn = art && withWorldArtListing((files) => {
     const propsDone = buildPropModels(map.props, map.size, files, () => disposed)
       .then((set) => {
         if (!set || disposed) {
@@ -268,6 +310,8 @@ export function buildWorld(map: MapData): WorldBuild {
           return;
         }
         models = set;
+        (set.group as PropCuller).maxDistance = drawDistance;
+        (set.group as PropCuller).lodScale = lodScale;
         group.add(set.group);
         nature.removeTypes(fullyReplacedTypes(set.kinds));
         for (const k of set.kinds) retire(k);
@@ -296,6 +340,27 @@ export function buildWorld(map: MapData): WorldBuild {
     stats,
     artReady,
     cameraOccluders: occ.boxes,
+    setTextured(on: boolean): void {
+      if (on === textured || disposed) return;
+      textured = on;
+      if (structSet) applyStructMaterials();
+    },
+    setLite(on: boolean): void {
+      if (on === lite || disposed) return;
+      lite = on;
+      applyStructMaterials();
+      nature.setLite(on);
+    },
+    setDrawDistance(d: number): void {
+      drawDistance = d;
+      nature.group.maxDistance = d;
+      if (models) (models.group as PropCuller).maxDistance = d;
+    },
+    setLodScale(v: number): void {
+      lodScale = v;
+      nature.group.lodScale = v;
+      if (models) (models.group as PropCuller).lodScale = v;
+    },
     dispose(): void {
       disposed = true;
       for (const g of geos) g.dispose();

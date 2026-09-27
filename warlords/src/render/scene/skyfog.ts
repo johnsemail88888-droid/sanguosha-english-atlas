@@ -42,41 +42,70 @@ export function installSkyFog(sunDir: THREE.Vector3): void {
   if (installed) return;
   installed = true;
   const C = THREE.ShaderChunk as unknown as Record<string, string>;
+  // FOG_VERTEX_COLOR (the 极速 / 流畅 tiers, core/skyArtFog.ts setVertexFog): the
+  // sky colour is looked up per VERTEX and interpolated — the per-pixel
+  // direction (atan / asin / a LUT read) was a large share of a software
+  // rasteriser's frame; the fog amount stays per pixel.
+  const skyArtLut = /* glsl */ `
+  uniform sampler2D uFogSkyTex;
+  uniform vec4 uFogSkyMap;
+  vec3 fogSkyColorDir(vec3 d) {
+    float u = fract(uFogSkyMap.x - atan(d.x, d.z) * 0.15915494);
+    float v = clamp((asin(clamp(d.y, -1.0, 1.0)) + uFogSkyMap.y) * uFogSkyMap.z, 0.0, 1.0);
+    return texture2D(uFogSkyTex, vec2(u, v)).rgb * uFogSkyMap.w;
+  }`;
+  const procedural = /* glsl */ `
+  ${skyFogGlsl(sunDir)}
+  vec3 fogSkyColorDir(vec3 d) {
+    return skyFogColor(d);
+  }`;
   C.fog_pars_vertex = /* glsl */ `
 #ifdef USE_FOG
   varying float vFogDepth;
+  #ifdef FOG_VERTEX_COLOR
+  varying vec3 vFogColor;
+    #ifdef SKY_ART_FOG
+    ${skyArtLut}
+    #else
+    ${procedural}
+    #endif
+  #else
   varying vec3 vFogView;
+  #endif
 #endif`;
   C.fog_vertex = /* glsl */ `
 #ifdef USE_FOG
   vFogDepth = - mvPosition.z;
+  #ifdef FOG_VERTEX_COLOR
+  vFogColor = fogSkyColorDir(normalize((vec4(mvPosition.xyz, 0.0) * viewMatrix).xyz));
+  #else
   vFogView = mvPosition.xyz;
+  #endif
 #endif`;
   C.fog_pars_fragment = /* glsl */ `
 #ifdef USE_FOG
   uniform vec3 fogColor;
   varying float vFogDepth;
-  varying vec3 vFogView;
   #ifdef FOG_EXP2
     uniform float fogDensity;
   #else
     uniform float fogNear;
     uniform float fogFar;
   #endif
-  #ifdef SKY_ART_FOG
-  uniform sampler2D uFogSkyTex;
-  uniform vec4 uFogSkyMap;
+  #ifdef FOG_VERTEX_COLOR
+  varying vec3 vFogColor;
   vec3 fogSkyColor() {
-    vec3 d = normalize((vec4(vFogView, 0.0) * viewMatrix).xyz);
-    float u = fract(uFogSkyMap.x - atan(d.x, d.z) * 0.15915494);
-    float v = clamp((asin(clamp(d.y, -1.0, 1.0)) + uFogSkyMap.y) * uFogSkyMap.z, 0.0, 1.0);
-    return texture2D(uFogSkyTex, vec2(u, v)).rgb * uFogSkyMap.w;
+    return vFogColor;
   }
   #else
-  ${skyFogGlsl(sunDir)}
+  varying vec3 vFogView;
+    #ifdef SKY_ART_FOG
+    ${skyArtLut}
+    #else
+    ${procedural}
+    #endif
   vec3 fogSkyColor() {
-    vec3 wdir = normalize((vec4(vFogView, 0.0) * viewMatrix).xyz);
-    return skyFogColor(wdir);
+    return fogSkyColorDir(normalize((vec4(vFogView, 0.0) * viewMatrix).xyz));
   }
   #endif
 #endif`;

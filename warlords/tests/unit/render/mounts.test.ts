@@ -368,8 +368,15 @@ describe('MountRig with the AI-art model', () => {
     await assetList();
     useStub();
     const rig = new CharacterRig(heroSpec('guanyu'));
+    // a procedural rider (no AI-art body wanted: 极速, troops on 流畅) rides the procedural mount
     rig.setMount('horse', MOUNT_BY_ID.dilu.color, '#c0392b', '#d8ac4c');
+    const plain = rig.mount!;
+    await settle();
+    expect(plain.usesGlb).toBe(false);
+    // a rider with an AI-art body (not in this deploy's listing here) gets the AI-art mount
+    rig.useGlb('assets/models/heroes/guanyu.glb');
     const first = rig.mount!;
+    expect(first).not.toBe(plain);
     expect(first.usesGlb).toBe(false); // not rigged yet: procedural first
     rig.setStealth(true);
     await settle();

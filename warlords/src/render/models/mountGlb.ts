@@ -293,7 +293,7 @@ async function buildTemplate(kind: QuadKind, seatHeight: number): Promise<MountT
     const rigged = rigMountMesh(kind, mesh, seatHeight);
     const srcMat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
     const q = worldArtQuality();
-    const texture = srcMat.map ? capTexture(srcMat.map, q === 'low' ? 512 : Math.max(1024, texSizesFor(q).props)) : null;
+    const texture = srcMat.map ? capTexture(srcMat.map, q === 'low' || q === 'potato' ? 512 : Math.max(1024, texSizesFor(q).props)) : null;
     if (texture) texture.anisotropy = 4;
     const coatRef = coatRefOf(texture);
     mesh.geometry.dispose();

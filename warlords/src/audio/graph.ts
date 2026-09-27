@@ -137,10 +137,12 @@ export class MixGraph {
   /** Quality drives panning model and reverb. Safe to call repeatedly. */
   setQuality(q: Quality): void {
     this.quality = q;
-    this.panningModel = q === 'high' ? 'HRTF' : 'equalpower';
-    this.kit.lite = q === 'low';
+    // (极致 as 高清; 极速 as 流畅: no reverb, lite synth kit)
+    const lite = q === 'low' || q === 'potato';
+    this.panningModel = q === 'high' || q === 'ultra' ? 'HRTF' : 'equalpower';
+    this.kit.lite = lite;
     const t = this.ctx.currentTime;
-    if (q === 'low') {
+    if (lite) {
       this.worldRet.gain.setTargetAtTime(0, t, 0.05);
       this.musicRet.gain.setTargetAtTime(0, t, 0.05);
       return;
@@ -164,7 +166,7 @@ export class MixGraph {
   }
 
   get reverbEnabled(): boolean {
-    return this.quality !== 'low';
+    return this.quality !== 'low' && this.quality !== 'potato';
   }
 
   /** 0 = clear, 1 = fully muffled (downed). */
