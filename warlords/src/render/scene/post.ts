@@ -18,8 +18,17 @@ export function fullscreenTriangle(): THREE.BufferGeometry {
   return g;
 }
 
-/** Renders the background sky layer, then the world on top (depth cleared in between). */
+/** A scene drawn over the world with its own camera, depth cleared first (the first-person viewmodel). */
+export interface WorldOverlay {
+  readonly scene: THREE.Scene;
+  readonly camera: THREE.Camera;
+  readonly visible: boolean;
+}
+
+/** Renders the background sky layer, then the world on top (depth cleared in between), then the overlay. */
 class WorldPass extends Pass {
+  overlay: WorldOverlay | null = null;
+
   constructor(
     private readonly sky: SkyLayer,
     private readonly scene: THREE.Scene,
@@ -42,6 +51,11 @@ class WorldPass extends Pass {
     renderer.render(this.sky.scene, this.sky.camera);
     renderer.clearDepth();
     renderer.render(this.scene, this.camera);
+    const o = this.overlay;
+    if (o?.visible) {
+      renderer.clearDepth();
+      renderer.render(o.scene, o.camera);
+    }
     renderer.autoClear = oldAuto;
   }
 }
@@ -83,6 +97,7 @@ export interface PostOptions {
 export class PostChain {
   readonly composer: EffectComposer;
   private readonly bloomPass: UnrealBloomPass;
+  private readonly worldPass: WorldPass;
   private readonly vignettePass: ShaderPass;
   private readonly outputPass: OutputPass;
   private readonly target: THREE.WebGLRenderTarget;
@@ -110,7 +125,8 @@ export class PostChain {
       samples: opts.msaa,
     });
     this.composer = new EffectComposer(renderer, this.target);
-    this.composer.addPass(new WorldPass(sky, scene, camera));
+    this.worldPass = new WorldPass(sky, scene, camera);
+    this.composer.addPass(this.worldPass);
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.55, 0.45, 0.92);
     this.composer.addPass(this.bloomPass);
     this.outputPass = new OutputPass();
@@ -147,6 +163,11 @@ export class PostChain {
   setSize(w: number, h: number, pixelRatio: number): void {
     this.composer.setPixelRatio(pixelRatio);
     this.composer.setSize(w, h);
+  }
+
+  /** Draw `overlay` over the world every frame while it is visible (null: none). */
+  setOverlay(overlay: WorldOverlay | null): void {
+    this.worldPass.overlay = overlay;
   }
 
   /** 0..1 red damage vignette pulse. */

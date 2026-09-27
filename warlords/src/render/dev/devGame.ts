@@ -9,6 +9,7 @@
 //   ?qstaged=0      a mid-match quality switch applies all at once (A/B of the staged switch)
 //   ?adaptive=0     fixed pixel ratio (no adaptive resolution: stable measurements)
 //   ?warm=0         no loading warm-up: programs compile on first use, bodies swap in live
+//   ?view=first     first-person camera (default third person)
 import { generateMap } from '../../sim/map/generate';
 import type { MapData } from '../../core/map';
 import { terrainHeight } from '../../core/map';
@@ -28,6 +29,8 @@ declare global {
     __info?: unknown;
     __renderer?: GameRenderer;
     __dev?: DevView;
+    /** the harness's input controller (screenshots: aim, fire, flip the view) */
+    __input?: InputController;
     /** e2e: render a frame and measure the canvas (mean / std-dev luminance, distinct colour buckets) */
     __sampleCanvas?: () => { mean: number; std: number; buckets: number; width: number; height: number };
   }
@@ -85,9 +88,11 @@ export function startDevGame(canvas: HTMLCanvasElement, params: URLSearchParams)
   if (hide.length) renderer.scene.traverse((o) => {
     if (hide.some((h) => o.name.startsWith(h))) o.visible = false;
   });
-  const input = new InputController(canvas);
+  // ?view=first: first-person camera + viewmodel (the harness defaults to third person; H flips it)
+  const input = new InputController(canvas, { view: params.get('view') === 'first' ? 'first' : 'third' });
   window.__renderer = renderer;
   window.__dev = view;
+  window.__input = input;
   window.__sampleCanvas = () => {
     // render synchronously and read back in the same task (drawing buffer still valid)
     renderer.frame(1 / 60);

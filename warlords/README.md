@@ -54,6 +54,7 @@ English section below → [English](#english).*
 | 4 5 6 7 | 使用锦囊栏 |
 | Z X C V | 部曲：跟随 / 驻守 / 进攻 / 冲锋 |
 | B / 中键 | 标记准星处目标（士兵集火） |
+| H | 第一人称 / 第三人称视角切换（键鼠默认第一人称，触屏默认第三人称） |
 | T | 跳身份 & 快捷喊话轮盘 |
 | Tab / M | 战况（按住）/ 战场地图 |
 | Enter / Esc | 聊天 / 菜单（单机自动暂停，联机不暂停；锁定鼠标时浏览器会先释放鼠标，菜单随即打开） |
@@ -229,7 +230,7 @@ and glyphs — gameplay is identical.
 ### Controls
 WASD move · mouse aim (click to lock the pointer) · LMB fire · RMB aim down sights · R reload · Shift sprint ·
 Space jump · Ctrl/Alt dodge roll (2 charges) · Q/E abilities · G lord skill (real Lord only) · F pick up / open /
-hold to revive · 1/2 or wheel switch weapon · 4–7 items · Z/X/C/V squad follow/hold/attack/charge · B or MMB mark ·
+hold to revive · 1/2 or wheel switch weapon · 4–7 items · Z/X/C/V squad follow/hold/attack/charge · B or MMB mark · H first / third person ·
 T claim & quick-chat wheel · Tab scoreboard · M map · Enter chat · Esc menu (single player pauses while the menu is
 open; online matches keep running — when the browser releases the pointer on Esc the menu opens by itself).
 

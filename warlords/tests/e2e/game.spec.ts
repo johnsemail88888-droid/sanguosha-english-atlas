@@ -3,7 +3,8 @@
 // get when the timer runs out — 3 runs) → loading → match; the clock starts once the
 // 3D view is ready; HUD up; W moves the hero; firing uses ammo; Q / E start
 // cooldowns; Tab scoreboard; Esc opens the menu with a free cursor and really
-// pauses (also inside 设置); cards picked up explain themselves (zh + en); bots
+// pauses (also inside 设置); first person by default (H flips to third person, a
+// scoped sniper shows the scope); cards picked up explain themselves (zh + en); bots
 // fight each other (any hero→hero hit or kill in a time-scaled window, bots
 // brought together); leave back to the title.
 import { expect, test, type Browser, type Page } from '@playwright/test';
@@ -142,6 +143,43 @@ test('single player: full flow, controls, HUD, pause, cards, bots fight, leave',
     await page.mouse.up();
     expect(a1.mag < a0.mag || a1.reserve < a0.reserve, `firing ${a0.id} used ammo (${JSON.stringify(a0)} → ${JSON.stringify(a1)})`).toBe(true);
     await shot('02-fire');
+
+    // first person (the mouse + keyboard default): the camera is the hero's eye, the weapon a
+    // viewmodel; H flips to third person and back; a scoped sniper shows the scope, no viewmodel
+    const view = () =>
+      page.evaluate(() => {
+        const g = (window as SgwlWindow).__sgwl!;
+        const r = (g.handle as { renderer: { firstPerson: boolean; getCameraPose(): { pos: { x: number; y: number; z: number } } } }).renderer;
+        const e = g.localEntity()!;
+        const p = r.getCameraPose().pos;
+        return { fp: r.firstPerson, dy: p.y - e.y, dxz: Math.hypot(p.x - e.x, p.z - e.z) };
+      });
+    let v = await view();
+    expect(v.fp, 'first person by default with mouse + keyboard').toBe(true);
+    expect(v.dy, 'camera at the eye').toBeGreaterThan(1.5);
+    expect(v.dy).toBeLessThan(2.2);
+    expect(v.dxz, 'no shoulder offset').toBeLessThan(0.05);
+    await page.keyboard.press('h');
+    await expect.poll(async () => (await view()).fp, { message: 'H: third person' }).toBe(false);
+    v = await view();
+    expect(v.dxz, 'third-person camera behind the shoulder').toBeGreaterThan(1);
+    await shot('02b-third-person');
+    await page.keyboard.press('h');
+    await expect.poll(async () => (await view()).fp, { message: 'H: back to first person' }).toBe(true);
+    expect(await page.evaluate(() => (window as SgwlWindow).__sgwl!.cheats.weapon('qilin'))).toBe(true);
+    const slotOf = (): Promise<number> => page.evaluate(() => (window as SgwlWindow).__sgwl!.local()!.weapons.findIndex((w) => w?.id === 'qilin'));
+    await expect.poll(slotOf, { message: 'the sniper arrived' }).toBeGreaterThanOrEqual(0);
+    const qilinSlot = await slotOf();
+    await page.keyboard.press(String(qilinSlot + 1));
+    await expect.poll(() => page.evaluate(() => (window as SgwlWindow).__sgwl!.local()!.activeSlot)).toBe(qilinSlot);
+    await page.waitForTimeout(1500);
+    await shot('02c-first-person-sniper');
+    await page.mouse.down({ button: 'right' });
+    await expect(page.locator('.hud-scope.on'), 'scoped in first person').toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(1000);
+    await shot('02d-first-person-scoped');
+    await page.mouse.up({ button: 'right' });
+    await page.keyboard.press(qilinSlot === 0 ? '2' : '1');
 
     // Q and E start their cooldowns (the HUD ability icon dims with a sweep)
     for (const key of ['q', 'e']) {

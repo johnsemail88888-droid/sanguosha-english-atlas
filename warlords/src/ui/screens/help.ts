@@ -43,6 +43,7 @@ export const CONTROLS: readonly { keys: string[]; zh: string; en: string }[] = [
   { keys: ['X + 4–7'], zh: '丢弃该栏锦囊（按住 X 再按数字键）', en: 'Discard that card (hold X, then press the slot key)' },
   { keys: ['Z', 'X', 'C', 'V'], zh: '部曲：跟随 / 驻守 / 进攻 / 冲锋', en: 'Squad: follow / hold / attack / charge' },
   { keys: ['B', '中键'], zh: '标记准星处目标', en: 'Mark the target under the crosshair' },
+  { keys: ['H'], zh: '切换第一 / 第三人称视角', en: 'Switch first / third person view' },
   { keys: ['T'], zh: '跳身份 & 快捷喊话轮盘', en: 'Claim & quick-chat wheel' },
   { keys: ['Tab'], zh: '战况（按住）', en: 'Scoreboard (hold)' },
   { keys: ['M'], zh: '战场地图', en: 'Battle map' },

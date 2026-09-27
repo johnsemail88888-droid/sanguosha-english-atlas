@@ -74,6 +74,12 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
       field(t('settings.mouse'), slider(st.mouseSensitivity, 0.2, 3, 0.05, (v) => upd({ mouseSensitivity: v }), mul, t('settings.mouse'))),
       field(t('settings.ads'), slider(st.adsSensitivity, 0.2, 1.5, 0.05, (v) => upd({ adsSensitivity: v }), mul, t('settings.ads'))),
       field(t('settings.invertY'), toggle(st.invertY, (v) => upd({ invertY: v }), t('settings.invertY'))),
+      field(tx('视角', 'View'), segmented([
+        { value: 'auto' as const, label: t('common.auto') },
+        { value: 'first' as const, label: tx('第一人称', 'First person') },
+        { value: 'third' as const, label: tx('第三人称', 'Third person') },
+      ], st.cameraView, (v) => upd({ cameraView: v }), { name: tx('视角', 'View') }),
+      tx('“自动”：键鼠第一人称，触屏第三人称。对局中按 H 切换。', '“Auto”: first person with mouse + keyboard, third person on touch. H switches in a match.')),
       field(t('settings.touch'), segmented([
         { value: 'auto' as const, label: t('common.auto') },
         { value: 'on' as const, label: t('common.on') },

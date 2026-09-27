@@ -285,6 +285,12 @@ export const BTN_SPRINT = 4;
 export const BTN_JUMP = 8;
 export const BTN_CROUCH = 16;
 export const BTN_INTERACT = 32; // F held (channels: revive/open)
+/**
+ * The player's camera is first person: the crosshair ray starts at the eye (sim/aim.ts
+ * firstPersonRig) instead of behind the shoulder, and so do the hero's shots. A view
+ * mode, not a held control (never counts as activity).
+ */
+export const BTN_FIRST_PERSON = 64;
 
 export type AbilitySlot = 'q' | 'e' | 'lord';
 

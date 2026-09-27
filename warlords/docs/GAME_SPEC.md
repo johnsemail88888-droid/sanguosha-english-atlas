@@ -15,7 +15,7 @@ A **third-person hero shooter** that fuses:
   (passive + Q + E, lord skill on G when playing the Lord).
 - **和平精英 / PUBG feel** — loot 锦囊 crates, ancient weapons reimagined as modern guns
   (诸葛连弩 = SMG, 麒麟弓 = anti-materiel sniper, 方天画戟 = triple rocket launcher …),
-  a shrinking **烽火圈** zone, airdrops (天降锦囊), third-person over-the-shoulder camera, ADS.
+  a shrinking **烽火圈** zone, airdrops (天降锦囊), first-person or third-person over-the-shoulder camera, ADS.
 - **带兵 (squad command)** — every hero leads AI soldiers of their kingdom and can order them
   (follow / hold / attack / charge, mark target).
 
@@ -343,7 +343,17 @@ removed). Mounts: offensive −1 马 赤兔/大宛/紫骍 (+30–40 % speed); de
 | B / MMB | mark target |
 | T | quick-chat & 跳身份 wheel |
 | Tab / M | scoreboard / big map |
+| H | first / third person |
 | Enter | chat · Esc menu |
+
+**Camera**: first person by default with mouse + keyboard (third person on touch; H or 设置 →
+视角 switches). The first-person camera is the hero's eye (1.62 m, 2.05 m riding, 0.5 m downed)
+with no shoulder offset; the input carries `BTN_FIRST_PERSON` and the host rebuilds the same ray
+and starts the hero's shots at the eye (`sim/aim.ts firstPersonRig`), so hits land where the
+crosshair points at any range. Your body is hidden from your own camera only (its shadow stays);
+the held weapon is a viewmodel drawn over the world (never clips into walls) with recoil, reload,
+sprint, sway and ADS poses; scoped weapons show the scope. Dead / spectating: the third-person
+spectator camera.
 
 Touch (mobile): left virtual stick, right side drag = aim, buttons: fire, ADS, jump, dodge,
 reload, Q, E, G, interact, item bar, squad button (cycles order). Auto-detected.

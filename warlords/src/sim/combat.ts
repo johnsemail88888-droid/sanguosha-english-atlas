@@ -969,7 +969,7 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
     if (now <= rt.followUpUntil) mul *= rt.followUpMul;
     rt.followUpMul = 1;
   }
-  const eye = w.eyePos(e);
+  const eye = w.shotOrigin(e);
   let dx = aim.x - eye.x;
   let dy = aim.y - eye.y;
   let dz = aim.z - eye.z;
