@@ -462,10 +462,12 @@ export class GameRenderer {
     } catch (err) {
       console.warn('[render] shader warm-up failed', err);
     } finally {
-      restore();
-      // one hidden draw: the shadow pass's depth programs and every vertex buffer / texture
-      // upload, instead of in the first visible frame
+      // one hidden draw — with the hidden pools / LODs / warm samples still shown — the shadow
+      // pass's depth programs and every vertex buffer / texture upload, instead of in the first
+      // visible frames. ANGLE (Vulkan, SwiftShader) builds a program's pipelines at its first
+      // DRAW, not at link time: seconds of stall in a match frame on software GL.
       if (!this.disposed && !this.contextLost) this.prerender();
+      restore();
     }
   }
 
@@ -896,10 +898,11 @@ export class GameRenderer {
     }
   }
 
-  /** Draw the scene once into a 4×4 target (same program variants as the world pass): see applyQualityStaged. */
+  /** Draw the scene once into a 4×4 target (same program variants and target format as the world pass): see applyQualityStaged. */
   private prerender(): void {
     const r = this.renderer;
-    const t = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
+    // the world pass's format and MSAA samples: a pipeline is built per render-target format
+    const t = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: this.post.worldTarget.samples });
     const prev = r.getRenderTarget();
     r.setRenderTarget(t);
     try {
