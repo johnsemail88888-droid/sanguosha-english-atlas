@@ -104,8 +104,8 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
           : tx('集成显卡或手机选“流畅”；很卡或没有独立显卡（软件渲染）选“极速”。', 'Pick “Low” on integrated GPUs and phones; “Lowest” when it still stutters (no GPU / software rendering).')),
       field(tx('自动调节画质', 'Auto-adjust quality'), toggle(st.autoAdjust, (v) => upd({ autoAdjust: v }), tx('自动调节画质', 'Auto-adjust quality')),
         st.qualityAuto
-          ? tx('对局中持续卡顿（低于 28 帧）时先降分辨率、再降一档画质；很流畅时在暂停或下一局提高一档。', 'In a match that keeps lagging (under 28 fps): resolution first, then one tier down; with lots of headroom one tier up at a pause or the next match.')
-          : tx('对局中持续卡顿（低于 28 帧）时先降分辨率、再降一档画质。', 'In a match that keeps lagging (under 28 fps): resolution first, then one tier down.')),
+          ? tx('对局中持续卡顿（低于 28 帧；高清 / 极致低于 50 帧）时先降分辨率、再降一档画质；很流畅时在暂停或下一局提高一档。', 'In a match that keeps lagging (under 28 fps; High / Ultra under 50): resolution first, then one tier down; with lots of headroom one tier up at a pause or the next match.')
+          : tx('对局中持续卡顿（低于 28 帧；高清 / 极致低于 50 帧）时先降分辨率、再降一档画质。', 'In a match that keeps lagging (under 28 fps; High / Ultra under 50): resolution first, then one tier down.')),
       field(t('settings.fps'), toggle(st.showFps, (v) => upd({ showFps: v }), t('settings.fps')),
         tx('对局中按 F3 也可开关：帧率、帧时间、绘制调用、渲染比例、画质与显卡。', 'F3 toggles it in a match: frame rate and time, draw calls, render scale, tier and GPU.')),
       gpuLine(),

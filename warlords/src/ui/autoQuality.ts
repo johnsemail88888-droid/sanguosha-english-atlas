@@ -5,7 +5,8 @@
 //    (render/adaptiveRes.pickAutoTune: tier + render-scale cap) becomes the setting;
 //  - in a match, AutoQualityController watches the frame rate: a match that stays
 //    slow steps the tier down (after the adaptive resolution has given what it
-//    can: resolution first, then tier), and on 自动 a GPU with lots of headroom
+//    can: resolution first, then tier; 高清 / 极致 already under 50 fps — a rich
+//    tier must never cost smoothness), and on 自动 a GPU with lots of headroom
 //    steps back up — never above what the benchmark allows, and only at a pause,
 //    the end of the match or the next one (a switch mid-fight stalls).
 import { QUALITIES, type GpuBench, type Quality, type UserSettings } from '../game/settings';
@@ -62,6 +63,13 @@ export interface AutoAdjustOptions {
   downEveryS: number;
   /** never stepped below this tier (the player / the benchmark may still pick a lower one) */
   floor: Quality;
+  /**
+   * The rich tiers (from `richFrom` up: 高清 / 极致, what a strong GPU is given) must
+   * never cost smoothness: under `richFps` they step down too — without waiting for
+   * the adaptive resolution, which only reacts under 30 fps.
+   */
+  richFps: number;
+  richFrom: Quality;
   /** a frame's own work (max of main thread and GPU) under this share of the display's frame time… */
   upBusyShare: number;
   /** …for this long (s) makes a step up ready */
@@ -74,6 +82,8 @@ export const AUTO_ADJUST_DEFAULTS: AutoAdjustOptions = {
   warmupS: 15,
   downEveryS: 60,
   floor: 'low',
+  richFps: 50,
+  richFrom: 'high',
   upBusyShare: 0.45,
   upHoldS: 30,
 };
@@ -160,7 +170,8 @@ export class AutoQualityController {
     // down: slow at the lowest resolution the adaptive resolution allows (by the frame time: a
     // software renderer's frame rate rounds to 0 fps)
     const fps = s.frameMs > 0 ? 1000 / s.frameMs : s.fps;
-    if (fps > 0 && fps < o.downFps && s.resAtFloor) this.slowFor += s.dt;
+    const rich = tierRank(this.tier) >= tierRank(o.richFrom);
+    if (fps > 0 && (rich ? fps < Math.max(o.downFps, o.richFps) : fps < o.downFps && s.resAtFloor)) this.slowFor += s.dt;
     else this.slowFor = 0;
     if (this.slowFor >= o.downHoldS && tierRank(this.tier) > tierRank(o.floor) && this.time - this.lastDownAt >= o.downEveryS) {
       const from = this.tier;

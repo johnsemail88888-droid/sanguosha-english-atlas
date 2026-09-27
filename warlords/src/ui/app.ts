@@ -502,8 +502,12 @@ class App implements UiCtx {
       } finally {
         if (this.benchRun?.signal === signal) this.benchRun = null;
       }
+      if (this.disposed) return;
       // a match started meanwhile: measured again on the next quiet menu
-      if (signal.aborted || this.disposed) return;
+      if (signal.aborted) {
+        this.refreshPanels();
+        return;
+      }
       if (!(r.ms > 0)) console.warn('[ui] GPU benchmark did not run:', r.error);
       else console.info(`[ui] GPU benchmark: ${r.ms.toFixed(2)} ms @ 1280×720, ${r.msSmall.toFixed(2)} ms @ 640×360 (${gpu.renderer})`);
       this.storeBench(gpu, r.ms > 0 ? r.ms : 0, r.ms > 0 ? r.msSmall : 0, asked);

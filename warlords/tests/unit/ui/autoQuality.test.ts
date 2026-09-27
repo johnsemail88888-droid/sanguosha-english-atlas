@@ -72,13 +72,13 @@ describe('自动调节画质: down', () => {
     expect(feed(c, 6, slow)).toEqual([]);
   });
 
-  it('resolution first: no tier step while the adaptive resolution can still go lower', () => {
-    const c = new AutoQualityController('high', null);
+  it('resolution first (均衡 and below): no tier step while the adaptive resolution can still go lower', () => {
+    const c = new AutoQualityController('medium', null);
     feed(c, 15, {});
     expect(feed(c, 30, { ...slow, resAtFloor: false })).toEqual([]);
     // at its floor now: 8 s more
     expect(feed(c, 7.5, slow)).toEqual([]);
-    expect(feed(c, 1, slow)).toEqual([{ dir: 'down', to: 'medium' }]);
+    expect(feed(c, 1, slow)).toEqual([{ dir: 'down', to: 'low' }]);
   });
 
   it('paused, loading, applying or hidden: not counted (and the hold starts again)', () => {
@@ -107,6 +107,15 @@ describe('自动调节画质: down', () => {
     // 30 fps is not slow
     const ok = new AutoQualityController('medium', null);
     expect(feed(ok, 60, { fps: 30, frameMs: 33.3 })).toEqual([]);
+  });
+
+  it('高清 / 极致 must stay smooth: under 50 fps for 8 s they step down, without waiting for the resolution', () => {
+    const u = new AutoQualityController('ultra', 'ultra');
+    feed(u, 15, {});
+    expect(feed(u, 8.5, { fps: 45, frameMs: 22.2, resAtFloor: false })).toEqual([{ dir: 'down', to: 'high' }]);
+    // 均衡 at 45 fps is fine
+    const m = new AutoQualityController('medium', 'ultra');
+    expect(feed(m, 120, { fps: 45, frameMs: 22.2 })).toEqual([]);
   });
 
   it('the warm-up counts match time on screen only', () => {
