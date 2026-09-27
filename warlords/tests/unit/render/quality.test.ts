@@ -57,6 +57,7 @@ describe('quality ladder', () => {
     monotone((p) => p.lodScale);
     monotone((p) => ({ basic: 0, lite: 1, full: 2 })[p.shading]);
     monotone((p) => ({ none: 0, heroes: 1, all: 2 })[p.glbCharacters]);
+    monotone((p) => ({ low: 0, full: 1 })[p.worldDetail]);
   });
 
   it('极速 is the software-rendering tier: half resolution, procedural, 30 fps', () => {
@@ -69,6 +70,7 @@ describe('quality ladder', () => {
     expect(p.glbCharacters).toBe('none');
     expect(p.worldArt).toBe(false);
     expect(p.shading).toBe('basic');
+    expect(p.worldDetail).toBe('low');
     expect(p.brazierLights + p.vfxLights).toBe(0);
     expect(p.particles).toBeLessThanOrEqual(0.3);
     expect(p.maxFps).toBe(30);

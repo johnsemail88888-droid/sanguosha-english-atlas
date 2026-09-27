@@ -76,6 +76,13 @@ export interface QualityPreset {
    */
   shading: 'basic' | 'lite' | 'full';
   /**
+   * Procedural prop detail the match world is built with (core/geo.ts
+   * withBuildDetail): 'low' halves round parts and roof tessellation and drops
+   * door studs / lattice bars (~45 % fewer triangles), 'full' as authored.
+   * Decided when the match starts (a later switch keeps the built world).
+   */
+  worldDetail: 'low' | 'full';
+  /**
    * Distance scale of the LODs: characters' far bodies and reduced animation
    * rates (entities/lod.ts), vegetation / prop models' far meshes
    * (world/propModels.ts PropCuller) start this much further out.
@@ -109,6 +116,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     worldArt: false,
     maxFps: 30,
     shading: 'basic',
+    worldDetail: 'low',
     lodScale: 0.7,
   },
   // 流畅
@@ -135,6 +143,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     worldArt: true,
     maxFps: 0,
     shading: 'lite',
+    worldDetail: 'low',
     lodScale: 0.8,
   },
   // 均衡
@@ -160,6 +169,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     worldArt: true,
     maxFps: 0,
     shading: 'full',
+    worldDetail: 'full',
     lodScale: 1,
   },
   // 高清
@@ -185,6 +195,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     worldArt: true,
     maxFps: 0,
     shading: 'full',
+    worldDetail: 'full',
     lodScale: 1.25,
   },
   // 极致: strong discrete GPUs — full DPR, wider shadow frustum, the longest
@@ -211,6 +222,7 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
     worldArt: true,
     maxFps: 0,
     shading: 'full',
+    worldDetail: 'full',
     lodScale: 1.6,
   },
 };

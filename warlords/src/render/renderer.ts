@@ -209,12 +209,12 @@ export class GameRenderer {
     this.scene.add(this.sky.group);
     this.lights = new SceneLights(this.scene);
     // (short draw distances: finer terrain chunks, culled closer to the view)
-    this.terrain = buildTerrain(map, { chunks: this.preset.drawDistance <= 200 ? 8 : 4 });
+    this.terrain = buildTerrain(map, { chunks: this.preset.drawDistance <= 240 ? 8 : 4 });
     this.scene.add(this.terrain.group);
     this.water = buildWater(map, SUN_DIR);
     if (this.water.mesh) this.scene.add(this.water.mesh);
-    // (极速 builds the procedural props, coarser: the AI-art prop models / detail follow the tier the match starts on)
-    this.world = buildWorld(map, { art: this.preset.worldArt, detail: this.preset.shading === 'basic' ? 'low' : 'full' });
+    // (the AI-art prop models and the procedural props' detail follow the tier the match starts on)
+    this.world = buildWorld(map, { art: this.preset.worldArt, detail: this.preset.worldDetail });
     this.scene.add(this.world.group);
     for (const g of [this.terrain.group, this.world.group]) for (const o of g.children) if ((o as THREE.Mesh).isMesh && !(o as THREE.InstancedMesh).isInstancedMesh) this.depthCull.add(o as THREE.Mesh);
     this.fires = new FireSystem(this.scene, this.world.fires);
