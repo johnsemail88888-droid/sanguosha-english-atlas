@@ -160,6 +160,12 @@ export const SCREENS_CSS = /* css */ `
 .sg-invite.sg-rejoin { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.4em 0.8em; }
 .sg-rejoin .rejoin-btn { flex: none; }
 
+/* ── Mac notes (玩法说明 → 操作, 设置 → 操作) ─────────────── */
+.sg-mac-notes { margin: 0.4em 0 0.8em; padding: 0.5em 0.9em 0.6em; border-radius: 5px; border: 1px solid rgba(140, 106, 38, 0.45); background: rgba(214, 173, 82, 0.12); font-size: 0.9em; line-height: 1.45; }
+.sg-mac-notes b { display: block; color: var(--red-lo); font-family: var(--font-display); letter-spacing: 0.06em; margin-bottom: 0.15em; }
+.sg-mac-notes ul { margin: 0; padding-left: 1.2em; display: grid; gap: 0.15em; }
+.sg-mac-notes.settings { margin-top: 0.8em; }
+
 /* ── lobby ─────────────────────────────────────────────── */
 .sg-lobby { display: flex; flex-direction: column; gap: 0.9em; padding: 1.1em 1.5em; }
 .lobby-head { display: flex; align-items: center; gap: 1em; flex-wrap: wrap; }

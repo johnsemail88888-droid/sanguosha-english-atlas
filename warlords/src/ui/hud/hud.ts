@@ -16,7 +16,7 @@ import { CLAIM_TEXT, quickChatText, roleColor } from '../theme';
 import { touchLabel, type TouchKey } from '../short';
 import { mountTouchControls, shouldUseTouch, type TouchControls } from '../touch';
 import { button, keyCap } from '../widgets';
-import { CONTROLS, touchControlCells } from '../screens/help';
+import { controlsFor, touchControlCells } from '../screens/help';
 import { AbilityBar, SquadPanel, TopBar, VitalsPanel, WeaponPanel } from './panels';
 import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, DuelBar, InteractPromptView, KillStamp, Scope, SpectateBar, SquadFocusWarning, ZoneWarning } from './combat';
 import { Announcer, ChatBox, KillFeed, PickupStrip, type FeedParty } from './feed';
@@ -29,7 +29,7 @@ import { LinkStatus, silentSecs } from './connstatus';
 import { prewarmWeapons } from '../artIcons';
 import type { HudFrame } from './types';
 import { trackViewport } from './viewport';
-import { gpuWarnDismissed, gpuWarning, perfLines } from '../perfcheck';
+import { gpuWarnDismissed, gpuWarning, isMac, perfLines } from '../perfcheck';
 
 /** `setPaused` of a local single-player session (GameSession G2 extension; optional). */
 type PausableSession = GameSession & { setPaused?(paused: boolean): void };
@@ -1148,7 +1148,7 @@ export class Hud {
     // touch: the on-screen buttons (NP-7), not a keyboard a phone does not have
     const rows = this.isTouch()
       ? touchControlCells(getLang()).map((c) => h('div', { class: 'ctl' }, h('span', { class: 'keys' }, c.caps), h('span', null, c.text)))
-      : CONTROLS.map((c) => h('div', { class: 'ctl' }, h('span', { class: 'keys' }, c.keys.map((k) => keyCap(k === '左键' ? tx('左键', 'LMB') : k === '右键' ? tx('右键', 'RMB') : k === '中键' ? tx('中键', 'MMB') : k))), h('span', null, tx(c.zh, c.en))));
+      : controlsFor(isMac()).map((c) => h('div', { class: 'ctl' }, h('span', { class: 'keys' }, c.keys.map((k) => keyCap(k === '左键' ? tx('左键', 'LMB') : k === '右键' ? tx('右键', 'RMB') : k === '中键' ? tx('中键', 'MMB') : k))), h('span', null, tx(c.zh, c.en))));
     this.controlsBox.replaceChildren(
       h('div', { class: 'ctl-head' }, h('h2', { class: 'sg-h2' }, t('pause.controls')), button(t('common.back'), () => this.closeOverlay('controls'), { cls: 'small dark', sfx: 'back' })),
       h('div', { class: 'ctl-grid' }, rows),

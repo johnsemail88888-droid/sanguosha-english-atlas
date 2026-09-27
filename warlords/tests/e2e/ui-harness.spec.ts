@@ -416,6 +416,52 @@ test('GPU at a glance: the title / lobby chip (green ✓ · red · amber) opens 
   await phone.ctx.close();
 });
 
+test('Mac: controls in Mac words (help, settings), 性能体检 reads ✅ on the Apple GPU and names the right .dmg', async () => {
+  const shots = process.env.UI_SHOTS;
+  const gpuQ = (g: string): string => `gpu=${encodeURIComponent(g)}`;
+  // Safari on a Mac: "Apple GPU" (it hides which chip) → ✅, both .dmg files, labelled
+  const safari = await openAs(`screen=title&${gpuQ('Apple GPU')}&benched=12`, MAC_SAFARI_UA, 1280, 720, true);
+  const chip = safari.page.locator('[data-screen="title"] .sg-gpu-chip');
+  await expect(chip).toHaveText('显卡：Apple GPU ✓');
+  await chip.click();
+  await expect(safari.page.locator('[data-screen="perfcheck"] .pc-verdict')).toHaveAttribute('data-verdict', 'ok');
+  await expect(safari.page.locator('[data-screen="perfcheck"] .pc-verdict')).toContainText('✅ 显卡已启用：Apple GPU');
+  await expect(safari.page.locator('[data-screen="perfcheck"] .pc-sec.mac')).toContainText('总是用显卡');
+  const files = safari.page.locator('[data-screen="perfcheck"] .pc-file');
+  await expect(files).toHaveCount(2);
+  await expect(files.nth(0)).toContainText('macOS-arm64.dmg');
+  await expect(files.nth(0)).toContainText('Apple 芯片');
+  await expect(files.nth(1)).toContainText('macOS-x64.dmg');
+  await expect(safari.page.locator('[data-screen="perfcheck"] .pc-sec.tip')).toHaveCount(0);
+  if (shots) await safari.page.waitForTimeout(400).then(() => safari.page.screenshot({ path: `${shots}/perfcheck-mac.png` }));
+  expect(safari.errors).toEqual([]);
+  await safari.ctx.close();
+  // Chrome on an M-series Mac names the chip: the arm64 build only
+  const chromeMac = MAC_SAFARI_UA.replace(/Version\/[\d.]+ Safari\/[\d.]+$/, 'Chrome/140.0.0.0 Safari/537.36');
+  const m2 = await openAs(`screen=title&${gpuQ('ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)')}&benched=6&perfcheck=1`, chromeMac);
+  await expect(m2.page.locator('[data-screen="perfcheck"] .pc-file')).toHaveCount(1);
+  await expect(m2.page.locator('[data-screen="perfcheck"] .pc-file')).toContainText('macOS-arm64.dmg');
+  await m2.ctx.close();
+  // 玩法说明 → 操作: ⌥ for 闪避, the trackpad, the ⌘ / fn keys
+  const help = await openAs('screen=help', MAC_SAFARI_UA, 1280, 720, true);
+  await help.page.locator('.sg-tab[data-tab="controls"]').click();
+  await expect(help.page.locator('.sg-mac-notes.help')).toContainText('触控板：双指点按 = 右键瞄准；建议使用鼠标');
+  await expect(help.page.locator('.sg-mac-notes.help')).toContainText('fn + F3');
+  await expect(help.page.locator('.sg-table.controls').first()).toContainText('⌥ Option');
+  await expect(help.page.locator('.sg-table.controls').first()).not.toContainText('Ctrl');
+  if (shots) await help.page.waitForTimeout(400).then(() => help.page.screenshot({ path: `${shots}/help-mac.png` }));
+  expect(help.errors).toEqual([]);
+  await help.ctx.close();
+  // 设置 → 操作 says it too; a Windows PC sees none of it
+  const set = await openAs('screen=settings&tab=controls', MAC_SAFARI_UA, 1280, 720, true);
+  await expect(set.page.locator('.sg-settings .sg-mac-notes')).toContainText('⌥ Option');
+  await set.ctx.close();
+  const win = await openAs('screen=settings&tab=controls', WIN_UA);
+  await expect(win.page.locator('.sg-settings .sg-tab[data-tab="controls"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(win.page.locator('.sg-mac-notes')).toHaveCount(0);
+  await win.ctx.close();
+});
+
 test('touch controls on a landscape phone', async () => {
   const { ctx, page, errors } = await open('screen=hud&touch=1', 844, 390);
   await expect(page.locator('.sg-touch .fire')).toBeVisible({ timeout: 15_000 });

@@ -13,6 +13,7 @@ import { settings, type Lang } from '../../game/settings';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
 import { weaponCardNote, weaponClassName } from './heroDetail';
 import { gearArt, isUnitWeapon } from '../cardArt';
+import { isMac } from '../perfcheck';
 import { artKnown, gearIcon, roleCardBadge, setArt, whenArtKnown } from '../artIcons';
 import { ZONE_PHASES } from '../../sim/zone';
 
@@ -27,7 +28,13 @@ export const ZONE_TABLE: readonly { phase: number; wait: number; shrink: number;
   dps: z.dps,
 }));
 
-export const CONTROLS: readonly { keys: string[]; zh: string; en: string }[] = [
+export interface ControlRow {
+  keys: string[];
+  zh: string;
+  en: string;
+}
+
+export const CONTROLS: readonly ControlRow[] = [
   { keys: ['W', 'A', 'S', 'D'], zh: '移动（鼠标瞄准，点击锁定鼠标）', en: 'Move (mouse aims; click to lock the pointer)' },
   { keys: ['左键'], zh: '开火', en: 'Fire' },
   { keys: ['右键'], zh: '开镜瞄准', en: 'Aim down sights' },
@@ -50,6 +57,48 @@ export const CONTROLS: readonly { keys: string[]; zh: string; en: string }[] = [
   { keys: ['Enter'], zh: '聊天', en: 'Chat' },
   { keys: ['Esc'], zh: '菜单（单机自动暂停，联机不暂停）', en: 'Menu (pauses single player; online matches keep running)' },
 ];
+
+/**
+ * The rows a Mac player reads differently (by the row's keys): 闪避 on ⌥ Option first —
+ * ⌃ Control + click is a right-click there, ⌃+Space switches the input source (拼音 ↔
+ * ABC) and ⌃+arrows switch desktops, all system shortcuts a page cannot stop — the
+ * trackpad's two-finger click for 右键, and no middle button on a trackpad.
+ */
+const MAC_ROWS: Readonly<Record<string, ControlRow>> = {
+  右键: { keys: ['右键'], zh: '开镜瞄准（触控板：双指点按）', en: 'Aim down sights (trackpad: two-finger click)' },
+  'Ctrl+Alt': {
+    keys: ['⌥ Option', '⌃ Control'],
+    zh: '闪避翻滚（闪）· 2 次充能，8 秒恢复 · Mac 上请用 ⌥（⌃+点击会变成右键）',
+    en: 'Dodge roll (闪) · 2 charges, 8 s recharge · on a Mac use ⌥ (⌃+click is a right-click)',
+  },
+  '1+2': { keys: ['1', '2'], zh: '切换主 / 副武器（或滚轮、触控板双指上下滑）', en: 'Primary / secondary weapon (or the wheel / a two-finger swipe)' },
+  'B+中键': { keys: ['B', '中键'], zh: '标记准星处目标（触控板没有中键：按 B）', en: 'Mark the target under the crosshair (no middle button on a trackpad: press B)' },
+};
+
+/** The keyboard & mouse table, in a Mac player's words on a Mac. */
+export function controlsFor(mac: boolean): readonly ControlRow[] {
+  return mac ? CONTROLS.map((c) => MAC_ROWS[c.keys.join('+')] ?? c) : CONTROLS;
+}
+
+/**
+ * Mac notes (玩法说明 → 操作, 设置 → 操作): the trackpad, and the game keys that meet
+ * macOS / Safari shortcuts a page cannot block.
+ */
+export const MAC_NOTES: readonly { zh: string; en: string }[] = [
+  { zh: '触控板：双指点按 = 右键瞄准；建议使用鼠标（触控板很难边走边瞄）。', en: 'Trackpad: a two-finger click is the right button (aim); a mouse is much easier.' },
+  { zh: '闪避请按 ⌥ Option：⌃ Control + 点击会变成右键，⌃+空格会切换输入法，⌃+方向键会切换桌面。', en: 'Dodge with ⌥ Option: ⌃ Control + click is a right-click, ⌃+Space switches the input source and ⌃+arrows switch desktops.' },
+  { zh: '对局中别按 ⌘：⌘W 会关闭页面、⌘Q 会退出浏览器、⌘H 会隐藏窗口（网页拦不住）。', en: 'Keep off ⌘ in a match: ⌘W closes the page, ⌘Q quits the browser, ⌘H hides it (a page cannot stop them).' },
+  { zh: 'F3 性能面板：Mac 上按 fn + F3（F3 默认是调度中心），或在 设置 → 画面 打开「显示帧率」。', en: 'F3 performance panel: fn + F3 on a Mac (F3 alone is Mission Control), or 设置 → Graphics → “Show FPS”.' },
+  { zh: '全屏更沉浸：⌃⌘F，或点窗口左上角的绿色按钮。', en: 'Full screen: ⌃⌘F, or the green button at the top left of the window.' },
+];
+
+/** The Mac notes as a titled box (玩法说明 and 设置 → 操作). */
+export function macNotesBox(cls = ''): HTMLElement {
+  return h('div', { class: `sg-mac-notes ${cls}`.trim(), data: { mac: '1' } },
+    h('b', null, tx('Mac 用户', 'On a Mac')),
+    h('ul', null, MAC_NOTES.map((n) => h('li', null, tx(n.zh, n.en)))),
+  );
+}
 
 /**
  * The touch controls, one row per on-screen control (NP-7): what a phone player reads
@@ -260,10 +309,12 @@ function squadTab(): HTMLElement {
 }
 
 function controlsTab(): HTMLElement {
+  const mac = isMac();
   const keys = section(tx('键鼠操作', 'Keyboard & mouse'),
+    mac ? macNotesBox('help') : null,
     h('div', { class: 'sg-table-wrap' },
       h('table', { class: 'sg-table controls' },
-        h('tbody', null, CONTROLS.map((c) => h('tr', null, h('td', { class: 'keys' }, c.keys.map((k) => keyCap(keyLabel(k)))), h('td', null, tx(c.zh, c.en))))),
+        h('tbody', null, controlsFor(mac).map((c) => h('tr', null, h('td', { class: 'keys' }, c.keys.map((k) => keyCap(keyLabel(k)))), h('td', null, tx(c.zh, c.en))))),
       ),
     ),
   );
