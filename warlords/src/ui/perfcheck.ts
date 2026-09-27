@@ -132,7 +132,7 @@ export function externalLink(href: string, label: string, cls = ''): HTMLAnchorE
 
 // ── F3 performance panel ─────────────────────────────────────────────────────
 
-/** The tier's name as the settings show it (流畅 / 均衡 / 精美…). */
+/** The tier's name as the settings show it (极速 / 流畅 / 均衡 / 高清 / 极致). */
 export function qualityName(q: Quality): string {
   const key = `settings.quality.${q}`;
   return hasKey(key) ? t(key) : q;
@@ -278,9 +278,9 @@ export function integratedTip(os: OsId, gpu: string, desktopApp: boolean): strin
   ];
 }
 
-/** The desktop build for this OS (null: no desktop app for it). */
+/** The desktop build for this OS (null: no desktop app for it). Windows: the portable one (no install). */
 export function desktopDownload(os: OsId, gpuClass: GpuClass): { os: string; file: string } | null {
-  if (os === 'windows') return { os: 'Windows', file: 'SanguoWarlords-…-Windows-setup.exe' };
+  if (os === 'windows') return { os: 'Windows', file: 'SanguoWarlords-…-Windows-portable.exe' };
   // Apple silicon reports an "Apple M…" / "Apple GPU" renderer; Intel Macs an Intel / AMD one
   if (os === 'mac') return { os: 'macOS', file: `SanguoWarlords-…-macOS-${gpuClass === 'apple' ? 'arm64' : 'x64'}.dmg` };
   if (os === 'linux') return { os: 'Linux', file: 'SanguoWarlords-…-Linux.AppImage' };

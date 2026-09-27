@@ -26,7 +26,8 @@ export function mountHeroTurntable(container: HTMLElement, heroId: string): Turn
   container.appendChild(canvas);
   let renderer: THREE.WebGLRenderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // the GPU the game renders with (a dual-GPU laptop's discrete one)
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
   } catch {
     canvas.remove();
     return { dispose: () => undefined };
