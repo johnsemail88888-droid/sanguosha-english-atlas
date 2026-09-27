@@ -398,16 +398,14 @@ test('P2P invite on a server-served page joins in P2P without touching the mode;
     expect(q.get('ph')).toBe('127.0.0.1');
     expect(q.get('pa')).toBe('/peerjs');
 
-    // a fresh guest (default settings: public PeerJS cloud) opens the invite on the server-served page
+    // a fresh guest (default settings: public PeerJS cloud) opens the invite on the server-served page:
+    // one click — the link itself — lands it in the host's lobby (no 加入), joined in the link's mode
+    // (the server probe must not flip it to the relay)
     const guest = await openGame(browser, `${link}&debug=1`, { viewport: VIEWPORT, name: '远客' });
     pages.push(guest);
-    await expect(guest.page.locator('[data-screen="online"]')).toBeVisible();
-    await expect(guest.page.locator('.sg-code-input')).toHaveValue(code);
-    // the server probe must not flip the mode the link asked for
-    await guest.page.waitForTimeout(3000);
-    await expect(guest.page.locator('.sg-online-mode .sg-seg button[data-value="peer"]')).toHaveAttribute('aria-pressed', 'true');
-    await guest.page.locator('.join-row .sg-btn').click();
     await expect(guest.page.locator('[data-screen="lobby"] .room-code .code')).toHaveText(code, { timeout: 60_000 });
+    expect(await guest.page.evaluate(() => JSON.parse(sessionStorage.getItem('sgwl.rejoin.v1') ?? 'null'))).toMatchObject({ code, mode: 'peer' });
+    await expect(host.page.locator('.seat:not(.empty):not(.bot)')).toHaveCount(2, { timeout: 30_000 });
     await guest.page.locator('.lobby-foot .sg-btn.gold').click(); // ready
     await expect(host.page.locator('.seat:not(.empty):not(.bot)')).toHaveCount(2, { timeout: 30_000 });
     await host.page.locator('.lobby-foot .sg-btn.gold').click();

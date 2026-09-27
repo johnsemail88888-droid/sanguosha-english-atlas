@@ -142,6 +142,9 @@ describe('F3 panel lines', () => {
     ]);
     overrideLang('en');
     expect(perfLines({ ...p, pixelRatioMax: 1, triangles: 84_200, applying: true, quality: 'high' }, { fps: 0, ms: 0 }, '')[1]).toBe('312 DC · 84k △ · scale 1.00× · High…');
+    // the GPU's own time where the browser can measure it (timer queries)
+    expect(perfLines({ ...p, gpuMs: 3.14 }, { fps: 0, ms: 0 }, '')[0]).toBe('59 FPS · 17.0 ms · JS 4.3 ms · GPU 3.1 ms');
+    expect(perfLines({ ...p, gpuMs: -1 }, { fps: 0, ms: 0 }, '')[0]).toBe('59 FPS · 17.0 ms · JS 4.3 ms');
   });
 
   it('before the 3D view has numbers: the HUD’s own frame rate', () => {

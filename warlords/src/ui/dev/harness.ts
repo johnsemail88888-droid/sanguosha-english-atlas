@@ -332,6 +332,10 @@ export interface MockDeps extends AppDeps {
   lastGame: MockGameHandle | null;
   lastSession: MockSession | null;
   audioLog: string[];
+  /** what the fake GPU benchmark answers (median ms at 1280×720; 0: it fails) */
+  benchMs: number;
+  /** benchmarks run so far */
+  benchRuns: number;
 }
 
 export function createMockDeps(sessionOpts: MockSessionOptions = {}, gameOpts: MockGameOptions = {}): MockDeps {
@@ -339,6 +343,15 @@ export function createMockDeps(sessionOpts: MockSessionOptions = {}, gameOpts: M
     lastGame: null,
     lastSession: null,
     audioLog: [],
+    benchMs: 5,
+    benchRuns: 0,
+    // the real one renders a 3D scene: here a quick, predictable answer
+    benchmarkGpu: () =>
+      new Promise((resolve) => {
+        deps.benchRuns++;
+        const ms = deps.benchMs;
+        setTimeout(() => resolve(ms > 0 ? { ms, msSmall: ms * 0.45, renderer: 'mock' } : { ms: 0, msSmall: 0, renderer: 'mock', error: 'mock failure' }), 400);
+      }),
     createLocalSession(name) {
       const s = new MockSession({ ...sessionOpts, name, auto: true, isHost: true });
       deps.lastSession = s;
@@ -354,6 +367,7 @@ export function createMockDeps(sessionOpts: MockSessionOptions = {}, gameOpts: M
       });
     },
     joinOnline(code, name) {
+      // FAIL0: the room does not exist; SLOW0: the answer takes 4 s (取消 while joining)
       return new Promise((resolve, reject) => {
         setTimeout(() => {
           if (code === 'FAIL0') {
@@ -363,7 +377,7 @@ export function createMockDeps(sessionOpts: MockSessionOptions = {}, gameOpts: M
           const s = new MockSession({ ...sessionOpts, name, auto: true, isHost: false, online: true, roomCode: code });
           deps.lastSession = s;
           resolve(s);
-        }, 700);
+        }, code === 'SLOW0' ? 4000 : 700);
       });
     },
     mountGame(container: HTMLElement, view: ViewSource, _session: GameSession) {

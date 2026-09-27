@@ -51,7 +51,8 @@ export interface QualityPreset {
   weaponTexture: number;
 }
 
-export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
+// 'potato' / 'ultra' are defined by the perf work merged separately: until then they fall back (qualityPreset)
+export const QUALITY_PRESETS: Record<'low' | 'medium' | 'high', QualityPreset> & Partial<Record<Quality, QualityPreset>> = {
   low: {
     pixelRatioScale: 0.75,
     maxPixelRatio: 1,
@@ -112,4 +113,5 @@ export const QUALITY_PRESETS: Record<Quality, QualityPreset> = {
   },
 };
 
-export const qualityPreset = (q: Quality): QualityPreset => QUALITY_PRESETS[q] ?? QUALITY_PRESETS.medium;
+export const qualityPreset = (q: Quality): QualityPreset =>
+  QUALITY_PRESETS[q] ?? (q === 'potato' ? QUALITY_PRESETS.low : q === 'ultra' ? QUALITY_PRESETS.high : QUALITY_PRESETS.medium);

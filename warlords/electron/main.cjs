@@ -10,6 +10,13 @@ const { pathToFileURL } = require('node:url');
 const { mirrorFile, portOrder, readJson, writeJson } = require('./state.cjs');
 
 const APP_NAME = '三国杀·枪火乱世';
+
+// Use the graphics card, always: the game is unplayable on Chromium's software
+// fallback (SwiftShader), which a blocklisted driver or a laptop's power-saving GPU
+// choice would otherwise give it. Must be set before the app is ready.
+for (const sw of ['ignore-gpu-blocklist', 'force_high_performance_gpu', 'enable-gpu-rasterization', 'enable-zero-copy']) {
+  if (app.commandLine) app.commandLine.appendSwitch(sw);
+}
 const ROOT = app.isPackaged ? app.getAppPath() : path.join(__dirname, '..');
 let server = null;
 let win = null;
@@ -78,6 +85,30 @@ function windowIcon() {
   return undefined;
 }
 
+/**
+ * How Chromium runs WebGL here (app.getGPUFeatureStatus(): 'enabled…' = on the GPU;
+ * 'software' / 'unavailable_software' / 'disabled…' = not), logged at start-up with the
+ * GPU's name; the page gets it (preload: sgwlDesktop.webgl) and warns when it is not
+ * hardware, like the web version does for a software renderer.
+ */
+function gpuStatus() {
+  let status = {};
+  try {
+    status = app.getGPUFeatureStatus() || {};
+    console.info('[desktop] GPU feature status', JSON.stringify(status));
+    app
+      .getGPUInfo('basic')
+      .then((info) => {
+        const devices = (info && info.gpuDevice) || [];
+        console.info('[desktop] GPUs', JSON.stringify(devices.map((d) => ({ vendorId: d.vendorId, deviceId: d.deviceId, active: d.active, driver: d.driverVersion }))));
+      })
+      .catch(() => undefined);
+  } catch (err) {
+    console.warn('[desktop] GPU feature status unavailable', err);
+  }
+  return String(status.webgl2 || status.webgl || '');
+}
+
 async function createWindow() {
   if (!lan) {
     try {
@@ -88,6 +119,7 @@ async function createWindow() {
   }
   if (!server) server = await startEmbeddedServer();
   const port = server.port;
+  const webgl = gpuStatus();
 
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
     cb(permission === 'pointerLock' || permission === 'fullscreen' || permission === 'clipboard-sanitized-write');
@@ -111,7 +143,7 @@ async function createWindow() {
       sandbox: false,
       backgroundThrottling: false, // the host keeps simulating while unfocused
       // the initial list; the page asks for a fresh one through sgwlDesktop.getLanUrls()
-      additionalArguments: [`--sgwl-port=${port}`, `--sgwl-lan=${encodeURIComponent(JSON.stringify(lanUrls(port)))}`],
+      additionalArguments: [`--sgwl-port=${port}`, `--sgwl-lan=${encodeURIComponent(JSON.stringify(lanUrls(port)))}`, `--sgwl-webgl=${encodeURIComponent(webgl)}`],
     },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {

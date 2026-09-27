@@ -167,6 +167,9 @@ export const SCREENS_CSS = /* css */ `
 .code-box { display: flex; align-items: center; gap: 0.7em; margin-left: auto; flex-wrap: wrap; }
 .room-code { display: flex; flex-direction: column; align-items: center; padding: 0.15em 1.1em 0.25em; background: linear-gradient(#2c1f14, #1a120b); border: 1px solid var(--gold); border-radius: 6px; cursor: pointer; color: inherit; box-shadow: inset 0 0 0 3px rgba(214, 173, 82, 0.15); }
 .room-code:hover { border-color: var(--gold-hi); }
+.invite-share { display: flex; flex-direction: column; align-items: stretch; gap: 0.2em; }
+.invite-share .invite-copy { font-size: 1.05em; }
+.invite-share .invite-hint { font-size: 0.78em; color: var(--paper); opacity: 0.85; text-align: center; max-width: 16em; line-height: 1.3; }
 .room-code .lbl { font-size: 0.7em; color: var(--gold); letter-spacing: 0.2em; }
 .room-code .code { font-family: "Consolas", "Menlo", monospace; font-size: 2em; font-weight: 800; letter-spacing: 0.22em; padding-left: 0.22em; color: var(--gold-hi); text-shadow: 0 0 10px rgba(245, 200, 100, 0.35); line-height: 1.1; }
 .lobby-grid { flex: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.9fr); gap: 1em; min-height: 0; }
@@ -239,6 +242,7 @@ export const SCREENS_CSS = /* css */ `
   .lobby-head h1 { font-size: 1.4em; }
   .room-code { padding: 0 0.8em 0.1em; }
   .room-code .code { font-size: 1.35em; }
+  .invite-share .invite-hint { display: none; }
   .lobby-grid > section { padding: 0.6em 0.9em; }
   .seat { padding: 0.2em 0.5em; }
   .seat .avatar { width: 1.8em; height: 1.8em; }

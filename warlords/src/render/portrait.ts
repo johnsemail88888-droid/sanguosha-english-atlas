@@ -84,7 +84,8 @@ function getStudio(): Studio | null {
   try {
     if (typeof document === 'undefined') return (studio = null);
     const canvas = document.createElement('canvas');
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true });
+    // the GPU the game renders with (a dual-GPU laptop's discrete one)
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;

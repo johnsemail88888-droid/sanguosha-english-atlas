@@ -1,12 +1,12 @@
 // Settings modal: language, name, controls, graphics, audio, network
 // (explains 公共P2P vs 局域网/自建服务器 and `npm run server`).
-import { DEFAULT_SETTINGS, defaultQuality, settings, type Lang, type Quality, type UserSettings } from '../../game/settings';
+import { DEFAULT_SETTINGS, QUALITIES, defaultQuality, settings, type Lang, type UserSettings } from '../../game/settings';
 import type { Screen, SettingsTab, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { button, field, nameFieldModel, segmented, slider, tabs, textInput, toggle } from '../widgets';
 import { markModeChosen } from '../invite';
-import { gpuShortName } from '../perfcheck';
+import { gpuShortName, qualityName } from '../perfcheck';
 
 /** localhost, 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, ::1, fc00::/7, *.local: nobody has a TLS certificate there */
 export function isPrivateHost(host: string): boolean {
@@ -20,9 +20,9 @@ export function isPrivateHost(host: string): boolean {
   return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
 }
 
-/** Reset every setting but the player's name and language. */
+/** Reset every setting but the player's name and language (and the GPU benchmark: a measurement, not a choice — 自动 uses it again). */
 export function resetSettings(current: UserSettings): UserSettings {
-  return { ...structuredClone(DEFAULT_SETTINGS), quality: defaultQuality(), playerName: current.playerName, lang: current.lang };
+  return { ...structuredClone(DEFAULT_SETTINGS), quality: defaultQuality(), playerName: current.playerName, lang: current.lang, gpuBench: current.gpuBench };
 }
 
 const pct = (v: number): string => `${Math.round(v * 100)}%`;
@@ -85,14 +85,27 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
 
   const graphics = (): HTMLElement[] => {
     const st = settings.get();
+    // 自动（当前：高清）: the tier follows this machine (GPU benchmark, 自动调节画质); a tier below it is the player's pick
+    const tuning = ctx.autoTuning?.() ?? false;
+    const auto = h('button', { type: 'button', class: 'q-auto', aria: { pressed: st.qualityAuto }, data: { value: 'auto' } },
+      tuning ? tx('自动（检测中…）', 'Auto (checking…)') : tx(`自动（当前：${qualityName(st.quality)}）`, `Auto (now: ${qualityName(st.quality)})`));
+    auto.addEventListener('click', () => {
+      if (settings.get().qualityAuto) return;
+      if (ctx.setQualityAuto) ctx.setQualityAuto();
+      else upd({ qualityAuto: true });
+    });
+    const tiers = segmented(QUALITIES.map((q) => ({ value: q, label: t(`settings.quality.${q}`) })), st.quality, (v) => upd({ quality: v, qualityAuto: false }), { name: t('settings.quality') });
+    tiers.classList.toggle('auto', st.qualityAuto);
     return [
       field(t('settings.fov'), slider(st.fov, 60, 100, 1, (v) => upd({ fov: v }), (v) => `${v}°`, t('settings.fov'))),
-      field(t('settings.quality'), segmented([
-        { value: 'low' as Quality, label: t('settings.quality.low') },
-        { value: 'medium' as Quality, label: t('settings.quality.medium') },
-        { value: 'high' as Quality, label: t('settings.quality.high') },
-      ], st.quality, (v) => upd({ quality: v }), { name: t('settings.quality') }),
-      tx('集成显卡或手机请选择“流畅”。', 'Pick “Low” on integrated GPUs and phones.')),
+      field(t('settings.quality'), h('div', { class: 'set-quality' }, auto, tiers),
+        st.qualityAuto
+          ? tx('自动：按显卡测速选择画质和渲染比例（换显卡会重新测）。', 'Auto: picked from a quick benchmark of your graphics card — quality and render scale (measured again on a new GPU).')
+          : tx('集成显卡或手机选“流畅”；很卡或没有独立显卡（软件渲染）选“极速”。', 'Pick “Low” on integrated GPUs and phones; “Lowest” when it still stutters (no GPU / software rendering).')),
+      field(tx('自动调节画质', 'Auto-adjust quality'), toggle(st.autoAdjust, (v) => upd({ autoAdjust: v }), tx('自动调节画质', 'Auto-adjust quality')),
+        st.qualityAuto
+          ? tx('对局中持续卡顿（低于 28 帧；高清 / 极致低于 50 帧）时先降分辨率、再降一档画质；很流畅时在暂停或下一局提高一档。', 'In a match that keeps lagging (under 28 fps; High / Ultra under 50): resolution first, then one tier down; with lots of headroom one tier up at a pause or the next match.')
+          : tx('对局中持续卡顿（低于 28 帧；高清 / 极致低于 50 帧）时先降分辨率、再降一档画质。', 'In a match that keeps lagging (under 28 fps; High / Ultra under 50): resolution first, then one tier down.')),
       field(t('settings.fps'), toggle(st.showFps, (v) => upd({ showFps: v }), t('settings.fps')),
         tx('对局中按 F3 也可开关：帧率、帧时间、绘制调用、渲染比例、画质与显卡。', 'F3 toggles it in a match: frame rate and time, draw calls, render scale, tier and GPU.')),
       gpuLine(),
@@ -103,6 +116,7 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
   const gpuLine = (): HTMLElement => {
     const { renderer, software } = ctx.gpu;
     return h('div', { class: `set-gpu${software ? ' soft' : ''}`, title: renderer },
+      ctx.openPerfCheck ? button(tx('性能体检', 'Performance check'), () => ctx.openPerfCheck?.(), { cls: 'small gold pc-open' }) : null,
       h('span', { class: 'lbl' }, tx('显卡：', 'GPU: ')),
       h('b', null, gpuShortName(renderer) || tx('未知', 'unknown')),
       software ? h('span', { class: 'warn' }, tx('（软件渲染：浏览器没有使用显卡）', ' (software rendering: the browser is not using the GPU)')) : null,
@@ -190,6 +204,18 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
     body.replaceChildren(...SECTIONS[tab]());
   };
 
+  // 画质 moves by itself (the GPU benchmark finished, 自动调节画质, 自动 turned on): the graphics tab follows
+  const qualityKey = (st: UserSettings): string => `${st.quality}|${st.qualityAuto}|${st.autoAdjust}|${st.gpuBench?.at ?? 0}`;
+  let lastQuality = qualityKey(settings.get());
+  bag.add(
+    settings.subscribe((st) => {
+      const k = qualityKey(st);
+      if (k === lastQuality) return;
+      lastQuality = k;
+      if (tab === 'graphics') renderBody();
+    }),
+  );
+
   // PLATFORM-4: a quality switch made mid-match applies in stages — 「应用中…」 in the heading meanwhile
   let applying = false;
   const applyingBadge = h('span', { class: 'set-applying sg-hidden', role: 'status' });
@@ -222,6 +248,8 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
           void ctx.confirm(tx('恢复全部默认设置？（名号与语言会保留）', 'Reset every setting to default? (your name and language are kept)')).then((yes) => {
             if (!yes) return;
             settings.update(resetSettings(settings.get()));
+            // 自动 again: the stored benchmark's pick (or a new benchmark)
+            ctx.setQualityAuto?.();
             build();
           });
         }, { cls: 'small dark' }),

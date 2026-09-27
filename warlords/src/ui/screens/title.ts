@@ -8,7 +8,7 @@ import { Bag, h, s } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { artBackdrop } from '../keyart';
 import { button, nameFieldModel, seal } from '../widgets';
-import { gpuWarnDismissed, gpuWarning } from '../perfcheck';
+import { RELEASES_URL, externalLink, gpuWarnDismissed, gpuWarning, isDesktopOs, platformInfo } from '../perfcheck';
 
 /** Periodic ridge line (period = width/2) so the layer can scroll seamlessly. */
 function ridgePath(width: number, height: number, base: number, amps: readonly [number, number, number][], seed: number): string {
@@ -115,6 +115,13 @@ function titleBackdrop(bag: Bag, onArt: () => void): HTMLElement {
   return host;
 }
 
+/** The web version on a computer: a small link to the desktop app (it turns the GPU on by itself). */
+function desktopLink(): HTMLElement | null {
+  const p = platformInfo();
+  if (p.desktopApp || !isDesktopOs(p.os)) return null;
+  return externalLink(RELEASES_URL, tx('下载桌面版（更流畅）', 'Desktop app (smoother)'), 'sg-dl-link');
+}
+
 export function createTitleScreen(ctx: UiCtx, version: string): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-title', data: { screen: 'title' } });
@@ -190,7 +197,7 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
           menuItem(t('title.settings'), null, () => ctx.openSettings(), 'dark'),
         ),
       ),
-      h('div', { class: 'sg-title-foot' }, t('app.subtitle'), h('span', { class: 'ver' }, t('title.version', { v: version }))),
+      h('div', { class: 'sg-title-foot' }, t('app.subtitle'), h('span', { class: 'ver' }, t('title.version', { v: version })), desktopLink()),
     );
   };
   render();

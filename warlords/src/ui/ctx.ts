@@ -52,6 +52,8 @@ export interface UiCtx {
   startSingle(patch: Partial<MatchSettings>): void;
   hostOnline(mode: 'peer' | 'ws'): Promise<void>;
   joinOnline(code: string, mode: 'peer' | 'ws'): Promise<void>;
+  /** 取消 the join in progress: the session it still produces is left at once */
+  cancelJoin?(): void;
   /** leave the current session (and by default return to the title) */
   leaveSession(goTitle?: boolean): void;
   /** single player: go back to the lobby and immediately start again */
@@ -74,4 +76,12 @@ export interface UiCtx {
   chatLog?(): LobbyChatLog | null;
   /** how the current online session connects (invite links carry it) */
   connection?(): { mode: 'peer' | 'ws'; net: NetServerConfig } | null;
+  /** open 性能体检 (is the GPU used, how fast, how to fix it) */
+  openPerfCheck?(): void;
+  /** probe the GPU again and run the 2 s benchmark (性能体检's 重新检测); ctx.gpu / the stored benchmark update, and on 自动 the tier */
+  recheckGpu?(): Promise<void>;
+  /** 设置 → 画质 → 自动 turned on: the benchmark's pick becomes the tier (the benchmark runs first when this GPU has none) */
+  setQualityAuto?(): void;
+  /** the GPU benchmark is running (设置 shows 「自动（检测中…）」) */
+  autoTuning?(): boolean;
 }

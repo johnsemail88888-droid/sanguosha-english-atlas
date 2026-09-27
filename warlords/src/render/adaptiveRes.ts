@@ -3,6 +3,10 @@
 // frames are comfortably fast — with hysteresis and a back-off so it does not
 // oscillate. Pure logic (no DOM / three.js): GameRenderer feeds it the real
 // interval between two frames and applies `ratio` when update() says it moved.
+//
+// Also the automatic graphics tier: what a GPU benchmark (render/bench.ts) says
+// this machine can run (pickAutoTune).
+import type { Quality } from '../game/settings';
 
 export interface AdaptiveResolutionOptions {
   /** smoothed frame time (ms) above which the ratio is lowered */
@@ -44,9 +48,17 @@ export const ADAPTIVE_RES_DEFAULTS: AdaptiveResolutionOptions = {
   pauseS: 5,
 };
 
-/** Lowest pixel ratio the controller may pick: 1.0, or 0.75 on the 'low' preset. */
+/**
+ * 自动's render-scale cap (settings.autoRenderScale, what the GPU benchmark allows
+ * on this screen): Infinity when the player picked the tier, or there is none.
+ */
+export function autoScaleCap(s: { qualityAuto: boolean; autoRenderScale: number }): number {
+  return s.qualityAuto && s.autoRenderScale > 0 ? s.autoRenderScale : Infinity;
+}
+
+/** Lowest pixel ratio the controller may pick: 1.0, 0.75 on 'low', 0.5 on 'potato'. */
 export function adaptiveFloor(quality: string): number {
-  return quality === 'low' ? 0.75 : 1;
+  return quality === 'potato' ? 0.5 : quality === 'low' ? 0.75 : 1;
 }
 
 const EPS = 1e-6;
@@ -166,4 +178,119 @@ export class AdaptiveResolution {
 /** Round to 1/100 so repeated steps do not drift (0.75 + 0.25 === 1). */
 function snap(v: number): number {
   return Math.round(v * 100) / 100;
+}
+
+// ── automatic tier / render scale from the GPU benchmark ─────────────────────
+
+/**
+ * The benchmark's reference frame (render/bench.ts): a 'medium'-like scene drawn
+ * at 1280×720, and at a quarter of the pixels (640×360) to tell the fixed cost of
+ * a frame (draw submission, vertices, shadows) from the per-pixel one.
+ */
+export const BENCH_PIXELS = 1280 * 720;
+export const BENCH_SMALL_PIXELS = 640 * 360;
+
+/**
+ * Frame cost of each tier relative to 'medium' (the benchmark scene): only for
+ * the estimated frame rate 性能体检 shows.
+ */
+export const TIER_COST: Record<Quality, number> = { potato: 0.3, low: 0.5, medium: 1, high: 1.5, ultra: 2.1 };
+
+/**
+ * The automatic tier's classes: the benchmark's 'medium' frame, estimated on the
+ * player's own view at render scale 1 (frameCost → estimateFrameMs), within
+ * AUTO_STRONG_MS → 高清 (极致 within AUTO_ULTRA_MS), render scale up to
+ * min(dpr, 2); within AUTO_MID_MS → 均衡, up to min(dpr, 1.5); within
+ * AUTO_WEAK_MS → 流畅 at 1×; slower → 极速.
+ */
+export const AUTO_ULTRA_MS = 3;
+export const AUTO_STRONG_MS = 6;
+export const AUTO_MID_MS = 12;
+export const AUTO_WEAK_MS = 24;
+
+/** A 'medium' frame on this machine: fixedMs + perMpx × megapixels rendered. */
+export interface FrameCost {
+  fixedMs: number;
+  perMpx: number;
+}
+
+/**
+ * The benchmark's two sizes → fixed and per-pixel cost. With one size only (or a
+ * noisy pair) 60 % of the frame is taken to scale with the pixels.
+ */
+export function frameCost(ms: number, msSmall?: number | null): FrameCost {
+  const big = BENCH_PIXELS / 1e6;
+  const small = BENCH_SMALL_PIXELS / 1e6;
+  if (msSmall && msSmall > 0 && msSmall <= ms * 1.05) {
+    const perMpx = Math.max(0, (ms - msSmall) / (big - small));
+    return { fixedMs: Math.max(0, ms - perMpx * big), perMpx };
+  }
+  return { fixedMs: ms * 0.4, perMpx: (ms * 0.6) / big };
+}
+
+/** Estimated frame time (ms) on `tier` rendering `pixels` device pixels. */
+export function estimateFrameMs(cost: FrameCost, tier: Quality, pixels: number): number {
+  return TIER_COST[tier] * (cost.fixedMs + (cost.perMpx * Math.max(0, pixels)) / 1e6);
+}
+
+/** Estimated frame rate on `tier` at pixel ratio `r` for a `cssPixels` view (see estimateFrameMs). */
+export function estimateFps(benchMs: number, benchSmallMs: number | null | undefined, tier: Quality, cssPixels: number, r = 1): number {
+  return Math.round(1000 / Math.max(0.1, estimateFrameMs(frameCost(benchMs, benchSmallMs), tier, cssPixels * r * r)));
+}
+
+export interface AutoTuneInput {
+  /** the benchmark's median frame ms at 1280×720 and 640×360 (null / 0: none — a software renderer needs none, or it failed) */
+  benchMs: number | null;
+  benchSmallMs?: number | null;
+  /** WebGL runs on a software renderer (hardware acceleration off) */
+  software: boolean;
+  /** the game view's size in CSS px (width × height) */
+  cssPixels: number;
+  /** window.devicePixelRatio */
+  dpr: number;
+  /** the tier when there is no benchmark result on hardware (default 'medium'; the app passes its first-run guess) */
+  fallback?: Quality;
+}
+
+export interface AutoTunePick {
+  quality: Quality;
+  /** highest pixel ratio this tier may render at (the adaptive resolution's ceiling) */
+  maxPixelRatio: number;
+  /** estimated frame rate of the pick (null: no benchmark) */
+  fps: number | null;
+}
+
+const snapQ = (v: number): number => Math.floor(v * 4 + 1e-6) / 4;
+
+/**
+ * What this machine can run (see AUTO_*_MS): the tier, and the highest render
+ * scale — in 0.25 steps, never below 1 — at which the estimated 'medium' frame
+ * still stays in the tier's class. A software renderer → 极速 at 1× whatever it
+ * measured; no benchmark → the fallback tier at ≤ 1.25×.
+ */
+export function pickAutoTune(i: AutoTuneInput): AutoTunePick {
+  const dpr = Math.max(1, i.dpr || 1);
+  const css = Math.max(1, i.cssPixels);
+  const cost = i.benchMs && i.benchMs > 0 ? frameCost(i.benchMs, i.benchSmallMs) : null;
+  const fpsAt = (tier: Quality, r: number): number | null => (cost ? Math.round(1000 / Math.max(0.1, estimateFrameMs(cost, tier, css * r * r))) : null);
+  if (i.software) return { quality: 'potato', maxPixelRatio: 1, fps: fpsAt('potato', 1) };
+  if (!cost) return { quality: i.fallback ?? 'medium', maxPixelRatio: Math.min(dpr, 1.25), fps: null };
+  const mediumAt = (r: number): number => estimateFrameMs(cost, 'medium', css * r * r);
+  // the largest scale ≤ min(dpr, cap) whose 'medium' frame stays within `limitMs`
+  const scale = (cap: number, limitMs: number): number => {
+    let r = snapQ(Math.min(dpr, cap));
+    while (r > 1 && mediumAt(r) > limitMs) r -= 0.25;
+    return Math.max(1, r);
+  };
+  const m = mediumAt(1);
+  let quality: Quality;
+  let r = 1;
+  if (m <= AUTO_STRONG_MS) {
+    quality = m <= AUTO_ULTRA_MS ? 'ultra' : 'high';
+    r = scale(2, AUTO_STRONG_MS);
+  } else if (m <= AUTO_MID_MS) {
+    quality = 'medium';
+    r = scale(1.5, AUTO_MID_MS);
+  } else quality = m <= AUTO_WEAK_MS ? 'low' : 'potato';
+  return { quality, maxPixelRatio: r, fps: fpsAt(quality, r) };
 }

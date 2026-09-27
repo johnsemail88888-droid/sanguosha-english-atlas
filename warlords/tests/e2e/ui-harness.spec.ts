@@ -245,16 +245,35 @@ test('mock single-player flow: setup → roles → hero select → HUD → game 
   await ctx.close();
 });
 
-test('online: join by ?room= link, host lobby controls, failed join shows the error', async () => {
+test('online: an invite link (?room=) joins with zero clicks; a failed one shows the error + 重试; 取消 while joining', async () => {
+  // one click from the friend's message to the lobby: no 加入
   const { ctx, page, errors } = await open('room=kx7qd');
-  const code = page.locator('.sg-code-input');
-  await expect(code).toHaveValue('KX7QD');
-  await code.fill('FAIL0');
-  await page.locator('.join-row .sg-btn').click();
-  await expect(page.locator('.sg-online-status .err')).toContainText('房间不存在', { timeout: 10_000 });
-  await code.fill('KX7QD');
-  await page.locator('.join-row .sg-btn').click();
+  await expect(page.locator('.sg-online-status .joining')).toHaveText('正在加入房间 KX7QD…');
+  await expect(page.locator('.sg-online-status .cancel-join')).toBeVisible();
   await expect(page.locator('[data-screen="lobby"] .room-code')).toContainText('KX7QD', { timeout: 10_000 });
+  // a room that is not there: the error, 重试 — and no retry loop by itself
+  const bad = await open('room=fail0');
+  await expect(bad.page.locator('.sg-online-status .err')).toContainText('房间不存在', { timeout: 10_000 });
+  await expect(bad.page.locator('.sg-online-status .retry-join')).toBeVisible();
+  await bad.page.waitForTimeout(1500);
+  await expect(bad.page.locator('.sg-online-status .err')).toContainText('房间不存在');
+  expect(await bad.page.evaluate(() => (window as unknown as { __ui: { deps: { lastSession: unknown } } }).__ui.deps.lastSession)).toBeNull();
+  await bad.page.locator('.sg-code-input').fill('KX7QD');
+  await bad.page.locator('.join-row .sg-btn').click();
+  await expect(bad.page.locator('[data-screen="lobby"] .room-code')).toContainText('KX7QD', { timeout: 10_000 });
+  expect(bad.errors).toEqual([]);
+  await bad.ctx.close();
+  // 取消 while joining: back to the online screen, and the late answer does not pull the player in
+  const slow = await open('room=slow0');
+  await expect(slow.page.locator('.sg-online-status .joining')).toHaveText('正在加入房间 SLOW0…');
+  await slow.page.locator('.sg-online-status .cancel-join').click();
+  await expect(slow.page.locator('.sg-online-status .joining')).toHaveCount(0);
+  await expect(slow.page.locator('.join-row .sg-btn')).toBeEnabled();
+  await slow.page.waitForTimeout(4500);
+  await expect(slow.page.locator('[data-screen="online"]')).toBeVisible();
+  expect(await slow.page.evaluate(() => (window as unknown as { __ui: { deps: { lastSession: { calls: string[] } } } }).__ui.deps.lastSession.calls)).toContain('leave');
+  expect(slow.errors).toEqual([]);
+  await slow.ctx.close();
   // clients cannot edit settings, they can ready up
   await expect(page.locator('.settings-panel .sg-seg')).toHaveCount(0);
   await page.locator('.lobby-foot .sg-btn').click();
