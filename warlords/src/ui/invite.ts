@@ -46,7 +46,7 @@ export function inviteLink(
       q.set('ws', conn.net.wsUrl.trim());
     }
   }
-  return `${shareBase(loc)}?${q.toString()}`;
+  return `${shareBase(loc, conn?.mode)}?${q.toString()}`;
 }
 
 /** Read an invite (or any page URL) query string: room code, mode and server overrides. */
