@@ -52,6 +52,8 @@ export interface UiCtx {
   startSingle(patch: Partial<MatchSettings>): void;
   hostOnline(mode: 'peer' | 'ws'): Promise<void>;
   joinOnline(code: string, mode: 'peer' | 'ws'): Promise<void>;
+  /** 取消 the join in progress: the session it still produces is left at once */
+  cancelJoin?(): void;
   /** leave the current session (and by default return to the title) */
   leaveSession(goTitle?: boolean): void;
   /** single player: go back to the lobby and immediately start again */

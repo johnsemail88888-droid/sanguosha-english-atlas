@@ -46,6 +46,26 @@ function applyNet(over: InviteNet): void {
 
 /** One automatic rejoin per page load (a failed one leaves the screen to the player). */
 let rejoinTried = false;
+/** One automatic join of an invite link per page load (a failed one offers 重试, it never loops). */
+let inviteTried = false;
+
+/**
+ * What the online screen does by itself when it opens: rejoin the room this tab was
+ * in (F5, a dropped link), join the room an invite link names (one click from the
+ * friend's message to the lobby) — each once per page load — or nothing: no valid
+ * code, or no way to reach its server (a relay link without an address).
+ */
+export function autoJoinPlan(i: { invited: string | null; rejoin: boolean; inviteTried: boolean; canJoin: boolean }): 'rejoin' | 'invite' | null {
+  if (i.rejoin) return 'rejoin';
+  if (!i.invited || i.inviteTried || !i.canJoin || !isValidRoomCode(normalizeRoomCode(i.invited))) return null;
+  return 'invite';
+}
+
+/** Tests: a fresh page load (the automatic joins may run again). */
+export function resetAutoJoinForTests(): void {
+  rejoinTried = false;
+  inviteTried = false;
+}
 
 /**
  * After a lost link: `true` — the player asked to rejoin, the next online screen joins the
@@ -83,19 +103,37 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   // a mode from the URL / the saved room (a P2P room stays P2P on a self-hosted page), or one the player picked, is never auto-switched
   let modeTouched = !!saved || !!urlMode || modeChosen();
   let busy: 'host' | 'join' | null = null;
+  /** bumped by every attempt and by 取消: a cancelled attempt's outcome is ignored */
+  let attempt = 0;
+  /** the last join failed: 重试 (the same code, the same way) */
+  let retryJoin = false;
   let errorText = '';
   /** after 房间不存在: offer the other connection mode */
   let suggest: NetMode | null = null;
   let runRef: ((kind: 'host' | 'join') => Promise<void>) | null = null;
   const runJoin = (): Promise<void> => runRef?.('join') ?? Promise.resolve();
   const sameOrigin = (): boolean => servedByLocalServer() && !settings.get().net.wsUrl.trim();
+  /** 取消 a join in progress: its answer is dropped (a session that still arrives is left at once) */
+  const cancel = (): void => {
+    attempt++;
+    busy = null;
+    errorText = '';
+    retryJoin = false;
+    ctx.cancelJoin?.();
+    if (el.isConnected) render();
+  };
 
   const render = (): void => {
     const status = h('div', { class: 'sg-online-status', aria: { live: 'polite' } });
     const modeName = (m: NetMode): string => (m === 'peer' ? t('online.peer') : t('online.ws'));
-    if (busy) status.append(h('span', { class: 'sg-spinner' }), ' ', busy === 'host' ? t('online.hosting') : t('online.connecting'));
+    if (busy === 'join') {
+      // 正在加入房间 CODE… — 取消 lets the player do something else (the late answer is dropped)
+      status.append(h('span', { class: 'sg-spinner' }), ' ', h('span', { class: 'joining' }, t('online.joiningRoom', { code })), ' ',
+        button(t('common.cancel'), cancel, { cls: 'small dark cancel-join', sfx: 'back' }));
+    } else if (busy) status.append(h('span', { class: 'sg-spinner' }), ' ', t('online.hosting'));
     else if (errorText) {
       status.append(h('span', { class: 'err' }, errorText));
+      if (retryJoin) status.append(' ', button(t('online.retry'), () => void run('join'), { cls: 'small gold retry-join', sfx: 'confirm' }));
       if (suggest) {
         const other = suggest;
         status.append(
@@ -138,15 +176,19 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         render();
         return;
       }
+      const mine = ++attempt;
       busy = kind;
       errorText = '';
       suggest = null;
+      retryJoin = false;
       render();
       try {
         if (kind === 'host') await ctx.hostOnline(mode);
         else await ctx.joinOnline(code, mode);
       } catch (err) {
+        if (mine !== attempt) return; // cancelled: nobody is waiting for this answer
         errorText = t('online.failed', { msg: errorMessage(err) });
+        retryJoin = kind === 'join';
         // the room may be on the other network: P2P rooms and relay rooms are separate
         if (kind === 'join' && isRoomNotFound(err)) suggest = mode === 'peer' ? 'ws' : 'peer';
         // a room that is gone / full / refuses us is forgotten; a link that timed out can be retried (重新加入)
@@ -154,8 +196,10 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         if (kind === 'join' && !isReconnectable(typeof errCode === 'string' ? errCode : undefined)) clearRejoin();
         ctx.sfx('error');
       } finally {
-        busy = null;
-        if (el.isConnected) render();
+        if (mine === attempt) {
+          busy = null;
+          if (el.isConnected) render();
+        }
       }
     };
 
@@ -248,7 +292,11 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   }
 
   render();
-  if (rejoin) queueMicrotask(() => {
+  // F5 / a dropped link: rejoin; an invite link: straight into the host's lobby, no 加入 click
+  const wsReachable = mode !== 'ws' || !!settings.get().net.wsUrl.trim() || servedByLocalServer() || !!desktop;
+  const plan = autoJoinPlan({ invited: rejoin ? null : invited, rejoin: !!rejoin, inviteTried, canJoin: wsReachable });
+  if (plan === 'invite') inviteTried = true;
+  if (plan) queueMicrotask(() => {
     if (el.isConnected && !busy) void runJoin();
   });
   // a page served by our own server (LAN / self-host): same-origin relay → default to server mode

@@ -229,6 +229,8 @@ class App implements UiCtx {
   private unlocked = false;
   private lastHover = 0;
   private roomCode: string | null;
+  /** bumped by every join and by 取消 (online screen): a superseded join's session is left */
+  private joinSeq = 0;
   private lang = getLang();
   readonly version: string;
   /** WebGL 2 is available (probed once at boot): without it no match can render */
@@ -819,13 +821,23 @@ class App implements UiCtx {
 
   async joinOnline(code: string, mode: 'peer' | 'ws'): Promise<void> {
     if (!this.canPlay()) return;
+    const mine = ++this.joinSeq;
     const s = await this.deps.joinOnline(code, this.playerName(), mode);
+    // 取消 (or a newer attempt) came first: nobody wants this seat any more
+    if (mine !== this.joinSeq) {
+      s.leave();
+      return;
+    }
     if (!this.adoptOnline(s)) return;
     const net = { ...settings.get().net };
     this.conn = { mode, net };
     // F5 in the lobby or mid-match rejoins this room the same way (see screens/online.ts)
     this.joined = { code: (s.lobby?.roomCode || code).toUpperCase(), mode, net: netFor(mode, net) };
     this.touchRejoin();
+  }
+
+  cancelJoin(): void {
+    this.joinSeq++;
   }
 
   /**

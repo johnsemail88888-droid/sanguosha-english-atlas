@@ -367,6 +367,7 @@ export function createMockDeps(sessionOpts: MockSessionOptions = {}, gameOpts: M
       });
     },
     joinOnline(code, name) {
+      // FAIL0: the room does not exist; SLOW0: the answer takes 4 s (取消 while joining)
       return new Promise((resolve, reject) => {
         setTimeout(() => {
           if (code === 'FAIL0') {
@@ -376,7 +377,7 @@ export function createMockDeps(sessionOpts: MockSessionOptions = {}, gameOpts: M
           const s = new MockSession({ ...sessionOpts, name, auto: true, isHost: false, online: true, roomCode: code });
           deps.lastSession = s;
           resolve(s);
-        }, 700);
+        }, code === 'SLOW0' ? 4000 : 700);
       });
     },
     mountGame(container: HTMLElement, view: ViewSource, _session: GameSession) {

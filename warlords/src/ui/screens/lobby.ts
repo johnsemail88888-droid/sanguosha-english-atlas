@@ -113,10 +113,14 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
       h('h1', { class: 'sg-h1' }, t('lobby.title')),
       h('div', { class: 'code-box' },
         copyCodeBtn,
-        button(t('lobby.copyLink'), () => {
-          const link = inviteLink(code, location, ctx.connection?.() ?? undefined);
-          void copyText(link).then((ok) => ctx.toast(ok ? t('common.copied') : link));
-        }, { cls: 'small dark' }),
+        // the obvious next step after 创建房间: the link a friend opens to land in this lobby (no code to type)
+        h('div', { class: 'invite-share' },
+          button(t('lobby.copyLink'), () => {
+            const link = inviteLink(code, location, ctx.connection?.() ?? undefined);
+            void copyText(link).then((ok) => ctx.toast(ok ? `${t('common.copied')} · ${t('lobby.inviteHint')}` : link));
+          }, { cls: 'gold invite-copy', sfx: 'confirm' }),
+          h('span', { class: 'invite-hint' }, t('lobby.inviteHint')),
+        ),
       ),
       button(t('lobby.leave'), () => {
         // the host's session IS the room
