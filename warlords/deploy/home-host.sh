@@ -436,7 +436,7 @@ ts_admin() {
 }
 
 ts_fields() {
-  "$TS" status --json 2>/dev/null | ts_status_fields
+  "$TS" status --json 2>/dev/null | ts_status_fields || true
 }
 
 ensure_tailscale() {
@@ -471,7 +471,12 @@ enable_funnel() {
   log "开启 Tailscale Funnel（公网 HTTPS）/ turning on Tailscale Funnel (public HTTPS)"
   printf '\033[1;36m%s\033[0m\n' "  如果下面出现 login.tailscale.com 的链接：用浏览器打开 → 点 Enable，本脚本会自动继续。
   If a login.tailscale.com link appears below: open it in a browser → Enable; this script then carries on."
-  run_timeout 900 ts_admin funnel --bg "$APP_PORT" || true
+  # (the binary, not ts_admin: timeout / perl exec a program, not a shell function)
+  if [[ $HOST_OS == linux ]]; then
+    run_timeout 900 $SUDO "$TS" funnel --bg "$APP_PORT" || true
+  else
+    run_timeout 900 "$TS" funnel --bg "$APP_PORT" || true
+  fi
   target=$(funnel_target "$("$TS" funnel status --json 2>/dev/null || echo '{}')" "$DOMAIN")
   if ! funnel_points_here "$target" "$APP_PORT"; then
     stop_here "Funnel 还没有开启。打开上面打印的链接启用它（或在 https://login.tailscale.com/admin/dns 打开 HTTPS Certificates，
@@ -509,7 +514,8 @@ service_stop() {
 
 service_running() {
   if [[ $HOST_OS == macos ]]; then
-    launchctl print "gui/$UID/$LABEL" 2>/dev/null | grep -q 'state = running'
+    # grep without -q reads everything: no SIGPIPE for launchctl under pipefail
+    launchctl print "gui/$UID/$LABEL" 2>/dev/null | grep 'state = running' >/dev/null
   else
     systemctl is-active -q "$UNIT"
   fi
@@ -566,6 +572,7 @@ check_build_points_here() {
 check_public() {
   local url _i
   url=$(game_url "$DOMAIN")
+  [[ -f $APP_DIR/deploy/check.mjs ]] || return 1
   log "检查（本机经 Tailscale）/ checking through Tailscale"
   node "$APP_DIR/deploy/check.mjs" "$url" || warn "经 Tailscale 访问失败 / not reachable through Tailscale"
   log "检查公网访问（朋友走的路：公网 DNS → Funnel）/ checking from the internet side (public DNS → Funnel)"
