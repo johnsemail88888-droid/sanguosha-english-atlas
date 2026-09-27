@@ -10,12 +10,15 @@
 #   … | sudo bash -s -- update     pull the latest game, rebuild, restart
 #   … | sudo bash -s -- status     is everything running? (prints the two lines again)
 #   … | sudo DOMAIN=game.example.com bash    use your own domain instead of <ip>.sslip.io
+#   … | sudo SGWL_HEADLESS=0 bash            no server-hosted matches (rooms run in the host player's
+#                                             browser, as before); SGWL_HEADLESS=1 turns them back on
 #
 # What it does (safe to re-run — every step checks what is already there):
 #   Node 22 (NodeSource, else the official / npmmirror binary tarball) · the game from GitHub
 #   (shallow git clone, else a codeload tarball) · npm ci (npmmirror fallback) · vite build ·
-#   systemd service `sgwl` = server/server.mjs on 127.0.0.1:8787 (game files + /ws relay +
-#   /peerjs signalling) · Caddy as the HTTPS front (Let's Encrypt certificate for
+#   the server-hosted match worker (npm run build:headless — optional: without it rooms run in the
+#   host player's browser) · systemd service `sgwl` = server/server.mjs on 127.0.0.1:8787 (game
+#   files + /ws relay + /peerjs signalling + /api/rooms server-hosted matches) · Caddy as the HTTPS front (Let's Encrypt certificate for
 #   https://<a-b-c-d>.sslip.io, derived from this server's public IPv4) · ports 80/443 in
 #   ufw / firewalld when those are active. The cloud provider's own firewall ("security
 #   group" / 防火墙) must allow TCP 80 and 443 — the installer checks and says so.
@@ -42,6 +45,8 @@ CADDY_FALLBACK_VERSION=2.8.4
 
 SRC_DIR="$INSTALL_DIR/src"
 APP_DIR="$SRC_DIR/warlords"
+# '0': the service runs with HEADLESS=0 (no server-hosted matches); remembered in the state file
+HEADLESS_SETTING=${SGWL_HEADLESS:-}
 
 # ── output ──────────────────────────────────────────────────────────────────
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
@@ -134,9 +139,11 @@ write_caddyfile() {
   return 0
 }
 
-# systemd_unit NODE_BIN APP_DIR PORT USER [WRITER] → the sgwl.service unit
+# systemd_unit NODE_BIN APP_DIR PORT USER [WRITER] [HEADLESS] → the sgwl.service unit
+# (HEADLESS 0: Environment=HEADLESS=0 — no server-hosted matches)
 systemd_unit() {
-  local node=$1 dir=$2 port=$3 user=$4 writer=${5:-install.sh}
+  local node=$1 dir=$2 port=$3 user=$4 writer=${5:-install.sh} extra=''
+  if [[ ${6:-} == 0 ]]; then extra=$'\nEnvironment=HEADLESS=0'; fi
   cat <<EOF
 # 三国杀·枪火乱世 official server — written by warlords/deploy/${writer}
 [Unit]
@@ -150,7 +157,7 @@ User=${user}
 WorkingDirectory=${dir}
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
-Environment=PORT=${port}
+Environment=PORT=${port}${extra}
 ExecStart=${node} ${dir}/server/server.mjs
 Restart=always
 RestartSec=2
@@ -423,6 +430,32 @@ build_game() {
   if [[ -d dist ]]; then mv dist dist.old; fi
   mv dist.new dist
   rm -rf dist.old
+  build_headless
+}
+
+# has_npm_script NAME → status 0 if package.json (current directory) defines that script
+has_npm_script() {
+  grep -qE "\"$1\"[[:space:]]*:" package.json 2>/dev/null
+}
+
+# build_headless (in the game directory, after build_game's vite build): the server-hosted match
+# worker, dist-headless/room-worker.mjs (`npm run build:headless`). Optional — without it the server
+# offers no server-hosted rooms and players host rooms in their browser as before, so a failure only
+# warns. The old bundle goes first: it belongs to the previous version and would not match the new game.
+build_headless() {
+  rm -rf dist-headless
+  if ! has_npm_script build:headless; then
+    log "这个版本没有服务器托管对局 / this version has no server-hosted matches"
+    return 0
+  fi
+  log "构建服务器托管对局 / building server-hosted matches (npm run build:headless)"
+  if NODE_OPTIONS=--max-old-space-size=1536 run_timeout 900 npm run -s build:headless && [[ -f dist-headless/room-worker.mjs ]]; then
+    log "服务器托管对局已就绪 / server-hosted matches ready"
+    return 0
+  fi
+  rm -rf dist-headless
+  warn "服务器托管对局没有构建成功：房间照旧由房主的浏览器运行，其他一切正常 / server-hosted matches did not build: rooms run in the host player's browser as before — everything else works"
+  return 0
 }
 
 install_service() {
@@ -432,7 +465,7 @@ install_service() {
     nologin=$(command -v nologin || echo /bin/false)
     useradd --system --no-create-home --shell "$nologin" "$SERVICE_USER"
   fi
-  systemd_unit "$node" "$APP_DIR" "$APP_PORT" "$SERVICE_USER" >"/etc/systemd/system/${SERVICE}.service"
+  systemd_unit "$node" "$APP_DIR" "$APP_PORT" "$SERVICE_USER" install.sh "$HEADLESS_SETTING" >"/etc/systemd/system/${SERVICE}.service"
   systemctl daemon-reload
   systemctl enable -q "$SERVICE"
   systemctl restart "$SERVICE"
@@ -570,9 +603,11 @@ wait_https() {
 # ── configuration ───────────────────────────────────────────────────────────
 load_state() {
   if [[ -f $STATE_FILE ]]; then
-    local saved_domain
+    local saved_domain saved_headless
     saved_domain=$(sed -n 's/^DOMAIN=//p' "$STATE_FILE" | head -n1)
     DOMAIN=${DOMAIN:-$saved_domain}
+    saved_headless=$(sed -n 's/^SGWL_HEADLESS=//p' "$STATE_FILE" | head -n1)
+    HEADLESS_SETTING=${HEADLESS_SETTING:-$saved_headless}
   fi
 }
 
@@ -583,6 +618,7 @@ DOMAIN=$DOMAIN
 SGWL_DIR=$INSTALL_DIR
 SGWL_PORT=$APP_PORT
 SGWL_BRANCH=$BRANCH
+SGWL_HEADLESS=$HEADLESS_SETTING
 EOF
 }
 
