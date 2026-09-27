@@ -52,15 +52,25 @@ export const PRIM = {
   /** 1×1×1 box centred at origin. */
   box: (): THREE.BufferGeometry => prim('box', () => new THREE.BoxGeometry(1, 1, 1)),
   /** unit cylinder (radius 1, height 1, centred) with `seg` sides; top radius ratio `top`. */
-  cyl: (seg = 8, top = 1, open = false): THREE.BufferGeometry =>
-    prim(`cyl${seg}_${top}_${open}`, () => new THREE.CylinderGeometry(top, 1, 1, seg, 1, open)),
+  cyl: (seg = 8, top = 1, open = false): THREE.BufferGeometry => {
+    const n = detailSegs(seg);
+    return prim(`cyl${n}_${top}_${open}`, () => new THREE.CylinderGeometry(top, 1, 1, n, 1, open));
+  },
   /** unit cone (radius 1, height 1, centred, apex +Y). */
-  cone: (seg = 8): THREE.BufferGeometry => prim(`cone${seg}`, () => new THREE.ConeGeometry(1, 1, seg)),
+  cone: (seg = 8): THREE.BufferGeometry => {
+    const n = detailSegs(seg);
+    return prim(`cone${n}`, () => new THREE.ConeGeometry(1, 1, n));
+  },
   /** unit sphere (radius 1). */
-  sphere: (w = 8, h = 6): THREE.BufferGeometry => prim(`sph${w}_${h}`, () => new THREE.SphereGeometry(1, w, h)),
+  sphere: (w = 8, h = 6): THREE.BufferGeometry => {
+    const [a, b] = [detailSegs(w), lowDetail ? Math.max(2, Math.ceil(h / 2)) : h];
+    return prim(`sph${a}_${b}`, () => new THREE.SphereGeometry(1, a, b));
+  },
   /** upper hemisphere (radius 1). */
-  dome: (w = 10, h = 4): THREE.BufferGeometry =>
-    prim(`dome${w}_${h}`, () => new THREE.SphereGeometry(1, w, h, 0, Math.PI * 2, 0, Math.PI / 2)),
+  dome: (w = 10, h = 4): THREE.BufferGeometry => {
+    const [a, b] = [detailSegs(w), lowDetail ? Math.max(2, Math.ceil(h / 2)) : h];
+    return prim(`dome${a}_${b}`, () => new THREE.SphereGeometry(1, a, b, 0, Math.PI * 2, 0, Math.PI / 2));
+  },
   /** unit icosahedron. */
   ico: (detail = 0): THREE.BufferGeometry => prim(`ico${detail}`, () => new THREE.IcosahedronGeometry(1, detail)),
   /** unit octahedron. */
@@ -178,6 +188,35 @@ const FLIP_ORDER = [0, 2, 1] as const;
  * matrix in the current local frame (see `push`). Output is non-indexed so
  * flat-shaded low-poly faces stay crisp.
  */
+// Build detail of the procedural world (the 极速 tier builds its match world
+// coarser: a software rasteriser pays for every triangle of it each frame).
+// Low detail keeps every silhouette and collider-sized mass and drops the small
+// repeated bits: door studs and rings, window lattice bars, roof tessellation,
+// half the sides of the round primitives (PRIM cyl / cone / sphere / dome). Only on inside withBuildDetail (buildWorld's
+// synchronous prop loop): characters, weapons and VFX are never affected.
+let lowDetail = false;
+
+/** True while buildWorld builds the low-detail world. */
+export function lowBuildDetail(): boolean {
+  return lowDetail;
+}
+
+/** Run `fn` with the build detail set (restored afterwards). */
+export function withBuildDetail<T>(low: boolean, fn: () => T): T {
+  const prev = lowDetail;
+  lowDetail = low;
+  try {
+    return fn();
+  } finally {
+    lowDetail = prev;
+  }
+}
+
+/** Sides of a round part at the current build detail (low: half, at least 3). */
+export function detailSegs(seg: number): number {
+  return lowDetail ? Math.max(3, Math.ceil(seg / 2)) : seg;
+}
+
 export class GeoBuilder {
   private pos = new FloatBuf(3 * 1024);
   private nrm = new FloatBuf(3 * 1024);

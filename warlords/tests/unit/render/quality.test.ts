@@ -11,6 +11,9 @@ import { setFarPlane } from '../../../src/render/world/propModels';
 import { ANIM_MIN_HZ, LOD_DIST, OFFSCREEN_STRIDE, animDue, animStride, farBody, inViewSides } from '../../../src/render/entities/lod';
 import { NATURE_LOD_DIST } from '../../../src/render/world/nature';
 import { skirtTile } from '../../../src/render/scene/terrain';
+import { PRIM, lowBuildDetail, withBuildDetail } from '../../../src/render/core/geo';
+import { buildWorld } from '../../../src/render/world/world';
+import { generateMap } from '../../../src/sim/map/generate';
 
 class MemStore {
   private m = new Map<string, string>();
@@ -277,5 +280,28 @@ describe('character LOD', () => {
 
   it('vegetation LOD distance is shorter than every draw distance', () => {
     for (const q of QUALITIES) expect(NATURE_LOD_DIST * QUALITY_PRESETS[q].lodScale).toBeLessThan(QUALITY_PRESETS[q].drawDistance);
+  });
+});
+
+describe('极速 world build detail', () => {
+  it('the low-detail props keep the layout with far fewer triangles; nothing else is affected', () => {
+    const map = generateMap(20260924);
+    const full = buildWorld(map, { art: false });
+    const low = buildWorld(map, { art: false, detail: 'low' });
+    expect(low.stats.props).toBe(full.stats.props);
+    expect(low.stats.failed).toBe(0);
+    expect(low.stats.triangles).toBeLessThan(full.stats.triangles * 0.7);
+    expect(low.stats.triangles).toBeGreaterThan(full.stats.triangles * 0.3);
+    // the same camera occluders (roof shells) either way
+    expect(low.cameraOccluders.length).toBe(full.cameraOccluders.length);
+    full.dispose();
+    low.dispose();
+    // the flag is scoped: round primitives outside the build are full detail
+    expect(lowBuildDetail()).toBe(false);
+    const n = (g: { getAttribute(n: string): { count: number } }): number => g.getAttribute('position').count;
+    const cylLow = withBuildDetail(true, () => n(PRIM.cyl(8)));
+    expect(n(PRIM.cyl(8))).toBeGreaterThan(cylLow);
+    expect(withBuildDetail(true, () => lowBuildDetail())).toBe(true);
+    expect(lowBuildDetail()).toBe(false);
   });
 });

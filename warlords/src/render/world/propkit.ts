@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import type { MapData, MapProp } from '../../core/map';
 import { terrainHeight } from '../../core/map';
-import { GeoBuilder, PRIM, col, mixCol, shade, trs, type ColorLike } from '../core/geo';
+import { GeoBuilder, PRIM, col, lowBuildDetail, mixCol, shade, trs, type ColorLike } from '../core/geo';
 import { hashString, makeRand } from '../core/noise';
 import type { CamOccluderSink } from '../camera/camOccluders';
 import { ARCH } from '../palette';
@@ -119,6 +119,12 @@ function latticeRaw(b: GeoBuilder, x: number, y: number, z: number, w: number, h
   const zf = z + facing * 0.03;
   b.boxAt(x, y, z + facing * 0.01, w, h, 0.04, paper);
   const t = 0.06;
+  if (lowBuildDetail()) {
+    // (low detail: the paper and a cross, no frame / grid bars)
+    b.boxAt(x, y, zf, w, t, 0.05, frame);
+    b.boxAt(x, y, zf, t, h, 0.05, frame);
+    return;
+  }
   b.boxAt(x, y + h / 2, zf, w + t, t, 0.05, frame);
   b.boxAt(x, y - h / 2, zf, w + t, t, 0.05, frame);
   b.boxAt(x - w / 2, y, zf, t, h, 0.05, frame);
@@ -147,10 +153,12 @@ function doorRaw(b: GeoBuilder, x: number, y0: number, z: number, w: number, h: 
   for (const sgn of [-1, 1]) {
     const lx = x + (sgn * w) / 4;
     b.boxAt(lx, y0 + h / 2, fz, w / 2 - 0.03, h, 0.08, color);
+    if (lowBuildDetail()) continue; // (low detail: no studs / rings)
     for (let r = 0; r < 4; r++)
       for (let c = 0; c < 2; c++)
         b.add(PRIM.sphere(4, 3), trs(lx - w / 8 + (c * w) / 4, y0 + h * (0.25 + r * 0.17), fz + facing * 0.05, 0, 0, 0, 0.035), ARCH.gold);
   }
+  if (lowBuildDetail()) return;
   b.add(PRIM.torus(0.2, 3, 8), trs(x - 0.12, y0 + h * 0.5, fz + facing * 0.06, 0, 0, 0, 0.07), ARCH.gold);
   b.add(PRIM.torus(0.2, 3, 8), trs(x + 0.12, y0 + h * 0.5, fz + facing * 0.06, 0, 0, 0, 0.07), ARCH.gold);
 }

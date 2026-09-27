@@ -114,6 +114,14 @@ export class FxPool {
     this.pillarGeo.translate(0, 0.5, 0);
   }
 
+  /** One idle instance of every kind (the loading warm-up compiles their programs; see GameRenderer.warmup). */
+  prewarm(): void {
+    for (const kind of ['disc', 'sphere', 'pillar'] as Kind[]) {
+      if (this.pool.some((f) => f.kind === kind)) continue;
+      this.get(kind).mesh.visible = false;
+    }
+  }
+
   private get(kind: Kind): Fx {
     for (const f of this.pool) if (!f.active && f.kind === kind) return f;
     let mat: THREE.ShaderMaterial;

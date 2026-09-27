@@ -5,7 +5,7 @@
 // are one waving mesh; brazier flames one instanced mesh.
 import * as THREE from 'three';
 import type { MapData, MapProp, PropType } from '../../core/map';
-import { GeoBuilder, trs } from '../core/geo';
+import { GeoBuilder, trs, withBuildDetail } from '../core/geo';
 import { glowMaterial, worldMaterial, worldMaterialDouble, worldMaterialLite, worldMaterialLiteDouble } from '../core/materials';
 import { bindStructureSet, structureMaterial, structureMaterialDouble } from '../core/structureMaterial';
 import { requestStructSet, withWorldArtListing, worldArtPossible } from '../core/worldArt';
@@ -105,6 +105,8 @@ export interface WorldBuildOptions {
    * (the 极速 tier's cheap world).
    */
   art?: boolean;
+  /** 'low': the coarser procedural props (core/geo.ts withBuildDetail; the 极速 tier). Default 'full'. */
+  detail?: 'low' | 'full';
 }
 
 /** What replaces a group of procedural props in AI-art mode: a prop model, or the textured farm fields. */
@@ -182,31 +184,34 @@ export function buildWorld(map: MapData, opts: WorldBuildOptions = {}): WorldBui
     }
     return ch;
   };
-  for (const p of map.props) {
-    if (p.type === 'brazier') fires.push({ pos: new THREE.Vector3(p.x, p.y + p.sy + 0.05, p.z), size: Math.max(0.6, p.sx * 0.9) });
-    if (natureStyle(p)) continue;
-    const fn = BUILDERS[p.type];
-    if (!fn) continue;
-    const sk = swappable(p, listing, art);
-    const ch = sk ? swapOf(sk) : chunkOf(p.x, p.z);
-    const m = trs(p.x, p.y, p.z, 0, p.rot, 0);
-    ch.opaque.push(m);
-    ch.cloth.push(m);
-    ch.glow.push(m);
-    ch.opaque.extra = 0; // every prop starts plain; builders pick their surfaces
-    ch.cloth.extra = 0;
-    try {
-      fn(makePropCtx(ch.opaque, ch.cloth, ch.glow, p, map, occ));
-      built++;
-    } catch (err) {
-      failed++;
-      if (failed <= 3) console.warn('[render] prop build failed', p.type, err);
-    } finally {
-      ch.opaque.pop();
-      ch.cloth.pop();
-      ch.glow.pop();
+  // (极速: the coarser props — core/geo.ts withBuildDetail)
+  withBuildDetail(opts.detail === 'low', () => {
+    for (const p of map.props) {
+      if (p.type === 'brazier') fires.push({ pos: new THREE.Vector3(p.x, p.y + p.sy + 0.05, p.z), size: Math.max(0.6, p.sx * 0.9) });
+      if (natureStyle(p)) continue;
+      const fn = BUILDERS[p.type];
+      if (!fn) continue;
+      const sk = swappable(p, listing, art);
+      const ch = sk ? swapOf(sk) : chunkOf(p.x, p.z);
+      const m = trs(p.x, p.y, p.z, 0, p.rot, 0);
+      ch.opaque.push(m);
+      ch.cloth.push(m);
+      ch.glow.push(m);
+      ch.opaque.extra = 0; // every prop starts plain; builders pick their surfaces
+      ch.cloth.extra = 0;
+      try {
+        fn(makePropCtx(ch.opaque, ch.cloth, ch.glow, p, map, occ));
+        built++;
+      } catch (err) {
+        failed++;
+        if (failed <= 3) console.warn('[render] prop build failed', p.type, err);
+      } finally {
+        ch.opaque.pop();
+        ch.cloth.pop();
+        ch.glow.pop();
+      }
     }
-  }
+  });
   let triangles = 0;
   const geos: THREE.BufferGeometry[] = [];
   const opaqueMeshes: THREE.Mesh[] = [];

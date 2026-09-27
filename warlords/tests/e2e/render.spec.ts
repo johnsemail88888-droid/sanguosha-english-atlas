@@ -83,6 +83,61 @@ test('renders the generated battlefield without console errors', async ({ page }
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
+// 极速: the software-rendering tier — half-resolution canvas, procedural world and bodies,
+// Lambert ground / buildings, sky and fog colour per vertex, 30 fps cap — still draws the
+// whole battlefield; a switch up to 流畅 swaps the materials back in place.
+test('极速 (potato) renders the battlefield and switches up to 流畅 in place', async ({ page }) => {
+  test.setTimeout(420_000);
+  const errors = collectErrors(page);
+  await openHarness(page, '?quality=potato&look=0,-0.08');
+  const s = await page.evaluate(() => window.__sampleCanvas!());
+  expect(s.std).toBeGreaterThan(10);
+  expect(s.buckets).toBeGreaterThan(40);
+  const r = await page.evaluate(async () => {
+    // private internals are fine here: this test is about the renderer itself
+    const R = (window as unknown as { __renderer: any }).__renderer;
+    const art = (): number => {
+      let n = 0;
+      R.entities.forEachCharacter((v: { rig: { usesGlb: boolean } }) => {
+        if (v.rig.usesGlb) n++;
+      });
+      return n;
+    };
+    const mats = (): string[] => {
+      const out = new Set<string>();
+      // ground, merged building chunks, vegetation / rocks (not the glow bits, banners or fires)
+      for (const n of ['terrain', 'world']) R.scene.getObjectByName(n).traverse((o: { isMesh?: boolean; name: string; material?: { type: string } }) => {
+        if (o.isMesh && o.material && /^(terrain|chunk_.*_(opaque|cloth)$|nature_)/.test(o.name)) out.add(o.material.type);
+      });
+      return [...out].sort();
+    };
+    const st = R.stats();
+    const before = { pr: st.pixelRatio, calls: st.drawCalls, tris: st.triangles, maxFps: R.maxFps, shadows: R.renderer.shadowMap.enabled, glb: art(), entities: st.entities, mats: mats() };
+    R.setQuality('low');
+    const t0 = performance.now();
+    while (R.qualityApplying && performance.now() - t0 < 300_000) await new Promise((res) => setTimeout(res, 250));
+    for (let i = 0; i < 100 && art() === 0; i++) await new Promise((res) => setTimeout(res, 100));
+    await new Promise((res) => setTimeout(res, 1000));
+    return { before, after: { maxFps: R.maxFps, glb: art(), mats: mats(), pr: R.stats().pixelRatio, applying: R.qualityApplying } };
+  });
+  expect(r.before.pr).toBeLessThanOrEqual(0.5);
+  expect(r.before.maxFps).toBe(30);
+  expect(r.before.shadows).toBe(false);
+  expect(r.before.glb).toBe(0); // procedural bodies
+  expect(r.before.entities).toBeGreaterThan(30);
+  expect(r.before.calls).toBeGreaterThan(10);
+  expect(r.before.calls).toBeLessThan(250);
+  // Lambert ground / buildings / vegetation
+  expect(r.before.mats).not.toContain('MeshStandardMaterial');
+  expect(r.before.mats).toContain('MeshLambertMaterial');
+  expect(r.after.applying).toBe(false);
+  expect(r.after.maxFps).toBe(0);
+  expect(r.after.glb).toBeGreaterThan(0); // AI-art heroes on 流畅
+  expect(r.after.mats).not.toContain('MeshLambertMaterial');
+  expect(r.after.pr).toBeGreaterThan(r.before.pr);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
 test('showcase map at low quality, free camera', async ({ page }) => {
   test.setTimeout(240_000);
   const errors = collectErrors(page);

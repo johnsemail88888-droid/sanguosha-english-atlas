@@ -117,6 +117,16 @@ function makeDecalGeometry(): THREE.BufferGeometry {
   return g;
 }
 
+/**
+ * Hidden sample hazards for the renderer's warm-up group: the ground decal
+ * shader (one program for every style), the 反 dome and the 八阵 stones. Kept
+ * for the match, they also keep those programs alive between two hazards (a
+ * disposed hazard was the program's last user: the next one recompiled it).
+ */
+export function hazardWarmSamples(): HazardView[] {
+  return ['reflect', 'bagua', 'fire'].map((sub) => new HazardView({ id: -1, kind: 'hazard', sub } as ViewEntity));
+}
+
 const C = (r: number, g: number, b: number): THREE.Color => new THREE.Color(r, g, b);
 const _p = new THREE.Vector3();
 const _q = new THREE.Vector3();

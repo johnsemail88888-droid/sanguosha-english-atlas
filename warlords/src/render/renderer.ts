@@ -40,7 +40,11 @@ import { setVertexFog } from './core/skyArtFog';
 import { releaseObjectGeometryCache } from './entities/objects';
 import { releaseModelCaches } from './models';
 import type { EntityCtx } from './entities/context';
-import { updateAuraShared } from './entities/auras';
+import { auraWarmSamples, updateAuraShared } from './entities/auras';
+import { hazardWarmSamples } from './entities/hazards';
+import { Nameplate } from './entities/nameplate';
+import { chibiWarmSample } from './vfx/abilities-wu';
+import { MountRig } from './models/mounts';
 import { Effects } from './vfx/effects';
 import { handleEvents, shotClass } from './vfx/eventVfx';
 import { ZoneVisual } from './vfx/zone';
@@ -209,8 +213,8 @@ export class GameRenderer {
     this.scene.add(this.terrain.group);
     this.water = buildWater(map, SUN_DIR);
     if (this.water.mesh) this.scene.add(this.water.mesh);
-    // (极速 builds the procedural props: the AI-art prop models follow the tier the match starts on)
-    this.world = buildWorld(map, { art: this.preset.worldArt });
+    // (极速 builds the procedural props, coarser: the AI-art prop models / detail follow the tier the match starts on)
+    this.world = buildWorld(map, { art: this.preset.worldArt, detail: this.preset.shading === 'basic' ? 'low' : 'full' });
     this.scene.add(this.world.group);
     for (const g of [this.terrain.group, this.world.group]) for (const o of g.children) if ((o as THREE.Mesh).isMesh && !(o as THREE.InstancedMesh).isInstancedMesh) this.depthCull.add(o as THREE.Mesh);
     this.fires = new FireSystem(this.scene, this.world.fires);
@@ -394,6 +398,7 @@ export class GameRenderer {
     const ctx = this.entityCtx(0, localId, local);
     ctx.focusPos = this.cameraFocus(localEnt);
     this.entities.sync(view.entities(), ctx);
+    this.addWarmSamples();
     // every object visible for the compile (pools / hidden meshes still need their programs)
     const hidden: THREE.Object3D[] = [];
     this.scene.traverse((o) => {
@@ -453,6 +458,53 @@ export class GameRenderer {
       // upload, instead of in the first visible frame
       if (!this.disposed && !this.contextLost) this.prerender();
     }
+  }
+
+  /**
+   * Materials that are otherwise created on first use in a match — status
+   * bubbles (the spawn protection of every match start), the pooled fx rings /
+   * shockwaves / pillars, nameplates, hazards, the 火烧赤壁 decal — get a
+   * hidden sample in the scene for the match: the warm-up (and a quality
+   * switch's recompile) compiles their programs, and a sample keeps each
+   * program alive when the last live user is disposed. A first use used to
+   * link a program inside a frame: seconds on software GL, a visible hitch on
+   * a real GPU.
+   */
+  private addWarmSamples(): void {
+    if (this.warmSamples) return;
+    const g = new THREE.Group();
+    g.name = 'warmSamples';
+    g.visible = false;
+    this.fx.fx.prewarm();
+    const plate = new Nameplate();
+    const hazards = hazardWarmSamples();
+    const chibi = chibiWarmSample();
+    this.warmDispose = [
+      plate,
+      ...hazards,
+      {
+        dispose: () => {
+          chibi.geometry.dispose();
+          (chibi.material as THREE.Material).dispose();
+        },
+      },
+    ];
+    const samples: THREE.Object3D[] = [...auraWarmSamples(), ...hazards.map((h) => h.root), chibi, plate.sprite];
+    // the AI-art horse / elephant (preloaded with the character art): a hero who picks up
+    // a mount mid-match no longer compiles its program in that frame
+    if (this.preset.glbCharacters !== 'none') {
+      for (const kind of ['horse', 'elephant'] as const) {
+        const m = new MountRig(kind, '#6b4a2e', '#8a2a22', '#d8ac4c');
+        samples.push(m.object);
+        this.warmDispose.push(m);
+      }
+    }
+    for (const o of samples) {
+      o.frustumCulled = false;
+      g.add(o);
+    }
+    this.warmSamples = g;
+    this.scene.add(g);
   }
 
   resize(w: number, h: number): void {
@@ -645,6 +697,9 @@ export class GameRenderer {
     this.applyingSubs.clear();
     this.entities.dispose();
     this.depthCull.clear();
+    for (const d of this.warmDispose) d.dispose();
+    this.warmDispose = [];
+    this.warmSamples = null;
     // the match's character models (textures ~5 MB each) go with it; the next match reloads from the HTTP cache
     evictUnusedTemplates();
     this.fx.dispose();
@@ -1034,6 +1089,9 @@ export class GameRenderer {
   private readonly focusVec = new THREE.Vector3();
   private readonly camDirVec = new THREE.Vector3();
   private readonly viewProj = new THREE.Matrix4();
+  /** hidden samples of the lazily created materials (addWarmSamples) */
+  private warmSamples: THREE.Group | null = null;
+  private warmDispose: { dispose(): void }[] = [];
   private readonly viewFrustum = new THREE.Frustum();
   private injected: GameEvent[] = [];
 
