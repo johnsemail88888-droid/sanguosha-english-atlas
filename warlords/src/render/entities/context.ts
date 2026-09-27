@@ -22,6 +22,8 @@ export interface EntityCtx {
   groundY(x: number, z: number): number;
   /** troops / NPCs beyond this are hidden (heroes are never distance-culled) */
   characterDistance: number;
+  /** the tier's draw distance (m): loot / crates beyond its fog are not drawn */
+  drawDistance?: number;
   /** the quality tier's LOD distance scale (entities/lod.ts; default 1) */
   lodScale?: number;
   /** this frame's camera frustum (off-screen characters animate less often: entities/lod.ts) */

@@ -637,8 +637,8 @@ function addSkirtSplat(tiles: readonly THREE.Mesh[]): void {
 /**
  * Coarse hills around the playable square, fading from the edge heights into
  * rolling ridges. Split into tiles (one vertex grid, an index per tile) so the
- * frustum / draw-distance culling drops what the view cannot reach: eight
- * sectors of the ring nearest the map, four quadrants beyond (SKIRT_NEAR).
+ * frustum / draw-distance culling drops what the view cannot reach: sectors,
+ * finer near the map (SKIRT_BANDS).
  */
 function buildSkirt(map: MapData): THREE.Mesh[] {
   const half = map.size / 2;
@@ -732,13 +732,22 @@ function buildSkirt(map: MapData): THREE.Mesh[] {
   return tiles;
 }
 
-/** Skirt ring nearest the playable square (m beyond its edge): split finer than the rest. */
-const SKIRT_NEAR = 240;
-const SKIRT_TILES = 12;
+/** Skirt bands (m beyond the playable square's edge): the nearer, the finer the tiles. */
+const SKIRT_BANDS: readonly { out: number; sectors: number }[] = [
+  { out: 100, sectors: 16 },
+  { out: 300, sectors: 8 },
+  { out: Infinity, sectors: 4 },
+];
+const SKIRT_TILES = SKIRT_BANDS.reduce((n, b) => n + b.sectors, 0);
 
-/** Tile of a skirt cell centred at (x, z): 0–7 = sectors of the near ring, 8–11 = quadrants beyond. */
+/** Tile of a skirt cell centred at (x, z): 16 sectors of the first 100 m, 8 out to 300 m, 4 quadrants beyond. */
 export function skirtTile(x: number, z: number, half: number): number {
   const a = Math.atan2(z, x) / (Math.PI * 2) + 0.5; // 0..1
   const out = Math.max(Math.abs(x), Math.abs(z)) - half;
-  return out < SKIRT_NEAR ? Math.min(7, Math.floor(a * 8)) : 8 + Math.min(3, Math.floor(a * 4));
+  let first = 0;
+  for (const b of SKIRT_BANDS) {
+    if (out < b.out) return first + Math.min(b.sectors - 1, Math.floor(a * b.sectors));
+    first += b.sectors;
+  }
+  return first - 1;
 }

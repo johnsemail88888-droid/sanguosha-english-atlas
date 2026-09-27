@@ -407,16 +407,25 @@ export class GameRenderer {
         o.visible = true;
       }
     });
-    // translucent variant of the character material (near-camera / stealth fade)
-    let faded: { setFade(a: number): void } | null = null;
+    // translucent (near-camera fade / stealth) and x-ray (revealed through walls) variants
+    // of both body kinds — AI-art and procedural — so neither compiles in a match frame
+    const probes: { setFade(a: number): void; setXray(on: boolean): void }[] = [];
+    const probed = new Set<boolean>();
     this.entities.forEachCharacter((v) => {
-      if (!faded && v.id !== localId) faded = v.rig;
+      if (v.id === localId || probed.has(v.rig.usesGlb)) return;
+      probed.add(v.rig.usesGlb);
+      probes.push(v.rig);
     });
-    const fadedRig = faded as { setFade(a: number): void } | null;
-    fadedRig?.setFade(0.5);
+    for (const r of probes) {
+      r.setFade(0.5);
+      r.setXray(true);
+    }
     const restore = (): void => {
       for (const o of hidden) o.visible = false;
-      fadedRig?.setFade(1);
+      for (const r of probes) {
+        r.setFade(1);
+        r.setXray(false);
+      }
     };
     try {
       if (this.renderer.extensions.has('KHR_parallel_shader_compile')) {
@@ -1022,6 +1031,7 @@ export class GameRenderer {
     c.local = local;
     c.lang = settings.get().lang;
     c.characterDistance = this.preset.characterDistance;
+    c.drawDistance = this.preset.drawDistance;
     c.lodScale = this.preset.lodScale;
     c.shadows = this.preset.shadows;
     c.frame = this.frameNo;
