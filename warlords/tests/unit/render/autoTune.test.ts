@@ -2,7 +2,8 @@
 // says this machine can run — tier and render scale — for the player's view.
 import { describe, expect, it } from 'vitest';
 import { QUALITIES } from '../../../src/game/settings';
-import { AUTO_MID_MS, AUTO_STRONG_MS, BENCH_PIXELS, BENCH_SMALL_PIXELS, estimateFps, estimateFrameMs, frameCost, pickAutoTune } from '../../../src/render/adaptiveRes';
+import { AUTO_MID_MS, AUTO_STRONG_MS, BENCH_PIXELS, BENCH_SMALL_PIXELS, autoScaleCap, estimateFps, estimateFrameMs, frameCost, pickAutoTune } from '../../../src/render/adaptiveRes';
+import { QUALITY_PRESETS } from '../../../src/render/quality';
 
 const P720 = 1280 * 720;
 const P1080 = 1920 * 1080;
@@ -106,5 +107,18 @@ describe('automatic tier + render scale', () => {
         expect(p.fps).toBe(estimateFps(ms, small, p.quality, css, p.maxPixelRatio));
       }
     }
+  });
+});
+
+describe('render-scale caps (device pixels per CSS px)', () => {
+  it('流畅 never above 1×, 均衡 never above 1.5× (a Retina / 4K-at-150 % screen would draw 4× / 2.25× the pixels)', () => {
+    expect(QUALITY_PRESETS.low.maxPixelRatio).toBeLessThanOrEqual(1);
+    expect(QUALITY_PRESETS.medium.maxPixelRatio).toBeLessThanOrEqual(1.5);
+  });
+
+  it('自动’s benchmark cap applies on 自动 only (a picked tier renders at its own cap)', () => {
+    expect(autoScaleCap({ qualityAuto: true, autoRenderScale: 1.25 })).toBe(1.25);
+    expect(autoScaleCap({ qualityAuto: true, autoRenderScale: 0 })).toBe(Infinity);
+    expect(autoScaleCap({ qualityAuto: false, autoRenderScale: 1.25 })).toBe(Infinity);
   });
 });

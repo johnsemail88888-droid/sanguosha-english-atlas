@@ -154,6 +154,15 @@ export function defaultQuality(d: DeviceHints = deviceHints()): Quality {
   return c === 'discrete' || c === 'apple' ? 'medium' : 'low';
 }
 
+/**
+ * First-run render-scale cap (settings.autoRenderScale), before the benchmark:
+ * Apple silicon runs 均衡 fine but its Retina screens (DPR 2) would draw up to
+ * 2.25× the pixels at 均衡's own cap — 1.25 instead. 0: the tier's own cap.
+ */
+export function defaultRenderScale(d: DeviceHints = deviceHints()): number {
+  return d.gpu !== undefined && classifyGpu(d.gpu) === 'apple' ? 1.25 : 0;
+}
+
 /** Tier a profile saved before 自动 existed started on (its quality differs → the player picked it). */
 function legacyDefaultQuality(d: DeviceHints): Quality {
   return d.coarse || (d.minSide > 0 && d.minSide <= 500) ? 'low' : 'medium';
@@ -288,7 +297,8 @@ function load(): UserSettings {
   } catch {
     /* storage unavailable (private mode / file://) */
   }
-  return { ...structuredClone(DEFAULT_SETTINGS), quality: defaultQuality() };
+  const hints = deviceHints();
+  return { ...structuredClone(DEFAULT_SETTINGS), quality: defaultQuality(hints), autoRenderScale: defaultRenderScale(hints) };
 }
 
 /** Test hook: settings as a fresh load from storage would produce them. */

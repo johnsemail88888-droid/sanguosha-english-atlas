@@ -3,7 +3,7 @@
 // first-run tier from the device's hints (GPU / CPU / memory) and the 自动 flag of
 // profiles saved before it existed.
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultQuality, loadSettingsForTest } from '../../../src/game/settings';
+import { defaultQuality, defaultRenderScale, loadSettingsForTest } from '../../../src/game/settings';
 import { overrideLang } from '../../../src/ui/i18n';
 import { desktopGpuSoftware } from '../../../src/ui/desktop';
 import { desktopDownload, detectBrowser, detectOs, gpuWarnText, integratedTip, isDesktopOs, perfVerdict, softwareFix, verdictText } from '../../../src/ui/perfcheck';
@@ -170,6 +170,12 @@ describe('first-run tier from the device (before the benchmark)', () => {
     expect(defaultQuality({ ...desk, gpu: GPU.rtx, cores: 4 })).toBe('low');
     expect(defaultQuality({ ...desk, gpu: GPU.rtx, memoryGb: 4 })).toBe('low');
     expect(defaultQuality({ ...desk, gpu: GPU.rtx, cores: 6, memoryGb: 8 })).toBe('medium');
+  });
+
+  it('Apple silicon: 均衡, but its Retina screen capped at 1.25× until the benchmark says otherwise', () => {
+    expect(defaultRenderScale({ ...desk, gpu: GPU.m1 })).toBe(1.25);
+    expect(defaultRenderScale({ ...desk, gpu: GPU.rtx })).toBe(0);
+    expect(defaultRenderScale({ coarse: false, minSide: 0 })).toBe(0);
   });
 
   it('phones / small screens → 流畅; no page to probe (node) → 均衡', () => {

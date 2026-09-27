@@ -65,7 +65,10 @@ export const PERF_CSS = /* css */ `
 /* ── HUD: top-left column under the role chip ──────────── */
 .hud-diag { position: absolute; left: ${u(16)}; top: calc(${u(16)} + ${u(96)}); display: flex; flex-direction: column; align-items: flex-start; gap: ${u(8)}; max-width: min(${u(460)}, 40vw); z-index: 9; pointer-events: none; }
 .hud-diag .sg-gpu-warn { font-size: max(11px, calc(var(--u) * 13)); }
-.sg-hud.touch .hud-diag { top: 2px; left: 2px; max-width: 46vw; z-index: 30; }
+/* phones: a small frame-rate counter under the clock (the corners hold the touch buttons, the role chip and the minimap) */
+.sg-hud.touch .hud-diag { top: calc(${u(16)} + 50px); left: 50%; transform: translateX(-50%); align-items: center; max-width: 60vw; }
+.sg-hud.touch .hud-perf .rows > :not(:first-child), .sg-hud.touch .hud-perf .pc-open { display: none; }
+.sg-hud.touch .hud-perf { background: rgba(0, 0, 0, 0.45); padding: 1px 6px; }
 /* phones never render in software; the title screen still says it */
 .sg-hud.touch .hud-diag .sg-gpu-warn { display: none; }
 .sg-hud:is([data-overlay="pause"], [data-overlay="controls"]) .hud-diag { z-index: 30; }
