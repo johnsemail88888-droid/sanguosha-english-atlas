@@ -89,15 +89,17 @@ export function dismissGpuWarn(renderer: string): void {
   }
 }
 
-/** The warning's text (the same on the title and in the HUD). */
+/** The warning's text (the same on the title and in the HUD; the desktop app: its own fix). */
 export function gpuWarnText(renderer: string): { head: string; fix: string } {
   const name = gpuShortName(renderer) || tx('未知', 'unknown');
   return {
     head: tx(`浏览器没有使用显卡（当前：${name}），游戏会非常卡。`, `Your browser is not using the graphics card (now: ${name}), so the game will be very slow.`),
-    fix: tx(
-      'Chrome/Edge：设置 → 系统 → 打开「使用图形加速功能（硬件加速）」→ 重启浏览器。',
-      'Chrome / Edge: Settings → System → turn on “Use graphics acceleration when available” → restart the browser.',
-    ),
+    fix: desktopInfo()
+      ? tx('桌面版：从显卡官网（NVIDIA / AMD / Intel）更新显卡驱动，重启电脑后再打开游戏。', 'Desktop app: update the graphics driver (NVIDIA / AMD / Intel), restart the computer and open the game again.')
+      : tx(
+          'Chrome/Edge：设置 → 系统 → 打开「使用图形加速功能（硬件加速）」→ 重启浏览器。',
+          'Chrome / Edge: Settings → System → turn on “Use graphics acceleration when available” → restart the browser.',
+        ),
   };
 }
 

@@ -30,6 +30,7 @@ import { createPerfCheckPanel } from './screens/perfCheck';
 import { Hud } from './hud/hud';
 import { probeWebGL, type WebGLSupport } from './webgl';
 import { clearRejoin, isReconnectable, loadRejoin, netFor, refreshRejoin, type RejoinInfo } from './invite';
+import { desktopGpuSoftware } from './desktop';
 
 export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
 
@@ -238,7 +239,8 @@ class App implements UiCtx {
     if (!this.webgl.ok) console.warn('[ui] WebGL 2 unavailable:', this.webgl.reason);
     this.gpuOverride = opts.gpu;
     const renderer = opts.gpu ?? (opts.webgl === undefined ? probeGpu(host.ownerDocument).renderer : '');
-    this.gpu = { renderer, software: isSoftwareGpu(renderer) };
+    // (the desktop app also knows it from Chromium's GPU feature status)
+    this.gpu = { renderer, software: isSoftwareGpu(renderer) || (opts.gpu === undefined && desktopGpuSoftware()) };
     if (this.gpu.software) console.info('[ui] WebGL runs on a software renderer:', renderer);
     this.portraits = new PortraitCache((id, size) => deps.renderHeroPortrait(id, size));
     this.root = h('div', { class: 'sg-root', data: { lang: this.lang } });
@@ -416,7 +418,7 @@ class App implements UiCtx {
   async recheckGpu(): Promise<void> {
     if (this.gpuOverride === undefined && this.webgl.ok) {
       const g = probeGpu(this.root.ownerDocument, true);
-      this.gpu = { renderer: g.renderer, software: isSoftwareGpu(g.renderer) };
+      this.gpu = { renderer: g.renderer, software: isSoftwareGpu(g.renderer) || desktopGpuSoftware() };
     }
     const bench = this.deps.benchmarkGpu;
     if (!bench || this.gpu.software || !this.webgl.ok) return;

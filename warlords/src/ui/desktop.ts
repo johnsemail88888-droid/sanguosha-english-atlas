@@ -15,7 +15,7 @@ export interface DesktopInfo {
   port: number;
 }
 
-type DesktopBridge = Partial<DesktopInfo> & { getLanUrls?: () => unknown };
+type DesktopBridge = Partial<DesktopInfo> & { getLanUrls?: () => unknown; webgl?: unknown };
 
 function bridge(): DesktopBridge | null {
   const d = (globalThis as { sgwlDesktop?: DesktopBridge }).sgwlDesktop;
@@ -58,6 +58,16 @@ export function refreshLanUrls(): string[] {
     }
   }
   return desktopInfo()?.lanUrls ?? [];
+}
+
+/**
+ * Desktop app: WebGL does not run on the graphics card (Chromium's GPU feature
+ * status for WebGL is not 'enabled…' — a blocklisted / crashed driver) even with the
+ * GPU switches the app sets. false in a browser, or when the app did not say.
+ */
+export function desktopGpuSoftware(): boolean {
+  const w = bridge()?.webgl;
+  return typeof w === 'string' && w !== '' && !/^enabled/.test(w);
 }
 
 /** Tests: forget the refreshed list. */

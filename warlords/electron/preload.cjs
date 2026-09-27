@@ -74,4 +74,6 @@ contextBridge.exposeInMainWorld('sgwlDesktop', {
     }
   },
   port: Number(arg('sgwl-port') || 8787),
+  /** how Chromium runs WebGL (app.getGPUFeatureStatus().webgl2: 'enabled…' = on the GPU; '' unknown) */
+  webgl: decodeURIComponent(arg('sgwl-webgl') || ''),
 });

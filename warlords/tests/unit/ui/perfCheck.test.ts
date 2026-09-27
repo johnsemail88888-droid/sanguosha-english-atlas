@@ -5,7 +5,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultQuality, loadSettingsForTest } from '../../../src/game/settings';
 import { overrideLang } from '../../../src/ui/i18n';
-import { desktopDownload, detectBrowser, detectOs, integratedTip, isDesktopOs, perfVerdict, softwareFix, verdictText } from '../../../src/ui/perfcheck';
+import { desktopGpuSoftware } from '../../../src/ui/desktop';
+import { desktopDownload, detectBrowser, detectOs, gpuWarnText, integratedTip, isDesktopOs, perfVerdict, softwareFix, verdictText } from '../../../src/ui/perfcheck';
 
 afterEach(() => overrideLang(null));
 
@@ -198,5 +199,27 @@ describe('自动 on profiles saved before it existed', () => {
     // saved since: as stored
     withStore({ quality: 'high', qualityAuto: true }, () => expect(loadSettingsForTest().qualityAuto).toBe(true));
     withStore({ quality: 'medium', qualityAuto: false }, () => expect(loadSettingsForTest().qualityAuto).toBe(false));
+  });
+});
+
+describe('desktop app: Chromium says WebGL is not on the GPU', () => {
+  const g = globalThis as unknown as { sgwlDesktop?: unknown };
+  afterEach(() => delete g.sgwlDesktop);
+
+  it('its GPU feature status (not "enabled…") flags a software renderer; the warning names the driver fix', () => {
+    expect(desktopGpuSoftware()).toBe(false);
+    g.sgwlDesktop = { isDesktop: true, lanUrls: [], port: 8787, webgl: 'enabled' };
+    expect(desktopGpuSoftware()).toBe(false);
+    g.sgwlDesktop = { isDesktop: true, lanUrls: [], port: 8787, webgl: 'enabled_readback' };
+    expect(desktopGpuSoftware()).toBe(false);
+    g.sgwlDesktop = { isDesktop: true, lanUrls: [], port: 8787, webgl: '' };
+    expect(desktopGpuSoftware()).toBe(false);
+    for (const webgl of ['unavailable_software', 'software', 'disabled_software', 'disabled_off']) {
+      g.sgwlDesktop = { isDesktop: true, lanUrls: [], port: 8787, webgl };
+      expect(desktopGpuSoftware()).toBe(true);
+    }
+    expect(gpuWarnText(GPU.swiftshader).fix).toContain('更新显卡驱动');
+    delete g.sgwlDesktop;
+    expect(gpuWarnText(GPU.swiftshader).fix).toContain('使用图形加速功能');
   });
 });
