@@ -374,9 +374,11 @@ build_game() {
     fi
     echo "$lock_sha" >"$stamp"
   fi
-  # vite only: the type check (tsc -b) belongs to development and needs ~1 GB RAM on its own
+  # vite only: the type check (tsc -b) belongs to development and needs ~1 GB RAM on its own.
+  # This server is the build's official server (src/net/official.ts): its page offers 官方服务器 = itself.
   log "构建游戏 / building the game (vite build)"
-  NODE_OPTIONS=--max-old-space-size=1536 node node_modules/vite/bin/vite.js build --logLevel warn || die "构建失败 / build failed"
+  VITE_OFFICIAL_RELAY=$(relay_url "$DOMAIN") VITE_OFFICIAL_WEB=$(game_url "$DOMAIN") NODE_OPTIONS=--max-old-space-size=1536 \
+    node node_modules/vite/bin/vite.js build --logLevel warn || die "构建失败 / build failed"
   [[ -f dist/index.html ]] || die "构建失败：没有 dist/index.html / build produced no dist/index.html"
 }
 
