@@ -295,6 +295,54 @@ test('online: an invite link (?room=) joins with zero clicks; a failed one shows
   await host.ctx.close();
 });
 
+test('邀请朋友一起玩: one click on the title → a room, its link on the clipboard, the lobby shows it big; a refused clipboard → the link selected for Ctrl+C', async () => {
+  const shots = process.env.UI_SHOTS;
+  const { ctx, page, errors } = await open('');
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new globalThis.URL(URL).origin });
+  await expect(page.locator('[data-screen="title"] .sg-invite-btn')).toBeVisible();
+  await page.locator('.sg-invite-btn').click();
+  // no second click: the room is created and the host lands in the lobby
+  const field = page.locator('[data-screen="lobby"] .invite-link');
+  await expect(field).toHaveValue(/[?&]room=KX7QD\b/, { timeout: 10_000 });
+  await expect(page.locator('.invite-share')).toHaveAttribute('data-copied', 'copied');
+  await expect(page.locator('.invite-share .invite-hint')).toHaveText('✓ 已复制，发给朋友，点开就能进房间');
+  const link = await field.inputValue();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link);
+  expect(new globalThis.URL(link).searchParams.get('mode')).toBe('peer');
+  await expect(page.locator('.invite-share .invite-copy')).toHaveText('再复制一次');
+  if (shots) await page.waitForTimeout(400).then(() => page.screenshot({ path: `${shots}/lobby-invite.png` }));
+  // 再复制一次 copies it again
+  await page.evaluate(() => navigator.clipboard.writeText('x'));
+  await page.locator('.invite-share .invite-copy').click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(link);
+  expect(errors).toEqual([]);
+  await ctx.close();
+
+  // the clipboard refuses (no permission / plain http): the link is selected, 「按 Ctrl+C 复制」
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 720 }, reducedMotion: 'reduce' });
+  await ctx2.addInitScript(() => {
+    const no = (): Promise<never> => Promise.reject(new DOMException('denied', 'NotAllowedError'));
+    Object.defineProperty(navigator, 'clipboard', { value: { write: no, writeText: no, readText: no }, configurable: true });
+    document.execCommand = () => false;
+  });
+  const page2 = await ctx2.newPage();
+  const errors2: string[] = [];
+  page2.on('pageerror', (e) => errors2.push(e.message));
+  await page2.goto(`${URL}?`);
+  await page2.locator('.sg-invite-btn').click();
+  await expect(page2.locator('.invite-share')).toHaveAttribute('data-copied', 'manual', { timeout: 10_000 });
+  await expect(page2.locator('.invite-share .invite-hint')).toContainText('Ctrl+C');
+  await expect(page2.locator('.invite-share .invite-link')).toBeFocused();
+  const sel = await page2.evaluate(() => {
+    const f = document.querySelector<HTMLInputElement>('.invite-link')!;
+    return f.value.slice(f.selectionStart ?? 0, f.selectionEnd ?? 0);
+  });
+  expect(sel).toMatch(/[?&]room=KX7QD\b/);
+  if (shots) await page2.waitForTimeout(400).then(() => page2.screenshot({ path: `${shots}/lobby-invite-manual.png` }));
+  expect(errors2).toEqual([]);
+  await ctx2.close();
+});
+
 test('touch controls on a landscape phone', async () => {
   const { ctx, page, errors } = await open('screen=hud&touch=1', 844, 390);
   await expect(page.locator('.sg-touch .fire')).toBeVisible({ timeout: 15_000 });

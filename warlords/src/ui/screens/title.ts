@@ -189,6 +189,8 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
           glNotice,
           h('label', { class: 'sg-name' }, h('span', null, t('title.name')), name),
           menuItem(t('title.single'), t('title.singleSub'), () => ctx.go('single'), noGl ? 'primary off' : 'primary', noGl),
+          // one click: a room in the default mode, its link on the clipboard, the lobby (the clipboard write starts in this click)
+          menuItem(t('title.invite'), t('title.inviteSub'), () => (ctx.quickInvite ? ctx.quickInvite() : ctx.go('online')), 'gold sg-invite-btn', noGl),
           menuItem(t('title.online'), t('title.onlineSub'), () => ctx.go('online'), '', noGl),
           h('div', { class: 'row' },
             menuItem(t('title.gallery'), null, () => ctx.go('gallery'), 'dark'),
