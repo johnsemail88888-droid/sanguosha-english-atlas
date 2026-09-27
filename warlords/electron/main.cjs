@@ -227,7 +227,7 @@ async function smokeReport() {
   }
   // the page must know WebGL runs on the GPU (else it drops to 极速 and warns) unless it really is a software renderer
   const software = /swiftshader|llvmpipe|software/i.test((r && r.renderer) || '');
-  const ok = !!r && !!r.webgl2 && typeof r.menu === 'string' && r.menu.includes('单人练习') && (software || /^enabled/.test(r.pageWebgl || ''));
+  const ok = !!r && !!r.webgl2 && typeof r.menu === 'string' && /单人练习|Single Player/.test(r.menu) && (software || /^enabled/.test(r.pageWebgl || ''));
   console.info(`[desktop] smoke ${ok ? 'ok' : 'FAILED'}`, JSON.stringify({ ...r, gpu: app.getGPUFeatureStatus() }));
   app.exit(ok ? 0 : 1);
 }
