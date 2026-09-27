@@ -87,7 +87,10 @@
         "dmg"
       ],
       "category": "public.app-category.games",
-      "icon": "build-res/icon.png"
+      "icon": "build-res/icon.png",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "timestamp": "none"
     },
     "dmg": {
       "artifactName": "SanguoWarlords-${version}-macOS-${arch}.dmg",

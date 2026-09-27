@@ -154,7 +154,41 @@ async function createWindow() {
   win.on('closed', () => {
     win = null;
   });
+  // start-up trail for bug reports and the Mac CI (ELECTRON_ENABLE_LOGGING=1 prints it)
+  const wc = win.webContents;
+  wc.on('did-finish-load', () => console.info('[desktop] page loaded', wc.getURL()));
+  wc.on('did-fail-load', (_e, code, desc, url) => console.warn('[desktop] page failed to load', code, desc, url));
+  wc.on('render-process-gone', (_e, d) => console.error('[desktop] renderer gone', JSON.stringify(d)));
   await win.loadURL(`http://127.0.0.1:${port}/?desktop=1`);
+  const smoke = Number(process.env.SGWL_DESKTOP_SMOKE);
+  if (smoke > 0) setTimeout(() => void smokeReport(), smoke * 1000);
+}
+
+/**
+ * CI smoke test (.github/workflows/warlords-mac.yml): SGWL_DESKTOP_SMOKE=<seconds>
+ * after the page loaded, print what it shows (title screen, WebGL 2, the GPU it
+ * draws with) as `[desktop] smoke ok|FAILED {…}` and quit (exit code 0 / 1).
+ */
+async function smokeReport() {
+  let r = null;
+  try {
+    r = await win.webContents.executeJavaScript(`(() => {
+      const gl = document.createElement('canvas').getContext('webgl2');
+      let renderer = '';
+      if (gl) {
+        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        renderer = String(gl.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+        gl.getExtension('WEBGL_lose_context')?.loseContext();
+      }
+      const menu = document.querySelector('.sg-menu-btn.primary');
+      return { title: document.title, menu: menu ? menu.textContent : null, webgl2: !!gl, renderer, desktop: !!window.sgwlDesktop };
+    })()`);
+  } catch (err) {
+    r = { error: String(err) };
+  }
+  const ok = !!r && !!r.webgl2 && typeof r.menu === 'string' && r.menu.includes('单人练习');
+  console.info(`[desktop] smoke ${ok ? 'ok' : 'FAILED'}`, JSON.stringify({ ...r, gpu: app.getGPUFeatureStatus() }));
+  app.exit(ok ? 0 : 1);
 }
 
 function focusWindow() {
@@ -253,5 +287,10 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on('before-quit', () => {
     if (server) void server.close();
+  });
+  // the GPU process crashing is how a bad driver shows up (Chromium then falls back to software)
+  app.on('child-process-gone', (_e, d) => {
+    if (d.reason === 'clean-exit') console.info('[desktop] child process exited', d.type);
+    else console.error('[desktop] child process gone', JSON.stringify(d));
   });
 }
