@@ -3,6 +3,7 @@
 // so a friend who opens it — or a guest who presses F5 mid-match — connects the
 // same way the host did instead of the (possibly different) saved default.
 import { DEFAULT_SETTINGS, type NetServerConfig } from '../game/settings';
+import { isOfficialRelay, officialServer, type OfficialServer } from '../net/official';
 import { shareBase } from './desktop';
 
 export type NetMode = 'peer' | 'ws';
@@ -46,7 +47,7 @@ export function inviteLink(
       q.set('ws', conn.net.wsUrl.trim());
     }
   }
-  return `${shareBase(loc, conn?.mode)}?${q.toString()}`;
+  return `${shareBase(loc, conn?.mode, conn?.mode === 'ws' ? conn.net.wsUrl : undefined)}?${q.toString()}`;
 }
 
 /** Read an invite (or any page URL) query string: room code, mode and server overrides. */
@@ -191,7 +192,104 @@ export function modeChosen(): boolean {
 export function markModeChosen(): void {
   try {
     globalThis.localStorage?.setItem(CHOSEN_KEY, '1');
+    if (officialServer()) globalThis.localStorage?.setItem(CHOICE_KEY, '1');
   } catch {
     /* ignore */
   }
+}
+
+// ── official server (src/net/official.ts) ────────────────────────────────────
+
+/**
+ * What the online screen offers: 'official' = the relay mode through this build's
+ * official server; 'peer' = public P2P; 'ws' = a relay of the player's own (LAN /
+ * self-hosted / the desktop app's). Stored as settings.net (mode + wsUrl), which is
+ * what the net layer, invite links and rejoin records read.
+ */
+export type ConnChoice = 'official' | NetMode;
+
+export const modeOfChoice = (c: ConnChoice): NetMode => (c === 'peer' ? 'peer' : 'ws');
+
+/** The choice a mode + relay address amounts to. */
+export function choiceOf(mode: NetMode, wsUrl: string, official: OfficialServer | null = officialServer()): ConnChoice {
+  if (mode === 'peer') return 'peer';
+  return isOfficialRelay(wsUrl, official) ? 'official' : 'ws';
+}
+
+/** A relay address of the player's own (not empty, not the official one). */
+export function customRelay(wsUrl: string, official: OfficialServer | null = officialServer()): boolean {
+  return !!wsUrl.trim() && !isOfficialRelay(wsUrl, official);
+}
+
+const CUSTOM_WS_KEY = 'sgwl.ui.customWsUrl';
+const CHOICE_KEY = 'sgwl.ui.netChoice.v2';
+
+function localStore(): Storage | null {
+  try {
+    return (globalThis as { localStorage?: Storage }).localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Settings patch that makes `choice` the connection. Picking the official server keeps
+ * the player's own relay address aside (`store`) and 自建服务器 brings it back.
+ */
+export function choicePatch(
+  choice: ConnChoice,
+  net: Pick<NetServerConfig, 'wsUrl'>,
+  official: OfficialServer | null = officialServer(),
+  store: Pick<Storage, 'getItem' | 'setItem'> | null = localStore(),
+): Partial<NetServerConfig> {
+  if (choice === 'peer') return { mode: 'peer' };
+  if (choice === 'official') {
+    if (!official) return { mode: 'ws' };
+    if (customRelay(net.wsUrl, official)) {
+      try {
+        store?.setItem(CUSTOM_WS_KEY, net.wsUrl.trim());
+      } catch {
+        /* ignore */
+      }
+    }
+    return { mode: 'ws', wsUrl: official.relay };
+  }
+  if (!isOfficialRelay(net.wsUrl, official)) return { mode: 'ws' };
+  let own = '';
+  try {
+    own = store?.getItem(CUSTOM_WS_KEY) ?? '';
+  } catch {
+    /* ignore */
+  }
+  return { mode: 'ws', wsUrl: own };
+}
+
+/** The player picked a connection on a build with an official server (a pick made before it existed does not count). */
+export function choiceChosen(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(CHOICE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What the online screen / 邀请朋友一起玩 start on when neither an invite nor a saved room
+ * says: the official server when this build has one — unless the player picked a
+ * connection since it exists, or set up a relay address of their own — else the saved mode
+ * (today's behaviour: public P2P unless they picked the server).
+ */
+export function defaultChoice(i: { mode: NetMode; wsUrl: string; chosen: boolean }, official: OfficialServer | null = officialServer()): ConnChoice {
+  if (!official || i.chosen) return choiceOf(i.mode, i.wsUrl, official);
+  if (i.mode === 'ws' && customRelay(i.wsUrl, official)) return 'ws';
+  return 'official';
+}
+
+/**
+ * The relay fields of an invite / rejoin record in relay mode: no `ws=` means the page's
+ * own server (same origin) — never whatever relay the settings happen to hold (the
+ * official one, from an earlier room).
+ */
+export function relayNet(mode: NetMode, net: InviteNet): InviteNet {
+  return mode === 'ws' && net.wsUrl === undefined ? { ...net, wsUrl: '' } : net;
 }
