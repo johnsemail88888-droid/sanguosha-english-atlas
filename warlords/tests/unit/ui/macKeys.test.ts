@@ -1,8 +1,8 @@
-// Mac players: the controls in Mac words (⌥ for 闪避, the trackpad's two-finger click),
-// the notes on the macOS / Safari shortcuts the game keys meet, and one weapon switch
-// per trackpad / Magic Mouse swipe.
+// Mac players: the controls in Mac words (⌥ for 闪避, the trackpad's two-finger click)
+// and the notes on the macOS / Safari shortcuts the game keys meet. (One weapon switch
+// per trackpad / Magic Mouse swipe: tests/unit/game/wheel.test.ts.)
 import { afterEach, describe, expect, it } from 'vitest';
-import { KEY_MAP, WHEEL_BURST_GAP_MS, wheelStartsBurst } from '../../../src/game/input';
+import { KEY_MAP } from '../../../src/game/input';
 import { overrideLang } from '../../../src/ui/i18n';
 import { CONTROLS, MAC_NOTES, controlsFor } from '../../../src/ui/screens/help';
 
@@ -40,26 +40,5 @@ describe('the controls table on a Mac', () => {
     expect(KEY_MAP.AltLeft).toMatchObject({ kind: 'action', action: { a: 'dodge' } });
     expect(KEY_MAP.AltRight).toMatchObject({ kind: 'action', action: { a: 'dodge' } });
     expect(Object.keys(KEY_MAP).filter((k) => /^(Meta|OS|F\d+$)/.test(k))).toEqual([]);
-  });
-});
-
-describe('mouse wheel → weapon: one switch per burst', () => {
-  it('a trackpad swipe (a stream of events with inertia) switches once; a new swipe after a pause switches again', () => {
-    let last: number | null = null;
-    let switches = 0;
-    const wheel = (t: number): void => {
-      if (wheelStartsBurst(t, last)) switches++;
-      last = t;
-    };
-    // one swipe: 60 events 16 ms apart (≈ 1 s with inertia)
-    for (let i = 0; i < 60; i++) wheel(1000 + i * 16);
-    expect(switches).toBe(1);
-    // the next swipe, after a pause
-    wheel(1000 + 59 * 16 + WHEEL_BURST_GAP_MS + 10);
-    expect(switches).toBe(2);
-    // one mouse-wheel notch, then another a moment later: each is its own switch
-    wheel(10_000);
-    wheel(10_000 + WHEEL_BURST_GAP_MS);
-    expect(switches).toBe(4);
   });
 });

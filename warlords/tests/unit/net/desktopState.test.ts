@@ -92,6 +92,10 @@ describe('localStorage mirror', () => {
 interface Launch {
   url: string;
   ipc: Record<string, (ev: { returnValue?: unknown }, ...a: unknown[]) => void>;
+  /** app events the main process listens to (e.g. 'gpu-info-update') */
+  on: Record<string, () => unknown>;
+  /** what app.getGPUFeatureStatus() answers */
+  gpu: Record<string, string>;
   quit(): Promise<void>;
 }
 
@@ -99,13 +103,15 @@ interface Launch {
 async function launch(userData: string): Promise<Launch> {
   const ipc: Launch['ipc'] = {};
   const on: Record<string, () => unknown> = {};
+  // before the GPU process has reported, Chromium answers this placeholder for everything
+  const gpu: Record<string, string> = { webgl: 'disabled_off', gpu_compositing: 'disabled_software' };
   let loaded!: (url: string) => void;
   const urlP = new Promise<string>((r) => (loaded = r));
   let ready!: () => void;
   const readyP = new Promise<void>((r) => (ready = r));
   class BrowserWindow {
     static getAllWindows = () => [];
-    webContents = { setWindowOpenHandler: () => undefined };
+    webContents = { setWindowOpenHandler: () => undefined, on: () => undefined, getURL: () => '' };
     once() {}
     on() {}
     loadURL(url: string) {
@@ -123,6 +129,8 @@ async function launch(userData: string): Promise<Launch> {
       setName() {},
       setAppUserModelId() {},
       whenReady: () => readyP,
+      getGPUFeatureStatus: () => ({ ...gpu }),
+      getGPUInfo: () => Promise.resolve({ gpuDevice: [] }),
       quit() {},
     },
     BrowserWindow,
@@ -150,6 +158,8 @@ async function launch(userData: string): Promise<Launch> {
   return {
     url,
     ipc,
+    on,
+    gpu,
     quit: async () => {
       on['before-quit']?.();
       await new Promise((r) => setTimeout(r, 50));
@@ -157,11 +167,11 @@ async function launch(userData: string): Promise<Launch> {
   };
 }
 
-/** Run electron/preload.cjs for a page on `store` (its origin's localStorage); returns its pagehide handler. */
-function preload(store: Storage, ipc: Launch['ipc']): () => void {
+/** Run electron/preload.cjs for a page on `store` (its origin's localStorage); returns its pagehide handler. `exposed` receives window.sgwlDesktop. */
+function preload(store: Storage, ipc: Launch['ipc'], exposed: Record<string, unknown> = {}): () => void {
   const handlers: Record<string, () => void> = {};
   const fake = {
-    contextBridge: { exposeInMainWorld() {} },
+    contextBridge: { exposeInMainWorld: (_name: string, api: Record<string, unknown>) => void Object.assign(exposed, api) },
     ipcRenderer: {
       sendSync: (ch: string, ...a: unknown[]) => {
         const ev: { returnValue?: unknown } = {};
@@ -243,4 +253,16 @@ describe('desktop app launches (electron/main.cjs + preload.cjs, stubbed Electro
     unload();
     await fourth.quit();
   }, 30_000);
+
+  it('the page gets the WebGL status the GPU process reported, not the start-up placeholder (Mac: Metal taken for software)', async () => {
+    const app = await launch(tmp());
+    // the GPU process reports after the window exists (macOS): the page asks then
+    app.gpu.webgl = 'enabled';
+    app.on['gpu-info-update']?.();
+    const bridge: Record<string, unknown> = {};
+    const unload = preload(memStorage(), app.ipc, bridge);
+    expect(bridge.webgl).toBe('enabled');
+    unload();
+    await app.quit();
+  });
 });

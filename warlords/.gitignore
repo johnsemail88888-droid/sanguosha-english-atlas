@@ -10,3 +10,5 @@ scripts/node_modules
 scripts/package.json
 scripts/package-lock.json
 *.tsbuildinfo
+test-results-mac
+playwright-report-mac

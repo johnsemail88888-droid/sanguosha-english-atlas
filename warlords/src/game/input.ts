@@ -127,19 +127,6 @@ export function shouldSuppressKey(code: string, mods: KeyMods): boolean {
   return mods.ctrlKey || mods.altKey || mods.metaKey;
 }
 
-/**
- * A Mac trackpad / Magic Mouse swipe (and a free-spinning or high-resolution wheel) is a
- * stream of wheel events, inertia included: toggling the weapon on each one flipped it
- * back and forth and left it on whichever came last. One switch per burst: a vertical
- * wheel event only switches after this long without one.
- */
-export const WHEEL_BURST_GAP_MS = 250;
-
-/** Does a vertical wheel event at `now` (ms) start a new burst (→ switch weapon)? `last`: the previous one's time. */
-export function wheelStartsBurst(now: number, last: number | null): boolean {
-  return last === null || now - last >= WHEEL_BURST_GAP_MS;
-}
-
 interface KeyboardLockApi {
   lock(codes?: string[]): Promise<void>;
   unlock(): void;
@@ -324,6 +311,28 @@ export class InputState {
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** Quiet time (ms) that ends a wheel gesture (see WheelGesture). */
+export const WHEEL_GESTURE_GAP_MS = 180;
+
+/**
+ * Mouse wheel → one weapon switch per gesture. A wheel notch is one event, but a
+ * Mac trackpad / Magic Mouse swipe sends dozens of small deltas and then about a
+ * second of momentum: switching on every event flipped between the two weapons
+ * dozens of times and left a random one in hand. The first event of a gesture
+ * switches; the rest of it (events less than WHEEL_GESTURE_GAP_MS apart) does not.
+ */
+export class WheelGesture {
+  private last = -Infinity;
+
+  /** A wheel event (vertical delta, time in ms): true when it should switch the weapon. */
+  push(deltaY: number, t: number): boolean {
+    if (deltaY === 0) return false;
+    const fresh = t - this.last >= WHEEL_GESTURE_GAP_MS;
+    this.last = t;
+    return fresh;
+  }
+}
+
 const isEditable = (t: EventTarget | null): boolean => {
   const el = t as HTMLElement | null;
   if (!el || typeof el.tagName !== 'string') return false;
@@ -350,12 +359,11 @@ export class InputController implements InputSink {
   private seededFromView = false;
   private disposed = false;
   private activeSlot = 0;
-  /** time of the last vertical wheel event (one weapon switch per wheel / trackpad burst) */
-  private lastWheelAt: number | null = null;
   /** forced view (options.view), flipped by the toggle key without touching the saved setting */
   private viewOverride: CameraView | null = null;
   /** timed turn towards an entity (张辽 突袭 lands behind the target: face it) */
   private turn: { targetId: EntityId; remaining: number; last: number } | null = null;
+  private readonly wheel = new WheelGesture();
 
   constructor(target: HTMLElement, opts: InputControllerOptions = {}) {
     this.target = target;
@@ -396,11 +404,7 @@ export class InputController implements InputSink {
     on(target, 'wheel', (e) => {
       if (!this.locked || !this.state.enabled) return;
       e.preventDefault();
-      if (e.deltaY === 0) return;
-      const now = e.timeStamp || performance.now();
-      const fresh = wheelStartsBurst(now, this.lastWheelAt);
-      this.lastWheelAt = now;
-      if (fresh) this.state.pushAction({ a: 'weapon', slot: this.nextWeaponSlot() });
+      if (this.wheel.push(e.deltaY, now())) this.state.pushAction({ a: 'weapon', slot: this.nextWeaponSlot() });
     }, { passive: false });
     on(document, 'pointerlockchange', () => {
       const now = document.pointerLockElement === this.target;
