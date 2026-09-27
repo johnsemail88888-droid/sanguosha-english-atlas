@@ -192,6 +192,7 @@ process.stdin.on("data", (d) => (s += d)).on("end", () => {
 # funnel_target SERVE_JSON HOST → what Funnel publishes at https://HOST/ (the proxy target of "/"
 # on port 443), '' when Funnel is not on for it. SERVE_JSON = `tailscale funnel status --json`.
 funnel_target() {
+  # shellcheck disable=SC2016 # a JS template literal, not a shell expansion
   node -e '
 let j = {};
 try { j = JSON.parse(process.argv[1]) || {}; } catch {}
@@ -771,7 +772,7 @@ main() {
   local cmd=${1:-install}
   # the script itself may be arriving on stdin (curl | bash): nothing below may read it
   exec </dev/null
-  HOST_OS=$(host_os) || die "只支持 macOS 和 Linux / macOS or Linux only (this is $(uname -s))"
+  HOST_OS=$(host_os "$(uname -s)") || die "只支持 macOS 和 Linux / macOS or Linux only (this is $(uname -s))"
   if [[ $HOST_OS == macos ]]; then
     [[ $EUID -ne 0 ]] || die "请不要加 sudo，用你自己的账号运行 / run it as yourself, without sudo"
   else
