@@ -379,8 +379,13 @@ build_game() {
   # This server is the build's official server (src/net/official.ts): its page offers 官方服务器 = itself.
   log "构建游戏 / building the game (vite build)"
   VITE_OFFICIAL_RELAY=$(relay_url "$DOMAIN") VITE_OFFICIAL_WEB=$(game_url "$DOMAIN") NODE_OPTIONS=--max-old-space-size=1536 \
-    node node_modules/vite/bin/vite.js build --logLevel warn || die "构建失败 / build failed"
-  [[ -f dist/index.html ]] || die "构建失败：没有 dist/index.html / build produced no dist/index.html"
+    node node_modules/vite/bin/vite.js build --outDir dist.new --emptyOutDir --logLevel warn || die "构建失败（正在运行的版本不受影响）/ build failed (the running version is untouched)"
+  [[ -f dist.new/index.html ]] || die "构建失败：没有 index.html / build produced no index.html"
+  # swap in the new build only once it is complete: a failed update leaves the site as it was
+  rm -rf dist.old
+  if [[ -d dist ]]; then mv dist dist.old; fi
+  mv dist.new dist
+  rm -rf dist.old
 }
 
 install_service() {
