@@ -5,7 +5,8 @@ import type { Screen, SettingsTab, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { button, field, nameFieldModel, segmented, slider, tabs, textInput, toggle } from '../widgets';
-import { markModeChosen } from '../invite';
+import { choiceOf, choicePatch, markModeChosen, type ConnChoice } from '../invite';
+import { officialServer } from '../../net/official';
 import { gpuShortName, isMac, qualityName } from '../perfcheck';
 import { macNotesBox } from './help';
 
@@ -151,6 +152,7 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
 
   const network = (): HTMLElement[] => {
     const n = settings.get().net;
+    const official = officialServer();
     return [
       h('div', { class: 'net-explain' },
         h('div', { class: 'opt' },
@@ -171,12 +173,14 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
           )),
         ),
       ),
-      field(t('settings.netMode'), segmented([
+      field(t('settings.netMode'), segmented<ConnChoice>([
+        ...(official ? [{ value: 'official' as const, label: t('online.official') }] : []),
         { value: 'peer' as const, label: t('online.peer') },
-        { value: 'ws' as const, label: t('online.ws') },
-      ], n.mode, (v) => {
+        { value: 'ws' as const, label: official ? t('online.own') : t('online.ws') },
+      ], choiceOf(n.mode, n.wsUrl), (v) => {
         markModeChosen();
-        net({ mode: v });
+        net(choicePatch(v, settings.get().net));
+        renderBody();
       }, { name: t('settings.netMode') })),
       field(t('settings.wsUrl'), textInput(n.wsUrl, (v) => net({ wsUrl: v.trim() }), { placeholder: t('settings.wsUrlPh'), label: t('settings.wsUrl') })),
       field(t('settings.peerHost'), (() => {

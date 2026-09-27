@@ -7,6 +7,7 @@
 //    LAN at http://192.168.1.5:8787/) is detected through GET /sgwl.json.
 // In both cases the WebSocket relay lives on the same origin (/ws), so server
 // mode works with no configuration.
+import { isOfficialRelay, officialServer } from '../net/official';
 
 export interface DesktopInfo {
   isDesktop: boolean;
@@ -120,16 +121,27 @@ export function servedByLocalServer(): boolean {
 /** The published web version: anyone on the internet can open it. */
 export const PUBLIC_WEB_URL = 'https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/';
 
+/** `origin` is the public web version's (GitHub Pages). */
+export function isPublicWebOrigin(origin: string | undefined): boolean {
+  return !!origin && origin === new URL(PUBLIC_WEB_URL).origin;
+}
+
 /**
  * Base URL (origin + path) other players should open. On the desktop app the
  * page itself is http://127.0.0.1:<port>/: a P2P room is reachable from the
  * public web version, so friends anywhere get that; a room on the app's own
  * relay server (mode 'ws') only from the LAN, so they get the first LAN address.
+ * A room on the official relay (`relay`), or a P2P room, sent from the desktop app,
+ * the GitHub Pages site or the offline file: the official server's own page when it
+ * has one (the same build; github.io is slow or blocked in parts of China).
  */
-export function shareBase(loc: { origin: string; pathname: string } = location, mode?: 'peer' | 'ws'): string {
+export function shareBase(loc: { origin: string; pathname: string } = location, mode?: 'peer' | 'ws', relay?: string): string {
   const d = desktopInfo();
-  if (d && mode !== 'ws') return PUBLIC_WEB_URL;
-  if (d && d.lanUrls.length) return d.lanUrls[0].replace(/\/?$/, '/');
   const origin = loc.origin && loc.origin !== 'null' ? loc.origin : '';
+  const off = officialServer();
+  const onOfficial = mode === 'ws' && isOfficialRelay(relay, off);
+  if (off?.web && (mode !== 'ws' || onOfficial) && (d || !origin || isPublicWebOrigin(origin))) return off.web;
+  if (d && (mode !== 'ws' || onOfficial)) return PUBLIC_WEB_URL;
+  if (d && d.lanUrls.length) return d.lanUrls[0].replace(/\/?$/, '/');
   return `${origin}${loc.pathname}`;
 }

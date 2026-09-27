@@ -3,10 +3,32 @@
 import { settings } from '../../game/settings';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, copyText, h } from '../dom';
-import { t, tx } from '../i18n';
+import { getLang, t, tx } from '../i18n';
 import { button, segmented } from '../widgets';
 import { desktopInfo, detectLocalServer, refreshLanUrls, servedByLocalServer } from '../desktop';
-import { clearRejoin, isReconnectable, loadRejoin, markModeChosen, modeChosen, netPatch, parseInvite, type InviteNet, type NetMode, type RejoinInfo } from '../invite';
+import {
+  choiceChosen,
+  choiceOf,
+  choicePatch,
+  clearRejoin,
+  customRelay,
+  defaultChoice,
+  isReconnectable,
+  loadRejoin,
+  markModeChosen,
+  modeChosen,
+  modeOfChoice,
+  netPatch,
+  parseInvite,
+  relayNet,
+  type ConnChoice,
+  type InviteNet,
+  type NetMode,
+  type RejoinInfo,
+} from '../invite';
+import { isOfficialWeb, officialServer } from '../../net/official';
+import type { ProbeResult } from '../../net/netCheck';
+import { checkVerdict, classifyP2pFailure, formatCheck, formatProbe, p2pFailureText, p2pFix, type P2pFailure } from '../netHelp';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
 export function normalizeRoomCode(raw: string): string {
@@ -92,16 +114,37 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   const saved: RejoinInfo | null = rj && (!invited || normalizeRoomCode(invited) === rj.code) ? rj : null;
   // F5 / 重新加入 after a drop: rejoin the same room the same way (once per page load, or when asked)
   const rejoin = saved && !rejoinTried ? saved : null;
+  // a relay room without an address (ws=) is on the page's own server: same origin, not a relay from an earlier room
   if (saved) {
     code = saved.code;
-    applyNet(saved.net);
-  } else if (link && urlMode) applyNet(link.net);
+    applyNet(relayNet(saved.mode, saved.net));
+  } else if (link && urlMode) applyNet(relayNet(urlMode, link.net));
   if (rejoin) rejoinTried = true;
+  const official = officialServer();
+  const chosen = official ? choiceChosen() : modeChosen();
   // the desktop app used to default to its LAN server: its invite links (a LAN address) then failed for friends
-  // elsewhere — every page starts on the saved mode (public P2P unless the player picked the server)
-  let mode: NetMode = saved?.mode ?? urlMode ?? settings.get().net.mode;
+  // elsewhere — every page starts on the official server when this build has one, else on the saved mode
+  // (public P2P unless the player picked the server); an invite / the saved room says how its room is reached
+  const net0 = settings.get().net;
+  let choice: ConnChoice = saved || urlMode ? choiceOf(saved?.mode ?? urlMode ?? 'peer', net0.wsUrl) : defaultChoice({ mode: net0.mode, wsUrl: net0.wsUrl, chosen });
+  let mode: NetMode = modeOfChoice(choice);
+  const pick = (c: ConnChoice): void => {
+    choice = c;
+    mode = modeOfChoice(c);
+  };
+  /** the relay address the 自建服务器 choice would use ('' = this page's own server) */
+  const ownWsUrl = (): string => choicePatch('ws', settings.get().net).wsUrl ?? settings.get().net.wsUrl;
+  /** the net layer reads the connection from the settings: make them say `choice` */
+  const commitChoice = (): void => {
+    const cur = settings.get().net;
+    const patch = choicePatch(choice, cur);
+    if ((Object.keys(patch) as (keyof typeof patch)[]).some((k) => patch[k] !== cur[k])) settings.update({ net: { ...cur, ...patch } });
+  };
   // a mode from the URL / the saved room (a P2P room stays P2P on a self-hosted page), or one the player picked, is never auto-switched
-  let modeTouched = !!saved || !!urlMode || modeChosen();
+  let modeTouched = !!saved || !!urlMode || chosen;
+  /** how the invite link reaches its room */
+  const urlChoice: ConnChoice | null = link && urlMode ? choiceOf(urlMode, link.net.wsUrl ?? '') : null;
+  const choiceName = (c: ConnChoice): string => (c === 'official' ? t('online.official') : c === 'peer' ? t('online.peer') : official ? t('online.own') : t('online.ws'));
   let busy: 'host' | 'join' | null = null;
   /** bumped by every attempt and by 取消: a cancelled attempt's outcome is ignored */
   let attempt = 0;
@@ -109,23 +152,27 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   let retryJoin = false;
   let errorText = '';
   /** after 房间不存在: offer the other connection mode */
-  let suggest: NetMode | null = null;
+  let suggest: ConnChoice | null = null;
+  /** a P2P create / join failed for a known reason: say why and offer the fix (改用官方服务器重试) */
+  let p2pFail: { kind: P2pFailure; action: 'host' | 'join' } | null = null;
+  /** 联机检测: running (results null) or its last result */
+  let check: { results: ProbeResult[] | null; at: Date } | null = null;
   let runRef: ((kind: 'host' | 'join') => Promise<void>) | null = null;
   const runJoin = (): Promise<void> => runRef?.('join') ?? Promise.resolve();
-  const sameOrigin = (): boolean => servedByLocalServer() && !settings.get().net.wsUrl.trim();
+  const sameOrigin = (): boolean => servedByLocalServer() && !ownWsUrl().trim();
   /** 取消 a join in progress: its answer is dropped (a session that still arrives is left at once) */
   const cancel = (): void => {
     attempt++;
     busy = null;
     errorText = '';
     retryJoin = false;
+    p2pFail = null;
     ctx.cancelJoin?.();
     if (el.isConnected) render();
   };
 
   const render = (): void => {
     const status = h('div', { class: 'sg-online-status', aria: { live: 'polite' } });
-    const modeName = (m: NetMode): string => (m === 'peer' ? t('online.peer') : t('online.ws'));
     if (busy === 'join') {
       // 正在加入房间 CODE… — 取消 lets the player do something else (the late answer is dropped)
       status.append(h('span', { class: 'sg-spinner' }), ' ', h('span', { class: 'joining' }, t('online.joiningRoom', { code })), ' ',
@@ -138,9 +185,9 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         const other = suggest;
         status.append(
           h('div', { class: 'suggest' },
-            h('span', { class: 'sg-mute' }, t('online.notFoundHint', { mode: modeName(other) })), ' ',
-            button(t('online.switchRetry', { mode: modeName(other) }), () => {
-              mode = other;
+            h('span', { class: 'sg-mute' }, t('online.notFoundHint', { mode: choiceName(other) })), ' ',
+            button(t('online.switchRetry', { mode: choiceName(other) }), () => {
+              pick(other);
               modeTouched = true;
               suggest = null;
               void run('join');
@@ -148,9 +195,29 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
           ),
         );
       }
+      if (p2pFail) {
+        const failed = p2pFail;
+        const fix = p2pFix(failed.kind, { official: !!official, host: failed.action === 'host' });
+        status.append(
+          h('div', { class: 'p2p-help', data: { reason: failed.kind } },
+            h('span', { class: 'sg-mute' }, tx(fix.hint.zh, fix.hint.en)), ' ',
+            button(tx(fix.label.zh, fix.label.en), () => {
+              pick(fix.action);
+              modeTouched = true;
+              markModeChosen();
+              settings.update({ net: { ...settings.get().net, ...choicePatch(fix.action, settings.get().net) } });
+              p2pFail = null;
+              errorText = '';
+              // the official server: straight into the same attempt; server mode may still need its address
+              if (fix.action === 'official') void run(failed.action);
+              else render();
+            }, { cls: 'small gold p2p-fix', sfx: 'confirm' }),
+          ),
+        );
+      }
     }
 
-    const wsMissing = mode === 'ws' && !settings.get().net.wsUrl.trim() && !servedByLocalServer();
+    const wsMissing = choice === 'ws' && !ownWsUrl().trim() && !servedByLocalServer();
     const codeInput = h('input', {
       class: 'sg-input sg-code-input',
       value: code,
@@ -181,6 +248,8 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       errorText = '';
       suggest = null;
       retryJoin = false;
+      p2pFail = null;
+      commitChoice();
       render();
       try {
         if (kind === 'host') await ctx.hostOnline(mode);
@@ -189,8 +258,15 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         if (mine !== attempt) return; // cancelled: nobody is waiting for this answer
         errorText = t('online.failed', { msg: errorMessage(err) });
         retryJoin = kind === 'join';
+        // public P2P: say which part failed (signalling / NAT / no room) in plain words, and offer the fix
+        const why = choice === 'peer' ? classifyP2pFailure(err) : null;
+        if (why) {
+          const text = p2pFailureText(why);
+          errorText = t('online.failed', { msg: tx(text.zh, text.en) });
+          if (why !== 'notFound') p2pFail = { kind: why, action: kind };
+        }
         // the room may be on the other network: P2P rooms and relay rooms are separate
-        if (kind === 'join' && isRoomNotFound(err)) suggest = mode === 'peer' ? 'ws' : 'peer';
+        if (kind === 'join' && isRoomNotFound(err)) suggest = choice === 'peer' ? (official ? 'official' : 'ws') : 'peer';
         // a room that is gone / full / refuses us is forgotten; a link that timed out can be retried (重新加入)
         const errCode = err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined;
         if (kind === 'join' && !isReconnectable(typeof errCode === 'string' ? errCode : undefined)) clearRejoin();
@@ -211,27 +287,31 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       button(`‹ ${t('common.back')}`, () => ctx.go('title'), { cls: 'ghost small sg-back', sfx: 'back' }),
       h('div', { class: 'sg-sheet sg-panel sg-corners' },
         h('h1', { class: 'sg-h1 sg-title-bar' }, t('online.title')),
-        invited ? h('div', { class: 'sg-invite' }, t('online.invited', { code: normalizeRoomCode(invited) }), urlMode ? h('span', { class: 'via' }, ` · ${t('online.invitedMode', { mode: modeName(urlMode) })}`) : null) : null,
+        invited ? h('div', { class: 'sg-invite' }, t('online.invited', { code: normalizeRoomCode(invited) }), urlChoice ? h('span', { class: 'via' }, ` · ${t('online.invitedMode', { mode: choiceName(urlChoice) })}`) : null) : null,
         saved && !invited ? rejoinBox(saved) : null,
         h('div', { class: 'sg-online-mode' },
           h('span', { class: 'sg-label' }, t('online.via')),
-          segmented([
+          segmented<ConnChoice>([
+            ...(official ? [{ value: 'official' as const, label: t('online.official') }] : []),
             { value: 'peer' as const, label: t('online.peer') },
-            { value: 'ws' as const, label: t('online.ws') },
-          ], mode, (v) => {
-            mode = v;
+            { value: 'ws' as const, label: choiceName('ws') },
+          ], choice, (v) => {
+            pick(v);
             modeTouched = true;
             markModeChosen();
-            settings.update({ net: { ...settings.get().net, mode: v } });
+            settings.update({ net: { ...settings.get().net, ...choicePatch(v, settings.get().net) } });
             errorText = '';
             suggest = null;
+            p2pFail = null;
             render();
           }, { disabled: !!busy, name: t('online.via') }),
-          h('span', { class: 'sg-mute desc' }, mode === 'peer' ? t('online.peerDesc') : t('online.wsDesc')),
+          h('span', { class: 'sg-mute desc' }, choice === 'official' ? t('online.officialDesc') : choice === 'peer' ? t('online.peerDesc') : t('online.wsDesc')),
           button(t('online.serverSettings'), () => ctx.openSettings('network'), { cls: 'ghost small' }),
+          button(tx('联机检测', 'Connection check'), () => void runCheck(), { cls: 'ghost small net-check-btn', disabled: !!check && !check.results }),
         ),
+        checkBox(),
         wsMissing ? h('div', { class: 'sg-warn' }, t('online.noWsUrl')) : null,
-        mode === 'ws' && sameOrigin()
+        choice === 'ws' && sameOrigin()
           ? h('div', { class: 'sg-note' }, tx(`使用本机服务器中继：${location.host}/ws`, `Relaying through this server: ${location.host}/ws`))
           : null,
         lanBox(),
@@ -254,18 +334,55 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     if (invited && !busy) queueMicrotask(() => codeInput.focus());
   };
 
+  /** 联机检测: signalling, STUN/TURN and the official relay, probed at once (a few seconds). */
+  async function runCheck(): Promise<void> {
+    if (check && !check.results) return;
+    check = { results: null, at: new Date() };
+    render();
+    let results: ProbeResult[];
+    try {
+      const { runNetCheck } = await import('../../net/netCheck');
+      results = await runNetCheck(settings.get().net, official?.relay ?? null);
+    } catch (e) {
+      console.warn('[ui] connection check failed', e);
+      results = [];
+    }
+    check = { results, at: new Date() };
+    if (el.isConnected) render();
+  }
+
+  /** The check's rows (✓/✗ + ms) — made to be screenshotted or copied for us. */
+  function checkBox(): HTMLElement | null {
+    if (!check) return null;
+    const results = check.results;
+    const lang = getLang();
+    const verdict = results?.length ? checkVerdict(results) : null;
+    return h('div', { class: 'sg-netcheck', aria: { live: 'polite' } },
+      h('div', { class: 'head' },
+        h('strong', null, tx('联机检测', 'Connection check')),
+        results
+          ? button(t('common.copy'), () => {
+              const text = formatCheck(results, lang, check?.at);
+              void copyText(text).then((ok) => ctx.toast(ok ? t('common.copied') : text));
+            }, { cls: 'small dark net-check-copy' })
+          : h('span', { class: 'sg-mute' }, h('span', { class: 'sg-spinner' }), ' ', tx('检测中…（约 5 秒）', 'Checking… (about 5 s)')),
+      ),
+      results ? h('ul', { class: 'rows' }, results.map((r) => h('li', { class: r.ok === null ? 'na' : r.ok ? 'ok' : 'bad', data: { probe: r.id } }, formatProbe(r, lang)))) : null,
+      verdict ? h('p', { class: 'verdict' }, tx(verdict.zh, verdict.en)) : null,
+    );
+  }
+
   /** The saved room: where you were, and 重新加入 {CODE} in the room's own mode (MP2-3). */
   function rejoinBox(r: RejoinInfo): HTMLElement {
-    const modeName = (m: NetMode): string => (m === 'peer' ? t('online.peer') : t('online.ws'));
     const again = (): void => {
       code = r.code;
-      mode = r.mode;
+      applyNet(relayNet(r.mode, r.net));
+      pick(choiceOf(r.mode, settings.get().net.wsUrl));
       modeTouched = true;
-      applyNet(r.net);
       void runJoin();
     };
     return h('div', { class: 'sg-invite sg-rejoin' },
-      h('span', null, t(rejoin ? 'online.rejoinHint' : 'online.droppedHint', { code: r.code, mode: modeName(r.mode) })),
+      h('span', null, t(rejoin ? 'online.rejoinHint' : 'online.droppedHint', { code: r.code, mode: choiceName(choiceOf(r.mode, r.net.wsUrl ?? '')) })),
       busy ? null : button(t('online.rejoinCode', { code: r.code }), again, { cls: 'small gold rejoin-btn', sfx: 'confirm' }),
     );
   }
@@ -293,7 +410,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
 
   render();
   // F5 / a dropped link: rejoin; an invite link: straight into the host's lobby, no 加入 click
-  const wsReachable = mode !== 'ws' || !!settings.get().net.wsUrl.trim() || servedByLocalServer() || !!desktop;
+  const wsReachable = choice !== 'ws' || !!ownWsUrl().trim() || servedByLocalServer() || !!desktop;
   const plan = autoJoinPlan({ invited: rejoin ? null : invited, rejoin: !!rejoin, inviteTried, canJoin: wsReachable });
   if (plan === 'invite') inviteTried = true;
   if (plan) queueMicrotask(() => {
@@ -304,7 +421,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   const quick = (ctx.takeQuickHost?.() ?? false) && !plan;
   const quickHost = (): void => {
     if (!quick || !el.isConnected || busy) return;
-    if (mode === 'ws' && !settings.get().net.wsUrl.trim() && !servedByLocalServer()) return; // 服务器 without an address: the warning says so
+    if (choice === 'ws' && !ownWsUrl().trim() && !servedByLocalServer()) return; // 服务器 without an address: the warning says so
     void runRef?.('host');
   };
   // a page served by our own server (LAN / self-host): same-origin relay → default to server mode
@@ -312,7 +429,8 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     void detectLocalServer().then((ok) => {
       if (!el.isConnected) return;
       if (ok) {
-        if (!modeTouched && !busy && !settings.get().net.wsUrl.trim()) mode = 'ws';
+        // (the official server's own page stays on 官方服务器: that is this very server)
+        if (!modeTouched && !busy && !customRelay(settings.get().net.wsUrl) && !isOfficialWeb(globalThis.location?.origin)) pick('ws');
         if (!busy) render();
         // a relay invite (mode=ws) on a page our own server serves: its relay turned out to be right here
         if (!plan && !quick && !busy && autoJoinPlan({ invited: rejoin ? null : invited, rejoin: false, inviteTried, canJoin: true }) === 'invite') {
