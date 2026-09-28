@@ -44,7 +44,7 @@ describe('skill one-liners', () => {
   });
 
   it('fills numbers from the params: plain, fraction, bonus and reduction', () => {
-    expect(skillLine(byId('guanyu_qinglong'), 'zh')).toBe('冲锋 8 米，横扫前方扇形：90 伤害并击退');
+    expect(skillLine(byId('guanyu_qinglong'), 'zh')).toBe('冲锋至多 8 米（遇敌即停），横扫前方：90 伤害并击退');
     expect(skillLine(byId('guanyu_yijue'), 'en')).toBe('Silence the aimed enemy for 6 s; you deal it +30%');
     expect(skillLine(byId('zhangfei_shemao'), 'zh')).toContain('霰弹换弹快 40%');
     expect(skillLine(byId('huangzhong_laodang'), 'zh')).toBe('回复 25% 最大生命，加速 30% 5 秒');
@@ -82,7 +82,8 @@ describe('skill areas (targeting preview)', () => {
   });
 
   it('reads the shapes off the params', () => {
-    expect(skillArea(byId('guanyu_qinglong'))).toEqual({ kind: 'dash', length: 8, width: 0, endRadius: 4.5, endArc: 110 });
+    expect(skillArea(byId('guanyu_qinglong'))).toEqual({ kind: 'dash', length: 8, width: 0, endRadius: 4.5, endArc: 110, stop: { width: 1, gap: 1.2 } });
+    expect(skillArea(byId('xiahoudun_charge'))).toMatchObject({ kind: 'dash', length: 12, stop: { heroesOnly: true } });
     expect(skillArea(byId('zhaoyun_qijin'))).toEqual({ kind: 'dash', length: 7, width: 1.5 });
     expect(skillArea(byId('zhangfei_duanqiao'))).toEqual({ kind: 'cone', range: 10, arc: 70 });
     expect(skillArea(byId('zhugeliang_bazhen'))).toEqual({ kind: 'circle', range: 30, radius: 7 });

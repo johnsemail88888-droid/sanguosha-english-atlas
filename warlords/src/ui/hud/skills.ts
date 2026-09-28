@@ -164,13 +164,16 @@ export class SkillCastTracker {
   private seq = 0;
   private open: OpenCast[] = [];
 
-  /** Feed a batch; returns the results that changed (new or updated). */
+  /** Feed a batch (`now`: the match clock, so a slowed / paused sim keeps its windows); returns the results that changed. */
   push(evs: readonly GameEvent[], me: { id: EntityId; heroId: string } | null, now: number, info: { isOwn(id: EntityId): boolean; isHero(id: EntityId): boolean }): CastResult[] {
     if (!me) return [];
     const changed = new Set<CastResult>();
     const gunHits = new Set<EntityId>();
     for (const ev of evs) if (ev.t === 'shot' && ev.src === me.id && ev.hit !== undefined) gunHits.add(ev.hit);
-    for (const ev of evs) {
+    // casts first: the sim applies a skill's statuses / damage before it reports the cast
+    // (activate() runs, then the world emits the 'ability' event) — same tick, same batch
+    const ordered = [...evs.filter((e) => e.t === 'ability'), ...evs.filter((e) => e.t !== 'ability')];
+    for (const ev of ordered) {
       switch (ev.t) {
         case 'ability': {
           if (ev.src !== me.id || ev.proc) break;

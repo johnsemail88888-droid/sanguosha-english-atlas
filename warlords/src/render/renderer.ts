@@ -1232,7 +1232,21 @@ export class GameRenderer {
       yaw: this.look.fresh ? this.look.yaw : localEnt?.yaw ?? 0,
       aimPoint: pick?.aimPoint ?? null,
       target: def ? this.previewUnit(pick?.aimTargetId, localEnt) : null,
+      units: def && localEnt ? this.previewUnitsNear(localEnt, 22) : undefined,
     });
+  }
+
+  /** Units within `radius` m of the local hero (a held charge stops at the first enemy in its way). */
+  private previewUnitsNear(localEnt: ViewEntity, radius: number): PreviewUnit[] {
+    const out: PreviewUnit[] = [];
+    for (const e of this.view.entities()) {
+      if (e.id === localEnt.id || e.flags & VF_DEAD) continue;
+      if (e.kind !== 'hero' && e.kind !== 'troop' && e.kind !== 'npc' && e.kind !== 'turret') continue;
+      if (Math.abs(e.x - localEnt.x) > radius || Math.abs(e.z - localEnt.z) > radius) continue;
+      const u = this.previewUnit(e.id, localEnt);
+      if (u) out.push(u);
+    }
+    return out;
   }
 
   private previewUnit(id: EntityId | undefined, localEnt: ViewEntity | undefined): PreviewUnit | null {

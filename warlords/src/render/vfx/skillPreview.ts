@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import type { EntityId } from '../../core/types';
 import type { AbilityDef } from '../../data/types';
-import { skillArea, type SkillArea } from '../../data/skillInfo';
+import { skillArea, type DashStop, type SkillArea } from '../../data/skillInfo';
 
 export interface XZ {
   x: number;
@@ -72,6 +72,34 @@ export interface PreviewInput {
   aimPoint: { x: number; y: number; z: number };
   /** the unit under the crosshair, if any */
   target: PreviewUnit | null;
+  /** units near the caster (a charge that stops at the first enemy in its way ends there) */
+  units?: readonly PreviewUnit[];
+}
+
+const UNIT_RADIUS = 0.45;
+
+/**
+ * Where a charge that stops at the first enemy in its way ends (sim: 青龙斩, 独目怒冲), and
+ * the unit it stops at: the nearest non-own unit ahead within the stop width of the path.
+ */
+export function dashStop(caster: XZ, yaw: number, length: number, stop: DashStop, units: readonly PreviewUnit[]): { length: number; unit: PreviewUnit | null } {
+  const f = fwd(yaw);
+  let len = length;
+  let unit: PreviewUnit | null = null;
+  for (const u of units) {
+    if (u.own || !UNIT_KINDS.has(u.kind) || (stop.heroesOnly && u.kind !== 'hero')) continue;
+    const dx = u.x - caster.x;
+    const dz = u.z - caster.z;
+    const along = dx * f.x + dz * f.z;
+    if (along <= UNIT_RADIUS || along > length + UNIT_RADIUS) continue;
+    if (Math.abs(dx * -f.z + dz * f.x) > stop.width + UNIT_RADIUS) continue;
+    const end = Math.max(0, along - UNIT_RADIUS - stop.gap);
+    if (end < len) {
+      len = end;
+      unit = u;
+    }
+  }
+  return { length: len, unit };
 }
 
 /** width of the range ring: thicker for long ranges (it is seen from far away, at a grazing angle) */
@@ -143,12 +171,16 @@ export function planSkillPreview(inp: PreviewInput): PreviewPlan | null {
       break;
     }
     case 'dash': {
-      const end = { x: c.x + f.x * area.length, z: c.z + f.z * area.length };
-      plan.strip = { x: c.x, z: c.z, yaw: inp.yaw, start: 0.6, end: area.length, width: area.width > 0 ? area.width : 0.3 };
+      const stop = area.stop && inp.units ? dashStop(c, inp.yaw, area.length, area.stop, inp.units) : { length: area.length, unit: null };
+      const len = stop.length;
+      const end = { x: c.x + f.x * len, z: c.z + f.z * len };
+      plan.strip = { x: c.x, z: c.z, yaw: inp.yaw, start: Math.min(0.6, len), end: len, width: area.width > 0 ? area.width : 0.3 };
+      // the unit the charge runs into
+      if (stop.unit) plan.marker = full(stop.unit.x, stop.unit.z, 0.7, 1.15);
       if (area.endRadius) {
         const arc = area.endArc ?? 360;
         plan.area = { x: end.x, z: end.z, rIn: 0, rOut: area.endRadius, yaw: inp.yaw, halfArc: arc >= 360 ? Math.PI : (arc * Math.PI) / 360 };
-      } else plan.marker = full(end.x, end.z, 0.55, 0.95);
+      } else if (!plan.marker) plan.marker = full(end.x, end.z, 0.55, 0.95);
       break;
     }
     case 'cone':
@@ -347,6 +379,7 @@ export interface SkillPreviewFrame {
   yaw: number;
   aimPoint: { x: number; y: number; z: number } | null;
   target: PreviewUnit | null;
+  units?: readonly PreviewUnit[];
 }
 
 /** Seconds a cast's area stays up after the skill is released / tapped. */
@@ -395,7 +428,7 @@ export class SkillPreview {
     let plan: PreviewPlan | null = null;
     let alpha = 1;
     if (f.def && f.caster && f.aimPoint) {
-      plan = planSkillPreview({ def: f.def, caster: f.caster, yaw: f.yaw, aimPoint: f.aimPoint, target: f.target });
+      plan = planSkillPreview({ def: f.def, caster: f.caster, yaw: f.yaw, aimPoint: f.aimPoint, target: f.target, units: f.units });
       this.last = plan;
       this.lastId = f.def.id;
       this.lastAt = this.time;

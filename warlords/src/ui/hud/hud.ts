@@ -551,7 +551,7 @@ export class Hud {
     else this.skillTip.hide();
     setClass(this.el, 'sktip-open', !!show);
     this.skillTips.update(f);
-    for (const r of this.castTracker.tick(f.now)) this.skillFeed.show(r, f.lang, f.now);
+    for (const r of this.castTracker.tick(f.elapsed)) this.skillFeed.show(r, f.lang, f.now);
     this.skillFeed.update(f.now);
   }
 
@@ -636,7 +636,8 @@ export class Hud {
     // what my skill casts did (「青龙斩 命中 3」)
     try {
       const own = (id: EntityId): boolean => id === myId || squad.has(id) || (myId !== null && this.view.get(id)?.owner === myId);
-      const results = this.castTracker.push(evs, me && myId !== null ? { id: myId, heroId: me.heroId } : null, now, { isOwn: own, isHero: (id) => this.view.get(id)?.kind === 'hero' });
+      // (cast windows run on the match clock: skills take their sim time, whatever the frame rate)
+      const results = this.castTracker.push(evs, me && myId !== null ? { id: myId, heroId: me.heroId } : null, this.view.elapsed(), { isOwn: own, isHero: (id) => this.view.get(id)?.kind === 'hero' });
       for (const r of results) this.skillFeed.show(r, lang, now);
     } catch (err) {
       console.error('[hud] skill results failed', err);

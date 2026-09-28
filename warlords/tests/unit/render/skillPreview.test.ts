@@ -27,6 +27,20 @@ describe('planSkillPreview', () => {
     expect(p.area!.halfArc).toBeCloseTo((110 * Math.PI) / 360, 6);
   });
 
+  it('a charge that stops at the first enemy in its way ends there (青龙斩: 1.2 m short, its sweep from there)', () => {
+    const foe: PreviewUnit = { id: 9, x: 0.5, y: 0, z: -5, kind: 'hero', own: false };
+    const mine: PreviewUnit = { id: 10, x: 0, y: 0, z: -3, kind: 'troop', own: true };
+    const aside: PreviewUnit = { id: 11, x: 4, y: 0, z: -2, kind: 'hero', own: false };
+    const p = planSkillPreview({ def: ABILITY_BY_ID.guanyu_qinglong, caster: at, yaw: 0, aimPoint: { x: 0, y: 0, z: -10 }, target: null, units: [mine, foe, aside] })!;
+    expect(p.strip!.end).toBeCloseTo(5 - 0.45 - 1.2, 6);
+    expect(p.area!.z).toBeCloseTo(-(5 - 0.45 - 1.2), 6);
+    expect(p.marker).toMatchObject({ x: 0.5, z: -5 });
+    // 独目怒冲 stops at heroes only: a soldier in the way does not end it
+    const troop: PreviewUnit = { id: 12, x: 0, y: 0, z: -4, kind: 'troop', own: false };
+    const xhd = planSkillPreview({ def: ABILITY_BY_ID.xiahoudun_charge, caster: at, yaw: 0, aimPoint: at, target: null, units: [troop] })!;
+    expect(xhd.strip!.end).toBe(12);
+  });
+
   it('a cone faces the aim yaw', () => {
     const p = plan('zhangfei_duanqiao', undefined, null, Math.PI / 2)!;
     expect(p.area).toMatchObject({ x: 0, z: 0, rOut: 10, yaw: Math.PI / 2 });

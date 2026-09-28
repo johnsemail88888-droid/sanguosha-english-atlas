@@ -22,8 +22,9 @@ export type SkillArea =
   /** a circle at the crosshair point (clamped to range) */
   | { kind: 'circle'; range: number; radius: number }
   /** the caster moves forward `length` m (dash / leap / blink); damage corridor half-width `width`
-   * (0: nothing on the way); an effect at the end: `endRadius` m, `endArc`° wide (360: all around) */
-  | { kind: 'dash'; length: number; width: number; endRadius?: number; endArc?: number; blink?: boolean }
+   * (0: nothing on the way); an effect at the end: `endRadius` m, `endArc`° wide (360: all around);
+   * `stop`: the dash ends at the first enemy within `width` of the path (`heroesOnly`: heroes), `gap` m short of it */
+  | { kind: 'dash'; length: number; width: number; endRadius?: number; endArc?: number; blink?: boolean; stop?: DashStop }
   /** the caster teleports to the crosshair point (clamped to range) */
   | { kind: 'blinkPoint'; range: number; radius: number }
   /** a cone in front: `arc`° wide, `range` m long */
@@ -33,6 +34,12 @@ export type SkillArea =
   | { kind: 'line'; start: number; length: number; width: number; endRadius?: number; reach?: number }
   /** the unit under the crosshair within `range` (a secondary area of `radius` m around it) */
   | { kind: 'target'; range: number; side: 'enemy' | 'ally'; radius?: number; selfFallback?: boolean };
+
+export interface DashStop {
+  width: number;
+  gap: number;
+  heroesOnly?: boolean;
+}
 
 /** How a skill is aimed, as the tag the player reads (准星敌人 / 前方 / 自身周围 …). */
 export type AimTag = 'passive' | 'self' | 'around' | 'forward' | 'point' | 'enemy' | 'ally';
@@ -45,7 +52,10 @@ const num = (p: Record<string, number>, k: string, fb = 0): number => {
 /** Per-skill areas the generic rules below cannot read off the params. */
 const AREA_OVERRIDE: Readonly<Record<string, (p: Record<string, number>) => SkillArea | null>> = {
   // charge, then the sweep in front at the end of it
-  guanyu_qinglong: (p) => ({ kind: 'dash', length: num(p, 'dash'), width: 0, endRadius: num(p, 'range'), endArc: num(p, 'arc') }),
+  // (stops 1.2 m short of the first enemy within 1 m of the path: sim/abilities/shu/guanyu.ts CHARGE_STOP_GAP)
+  guanyu_qinglong: (p) => ({ kind: 'dash', length: num(p, 'dash'), width: 0, endRadius: num(p, 'range'), endArc: num(p, 'arc'), stop: { width: 1, gap: 1.2 } }),
+  // stops on the first hero it runs into (sim/abilities/wei/xiahoudun.ts chargeContact)
+  xiahoudun_charge: (p) => ({ kind: 'dash', length: num(p, 'dash'), width: num(p, 'width'), stop: { width: num(p, 'width'), gap: 0.4, heroesOnly: true } }),
   zhangfei_duanqiao: (p) => ({ kind: 'cone', range: num(p, 'range'), arc: num(p, 'arc') }),
   xuchu_slam: (p) => ({ kind: 'dash', length: num(p, 'leap'), width: 0, endRadius: num(p, 'radius'), endArc: 360 }),
   zhenji_lingbo: (p) => ({ kind: 'dash', length: num(p, 'blink'), width: 0, endRadius: num(p, 'burstRadius', num(p, 'radius')), endArc: 360, blink: true }),
@@ -198,7 +208,7 @@ export const SKILL_LINES: Readonly<Record<string, readonly [string, string]>> = 
   liubei_jijiang: ['召 {count} 名义军；{radius} 米内蜀将射速 +{fireRateMul+%}', 'Summon {count} militia; Shu heroes within {radius} m fire {fireRateMul+%} faster'],
   // 关羽
   guanyu_wusheng: ['近战、火焰、爆炸伤害 +{mul+%}', 'Melee, fire and explosive damage +{mul+%}'],
-  guanyu_qinglong: ['冲锋 {dash} 米，横扫前方扇形：{damage} 伤害并击退', 'Charge {dash} m and sweep ahead: {damage} damage + knockback'],
+  guanyu_qinglong: ['冲锋至多 {dash} 米（遇敌即停），横扫前方：{damage} 伤害并击退', 'Charge up to {dash} m (stops at an enemy), sweep ahead: {damage} + knockback'],
   guanyu_yijue: ['沉默准星处敌人 {duration} 秒，你对其伤害 +{mul+%}', 'Silence the aimed enemy for {duration} s; you deal it +{mul+%}'],
   // 张飞
   zhangfei_shemao: ['霰弹换弹快 {reloadMul-%}；击杀后 {killNoReload} 秒不耗弹', 'Shotgun reloads {reloadMul-%} faster; {killNoReload} s free ammo after a kill'],

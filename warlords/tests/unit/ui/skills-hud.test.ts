@@ -62,6 +62,12 @@ describe('SkillCastTracker', () => {
     expect(castResultText(r[0], 'zh', '张飞')).toBe('→ 张飞');
   });
 
+  it('the sim applies the status before it reports the cast (same batch): still counted', () => {
+    const tr = new SkillCastTracker();
+    const r = tr.push([{ t: 'status', target: 3, status: 'silence', on: true }, { t: 'ability', src: ME, ability: 'guanyu_yijue', target: 3 }], me, 0, info);
+    expect(r[0]).toMatchObject({ target: 3, statuses: [{ id: 'silence', n: 1 }] });
+  });
+
   it('area crowd control: statuses on others, never on you or yours, never private ones', () => {
     const tr = new SkillCastTracker();
     const zl = { id: ME, heroId: 'zhangliao' };
@@ -119,7 +125,7 @@ describe('held-skill hint', () => {
 
 describe('first-ready tips', () => {
   it('one line: key, name, what it does, how to cast', () => {
-    expect(readyTip(ABILITY_BY_ID.guanyu_qinglong, 'zh')).toEqual({ key: 'Q', name: '青龙斩', line: '冲锋 8 米，横扫前方扇形：90 伤害并击退', how: '按住 Q 看范围' });
+    expect(readyTip(ABILITY_BY_ID.guanyu_qinglong, 'zh')).toEqual({ key: 'Q', name: '青龙斩', line: '冲锋至多 8 米（遇敌即停），横扫前方：90 伤害并击退', how: '按住 Q 看范围' });
     expect(readyTip(ABILITY_BY_ID.xuchu_luoyi, 'en').how).toBe('press Q');
     expect(readyTip(ABILITY_BY_ID.guanyu_wusheng, 'zh')).toMatchObject({ key: '被动', how: '被动' });
   });

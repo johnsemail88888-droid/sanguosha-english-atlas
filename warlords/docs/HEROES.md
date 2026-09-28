@@ -96,7 +96,7 @@
 | 键 Key | 技能 Ability | 冷却 CD | 效果 Effect |
 |---|---|---|---|
 | 被动<br>Passive | **武圣**<br>Saint of War<br><sub>三国杀：武圣</sub><br><sub>近战伤害 · Melee damage</sub> | — | 近战、火焰、爆炸伤害 +25%；命中燃烧中的目标时追加 30 点近战斩击（1 秒冷却）。<br>Melee, fire and explosive damage +25%. Hitting a burning target adds a 30 melee slash (1 s cooldown). |
-| Q | **青龙斩**<br>Green Dragon Cleave<br><sub>三国杀：武圣</sub><br><sub>近战伤害 · Melee damage</sub> | 9 s | 向前冲锋 8 米，横扫前方 110° 扇形 4.5 米：造成 90 近战伤害并击退。<br>Charge 8 m, then sweep a 110° arc (4.5 m): 90 melee damage and knockback. |
+| Q | **青龙斩**<br>Green Dragon Cleave<br><sub>三国杀：武圣</sub><br><sub>近战伤害 · Melee damage</sub> | 9 s | 向前冲锋至多 8 米（撞到敌人就停在它面前），横扫前方 110° 扇形 4.5 米：造成 90 近战伤害并击退。<br>Charge up to 8 m (stopping in front of the first enemy in the way), then sweep a 110° arc (4.5 m): 90 melee damage and knockback. |
 | E | **义绝**<br>Righteous Severance<br><sub>三国杀：义绝</sub> | 18 s | 准星处敌人 6 秒内无法使用技能与锦囊，且你对其伤害 +30%。<br>The enemy under your crosshair is silenced for 6 s and takes +30% damage from you. |
 
 **台词 Quotes**
