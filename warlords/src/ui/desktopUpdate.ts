@@ -248,7 +248,7 @@ const buildLabel = (version: string | undefined): string => {
  * `refresh()` re-renders it (language change); `dispose()` stops listening.
  */
 export function createUpdateChip(): { el: HTMLElement; refresh(): void; dispose(): void } {
-  const el = h('div', { class: 'sg-update-chip sg-hidden', role: 'status', aria: { live: 'polite' } });
+  const el = h('div', { class: 'sg-update-chip title sg-hidden', role: 'status', aria: { live: 'polite' } });
   if (!bridge()) return { el, refresh: () => undefined, dispose: () => undefined };
   ensureStyles(el.ownerDocument);
   let st: UpdateState | null = null;
@@ -358,9 +358,11 @@ const STYLE_ID = 'sgwl-update-styles';
 const UPDATE_CSS = /* css */ `
 .sg-update-chip { display: inline-flex; align-items: center; gap: 0.45em; max-width: min(34em, calc(100vw - 2em)); padding: 0.2em 0.3em 0.2em 0.85em; border: 1px solid rgba(214, 173, 82, 0.75); border-radius: 999px; background: rgba(12, 8, 4, 0.8); color: var(--paper, #f3e6c8); font: 700 0.86em/1.25 var(--font-body, sans-serif); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); text-shadow: none; pointer-events: auto; }
 .sg-update-chip .msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sg-update-chip .sg-btn.small { font-size: 0.86em; min-height: 1.8em; padding: 0.15em 0.75em; }
+.sg-update-chip .sg-btn.small { font-size: 0.95em; min-height: 1.8em; padding: 0.15em 0.75em; }
 .sg-update-chip .sg-btn.icon { width: 1.9em; min-width: 1.9em; border: 0; background: transparent; }
-@media (max-height: 520px) { .sg-update-chip { font-size: 0.72em; } .sg-update-chip .setup { display: none; } }
+/* title: the top-left corner (the GPU chip and the language button hold the top-right) */
+.sg-update-chip.title { position: absolute; top: 1em; left: 1em; z-index: 3; }
+@media (max-height: 520px) { .sg-update-chip { font-size: 0.72em; } .sg-update-chip.title { top: 0.5em; left: 0.5em; } .sg-update-chip .setup { display: none; } }
 .set-about { display: flex; flex-direction: column; gap: 0.3em; }
 .set-about .upd { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5em; opacity: 0.85; }
 .set-about .upd.available span, .set-about .upd.ready span { font-weight: 700; opacity: 1; }
