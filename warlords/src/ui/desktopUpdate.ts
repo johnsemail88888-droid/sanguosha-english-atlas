@@ -187,6 +187,8 @@ export interface ChipMemo {
 export interface ChipSession {
   shown: boolean;
   dismissed: boolean;
+  /** a join failed on a version mismatch: the update is needed now — show it whatever the throttle says */
+  urgent?: boolean;
 }
 
 /** What the chip offers: a downloaded update (重启并更新) or a new build to download (下载); null: nothing. */
@@ -199,7 +201,9 @@ export function chipOffer(st: UpdateState | null): 'restart' | 'download' | null
 
 /** Show the chip now? Once shown it stays for the launch (until ✕); a launch within 24 h of the last offer stays quiet. */
 export function chipVisible(st: UpdateState | null, memo: ChipMemo | null, session: ChipSession, now: number): boolean {
-  if (!chipOffer(st) || session.dismissed) return false;
+  if (!chipOffer(st)) return false;
+  if (session.urgent) return true;
+  if (session.dismissed) return false;
   if (session.shown) return true;
   if (!memo) return true;
   const age = now - memo.at;
@@ -285,6 +289,18 @@ export function createUpdateChip(): { el: HTMLElement; refresh(): void; dispose(
   return { el, refresh: render, dispose: off };
 }
 
+/**
+ * A join failed because the other side runs another game version (versionMismatch): in the
+ * desktop app, check for the update now and bring the chip back. Returns the hint the error
+ * message adds (null in a browser: reloading the page is the fix there, the message says so).
+ */
+export function versionMismatchHint(): string | null {
+  if (!bridge()) return null;
+  session.urgent = true;
+  updateAction('check');
+  return t('update.mismatch');
+}
+
 // ── 设置 → 通用 → 关于 ─────────────────────────────────────────────────────────
 
 /** The status line + action of 关于 (pure: the tests read it). */
@@ -365,4 +381,5 @@ export function resetDesktopUpdateForTests(): void {
   told = null;
   session.shown = false;
   session.dismissed = false;
+  session.urgent = false;
 }

@@ -64,6 +64,7 @@ const DICT = {
   'update.check': ['检查更新', 'Check for updates'],
   'update.web': ['网页版：刷新页面就是最新版', 'Web version: reloading the page always gets the newest build'],
   'update.dev': ['开发版：不检查更新', 'Development build: no update checks'],
+  'update.mismatch': ['桌面版请先更新：标题页的「重启并更新 / 下载」，或 设置 → 通用 → 关于', 'Desktop app: update it first — “Restart to update” / “Download” on the title screen, or Settings → General → About'],
   'settings.about': ['关于', 'About'],
 
   // ── single ──

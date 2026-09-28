@@ -18,10 +18,12 @@ import {
   saveChipMemo,
   updateAction,
   updateState,
+  versionMismatchHint,
   versionText,
   type UpdateState,
 } from '../../../src/ui/desktopUpdate';
 import { overrideLang } from '../../../src/ui/i18n';
+import { errorMessage } from '../../../src/ui/screens/online';
 
 const g = globalThis as { sgwlDesktop?: unknown };
 afterEach(() => {
@@ -162,6 +164,25 @@ describe('the title chip', () => {
     // a clock that went backwards does not silence it forever
     expect(chipVisible(ready, { at: now + 3600_000, version: '0.1.43' }, fresh, now)).toBe(true);
     expect(chipVisible(st({ status: 'latest' }), null, fresh, now)).toBe(false);
+  });
+
+  it('a version mismatch makes the update urgent: checked now, the chip back despite ✕ and the 24 h quiet', () => {
+    const ready = st({ status: 'ready', version: '0.1.43' });
+    const memo = { at: 1_000, version: '0.1.43' };
+    expect(chipVisible(ready, memo, { shown: true, dismissed: true, urgent: true }, 2_000)).toBe(true);
+    expect(chipVisible(ready, memo, { shown: false, dismissed: false, urgent: true }, 2_000)).toBe(true);
+    expect(chipVisible(st({ status: 'latest' }), null, { shown: false, dismissed: false, urgent: true }, 2_000)).toBe(false);
+    // in a browser: nothing to add (the message already says to reload)
+    expect(versionMismatchHint()).toBeNull();
+    overrideLang('zh');
+    const mismatch = { code: 'versionMismatch', zh: '你与房主的游戏版本不同，请双方刷新到最新版本', en: 'x' };
+    expect(errorMessage(mismatch)).toBe('你与房主的游戏版本不同，请双方刷新到最新版本');
+    // the desktop app: how to update, and a check right away
+    const app = fakeApp();
+    expect(errorMessage(mismatch)).toBe('你与房主的游戏版本不同，请双方刷新到最新版本 — 桌面版请先更新：标题页的「重启并更新 / 下载」，或 设置 → 通用 → 关于');
+    expect(app.calls).toEqual([['check']]);
+    expect(errorMessage({ code: 'roomFull', zh: '房间已满', en: 'The room is full' })).toBe('房间已满');
+    expect(app.calls).toHaveLength(1);
   });
 
   it('the memo survives in localStorage (junk reads as none)', () => {
