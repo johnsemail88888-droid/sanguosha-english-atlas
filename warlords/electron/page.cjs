@@ -10,9 +10,11 @@
 //   same build as the bundled page                              → the bundled page
 //   server unreachable / not ours / silent about its build,
 //   bundled build unknown, no official server in this build
-//   (a VITE_OFFICIAL_WEB='' build: tests, CI), SGWL_DESKTOP_REMOTE=0 → the bundled page
+//   (a VITE_OFFICIAL_WEB='' build: tests, CI; a plain-http one),
+//   SGWL_DESKTOP_REMOTE=0                                        → the bundled page
 //   another build                                                → the server's own page <web>?desktop=1
-//                                                                  (a failed load of it: the bundled one)
+//                                                                  (a failed or stalled load of it, or a
+//                                                                  game that does not start: the bundled one)
 //
 // While the app is open the server may update (at 05:07) or the page may be the older side: a
 // version mismatch the page meets asks again (fixVersion) and reloads whichever page matches, the
@@ -21,13 +23,36 @@
 // The window may thus show remote content, so it shows exactly two origins — the embedded server's
 // and the official server's: navigation anywhere else is refused, IPC answers only the top frame of
 // the window on one of them, permissions go to them only, and links open in the system browser
-// (https only). The bundled page's build and the official server come from dist/sgwl-build.json
+// (https only, rationed). The official origin is remote content: it gets no LAN addresses and only
+// the player's preferences (state.cjs), and it cannot hold updates back for good (updater.cjs).
+// The bundled page's build and the official server come from dist/sgwl-build.json
 // (vite.config.ts, src/net/buildInfo.ts — one source of truth for the official address).
 // Plain CommonJS; Electron comes in through deps, so the unit tests run it.
 'use strict';
 
-/** How long the official server may take to say which build it runs (ms); then the bundled page loads. */
+/** How long the official server may take to say which build it runs at start-up (ms); then the bundled page loads. */
 const PROBE_TIMEOUT_MS = 2500;
+/**
+ * The same question after a version mismatch (fixVersion, ms): the player is waiting on a failed
+ * join anyway — a slow link (a cross-border round trip, a cold TLS handshake) must not turn the fix
+ * into 「版本不同」.
+ */
+const FIX_PROBE_TIMEOUT_MS = 8000;
+/** The official server must answer the page's load (the navigation commits) within this long (ms), else the bundled page takes over. */
+const ANSWER_TIMEOUT_MS = 15_000;
+/**
+ * … and the game must be on screen (its UI root) this long after the load (ms): a script that never
+ * arrived leaves 正在加载… for ever. A page still loading (a slow link: the 2 MB bundle) gets another
+ * look every BOOT_RECHECK_MS, up to BOOT_MAX_MS in all.
+ */
+const BOOT_TIMEOUT_MS = 30_000;
+const BOOT_RECHECK_MS = 10_000;
+const BOOT_MAX_MS = 120_000;
+/** What main.cjs asks the page to tell whether the game started (every build of the game has this root). */
+const BOOTED_JS = "!!document.querySelector('.sg-root')";
+/** At most one link to the system browser this often (ms), and at most OPEN_MAX_PER_MIN a minute: no page floods the browser with tabs. */
+const OPEN_EVERY_MS = 2000;
+const OPEN_MAX_PER_MIN = 5;
 /** At most one automatic page switch (a version fix) this often (ms). */
 const SWITCH_EVERY_MS = 60_000;
 /** dist/<this>: the bundled page's build and official server (src/net/buildInfo.ts BUILD_INFO_FILE). */
@@ -67,6 +92,22 @@ function normalizeWeb(raw) {
   }
 }
 
+/**
+ * The official page is shown in the app's window with the desktop bridge and the player's
+ * preferences: https only (nobody on the network path can answer for an https origin). Plain
+ * http only on this machine (tests). '' for anything else.
+ */
+function secureWeb(web) {
+  if (!web) return '';
+  try {
+    const u = new URL(web);
+    if (u.protocol === 'https:') return web;
+    return u.protocol === 'http:' && /^(127\.0\.0\.1|localhost|\[::1\])$/.test(u.hostname) ? web : '';
+  } catch {
+    return '';
+  }
+}
+
 /** A ws(s) relay URL; '' when it is not one. */
 function normalizeRelay(raw) {
   if (typeof raw !== 'string' || !/^wss?:\/\//i.test(raw.trim())) return '';
@@ -78,8 +119,9 @@ function normalizeRelay(raw) {
 }
 
 /**
- * dist/sgwl-build.json → { compat, sha, officialWeb, officialRelay } (compat null: unknown;
- * officialWeb '': this build has no official page). Junk reads as "nothing known".
+ * dist/sgwl-build.json → { compat, sha, officialWeb, officialRelay, insecureWeb } (compat null:
+ * unknown; officialWeb '': this build has no official page — none at all, or a plain-http one,
+ * which insecureWeb then names: it is never shown). Junk reads as "nothing known".
  */
 function readBuildInfo(text) {
   let j = null;
@@ -91,12 +133,15 @@ function readBuildInfo(text) {
   const o = j && typeof j === 'object' ? j : {};
   const official = o.official && typeof o.official === 'object' ? o.official : {};
   const officialRelay = normalizeRelay(official.relay);
+  // (no relay: no official server — src/net/official.ts officialFrom)
+  const web = officialRelay ? normalizeWeb(official.web) : '';
+  const officialWeb = secureWeb(web);
   return {
     compat: typeof o.compat === 'string' && COMPAT_RE.test(o.compat) ? o.compat : null,
     sha: typeof o.sha === 'string' && o.sha ? o.sha : null,
-    // (no relay: no official server — src/net/official.ts officialFrom)
-    officialWeb: officialRelay ? normalizeWeb(official.web) : '',
+    officialWeb,
     officialRelay,
+    insecureWeb: web && !officialWeb ? web : '',
   };
 }
 
@@ -106,6 +151,7 @@ const remoteOff = (env) => /^(0|false|off|no)$/i.test(String((env && env.SGWL_DE
 /** A reason to show the bundled page without asking the server; null: ask it. */
 function skipProbe(build, env) {
   if (remoteOff(env)) return 'remote page off (SGWL_DESKTOP_REMOTE=0)';
+  if (!build.officialWeb && build.insecureWeb) return `the official server is not https (${build.insecureWeb}): never shown in the window`;
   if (!build.officialWeb) return 'no official server in this build';
   if (!build.compat) return 'bundled build unknown';
   return null;
@@ -181,6 +227,23 @@ function externalUrl(url) {
 }
 
 /**
+ * Links to the system browser, rationed: at most one every OPEN_EVERY_MS and OPEN_MAX_PER_MIN a
+ * minute (Electron has no popup blocker: a page's window.open in a loop would fill the player's
+ * browser with tabs that seem to come from the game). → allow(): true when this one may open.
+ */
+function createOpenLimiter(now = Date.now) {
+  const recent = [];
+  return () => {
+    const t = now();
+    while (recent.length && t - recent[0] >= 60_000) recent.shift();
+    if (recent.length && t - recent[recent.length - 1] < OPEN_EVERY_MS) return false;
+    if (recent.length >= OPEN_MAX_PER_MIN) return false;
+    recent.push(t);
+    return true;
+  };
+}
+
+/**
  * The origin allowlist (`origins()`: the embedded server's and the official server's, whatever
  * shows now) and the checks built on it — ONE place for all of them:
  *   allowsUrl(url)            navigation / redirects
@@ -233,47 +296,133 @@ function cleanFixRequest(req) {
   return { room, create: !room && o.create === true, compat: typeof o.compat === 'string' && COMPAT_RE.test(o.compat) ? o.compat : null };
 }
 
+/** A game-compatibility id, or null. */
+const cleanCompat = (v) => (typeof v === 'string' && COMPAT_RE.test(v) ? v : null);
+
 /**
  * The window's page, for one app run.
  * deps: { port (the embedded server's), build (readBuildInfo), env, fetch (net.fetch),
- *   load(url) → Promise (the window's loadURL), online() → bool, log, now, defer(fn), timeoutMs }
- * Returns { origins(), current(), pick(), open(decision), onFailLoad(code, desc, url, isMainFrame),
- *   onNavigate(url, httpCode), fallback(why), fixVersion(req), useBundled(why) }.
+ *   load(url) → Promise (the window's loadURL), online() → bool, booted() → Promise<bool> (the game
+ *   is on screen: main.cjs runs BOOTED_JS in the page), loading() → bool (the page is still
+ *   loading), log, now, defer(fn), setTimer(fn, ms), clearTimer(t), timeoutMs (the start-up
+ *   probe's), fixTimeoutMs (a version fix's) }
+ * Returns { origins(), bundledOrigin(), bundledCompat(), current(), pick(), open(decision),
+ *   onFailLoad(code, desc, url, isMainFrame), onNavigate(url, httpCode), onDomReady(), fallback(why),
+ *   fixVersion(req), cancelFix(), useBundled(why, req), notePageBuild(compat) }.
  */
 function createPages(deps) {
   const log = deps.log || console;
   const now = deps.now || Date.now;
   const defer = deps.defer || ((fn) => setTimeout(fn, 150));
+  const setTimer =
+    deps.setTimer ||
+    ((fn, ms) => {
+      const t = setTimeout(fn, ms);
+      if (t && typeof t.unref === 'function') t.unref();
+      return t;
+    });
+  const clearTimer = deps.clearTimer || ((t) => clearTimeout(t));
   const build = deps.build;
   const env = deps.env || {};
   const bundledBase = `http://127.0.0.1:${deps.port}/`;
+  const bundledOrigin = originOf(bundledBase);
   // SGWL_DESKTOP_REMOTE=0 or a build without one: no official page at all (nor its origin)
   const officialWeb = remoteOff(env) ? '' : build.officialWeb;
   const officialOrigin = originOf(officialWeb);
-  const allowed = [originOf(bundledBase), officialOrigin].filter(Boolean);
-  const ask = () => probeOfficial(officialWeb, deps.fetch, deps.timeoutMs || PROBE_TIMEOUT_MS, deps.timers);
+  const allowed = [bundledOrigin, officialOrigin].filter(Boolean);
+  // (a version fix waits longer than the start-up does: FIX_PROBE_TIMEOUT_MS)
+  const ask = () => probeOfficial(officialWeb, deps.fetch, deps.fixTimeoutMs || FIX_PROBE_TIMEOUT_MS, deps.timers);
   /** what the window shows (or is loading): page, its build, the request it carries */
   let cur = { page: 'bundled', compat: build.compat, url: null, req: null };
   /** the official page failed since it was last chosen: the bundled page took over */
   let fellBack = false;
   let lastSwitch = -Infinity;
+  /** bumped by every load: the watchdog of an earlier load does nothing */
+  let loadSeq = 0;
+  /** the official server answered the page's load (its navigation committed) */
+  let answered = false;
+  let watch = [];
+  /** version fixes asked, and the last one the page cancelled (取消 while the server was asked) */
+  let fixSeq = 0;
+  let cancelledUpTo = 0;
 
-  /** <page>?desktop=1 — with the room (joined there by itself: mode + the official relay) or 创建房间 carried over */
+  /**
+   * <page>?desktop=1 — with the room (joined there by itself) or 创建房间 carried over, and how that
+   * room is reached: mode=ws + the official relay; `lan`: mode=ws alone (the page's own server — the
+   * bundled page's is the app's LAN server).
+   */
   function urlFor(page, req) {
     const q = new URLSearchParams({ desktop: '1' });
-    if (req && req.room) {
-      q.set('room', req.room);
-      if (build.officialRelay) {
+    if (req && req.room) q.set('room', req.room);
+    else if (req && req.create) q.set('create', '1');
+    if (req && (req.room || req.create)) {
+      if (req.lan) q.set('mode', 'ws');
+      else if (build.officialRelay) {
         q.set('mode', 'ws');
         q.set('ws', build.officialRelay);
       }
-    } else if (req && req.create) q.set('create', '1');
+    }
     return `${page === 'official' ? officialWeb : bundledBase}?${q.toString()}`;
+  }
+
+  function disarm() {
+    for (const t of watch) clearTimer(t);
+    watch = [];
+  }
+
+  /** The game is on screen (deps.booted; none: it counts as started — never a fallback on a guess). */
+  function isBooted() {
+    if (typeof deps.booted !== 'function') return Promise.resolve(true);
+    return Promise.resolve()
+      .then(() => deps.booted())
+      .then(
+        (v) => v !== false,
+        () => false,
+      );
+  }
+
+  /** The page is still loading (deps.loading: a slow link's bundle on its way); unknown: no. */
+  function stillLoading() {
+    try {
+      return typeof deps.loading === 'function' && deps.loading() === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The official page must be answered (its navigation commits within ANSWER_TIMEOUT_MS) and start
+   * the game (its UI within BOOT_TIMEOUT_MS — longer while it is still loading, BOOT_MAX_MS at most),
+   * else the bundled page: a stalled response, or an entry script that never arrived (a Funnel
+   * reset, the server restarting between the HTML and its scripts), would leave the window blank or
+   * on 正在加载… with nothing to click.
+   */
+  function arm(seq) {
+    answered = false;
+    const since = now();
+    const still = () => seq === loadSeq && cur.page === 'official';
+    const bootCheck = () => {
+      if (!still()) return;
+      void isBooted().then((ok) => {
+        if (ok || !still()) return;
+        if (stillLoading() && now() - since + BOOT_RECHECK_MS <= BOOT_MAX_MS) watch.push(setTimer(bootCheck, BOOT_RECHECK_MS));
+        else fallback(`the game did not start within ${Math.round((now() - since) / 1000)} s`);
+      });
+    };
+    watch.push(
+      setTimer(() => {
+        if (still() && !answered) fallback(`no answer within ${ANSWER_TIMEOUT_MS / 1000} s`);
+      }, ANSWER_TIMEOUT_MS),
+      setTimer(bootCheck, BOOT_TIMEOUT_MS),
+    );
   }
 
   function load(page, req, compat) {
     const url = urlFor(page, req);
     cur = { page, compat: compat || null, url, req: req || null };
+    const seq = ++loadSeq;
+    disarm();
+    if (page === 'official') arm(seq);
     return Promise.resolve()
       .then(() => deps.load(url))
       .catch((err) => {
@@ -294,6 +443,10 @@ function createPages(deps) {
 
   return {
     origins: () => allowed.slice(),
+    /** http://127.0.0.1:<port>: the app's own page (the other allowed origin is remote content) */
+    bundledOrigin: () => bundledOrigin,
+    /** the bundled page's build (null: unknown) */
+    bundledCompat: () => build.compat,
     current: () => ({ page: cur.page, compat: cur.compat, url: cur.url }),
     /** Ask the official server (≤ timeoutMs) and log the choice: '[desktop] page: official (…)' / 'page: bundled (…)'. */
     async pick() {
@@ -311,10 +464,19 @@ function createPages(deps) {
       if (!isMainFrame || code === ERR_ABORTED) return false;
       return fallback(`${code} ${desc || ''}`.trim());
     },
-    /** webContents 'did-navigate': the official page answered an HTTP error (the server is down behind its proxy) → fall back. */
+    /**
+     * webContents 'did-navigate' (the main frame's navigation committed): the official server
+     * answered — with an HTTP error (the server is down behind its proxy) → fall back.
+     */
     onNavigate(url, httpCode) {
-      if (officialOrigin && originOf(url) === officialOrigin && Number(httpCode) >= 400) return fallback(`HTTP ${httpCode}`);
+      if (!officialOrigin || originOf(url) !== officialOrigin) return false;
+      answered = true;
+      if (Number(httpCode) >= 400) return fallback(`HTTP ${httpCode}`);
       return false;
+    },
+    /** webContents 'dom-ready': the page's document is there (answered, at the latest now; the watchdog then waits for the game). */
+    onDomReady() {
+      answered = true;
     },
     fallback,
     /**
@@ -324,10 +486,13 @@ function createPages(deps) {
      */
     async fixVersion(raw) {
       const req = cleanFixRequest(raw);
+      const ticket = ++fixSeq;
       // (SGWL_DESKTOP_REMOTE=0, a build without an official server: the bundled page is all there is — nobody is asked)
       if (!officialWeb) return { switched: false, reason: 'the remote page is off (or this build has no official server)' };
       if (now() - lastSwitch < SWITCH_EVERY_MS) return { switched: false, reason: 'switched less than a minute ago' };
       const probe = await ask();
+      // 取消 while the server was asked: the screen is the player's again
+      if (ticket <= cancelledUpTo) return { switched: false, reason: 'cancelled' };
       if (!probe.ok) return { switched: false, reason: `official server ${probe.reason}` };
       if (!probe.compat) return { switched: false, reason: 'the official server did not say its build' };
       // what the page says it is (its COMPAT_ID); else what was loaded
@@ -343,24 +508,49 @@ function createPages(deps) {
       defer(() => void load(page, req, probe.compat));
       return { switched: true, page };
     },
-    /** 切换到本机版本 (LAN play: friends on the LAN get the bundled build). false: it shows already. */
-    useBundled(why) {
+    /** 取消 on the page while a version fix asks the server: the fixes asked so far switch nothing. */
+    cancelFix() {
+      cancelledUpTo = fixSeq;
+    },
+    /**
+     * The bundled page: 切换到本机版本 (LAN play — friends on the LAN get the bundled build), or the
+     * official page's 自建服务器 without an address of its own (that is the app's LAN server) with
+     * the room / 创建房间 carried over (`req`). false: it shows already.
+     */
+    useBundled(why, raw) {
       if (cur.page === 'bundled') return false;
-      log.info(`[desktop] page: bundled (${why || 'asked for'})`);
-      void load('bundled', null, build.compat);
+      const r = raw ? cleanFixRequest(raw) : null;
+      const req = r && (r.room || r.create) ? { room: r.room, create: r.create, lan: true } : null;
+      log.info(`[desktop] page: bundled (${why || 'asked for'}${req ? (req.room ? `, room ${req.room}` : ', create a room') : ''})`);
+      void load('bundled', req, build.compat);
       return true;
+    },
+    /** The page says which build it is (its COMPAT_ID, when it starts): what the LAN dialog compares with the bundled build. */
+    notePageBuild(compat) {
+      const c = cleanCompat(compat);
+      if (c) cur = { ...cur, compat: c };
+      return !!c;
     },
   };
 }
 
 module.exports = {
   PROBE_TIMEOUT_MS,
+  FIX_PROBE_TIMEOUT_MS,
+  ANSWER_TIMEOUT_MS,
+  BOOT_TIMEOUT_MS,
+  BOOT_RECHECK_MS,
+  BOOT_MAX_MS,
+  BOOTED_JS,
+  OPEN_EVERY_MS,
+  OPEN_MAX_PER_MIN,
   SWITCH_EVERY_MS,
   BUILD_FILE,
   PERMISSIONS,
   ERR_ABORTED,
   originOf,
   normalizeWeb,
+  secureWeb,
   readBuildInfo,
   remoteOff,
   skipProbe,
@@ -368,6 +558,7 @@ module.exports = {
   pageFor,
   pickPage,
   externalUrl,
+  createOpenLimiter,
   createGuard,
   guardNavigation,
   cleanFixRequest,

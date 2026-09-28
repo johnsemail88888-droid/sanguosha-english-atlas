@@ -9,9 +9,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { BUILD_FILE, createGuard, createPages, externalUrl, guardNavigation, readBuildInfo } = require('./page.cjs');
-const { mirrorFile, portOrder, readJson, syncPlan, writeJson } = require('./state.cjs');
+const { BOOTED_JS, BUILD_FILE, createGuard, createOpenLimiter, createPages, externalUrl, guardNavigation, readBuildInfo } = require('./page.cjs');
+const { mirrorFile, portOrder, readJson, relayKeyOrigin, syncPlan, writeJson } = require('./state.cjs');
 const { createUpdater, feedFromAppUpdateYml } = require('./updater.cjs');
+
+/** The window shows without waiting for its page's first paint after this long (ms): a page that is slow to answer is not an invisible app. */
+const SHOW_ANYWAY_MS = 4000;
 
 const APP_NAME = '三国杀·枪火乱世';
 
@@ -28,6 +31,14 @@ let win = null;
 let lan = null;
 /** the window's page (bundled / official) and its allowed origins — made once the embedded server has its port */
 let pages = null;
+/** the official relay's key-store origin (wss://host): the one access key the official page may get from the app's page */
+let officialKeyOrigin = null;
+/** the page said a match is on (sgwl:update-playing; cleared when the window loads another page) */
+let pagePlaying = false;
+/** links to the system browser, rationed (page.cjs) */
+const mayOpenExternal = createOpenLimiter();
+/** the session's will-download handler is set (once: createWindow runs again on macOS 'activate') */
+let downloadsRefused = false;
 
 /**
  * The origins the window may show and every check on them (page.cjs): navigation, each sgwl:*
@@ -254,6 +265,25 @@ const senderOrigin = (ev) => {
   return f && typeof f.origin === 'string' ? f.origin : '';
 };
 
+/** The IPC came from the app's own page (the bundled one) — not from the official server's page, which is remote content. */
+const fromBundled = (ev) => !!pages && senderOrigin(ev) === pages.bundledOrigin();
+
+/** How the settings mirror treats a page (state.cjs): the app's own page all of it, the official server's its preferences only. */
+const mirrorScope = (ev) => (fromBundled(ev) ? null : { keyOrigin: officialKeyOrigin });
+
+/** The game is on screen in the window (page.cjs BOOTED_JS; the page gets 3 s to answer). */
+function pageBooted() {
+  const wc = win && win.webContents;
+  if (!wc || typeof wc.executeJavaScript !== 'function') return Promise.resolve(true);
+  let timer = null;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), 3000);
+  });
+  return Promise.race([Promise.resolve(wc.executeJavaScript(BOOTED_JS)).then((v) => v === true), late])
+    .catch(() => false)
+    .finally(() => clearTimeout(timer));
+}
+
 // renderer (preload): the WebGL feature status, answered once the GPU process has reported
 // (the page blocks for at most 3 s; a GPU process that never comes up answers the status as is)
 onPage('sgwl:webgl', (ev) => {
@@ -278,13 +308,21 @@ async function createWindow() {
   const port = server.port;
   void logGpu();
   if (!pages) {
+    const build = bundledBuild();
+    officialKeyOrigin = relayKeyOrigin(build.officialRelay);
     pages = createPages({
       port,
-      build: bundledBuild(),
+      build,
       env: process.env,
       fetch: netFetch(),
       online: () => (net && typeof net.isOnline === 'function' ? net.isOnline() : true),
       load: (url) => (win ? win.loadURL(url) : Promise.resolve()),
+      // the official page's watchdog: is the game on screen (else the bundled page), is the page still loading (a slow link: wait)
+      booted: pageBooted,
+      loading: () => {
+        const wc = win && win.webContents;
+        return !!wc && typeof wc.isLoading === 'function' && wc.isLoading() === true;
+      },
       log: console,
     });
   }
@@ -298,6 +336,15 @@ async function createWindow() {
   });
   if (typeof ses.setPermissionCheckHandler === 'function') {
     ses.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => guard.permits(permission, requestingOrigin || (details && details.requestingUrl) || ''));
+  }
+  // the game never downloads anything in its window (updates: electron-updater, or the system browser):
+  // a page's download would pop a native Save dialog from the app — for a fake 'setup' build, say
+  if (!downloadsRefused && typeof ses.on === 'function') {
+    downloadsRefused = true;
+    ses.on('will-download', (e, item) => {
+      e.preventDefault();
+      console.warn('[desktop] download refused', item && typeof item.getURL === 'function' ? String(item.getURL()).slice(0, 200) : '');
+    });
   }
 
   win = new BrowserWindow({
@@ -328,13 +375,17 @@ async function createWindow() {
         `--sgwl-version=${app.getVersion()}`,
         // the preload exposes sgwlDesktop on these origins only (page.cjs)
         `--sgwl-origins=${encodeURIComponent(JSON.stringify(pages.origins()))}`,
+        // the bundled page's build: the official page compares its own with it (LAN play)
+        `--sgwl-bundled-compat=${pages.bundledCompat() || ''}`,
       ],
     },
   });
-  // links (target=_blank) open in the system browser — https only; the window itself stays on the game's origins
+  // links (target=_blank) open in the system browser — https only, rationed (no page floods the
+  // browser with tabs); the window itself stays on the game's origins
   win.webContents.setWindowOpenHandler(({ url }) => {
     const ext = externalUrl(url);
-    if (ext) void shell.openExternal(ext);
+    if (ext && mayOpenExternal()) void shell.openExternal(ext);
+    else if (ext) console.warn('[desktop] link not opened (too many at once):', ext.slice(0, 200));
     return { action: 'deny' };
   });
   win.once('ready-to-show', () => {
@@ -343,6 +394,12 @@ async function createWindow() {
     // test: it would ask GitHub, and offer a release to the CI build)
     if (!(Number(process.env.SGWL_DESKTOP_SMOKE) > 0)) getUpdater().start();
   });
+  // a page slow to answer (the official server stalling: the watchdog falls back meanwhile) — the
+  // window shows anyway, never an app that seems not to start
+  const showAnyway = setTimeout(() => {
+    if (win && typeof win.isVisible === 'function' && !win.isVisible()) win.show();
+  }, SHOW_ANYWAY_MS);
+  if (typeof showAnyway.unref === 'function') showAnyway.unref();
   win.on('closed', () => {
     win = null;
   });
@@ -363,7 +420,16 @@ async function createWindow() {
       // the official page did not load: the bundled one (once; a replaced load, ERR_ABORTED, is no failure)
       pages.onFailLoad(code, desc, url, isMainFrame);
     });
-    wc.on('did-navigate', (_e, url, httpCode) => pages.onNavigate(url, httpCode));
+    wc.on('did-navigate', (_e, url, httpCode) => {
+      // another page: it says itself whether a match is on (one that went away mid-match holds no update back)
+      if (pagePlaying) {
+        pagePlaying = false;
+        if (updater) updater.setPlaying(false);
+      }
+      pages.onNavigate(url, httpCode);
+    });
+    // the page's document is there (the official page's watchdog then waits for the game to start)
+    wc.on('dom-ready', () => pages.onDomReady());
     wc.on('render-process-gone', (_e, d) => console.error('[desktop] renderer gone', JSON.stringify(d)));
   }
   await pages.open(await picked);
@@ -414,11 +480,13 @@ function showLan() {
   const urls = lanUrls(port);
   const text = urls.length ? urls.join('\n') : '(未检测到局域网地址 / no LAN address found)';
   if (urls[0]) clipboard.writeText(urls[0]);
-  // the window shows the official server's build (page.cjs): LAN friends get this app's build — the two
-  // would not match (and a room made on that page lives on the official server). Say so; offer this app's page.
-  const official = !!pages && pages.current().page === 'official';
-  const note = official
-    ? '\n\n注意：窗口现在显示的是官方服务器的版本（与本机版本不同）。局域网里的朋友打开上面的地址得到的是本机版本，两边版本不同无法一起玩：局域网联机请先点「切换到本机版本」。\nNote: this window shows the official server’s version of the game, not this app’s own. Friends opening a LAN address get this app’s version and could not play with you: for LAN play, switch to this app’s version first.'
+  // the window shows the official server's page of another build than this app's (page.cjs; the page
+  // says its build when it starts): LAN friends get this app's build — the two would not match. Say so,
+  // and offer this app's page. (The official page of this very build: nothing to say.)
+  const cur = pages ? pages.current() : null;
+  const differs = !!cur && cur.page === 'official' && (!cur.compat || cur.compat !== pages.bundledCompat());
+  const note = differs
+    ? '\n\n注意：窗口现在显示的是官方服务器的版本（与本机版本不同）。局域网里的朋友打开上面的地址得到的是本机版本，两边版本不同无法一起玩：局域网联机请先点「切换到本机版本」（窗口会重新载入）。\nNote: this window shows the official server’s version of the game, not this app’s own. Friends opening a LAN address get this app’s version and could not play with you: for LAN play, switch to this app’s version first (the window reloads).'
     : '';
   void dialog
     .showMessageBox({
@@ -428,34 +496,52 @@ function showLan() {
         ? `同一局域网的朋友用浏览器打开以下地址即可加入（第一个地址已复制到剪贴板）：\nFriends on the same network can open (the first one is copied):\n\n${urls[0]}`
         : '未检测到局域网地址，请检查网络连接。\nNo LAN address found — check your network connection.',
       detail: `${text}\n\n在游戏里选择「联机 → 服务器模式」创建房间，把房间码发给朋友。\nIn game choose Online → Server mode, create a room and share the code.${note}`,
-      ...(official ? { buttons: ['切换到本机版本 / Use this app’s version', '关闭 / Close'], defaultId: 0, cancelId: 1 } : {}),
+      // Enter / Esc close it — switching reloads the window (a room or lobby would be left): a click on it only
+      ...(differs ? { buttons: ['切换到本机版本 / Use this app’s version', '关闭 / Close'], defaultId: 1, cancelId: 1 } : {}),
     })
-    .then((r) => {
-      if (official && r && r.response === 0 && pages) pages.useBundled('LAN play: switched to this app’s version');
+    .then(async (r) => {
+      if (!differs || !r || r.response !== 0 || !pages) return;
+      // mid-match (the page said so): the switch would leave it — asked once more, 取消 the default
+      if (pagePlaying) {
+        const sure = await dialog.showMessageBox({
+          type: 'warning',
+          title: '局域网联机 / LAN play',
+          message: '正在对局中：切换会重新载入窗口并离开当前对局。\nA match is on: switching reloads the window and leaves the match.',
+          buttons: ['仍然切换 / Switch anyway', '取消 / Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+        });
+        if (!sure || sure.response !== 0) return;
+      }
+      pages.useBundled('LAN play: switched to this app’s version');
     })
     .catch(() => undefined);
 }
 
-// renderer (preload): a fresh, ranked LAN address list on demand
+// renderer (preload): a fresh, ranked LAN address list on demand — to the app's own page only: the
+// official server's page is remote content, and this machine's network addresses are none of its business
 onPage('sgwl:lan-urls', (ev) => {
-  ev.returnValue = lanUrls(server ? server.port : 8787);
+  ev.returnValue = fromBundled(ev) ? lanUrls(server ? server.port : 8787) : null;
 }, { sync: true });
 
 // renderer (preload): the mirrored localStorage keys (PLATFORM-7, see state.cjs) — the page sends its
-// 'sgwl…' keys and gets what to change to hold the newest settings…
+// 'sgwl…' keys and gets what to change to hold the newest settings (the official server's page: the
+// preferences only — mirrorScope)…
 onPage('sgwl:storage-load', (ev, items) => {
   try {
-    ev.returnValue = syncPlan(items, mirror().load());
+    ev.returnValue = syncPlan(items, mirror().load(), mirrorScope(ev));
   } catch (err) {
     console.warn('[desktop] reading the settings mirror failed', err);
     ev.returnValue = null;
   }
 }, { sync: true });
-// … then what it changed (only that is written: never its stale settings over newer ones)
+// … then what it changed (only that is written: never its stale settings over newer ones; from the
+// official server's page never a connection, a key or a switch)
 onPage('sgwl:storage-save', (ev, msg) => {
   try {
     const m = msg && typeof msg === 'object' ? msg : {};
-    ev.returnValue = syncPlan(m.items, mirror().patch({ set: m.set, del: m.del }, senderOrigin(ev)));
+    const scope = mirrorScope(ev);
+    ev.returnValue = syncPlan(m.items, mirror().patch({ set: m.set, del: m.del }, senderOrigin(ev), scope), scope);
   } catch (err) {
     console.warn('[desktop] writing the settings mirror failed', err);
     ev.returnValue = null;
@@ -473,14 +559,28 @@ onPage('sgwl:update-do', (_ev, action, which) => {
   else if (action === 'download') u.download(which === 'setup' ? 'setup' : undefined);
   else if (action === 'check') void u.check();
 });
-onPage('sgwl:update-playing', (_ev, on) => getUpdater().setPlaying(!!on));
+onPage('sgwl:update-playing', (_ev, on) => {
+  pagePlaying = !!on;
+  getUpdater().setPlaying(pagePlaying);
+});
 
 // renderer (preload: sgwlDesktop.fixVersion): 「版本不同」 on the official server — ask it again and reload
 // the page of its build, the room code kept (page.cjs: at most one switch a minute)
 handlePage('sgwl:fix-version', (_ev, req) => (pages ? pages.fixVersion(req) : { switched: false, reason: 'no window yet' }));
-// renderer (preload: sgwlDesktop.useBundled): 切换到本机版本 (LAN play)
-onPage('sgwl:use-bundled', () => {
-  if (pages) pages.useBundled('LAN play: switched to this app’s version');
+// … sgwlDesktop.cancelFix: 取消 while the server is asked — that fix switches nothing
+onPage('sgwl:fix-cancel', () => {
+  if (pages) pages.cancelFix();
+});
+// renderer (preload: sgwlDesktop.useBundled): 切换到本机版本 (LAN play) — or, from the official page,
+// 自建服务器 without an address of its own (the app's LAN server) with the room / 创建房间 carried over
+onPage('sgwl:use-bundled', (_ev, req) => {
+  if (!pages) return;
+  const carried = !!req && typeof req === 'object' && (!!req.room || req.create === true);
+  pages.useBundled(carried ? 'LAN play: the room goes to this app’s own server' : 'LAN play: switched to this app’s version', req);
+});
+// renderer (preload: sgwlDesktop.reportBuild): the page's build, when it starts (the LAN dialog compares it with the bundled one)
+onPage('sgwl:page-build', (_ev, compat) => {
+  if (pages) pages.notePageBuild(compat);
 });
 
 // one instance: a second launch (double-clicked again) focuses the running window

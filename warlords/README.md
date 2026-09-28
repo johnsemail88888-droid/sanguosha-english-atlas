@@ -30,7 +30,7 @@ English section below → [English](#english).*
 | 方式 | 说明 |
 |---|---|
 | **网页版** | <https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/> —— 打开即玩（推荐 Chrome / Edge / Firefox 最新版） |
-| **桌面版** | 在 GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest) 下载。**Windows 推荐安装版 `…-Windows-setup.exe`：装一次，以后自动更新**（后台下载新版本，退出游戏时安装，标题页也可点「重启并更新」）；便携版 `…-Windows-portable.exe` 和 macOS（`.dmg`）有新版本时标题页会提示「有新版本 build N · 下载」；Linux（`.AppImage`）同样自动更新。标题页写着「测试版 v0.1.0」的旧桌面版不会自动更新，需重新下载一次。联机零设置：打开就连官方服务器。**不会再「版本不同」**：桌面版启动时先问官方服务器在跑哪个版本——和本机相同就用本机自带的页面（快、离线也能玩），不同就直接打开官方服务器的页面；开着游戏时服务器更新了，遇到版本不同会自动切换并重新进入同一个房间（网页版同理：自动打开官方服务器的页面并带上房间号）。桌面版自带局域网服务器。应用未签名：Windows 首次运行点「更多信息 → 仍要运行」，并在防火墙提示里允许「专用网络」（否则朋友连不进来）；macOS 15+ 在「系统设置 → 隐私与安全性」点「仍要打开」。 |
+| **桌面版** | 在 GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest) 下载。**Windows 推荐安装版 `…-Windows-setup.exe`：装一次，以后自动更新**（后台下载新版本，退出游戏时安装，标题页也可点「重启并更新」）；便携版 `…-Windows-portable.exe` 和 macOS（`.dmg`）有新版本时标题页会提示「有新版本 build N · 下载」；Linux（`.AppImage`）同样自动更新。标题页写着「测试版 v0.1.0」的旧桌面版不会自动更新，需重新下载一次。联机零设置：打开就连官方服务器。**不会再「版本不同」**：桌面版启动时先问官方服务器在跑哪个版本——和本机相同就用本机自带的页面（快、离线也能玩），不同就直接打开官方服务器的页面；开着游戏时服务器更新了，遇到版本不同会自动切换并重新进入同一个房间（网页版同理：自动打开官方服务器的页面并带上房间号）。官方服务器的页面只拿到你的偏好设置（名字、语言、画质等），拿不到服务器密钥、局域网地址；它打不开或卡在加载时，桌面版会自动退回本机页面。桌面版自带局域网服务器。应用未签名：Windows 首次运行点「更多信息 → 仍要运行」，并在防火墙提示里允许「专用网络」（否则朋友连不进来）；macOS 15+ 在「系统设置 → 隐私与安全性」点「仍要打开」。 |
 | **离线单文件** | 下载 [`sanguo-warlords-offline.html`](https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/sanguo-warlords-offline.html)（或自行 `npm run build:single` 生成 `dist-single/index.html`），双击即可单机游玩，无需网络。 |
 
 手机横屏也能玩（自动切换触屏操作：左侧摇杆、右侧拖动瞄准、射击 / 开镜 / 跳跃 / 闪避 / 技能按钮；左上角「令 聊 图 战 ☰」再点一次即关闭，长按锦囊栏可查看说明）。
@@ -184,7 +184,7 @@ English section below → [English](#english).*
 ### 2. 局域网 / 自建服务器（服务器模式）
 一个端口同时提供：游戏网页、WebSocket 中继（`/ws`）和 PeerJS 信令（`/peerjs`）。
 
-- **桌面版**：已内置服务器。菜单「游戏 → 局域网联机地址…」或联机界面会列出本机局域网地址（带复制按钮），默认使用「服务器」模式。若窗口正显示官方服务器的版本（与本机版本不同时），这两处会提示并提供「切换到本机版本」——局域网朋友拿到的是本机版本。（`SGWL_DESKTOP_REMOTE=0` 启动则始终只用本机版本。）
+- **桌面版**：已内置服务器。菜单「游戏 → 局域网联机地址…」或联机界面会列出本机局域网地址（带复制按钮），默认使用「服务器」模式。若窗口正显示官方服务器的版本（与本机版本不同时），这两处会提示并提供「切换到本机版本」——局域网朋友拿到的是本机版本；在官方页面上用「自建服务器」（未填地址）创建或加入房间，也会自动切回本机版本继续。（`SGWL_DESKTOP_REMOTE=0` 启动则始终只用本机版本。）
 - **命令行**：
   ```bash
   cd warlords
@@ -288,7 +288,7 @@ and glyphs — gameplay is identical.
 
 ### How to play
 - **Web:** <https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/> (latest Chrome / Edge / Firefox; phones in landscape get touch controls).
-- **Desktop:** download from GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest). **On Windows get the installer `…-Windows-setup.exe`: install once and it updates itself** (new builds download in the background and install when you quit, or click “Restart to update” on the title screen). The portable exe and the macOS `.dmg` show “New version: build N · Download” on the title screen; the Linux `.AppImage` updates itself too. An old copy whose title screen says “Beta v0.1.0” cannot update itself: download it once more. Online play needs no setup (the official server). **No more “version differs”:** on start the desktop app asks the official server which build it runs — the same as its own: it shows its bundled page (fast, works offline); another one: it opens the official server’s page instead. If the server updates while the app is open, a version mismatch switches pages by itself and rejoins the same room (the web version likewise opens the official page with the room code). The desktop app embeds the LAN server. The builds are unsigned: on Windows choose "More info → Run anyway" and allow **private networks** at the firewall prompt (otherwise LAN friends can't join); on macOS 15+ use System Settings → Privacy & Security → "Open Anyway".
+- **Desktop:** download from GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest). **On Windows get the installer `…-Windows-setup.exe`: install once and it updates itself** (new builds download in the background and install when you quit, or click “Restart to update” on the title screen). The portable exe and the macOS `.dmg` show “New version: build N · Download” on the title screen; the Linux `.AppImage` updates itself too. An old copy whose title screen says “Beta v0.1.0” cannot update itself: download it once more. Online play needs no setup (the official server). **No more “version differs”:** on start the desktop app asks the official server which build it runs — the same as its own: it shows its bundled page (fast, works offline); another one: it opens the official server’s page instead. If the server updates while the app is open, a version mismatch switches pages by itself and rejoins the same room (the web version likewise opens the official page with the room code). The official server's page only gets your preferences (name, language, graphics…) — never relay keys or your LAN addresses — and if it fails to load or hangs, the app falls back to its own page. The desktop app embeds the LAN server. The builds are unsigned: on Windows choose "More info → Run anyway" and allow **private networks** at the firewall prompt (otherwise LAN friends can't join); on macOS 15+ use System Settings → Privacy & Security → "Open Anyway".
 - **Offline single file:** [`sanguo-warlords-offline.html`](https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/sanguo-warlords-offline.html) (or `npm run build:single` → `dist-single/index.html`); double-click to play single player without a network.
 - Switch the UI language on the title screen (中文 / English).
 - Needs WebGL 2. If the title screen says "3D graphics can't start", turn on hardware acceleration in the browser settings, update the graphics driver or browser, and reload.
@@ -423,7 +423,8 @@ domain: `curl … | sudo DOMAIN=your.domain bash`). Update later with `curl … 
   same-origin relay automatically (`npm run build:headless` too, optionally: server-hosted matches). The desktop app has
   the server built in: its online screen lists your LAN addresses with copy buttons (also under the menu 游戏 → 局域网联机地址…);
   when its window shows the official server's build (it differs from the app's), both say so and offer 切换到本机版本 — LAN friends
-  get the app's build (`SGWL_DESKTOP_REMOTE=0` keeps the app on its own page).
+  get the app's build; creating or joining with 自建服务器 (no address) on the official page switches back by itself
+  (`SGWL_DESKTOP_REMOTE=0` keeps the app on its own page).
   On the open internet set `RELAY_KEY=<24+ random characters>`: online play (`/ws`, `/api/rooms`) then needs `?k=<key>` —
   players open `http://…/?k=<key>`. Also `MAX_ROOMS` (relay rooms, default 1000), `MAX_ROOMS_PER_IP` (rooms one address
   holds at once, default 2) and `HOST_GRACE_MS` (how long a dropped host's room waits, default 120000). Game files are served compressed (`node scripts/precompress.mjs dist` precompresses).

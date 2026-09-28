@@ -5,7 +5,7 @@ import type { Screen, UiCtx } from '../ctx';
 import { Bag, copyText, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { button, segmented } from '../widgets';
-import { desktopInfo, desktopPage, detectLocalServer, refreshLanUrls, servedByLocalServer, useBundledPage } from '../desktop';
+import { desktopInfo, desktopPage, detectLocalServer, lanViaBundledPage, officialPageDiffers, refreshLanUrls, servedByLocalServer, useBundledPage } from '../desktop';
 import {
   choiceChosen,
   choiceOf,
@@ -30,7 +30,7 @@ import { isOfficialWeb, officialServer } from '../../net/official';
 import type { ProbeResult } from '../../net/netCheck';
 import { checkVerdict, classifyP2pFailure, formatCheck, formatProbe, p2pFailureText, p2pFix, type P2pFailure } from '../netHelp';
 import { versionMismatchHint } from '../desktopUpdate';
-import { fixVersionMismatch, roomOnOfficial, SWITCH_PENDING_MS, versionFixPending } from '../versionFix';
+import { cancelVersionFix, fixVersionMismatch, roomOnOfficial, SWITCH_PENDING_MS, versionFixPending } from '../versionFix';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
 export function normalizeRoomCode(raw: string): string {
@@ -87,6 +87,15 @@ export function autoJoinPlan(i: { invited: string | null; rejoin: boolean; invit
   return 'invite';
 }
 
+/**
+ * 正在切换… and this page is still here SWITCH_PENDING_MS later (a slow link; the switch may yet
+ * come): the screen is the player's again — with the error the attempt met (`failed`, the version
+ * mismatch) and 重试 for a join, never an empty status. null: nothing went wrong (a LAN switch).
+ */
+export function switchGaveUp(failed: string | null, kind: 'host' | 'join'): { errorText: string; retryJoin: boolean } | null {
+  return failed ? { errorText: t('online.failed', { msg: failed }), retryJoin: kind === 'join' } : null;
+}
+
 /** Tests: a fresh page load (the automatic joins may run again). */
 export function resetAutoJoinForTests(): void {
   rejoinTried = false;
@@ -113,6 +122,11 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   // an invite link says how the host is reachable: that beats the saved default
   const link = invited ? parseInvite(globalThis.location?.search ?? '') : null;
   const urlMode: NetMode | null = link?.mode ?? null;
+  // ?create=1 (a version fix carried 创建房间 over): the connection its room is on (the official relay, or
+  // the page's own server), and whether the room is made at once or on the player's click
+  const createReq = invited ? null : (ctx.pendingCreate?.() ?? null);
+  /** a create carried over that waits for the player's click (it came from a link, not from this tab or the app) */
+  let createPrompt = !!createReq && !createReq.auto;
   // the room this tab was in (F5 mid-session, or a dropped link — kept ≤ 30 min): its code and its own mode
   const rj = loadRejoin();
   const saved: RejoinInfo | null = rj && (!invited || normalizeRoomCode(invited) === rj.code) ? rj : null;
@@ -123,14 +137,16 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     code = saved.code;
     applyNet(relayNet(saved.mode, saved.net));
   } else if (link && urlMode) applyNet(relayNet(urlMode, link.net));
+  else if (createReq?.mode) applyNet(relayNet(createReq.mode, createReq.wsUrl !== null ? { wsUrl: createReq.wsUrl } : {}));
   if (rejoin) rejoinTried = true;
   const official = officialServer();
   const chosen = official ? choiceChosen() : modeChosen();
   // the desktop app used to default to its LAN server: its invite links (a LAN address) then failed for friends
   // elsewhere — every page starts on the official server when this build has one, else on the saved mode
-  // (public P2P unless the player picked the server); an invite / the saved room says how its room is reached
+  // (public P2P unless the player picked the server); an invite / the saved room / a carried create says how its room is reached
   const net0 = settings.get().net;
-  let choice: ConnChoice = saved || urlMode ? choiceOf(saved?.mode ?? urlMode ?? 'peer', net0.wsUrl) : defaultChoice({ mode: net0.mode, wsUrl: net0.wsUrl, chosen });
+  const givenMode: NetMode | null = saved?.mode ?? urlMode ?? createReq?.mode ?? null;
+  let choice: ConnChoice = givenMode ? choiceOf(givenMode, net0.wsUrl) : defaultChoice({ mode: net0.mode, wsUrl: net0.wsUrl, chosen });
   let mode: NetMode = modeOfChoice(choice);
   const pick = (c: ConnChoice): void => {
     choice = c;
@@ -145,7 +161,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     if ((Object.keys(patch) as (keyof typeof patch)[]).some((k) => patch[k] !== cur[k])) settings.update({ net: { ...cur, ...patch } });
   };
   // a mode from the URL / the saved room (a P2P room stays P2P on a self-hosted page), or one the player picked, is never auto-switched
-  let modeTouched = !!saved || !!urlMode || chosen;
+  let modeTouched = !!givenMode || chosen;
   /** how the invite link reaches its room */
   const urlChoice: ConnChoice | null = link && urlMode ? choiceOf(urlMode, link.net.wsUrl ?? '') : null;
   const choiceName = (c: ConnChoice): string => (c === 'official' ? t('online.official') : c === 'peer' ? t('online.peer') : official ? t('online.own') : t('online.ws'));
@@ -166,6 +182,11 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   let runRef: ((kind: 'host' | 'join') => Promise<void>) | null = null;
   const runJoin = (): Promise<void> => runRef?.('join') ?? Promise.resolve();
   const sameOrigin = (): boolean => servedByLocalServer() && !ownWsUrl().trim();
+  /**
+   * The desktop app's window shows the official server's page and 自建服务器 has no address of its own:
+   * that is the app's LAN server, the bundled page's — the attempt goes there (never the official server)
+   */
+  const lanViaBundled = (): boolean => lanViaBundledPage(choice, ownWsUrl());
   /** 取消 a join in progress: its answer is dropped (a session that still arrives is left at once) */
   const cancel = (): void => {
     attempt++;
@@ -174,7 +195,25 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     retryJoin = false;
     p2pFail = null;
     ctx.cancelJoin?.();
+    // (a version fix asking the server meanwhile switches nothing)
+    cancelVersionFix();
     if (el.isConnected) render();
+  };
+  /**
+   * Another page takes this attempt over (the page of the server's build, or the app's own page):
+   * 正在切换… — and should this page still be here after SWITCH_PENDING_MS (a slow link), the screen
+   * is the player's again, with what went wrong (`failed`), never an empty status.
+   */
+  const startSwitching = (failed: string | null, kind: 'host' | 'join'): void => {
+    switching = true;
+    const mine = attempt;
+    setTimeout(() => {
+      switching = false;
+      if (!el.isConnected || busy || attempt !== mine) return;
+      const after = switchGaveUp(failed, kind);
+      if (after) ({ errorText, retryJoin } = after);
+      render();
+    }, SWITCH_PENDING_MS);
   };
 
   const render = (): void => {
@@ -226,7 +265,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       }
     }
 
-    const wsMissing = choice === 'ws' && !ownWsUrl().trim() && !servedByLocalServer();
+    const wsMissing = choice === 'ws' && !ownWsUrl().trim() && !servedByLocalServer() && !lanViaBundled();
     const codeInput = h('input', {
       class: 'sg-input sg-code-input',
       value: code,
@@ -252,6 +291,18 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         render();
         return;
       }
+      createPrompt = false;
+      // the official server's page in the desktop app, 自建服务器 without an address: the app's LAN server —
+      // the app's own page takes the room over (the window reloads with it; it joins / creates by itself)
+      if (lanViaBundled()) {
+        commitChoice();
+        if (useBundledPage(kind === 'join' ? { room: code } : { create: true })) {
+          if (kind === 'join') clearRejoin();
+          startSwitching(null, kind);
+          render();
+          return;
+        }
+      }
       const mine = ++attempt;
       busy = kind;
       errorText = '';
@@ -270,16 +321,14 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         // 「版本不同」 on the official server: the page of the server's build takes this attempt over — the
         // app's window / this tab is about to be replaced (a create that hit 409 started it in the net layer)
         const mismatch = (err as { code?: unknown } | null)?.code === 'versionMismatch';
-        const fixing = mismatch && (versionFixPending() || (onOfficial && (await fixVersionMismatch(kind === 'join' ? { room: code } : { create: true })) !== null));
+        let fixing = mismatch && versionFixPending();
+        if (mismatch && !fixing && onOfficial) {
+          fixing = (await fixVersionMismatch(kind === 'join' ? { room: code } : { create: true }, { wanted: () => mine === attempt })) !== null;
+          if (mine !== attempt) return; // 取消 while the server was asked: nothing switches, nothing to say
+        }
         if (fixing) {
-          if (mine !== attempt) return;
           if (kind === 'join') clearRejoin();
-          switching = true;
-          // (nothing happened after all: the screen is the player's again)
-          setTimeout(() => {
-            switching = false;
-            if (el.isConnected && !busy) render();
-          }, SWITCH_PENDING_MS);
+          startSwitching(errorMessage(err), kind);
           return;
         }
         errorText = t('online.failed', { msg: errorMessage(err) });
@@ -340,6 +389,8 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         choice === 'ws' && sameOrigin()
           ? h('div', { class: 'sg-note' }, tx(`使用本机服务器中继：${location.host}/ws`, `Relaying through this server: ${location.host}/ws`))
           : null,
+        lanViaBundled() ? h('div', { class: 'sg-note lan-switch' }, t('online.lanSwitch')) : null,
+        createPrompt && !busy && !switching ? h('div', { class: 'sg-note create-prompt' }, t('online.createPrompt')) : null,
         lanBox(),
         h('div', { class: 'sg-online-cols' },
           h('section', { class: 'col' },
@@ -416,6 +467,17 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   /** Desktop app: the LAN addresses friends open in their browser, with copy buttons. */
   function lanBox(): HTMLElement | null {
     if (!desktop) return null;
+    // the window shows the official server's page (the app picked it: the server runs another build than
+    // the app's own): LAN play is the app's own page's — its LAN server, its addresses (this page gets none).
+    // Say whether LAN friends (who get the app's build) could play with this page, and offer the app's page.
+    if (desktopPage() === 'official') {
+      const differs = officialPageDiffers();
+      return h('div', { class: 'sg-lan' },
+        h('h2', { class: 'sg-h2' }, tx('局域网联机', 'LAN play')),
+        h('div', { class: `${differs ? 'sg-warn' : 'sg-note'} lan-version` }, t(differs ? 'online.lanOfficial' : 'online.lanOfficialSame'), ' ',
+          button(t('online.useBundled'), () => void useBundledPage(), { cls: 'small gold use-bundled', sfx: 'confirm' })),
+      );
+    }
     const urls = desktopInfo()?.lanUrls ?? [];
     const rows = urls.map((u) =>
       h('li', { class: 'lan-row' },
@@ -425,15 +487,8 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         }, { cls: 'small dark' }),
       ),
     );
-    // the window shows the official server's build (the app picked it: the server runs another build than the
-    // app's own): LAN friends get the app's build from these addresses — say so and offer the app's page
-    const officialPage = desktopPage() === 'official';
     return h('div', { class: 'sg-lan' },
       h('h2', { class: 'sg-h2' }, tx('局域网联机', 'LAN play')),
-      officialPage
-        ? h('div', { class: 'sg-warn lan-version' }, t('online.lanOfficial'), ' ',
-            button(t('online.useBundled'), () => void useBundledPage(), { cls: 'small gold use-bundled', sfx: 'confirm' }))
-        : null,
       h('p', { class: 'sg-mute' }, urls.length
         ? tx('同一局域网（同一 Wi-Fi / 路由器）的朋友用浏览器打开下面的地址，选择「服务器」模式输入房间码即可加入：', 'Friends on the same network open one of these addresses in a browser, choose Server mode and enter your room code:')
         : tx('未检测到局域网地址（请检查网络连接）。', 'No LAN address found (check your network connection).')),
@@ -454,7 +509,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   const quick = (ctx.takeQuickHost?.() ?? false) && !plan;
   const quickHost = (): void => {
     if (!quick || !el.isConnected || busy) return;
-    if (choice === 'ws' && !ownWsUrl().trim() && !servedByLocalServer()) return; // 服务器 without an address: the warning says so
+    if (choice === 'ws' && !ownWsUrl().trim() && !servedByLocalServer() && !lanViaBundled()) return; // 服务器 without an address: the warning says so
     void runRef?.('host');
   };
   // a page served by our own server (LAN / self-host): same-origin relay → default to server mode

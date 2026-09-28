@@ -6,6 +6,7 @@ import type { AppDeps, LoadProgress } from './app';
 import type { PortraitCache, SfxName } from './widgets';
 import type { LobbyChatLog } from './screens/lobby';
 import type { InviteNotice } from './quickInvite';
+import type { CreateIntent } from './versionFix';
 
 export type ScreenId =
   | 'title'
@@ -62,6 +63,8 @@ export interface UiCtx {
   quickInvite?(): void;
   /** the online screen was opened by quickInvite(): host at once (consumed once) */
   takeQuickHost?(): boolean;
+  /** ?create=1 (a version fix carried 创建房间 over): the connection its room is on, and whether it is created at once (consumed once) */
+  pendingCreate?(): CreateIntent | null;
   /** the quickInvite() link of the current lobby and whether it was copied; `cb` now and on every change */
   inviteNotice?(cb: (n: InviteNotice | null) => void): () => void;
   /** 取消 the join in progress: the session it still produces is left at once */

@@ -6,7 +6,9 @@
 //
 // Only on the app's own pages: the top frame of the window on one of the origins main.cjs allows
 // (the embedded server's, the official server's — --sgwl-origins). Anything else gets no
-// window.sgwlDesktop and no settings (main.cjs checks every IPC sender again).
+// window.sgwlDesktop and no settings (main.cjs checks every IPC sender again). The official
+// server's page is remote content: no LAN addresses or port of this machine, and only the
+// player's preferences from the mirror (main.cjs / state.cjs decide what crosses).
 //
 // Sandboxed (webPreferences.sandbox): only 'electron' can be required here. The mirror's logic
 // (what to restore, what to write) runs in the main process (state.cjs syncPlan / patch); this
@@ -57,6 +59,16 @@ const topFrame = (() => {
   }
 })();
 const ours = topFrame && here !== 'null' && origins.includes(here);
+/** the app's own page (the embedded server's); else the official server's */
+const bundled = here === `http://127.0.0.1:${port}`;
+/** the bundled page's build (page.cjs: the official page compares its own with it for LAN play); '' unknown */
+const bundledCompat = /^[0-9a-f]{8,64}$/.test(arg('sgwl-bundled-compat')) ? arg('sgwl-bundled-compat') : '';
+
+/** A room / 创建房间 request crossing to the main process: only these fields, only these types. */
+function cleanReq(req) {
+  const o = req && typeof req === 'object' ? req : {};
+  return { room: typeof o.room === 'string' ? o.room : null, create: o.create === true, compat: typeof o.compat === 'string' ? o.compat : null };
+}
 
 /** This origin's 'sgwl…' keys (the mirror's mark included): what the main process plans with. */
 function readKeys(store) {
@@ -181,9 +193,12 @@ const update = {
   playing: (on) => ipcRenderer.send('sgwl:update-playing', !!on),
 };
 
-if (ours) {
-  mirrorStorage();
-
+/**
+ * The embedded LAN server's addresses and port — for the app's own page only (the official
+ * server's page gets none: an older one then shows no LAN list, which it handles).
+ */
+function lanBridge() {
+  if (!bundled) return {};
   let lanUrls = [];
   try {
     lanUrls = JSON.parse(decodeURIComponent(arg('sgwl-lan')) || '[]');
@@ -191,9 +206,7 @@ if (ours) {
     lanUrls = [];
   }
   if (!isUrlList(lanUrls)) lanUrls = [];
-
-  contextBridge.exposeInMainWorld('sgwlDesktop', {
-    isDesktop: true,
+  return {
     /** LAN URLs when the window opened, best first (see getLanUrls for a fresh list) */
     lanUrls,
     /** http://<ip>:<port>/ of this machine right now, best first (Wi-Fi / Ethernet before virtual adapters) */
@@ -206,13 +219,28 @@ if (ours) {
       }
     },
     port,
+  };
+}
+
+if (ours) {
+  mirrorStorage();
+
+  contextBridge.exposeInMainWorld('sgwlDesktop', {
+    isDesktop: true,
+    ...lanBridge(),
     /** how Chromium runs WebGL (app.getGPUFeatureStatus().webgl: 'enabled…' = on the GPU; '' unknown) */
     webgl: webglStatus(),
     /** the app's version (0.1.<build> for a release build) */
     version: arg('sgwl-version'),
     update,
     /** which page the window shows: 'bundled' (this app's own build) | 'official' (the official server's build) */
-    page: here === `http://127.0.0.1:${port}` ? 'bundled' : 'official',
+    page: bundled ? 'bundled' : 'official',
+    /** the bundled page's build ('' unknown): the official page tells by it whether LAN friends (who get that build) could play with it */
+    bundledCompat,
+    /** the page says which build it is (its COMPAT_ID) when it starts: the app's LAN dialog compares it with the bundled build */
+    reportBuild: (compat) => {
+      if (typeof compat === 'string') ipcRenderer.send('sgwl:page-build', compat);
+    },
     /**
      * 「版本不同」 on the official server: ask the app to reload the page whose build matches the
      * server's, carrying { room } (joined there by itself) or { create: true } (创建房间 there);
@@ -220,18 +248,20 @@ if (ours) {
      * about to be replaced), or null.
      */
     fixVersion: (req) => {
-      const o = req && typeof req === 'object' ? req : {};
       flush(); // the settings as they are now, before the other page reads them
-      return ipcRenderer.invoke('sgwl:fix-version', {
-        room: typeof o.room === 'string' ? o.room : null,
-        create: o.create === true,
-        compat: typeof o.compat === 'string' ? o.compat : null,
-      });
+      return ipcRenderer.invoke('sgwl:fix-version', cleanReq(req));
     },
-    /** 切换到本机版本: the bundled page (LAN friends get that build) */
-    useBundled: () => {
+    /** 取消 while fixVersion asks the server: it switches nothing then */
+    cancelFix: () => ipcRenderer.send('sgwl:fix-cancel'),
+    /**
+     * 切换到本机版本: the bundled page (LAN friends get that build) — with { room } / { create: true }:
+     * that attempt carried over, on the app's own (LAN) server.
+     */
+    useBundled: (req) => {
       flush();
-      ipcRenderer.send('sgwl:use-bundled');
+      const r = cleanReq(req);
+      if (r.room || r.create) ipcRenderer.send('sgwl:use-bundled', { room: r.room, create: r.create });
+      else ipcRenderer.send('sgwl:use-bundled');
     },
   });
 }

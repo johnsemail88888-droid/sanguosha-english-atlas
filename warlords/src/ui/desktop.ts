@@ -4,11 +4,13 @@
 //    server. `lanUrls` is the list from when the window opened (a laptop that has
 //    changed Wi-Fi since shows a dead address); refreshLanUrls() asks for a fresh one.
 //    The window may show the official server's page instead of the bundled one (`page`,
-//    electron/page.cjs): its relay is then that server's, and LAN play needs the bundled page.
+//    electron/page.cjs): its own server is then the official one (not "this machine's"), it
+//    gets no LAN addresses, and LAN play (自建服务器 without an address) goes to the bundled page.
 //  - A browser that opened the game from `npm run server` (e.g. a friend on the
 //    LAN at http://192.168.1.5:8787/) is detected through GET /sgwl.json.
 // In both cases the WebSocket relay lives on the same origin (/ws), so server
 // mode works with no configuration.
+import { COMPAT_ID } from '../net/compat';
 import { isOfficialRelay, officialServer } from '../net/official';
 
 export interface DesktopInfo {
@@ -18,7 +20,20 @@ export interface DesktopInfo {
   port: number;
 }
 
-type DesktopBridge = Partial<DesktopInfo> & { getLanUrls?: () => unknown; webgl?: unknown; page?: unknown; useBundled?: () => void };
+/** What the desktop page carries to the bundled page (sgwlDesktop.useBundled): the room, or 创建房间. */
+export interface BundledRequest {
+  room?: string | null;
+  create?: boolean;
+}
+
+type DesktopBridge = Partial<DesktopInfo> & {
+  getLanUrls?: () => unknown;
+  webgl?: unknown;
+  page?: unknown;
+  bundledCompat?: unknown;
+  reportBuild?: (compat: string) => void;
+  useBundled?: (req?: { room: string | null; create: boolean }) => void;
+};
 
 function bridge(): DesktopBridge | null {
   const d = (globalThis as { sgwlDesktop?: DesktopBridge }).sgwlDesktop;
@@ -83,15 +98,60 @@ export function desktopPage(): 'bundled' | 'official' | null {
   return p === 'bundled' || p === 'official' ? p : null;
 }
 
-/** 切换到本机版本: the app reloads its window with its own build (LAN play). false when it cannot. */
-export function useBundledPage(): boolean {
+/**
+ * 切换到本机版本: the app reloads its window with its own build (LAN play) — with `req`, that room
+ * joined / a room created there, on the app's own LAN server. false when it cannot.
+ */
+export function useBundledPage(req?: BundledRequest): boolean {
   const d = bridge();
   if (!d || typeof d.useBundled !== 'function') return false;
   try {
-    d.useBundled();
+    const room = typeof req?.room === 'string' && req.room ? req.room : null;
+    const create = !room && req?.create === true;
+    if (room || create) d.useBundled({ room, create });
+    else d.useBundled();
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * The official server's page in the desktop app, 自建服务器 without an address of its own: that
+ * is the app's LAN server — the bundled page's, where the attempt goes (useBundledPage carries the
+ * room / 创建房间 there). This page's own server is the official one: never silently that.
+ */
+export function lanViaBundledPage(choice: string, ownWsUrl: string): boolean {
+  return desktopPage() === 'official' && choice === 'ws' && !ownWsUrl.trim();
+}
+
+/**
+ * Desktop app: the build the app bundles (its LAN friends get that one) — null in a browser, an
+ * older app, or when the app does not know it.
+ */
+export function desktopBundledCompat(): string | null {
+  const c = bridge()?.bundledCompat;
+  return typeof c === 'string' && /^[0-9a-f]{8,64}$/.test(c) ? c : null;
+}
+
+/**
+ * Desktop app, the official server's page: LAN friends (who get the bundled build) could not play
+ * with this page — its build differs from the app's, or the app cannot say.
+ */
+export function officialPageDiffers(compat: string | null = COMPAT_ID): boolean {
+  if (desktopPage() !== 'official') return false;
+  const bundled = desktopBundledCompat();
+  return !bundled || bundled !== compat;
+}
+
+/** Page start: tell the desktop app which build this page is (its LAN dialog compares it with the bundled one). */
+export function reportPageBuild(compat: string | null = COMPAT_ID): void {
+  const d = bridge();
+  if (!d || typeof d.reportBuild !== 'function' || !compat) return;
+  try {
+    d.reportBuild(compat);
+  } catch {
+    /* an older app: its dialog says what it knew at load */
   }
 }
 
@@ -108,12 +168,16 @@ function httpPage(): boolean {
 let serverProbe: Promise<boolean> | null = null;
 let serverKnown: boolean | null = null;
 
-/** Resolves true when this page is served by our server (relay on same-origin /ws). Cached. */
+/**
+ * Resolves true when this page is served by our server (relay on same-origin /ws). Cached. The
+ * desktop app's window: its bundled page yes (the app's LAN server); the official server's page no
+ * — 自建服务器 there means the app's LAN server, which is the bundled page's (online screen).
+ */
 export function detectLocalServer(): Promise<boolean> {
   if (serverProbe) return serverProbe;
   if (desktopInfo()) {
-    serverKnown = true;
-    return (serverProbe = Promise.resolve(true));
+    serverKnown = desktopPage() !== 'official';
+    return (serverProbe = Promise.resolve(serverKnown));
   }
   if (!httpPage() || typeof fetch !== 'function') {
     serverKnown = false;
@@ -136,9 +200,12 @@ export function detectLocalServer(): Promise<boolean> {
   return serverProbe;
 }
 
-/** Synchronous answer once detectLocalServer() settled (desktop: always true). */
+/**
+ * Synchronous answer once detectLocalServer() settled (desktop: the bundled page always, the
+ * official server's page never — its own origin is the official server, not this machine's).
+ */
 export function servedByLocalServer(): boolean {
-  if (desktopInfo()) return true;
+  if (desktopInfo()) return desktopPage() !== 'official';
   return serverKnown === true;
 }
 

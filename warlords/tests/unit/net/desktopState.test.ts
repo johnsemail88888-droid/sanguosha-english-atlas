@@ -10,23 +10,30 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_SETTINGS } from '../../../src/game/settings';
 import { callSync, ELECTRON_DIR, launch, memStorage, pageEvent, preload } from './desktopHarness';
 
 const require = createRequire(import.meta.url);
 type Plan = { version: number; set: Record<string, string>; remove: string[] };
+type Remote = { keyOrigin: string | null } | null;
 const state = require(path.join(ELECTRON_DIR, 'state.cjs')) as {
   PORTS: number[];
   MARK_KEY: string;
+  SETTINGS_KEY: string;
+  REMOTE_KEYS: Set<string>;
+  REMOTE_SETTINGS: Record<string, (v: unknown) => boolean>;
+  MAX_REMOTE_VALUE: number;
   portOrder(last: unknown): number[];
   snapshotStorage(store: Storage): Record<string, string>;
   storageKeys(store: Storage): Record<string, string>;
-  syncPlan(items: unknown, mirror: unknown): Plan;
+  relayKeyOrigin(url: unknown): string | null;
+  syncPlan(items: unknown, mirror: unknown, remote?: Remote): Plan;
   applyPlan(store: Storage, plan: unknown): boolean;
   restoreStorage(store: Storage, mirror: unknown): boolean;
   mirrorFile(file: string): {
     load(): { version: number; items: Record<string, string> } | null;
     save(items: Record<string, string>, origin?: string): number;
-    patch(change: { set?: Record<string, string>; del?: string[] }, origin?: string): { version: number; items: Record<string, string> };
+    patch(change: { set?: Record<string, string>; del?: string[] }, origin?: string, remote?: Remote): { version: number; items: Record<string, string> };
   };
 };
 
@@ -104,6 +111,77 @@ describe('localStorage mirror', () => {
     expect(state.syncPlan({}, null)).toEqual({ version: 0, set: {}, remove: [] });
     // the mark is the mirror's business, never an item
     expect(mirror.patch({ set: { [state.MARK_KEY]: '99', other: 'x' } }).items).not.toHaveProperty(state.MARK_KEY);
+  });
+});
+
+describe('the official server’s page is remote content: only the preferences cross', () => {
+  const O = 'wss://official.test';
+  const settingsOf = (plan: Plan): Record<string, unknown> => JSON.parse(plan.set[state.SETTINGS_KEY]) as Record<string, unknown>;
+
+  it('the shared fields are exactly the preferences of src/game/settings.ts (not `net`), each with a check its default passes', () => {
+    expect(Object.keys(state.REMOTE_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).filter((k) => k !== 'net').sort());
+    for (const [k, ok] of Object.entries(state.REMOTE_SETTINGS)) expect(ok((DEFAULT_SETTINGS as unknown as Record<string, unknown>)[k]), k).toBe(true);
+    // the connection choice, the custom relay, the QA / debug switches, the update chip, the mark: never
+    for (const k of ['sgwl.ui.netChoice.v2', 'sgwl.ui.netModeChosen', 'sgwl.ui.customWsUrl', 'sgwl.debug', 'sgwl.worldArt', 'sgwl.desktop.updateChip', state.MARK_KEY]) {
+      expect(state.REMOTE_KEYS.has(k), k).toBe(false);
+    }
+    expect(state.relayKeyOrigin('wss://official.test/ws')).toBe(O);
+    expect(state.relayKeyOrigin('ws://192.168.1.5:8787/ws')).toBe('ws://192.168.1.5:8787');
+    for (const junk of ['', 'https://x/', 'nonsense', null]) expect(state.relayKeyOrigin(junk)).toBeNull();
+  });
+
+  it('into the official page: the mirror’s preferences over its own settings — its connection kept, only the official server’s own key added', () => {
+    const mirror = {
+      version: 5,
+      items: {
+        [state.SETTINGS_KEY]: JSON.stringify({ playerName: '赵云', lang: 'en', fov: 90, net: { mode: 'ws', wsUrl: 'ws://10.0.0.2:8787/ws', keys: { [O]: 'k-official', 'ws://10.0.0.2:8787': 'k-lan' }, turnPass: 'secret' } }),
+        'sgwl.guide.v1': '2',
+        'sgwl.debug': '1',
+        'sgwl.ui.customWsUrl': 'ws://10.0.0.2:8787/ws',
+      },
+    };
+    const have = { [state.SETTINGS_KEY]: JSON.stringify({ playerName: '主公', net: { mode: 'peer', wsUrl: '' } }), 'sgwl.debug': '0', 'sgwl.gpuWarn.off': '1', 'sgwl.ui.netChoice.v2': '1' };
+    const plan = state.syncPlan(have, mirror, { keyOrigin: O });
+    expect(settingsOf(plan)).toEqual({ playerName: '赵云', lang: 'en', fov: 90, net: { mode: 'peer', wsUrl: '', keys: { [O]: 'k-official' } } });
+    expect(plan.set['sgwl.guide.v1']).toBe('2');
+    expect(plan.set[state.MARK_KEY]).toBe('5');
+    // not shared: neither set nor removed
+    for (const k of ['sgwl.debug', 'sgwl.ui.customWsUrl', 'sgwl.ui.netChoice.v2']) expect(plan.set, k).not.toHaveProperty(k);
+    // a shared key the app's page does not have goes (the page's own switches stay)
+    expect(plan.remove).toEqual(['sgwl.gpuWarn.off']);
+    // a key of its own for the official server is kept
+    const own = state.syncPlan({ [state.SETTINGS_KEY]: JSON.stringify({ net: { keys: { [O]: 'mine' } } }) }, mirror, { keyOrigin: O });
+    expect((settingsOf(own).net as { keys: Record<string, string> }).keys).toEqual({ [O]: 'mine' });
+    // no official relay known: no key at all
+    expect(settingsOf(state.syncPlan({}, mirror, { keyOrigin: null }))).not.toHaveProperty('net');
+    // a mirror without settings never removes the page's own
+    expect(state.syncPlan(have, { version: 6, items: {} }, { keyOrigin: O }).remove).not.toContain(state.SETTINGS_KEY);
+  });
+
+  it('from the official page: its checked preferences only — never a connection, a key, a switch, a junk value; its settings are never deleted', () => {
+    const mirror = state.mirrorFile(path.join(tmp(), 'web-storage.json'));
+    const net = { mode: 'ws', wsUrl: 'ws://10.0.0.2:8787/ws', keys: { 'ws://10.0.0.2:8787': 'k-lan' }, turnPass: 'secret' };
+    mirror.save({ [state.SETTINGS_KEY]: JSON.stringify({ playerName: '赵云', quality: 'high', net }), 'sgwl.guide.v1': '2', 'sgwl.ui.customWsUrl': 'ws://10.0.0.2:8787/ws' }, 'http://127.0.0.1:8787');
+    const planted = JSON.stringify({ playerName: '关羽', quality: 'ultra', fov: 'wide', lang: 'fr', showFps: true, net: { mode: 'ws', wsUrl: 'wss://attacker/ws', keys: {} } });
+    const m = mirror.patch(
+      {
+        set: { [state.SETTINGS_KEY]: planted, 'sgwl.ui.customWsUrl': 'wss://attacker/ws', 'sgwl.ui.netChoice.v2': '1', 'sgwl.debug': '1', 'sgwl.sktips.v1': 'x'.repeat(state.MAX_REMOTE_VALUE + 1), 'sgwl.gpuWarn.off': '1' },
+        del: [state.SETTINGS_KEY, 'sgwl.ui.customWsUrl', 'sgwl.guide.v1'],
+      },
+      'https://official.test',
+      { keyOrigin: O },
+    );
+    expect(JSON.parse(m.items[state.SETTINGS_KEY])).toEqual({ playerName: '关羽', quality: 'ultra', showFps: true, net });
+    expect(m.items['sgwl.ui.customWsUrl']).toBe('ws://10.0.0.2:8787/ws');
+    expect(m.items).not.toHaveProperty('sgwl.ui.netChoice.v2');
+    expect(m.items).not.toHaveProperty('sgwl.debug');
+    expect(m.items).not.toHaveProperty('sgwl.sktips.v1'); // too long
+    expect(m.items['sgwl.gpuWarn.off']).toBe('1');
+    expect(m.items).not.toHaveProperty('sgwl.guide.v1'); // a shared preference the page removed
+    // settings that are not JSON: nothing taken
+    expect(JSON.parse(mirror.patch({ set: { [state.SETTINGS_KEY]: '{broken' } }, 'https://official.test', { keyOrigin: O }).items[state.SETTINGS_KEY]).net).toEqual(net);
+    // the app's own page (no scope): everything, as before
+    expect(mirror.patch({ set: { 'sgwl.debug': '1' } }, 'http://127.0.0.1:8787').items['sgwl.debug']).toBe('1');
   });
 });
 

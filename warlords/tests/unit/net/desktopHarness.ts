@@ -27,6 +27,8 @@ export interface FetchAnswer {
 }
 
 export interface Launch {
+  /** the app's userData folder (desktop.json, web-storage.json) */
+  userData: string;
   /** the first URL the window loaded */
   url: string;
   /** every URL the window loaded, in order */
@@ -55,7 +57,31 @@ export interface Launch {
   fetched: string[];
   /** console lines the main process printed ([desktop] …) */
   logs: string[];
+  /** the application menu's template (Menu.setApplicationMenu) */
+  menu: MenuItem[];
+  /** every dialog.showMessageBox the main process opened, in order */
+  dialogs: Record<string, unknown>[];
+  /** what the next dialogs answer (their button index; default: the dialog's cancelId, else 0) */
+  answers: number[];
+  /** session.defaultSession.on listeners (e.g. 'will-download') */
+  sessionOn: Record<string, Listener[]>;
   quit(): Promise<void>;
+}
+
+export interface MenuItem {
+  label?: string;
+  submenu?: MenuItem[];
+  click?: (...a: unknown[]) => unknown;
+}
+
+/** The menu item labelled `label` (any depth). */
+export function menuItem(items: MenuItem[], label: string): MenuItem | null {
+  for (const it of items) {
+    if (it.label === label) return it;
+    const sub = it.submenu ? menuItem(it.submenu, label) : null;
+    if (sub) return sub;
+  }
+  return null;
 }
 
 export interface LaunchOptions {
@@ -66,11 +92,11 @@ export interface LaunchOptions {
   env?: Record<string, string>;
 }
 
-/** A packaged-app folder: dist/ (an index page + sgwl-build.json with `build`) and a link to the real server/. */
+/** A packaged-app folder: dist/ (an index page + sgwl-build.json with `build` — none for null / undefined) and a link to the real server/. */
 export function appFolder(root: string, build: unknown): string {
   fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
   fs.writeFileSync(path.join(root, 'dist', 'index.html'), '<!doctype html><title>t</title>');
-  if (build !== undefined) fs.writeFileSync(path.join(root, 'dist', 'sgwl-build.json'), typeof build === 'string' ? build : JSON.stringify(build));
+  if (build !== undefined && build !== null) fs.writeFileSync(path.join(root, 'dist', 'sgwl-build.json'), typeof build === 'string' ? build : JSON.stringify(build));
   fs.symlinkSync(SERVER_DIR, path.join(root, 'server'), 'dir');
   return root;
 }
@@ -89,6 +115,10 @@ export async function launch(userData: string, opts: LaunchOptions = {}): Promis
   const opened: string[] = [];
   const fetched: string[] = [];
   const logs: string[] = [];
+  let menu: MenuItem[] = [];
+  const dialogs: Record<string, unknown>[] = [];
+  const answers: number[] = [];
+  const sessionOn: Record<string, Listener[]> = {};
   let prefs: Record<string, unknown> = {};
   let openHandler: Launch['openHandler'];
   let ready!: () => void;
@@ -134,9 +164,16 @@ export async function launch(userData: string, opts: LaunchOptions = {}): Promis
       quit() {},
     },
     BrowserWindow,
-    Menu: { buildFromTemplate: (t: unknown) => t, setApplicationMenu() {} },
+    Menu: { buildFromTemplate: (t: unknown) => t, setApplicationMenu: (m: MenuItem[]) => void (menu = m) },
     clipboard: { writeText() {} },
-    dialog: { showMessageBox: () => Promise.resolve({ response: 1 }), showErrorBox() {} },
+    dialog: {
+      showMessageBox: (o: Record<string, unknown>) => {
+        dialogs.push(o);
+        const next = answers.shift();
+        return Promise.resolve({ response: next ?? (typeof o.cancelId === 'number' ? o.cancelId : 0) });
+      },
+      showErrorBox() {},
+    },
     ipcMain: {
       on: (ch: string, cb: Handler) => void (ipc[ch] = cb),
       handle: (ch: string, cb: Handler) => void (handle[ch] = cb),
@@ -152,6 +189,7 @@ export async function launch(userData: string, opts: LaunchOptions = {}): Promis
       defaultSession: {
         setPermissionRequestHandler: (h: Listener) => void (permissions.request = h),
         setPermissionCheckHandler: (h: Listener) => void (permissions.check = h),
+        on: (ev: string, cb: Listener) => void (sessionOn[ev] ??= []).push(cb),
       },
     },
     shell: { openExternal: (url: string) => void opened.push(url) },
@@ -193,6 +231,7 @@ export async function launch(userData: string, opts: LaunchOptions = {}): Promis
     }
   }
   return {
+    userData,
     url,
     loads,
     load,
@@ -211,6 +250,12 @@ export async function launch(userData: string, opts: LaunchOptions = {}): Promis
     opened,
     fetched,
     logs,
+    get menu() {
+      return menu;
+    },
+    dialogs,
+    answers,
+    sessionOn,
     quit: async () => {
       on['before-quit']?.();
       await new Promise((r) => setTimeout(r, 50));
@@ -275,11 +320,15 @@ export function preload(store: Storage, app: Launch, opts: PreloadOptions = {}):
   process.argv = [...argv0, ...args];
   const M = Module as unknown as { _load: (req: string, ...rest: unknown[]) => unknown };
   const orig = M._load;
+  const p = path.join(ELECTRON_DIR, 'preload.cjs');
+  // the renderer is sandboxed (webPreferences.sandbox): its preload can require 'electron' and
+  // nothing else — so here too (a require of ./state.cjs or node:path would break the real app)
   M._load = function (req: string, ...rest: unknown[]) {
-    return req === 'electron' ? fake : orig.call(this, req, ...rest);
+    if (req === 'electron') return fake;
+    if (req === p) return orig.call(this, req, ...rest);
+    throw new Error(`sandboxed preload: require('${req}') is not available`);
   };
   try {
-    const p = path.join(ELECTRON_DIR, 'preload.cjs');
     delete require.cache[p];
     require(p);
   } finally {

@@ -9,22 +9,31 @@
 //   the official page    (a tab left open across the server's update) reloads itself;
 //   any other page       (GitHub Pages, a LAN server's page, the offline file) opens the official page.
 // The attempt travels in the URL: ?room=CODE&mode=ws&ws=<relay> joins that room by itself (the
-// online screen's invite join), ?create=1 creates a room at once (App, takeCreateIntent).
+// online screen's invite join), ?create=1&mode=ws&ws=<relay> creates a room on that server (App,
+// takeCreateIntent: at once when this tab's own fix — or the desktop app — loaded it, else after a
+// click: a link from anywhere must not make every visitor's browser take a server-run room). A page
+// of another origin also gets the player's language and name (lang=, name=: its localStorage is
+// its own).
 // Only when it can help — the official server answers and runs another build than this page —
 // and at most once a minute (the app counts its switches; a web tab keeps a sessionStorage mark):
 // a mismatch that persists, or one in a room elsewhere (a LAN server, P2P), shows the message.
 import { settings, type NetServerConfig } from '../game/settings';
 import { COMPAT_ID } from '../net/compat';
 import { isOfficialRelay, isOfficialWeb, officialServer, type OfficialServer } from '../net/official';
+import { sanitizeName } from '../net/protocol';
 import { keyFor, resolveWsUrl } from '../net/relayKey';
 
 /** sessionStorage: when this tab last switched pages for a version mismatch (ms since epoch). */
 export const VERSION_FIX_KEY = 'sgwl.versionFix.v1';
 /** No second automatic switch within this long of the last one (ms) — electron/page.cjs SWITCH_EVERY_MS. */
 export const VERSION_FIX_EVERY_MS = 60_000;
-/** How long the official server may take to say its build (ms). */
-export const OFFICIAL_PROBE_TIMEOUT_MS = 2500;
-/** How long the page says 「正在切换…」 before giving up on the switch (ms). */
+/**
+ * How long the official server may take to say its build (ms) — electron/page.cjs
+ * FIX_PROBE_TIMEOUT_MS: the player is waiting on a failed join anyway, and a slow link (a
+ * cross-border round trip, a cold TLS handshake) must not turn the fix into 「版本不同」.
+ */
+export const OFFICIAL_PROBE_TIMEOUT_MS = 8000;
+/** How long the page says 「正在切换…」 before it gives the screen back with the message (ms). */
 export const SWITCH_PENDING_MS = 15_000;
 
 const ROOM_RE = /^[A-Z0-9]{3,12}$/;
@@ -35,12 +44,19 @@ export interface FixRequest {
   create?: boolean;
 }
 
+/** What a page of another origin should know of the player (fixUrl): language and name. */
+export interface CarriedPrefs {
+  lang?: string | null;
+  name?: string | null;
+}
+
 export type FixOutcome = 'desktop' | 'reload' | 'open';
 
 type FetchLike = (url: string, init: { cache: 'no-store'; signal?: AbortSignal }) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
 
 interface DesktopFix {
   fixVersion?: (req: { room: string | null; create: boolean; compat: string | null }) => unknown;
+  cancelFix?: () => void;
 }
 
 /** The relay `url` (its query — a key — aside) is the official server's. */
@@ -108,17 +124,23 @@ export async function officialCompat(official: OfficialServer | null, fetchImpl?
 
 /**
  * The official page that carries the attempt over: <web>?room=CODE&mode=ws&ws=<relay> (joins by
- * itself) or <web>?create=1. A key this page holds for the official relay goes along (k=, to that
- * server's own page only — it stores the key and takes it out of the address bar).
+ * itself) or <web>?create=1&mode=ws&ws=<relay> (a room on that server). `prefs` (a page of another
+ * origin: its localStorage is its own): lang= and name=. A key this page holds for the official
+ * relay goes along (k=, to that server's own page only — it stores the key and takes it out of the
+ * address bar).
  */
-export function fixUrl(req: FixRequest, official: OfficialServer, key?: string | null): string {
+export function fixUrl(req: FixRequest, official: OfficialServer, key?: string | null, prefs?: CarriedPrefs): string {
   const q = new URLSearchParams();
   const room = cleanRoom(req.room);
-  if (room) {
-    q.set('room', room);
+  if (room) q.set('room', room);
+  else if (req.create) q.set('create', '1');
+  if (room || req.create) {
     q.set('mode', 'ws');
     q.set('ws', official.relay);
-  } else if (req.create) q.set('create', '1');
+  }
+  if (prefs?.lang === 'zh' || prefs?.lang === 'en') q.set('lang', prefs.lang);
+  const name = typeof prefs?.name === 'string' ? sanitizeName(prefs.name, '') : '';
+  if (name) q.set('name', name);
   if (key) q.set('k', key);
   const s = q.toString();
   return s ? `${official.web}?${s}` : official.web;
@@ -178,10 +200,27 @@ export interface FixEnv {
   now?: () => number;
   /** settings.net.keys */
   keys?: NetServerConfig['keys'];
+  /** the player's language and name (settings), for a page of another origin */
+  prefs?: CarriedPrefs;
+  /** the attempt is still wanted (false: 取消 was pressed while the server was asked — nothing switches) */
+  wanted?: () => boolean;
 }
 
 /** when the page started a switch (it is going away): the online screen says 正在切换… meanwhile */
 let pendingAt = -Infinity;
+/** the desktop app is asking the server for a fix of this page (取消 tells it: cancelVersionFix) */
+let desktopAsking: DesktopFix | null = null;
+
+/** 取消 while a version fix asks the official server: it switches nothing (the web fix checks `wanted` itself). */
+export function cancelVersionFix(): void {
+  const d = desktopAsking;
+  if (!d || typeof d.cancelFix !== 'function') return;
+  try {
+    d.cancelFix();
+  } catch {
+    /* an older app: its switch may still come */
+  }
+}
 
 /** A switch started less than SWITCH_PENDING_MS ago: the page is about to be replaced. */
 export function versionFixPending(now = Date.now()): boolean {
@@ -196,7 +235,8 @@ export function versionFixPending(now = Date.now()): boolean {
  */
 export async function fixVersionMismatch(req: FixRequest, env: FixEnv = {}): Promise<FixOutcome | null> {
   const now = env.now ?? Date.now;
-  if (versionFixPending(now())) return null;
+  const wanted = env.wanted ?? (() => true);
+  if (versionFixPending(now()) || !wanted()) return null;
   const compat = env.compat !== undefined ? env.compat : COMPAT_ID;
   const room = cleanRoom(req.room);
   const create = !room && req.create === true;
@@ -204,6 +244,7 @@ export async function fixVersionMismatch(req: FixRequest, env: FixEnv = {}): Pro
   if (desktop) {
     // the app decides (it knows both pages' builds) and counts its switches; the page never navigates itself
     if (typeof desktop.fixVersion !== 'function') return null;
+    desktopAsking = desktop;
     try {
       const r = (await desktop.fixVersion({ room, create, compat })) as { switched?: unknown; reason?: unknown } | null;
       if (r && r.switched === true) {
@@ -213,6 +254,8 @@ export async function fixVersionMismatch(req: FixRequest, env: FixEnv = {}): Pro
       if (r && typeof r.reason === 'string') console.info(`[app] version mismatch: the app does not switch (${r.reason})`);
     } catch (err) {
       console.warn('[app] the version fix failed', err);
+    } finally {
+      desktopAsking = null;
     }
     return null;
   }
@@ -223,10 +266,14 @@ export async function fixVersionMismatch(req: FixRequest, env: FixEnv = {}): Pro
   if (versionFixRecent(store, now())) return null;
   const server = await officialCompat(official, env.fetch);
   if (!server || server === compat) return null;
+  // 取消 while the server was asked: the tab stays
+  if (!wanted()) return null;
   const loc = env.location !== undefined ? env.location : (globalThis as { location?: FixEnv['location'] }).location;
   if (!loc || !claimVersionFix(store, now())) return null;
-  const url = fixUrl({ room, create }, official, keyFor(env.keys !== undefined ? env.keys : settings.get().net.keys, official.relay));
   const same = isOfficialWeb(loc.origin, official);
+  const s = settings.get();
+  const prefs = same ? undefined : (env.prefs ?? { lang: s.lang, name: s.playerName });
+  const url = fixUrl({ room, create }, official, keyFor(env.keys !== undefined ? env.keys : s.net.keys, official.relay), prefs);
   console.info(`[app] the official server runs build ${server}, this page ${compat}: ${same ? 'reloading' : 'opening the official page'}${room ? ` (room ${room})` : create ? ' (create a room)' : ''}`);
   pendingAt = now();
   if (same) loc.replace(url);
@@ -244,32 +291,80 @@ export async function fixCreateOnServer(relay: string, env: FixEnv = {}): Promis
   return (await fixVersionMismatch({ create: true }, env)) !== null;
 }
 
-/**
- * Page start: ?create=1 (a version fix carried 创建房间 over) — true once; the parameter is taken
- * out of the address bar so a reload does not create another room.
- */
-export function takeCreateIntent(
-  env: { location?: { href: string }; history?: Pick<History, 'replaceState' | 'state'> } = globalThis as never,
-): boolean {
+/** ?create=1 on a page the version fix opened: 创建房间 carried over. */
+export interface CreateIntent {
+  /**
+   * create the room at once: the desktop app loaded this page, or this tab's own version fix
+   * reloaded it (its sessionStorage mark); else — a link from anywhere — the player clicks 创建房间
+   */
+  auto: boolean;
+  /** how the room is reached (mode=, ws=: '' is the page's own server); null: the page's default */
+  mode: 'peer' | 'ws' | null;
+  wsUrl: string | null;
+}
+
+/** The page's address bar: read, and rewritten without the parameters a page start consumes. */
+interface PageUrlEnv {
+  location?: { href: string };
+  history?: Pick<History, 'replaceState' | 'state'>;
+}
+
+function takeParams(env: PageUrlEnv, names: string[], when: (u: URL) => boolean): URL | null {
   const href = env.location?.href;
-  if (!href) return false;
+  if (!href) return null;
   let u: URL;
   try {
     u = new URL(href);
   } catch {
-    return false;
+    return null;
   }
-  if (u.searchParams.get('create') !== '1') return false;
-  u.searchParams.delete('create');
+  if (!when(u)) return null;
+  const orig = new URL(u.toString());
+  for (const n of names) u.searchParams.delete(n);
   try {
     env.history?.replaceState(env.history.state, '', u.toString());
   } catch {
-    /* a sandboxed page: a reload would create again — still one room per click */
+    /* a sandboxed page: the parameters stay visible */
   }
-  return true;
+  return orig;
+}
+
+/**
+ * Page start: ?create=1 (a version fix carried 创建房间 over) — its intent, once; the parameters
+ * (create, mode, ws) are taken out of the address bar so a reload does not create another room.
+ */
+export function takeCreateIntent(
+  env: PageUrlEnv & { desktop?: unknown; store?: Pick<Storage, 'getItem'> | null; now?: number } = globalThis as never,
+): CreateIntent | null {
+  const u = takeParams(env, ['create', 'mode', 'ws'], (x) => x.searchParams.get('create') === '1');
+  if (!u) return null;
+  const m = u.searchParams.get('mode');
+  const mode = m === 'ws' || m === 'peer' ? m : null;
+  const ws = u.searchParams.get('ws');
+  const wsUrl = mode === 'ws' ? (ws && /^wss?:\/\//i.test(ws.trim()) && ws.length <= 500 ? ws.trim() : '') : null;
+  const desktop = 'desktop' in env ? !!env.desktop : !!desktopBridge();
+  const store = 'store' in env ? (env.store ?? null) : tabStore();
+  // (a tab of this origin that switched a minute ago: its own fix — unknown storage is no proof of that)
+  const auto = desktop || (!!store && versionFixRecent(store, env.now ?? Date.now()));
+  return { auto, mode, wsUrl };
+}
+
+/**
+ * Page start: ?name= (the version fix of a page of another origin carried the player's name) — the
+ * name, if this page has none of its own yet; the parameter leaves the address bar. Returns the
+ * name taken, or null.
+ */
+export function takeCarriedName(env: PageUrlEnv = globalThis as never): string | null {
+  const u = takeParams(env, ['name'], (x) => x.searchParams.has('name'));
+  if (!u) return null;
+  const name = sanitizeName(u.searchParams.get('name') ?? '', '');
+  if (!name || settings.get().playerName.trim()) return null;
+  settings.update({ playerName: name });
+  return name;
 }
 
 /** Tests: no switch in progress. */
 export function resetVersionFixForTests(): void {
   pendingAt = -Infinity;
+  desktopAsking = null;
 }

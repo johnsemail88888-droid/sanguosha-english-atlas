@@ -112,9 +112,15 @@ const DICT = {
   'online.failed': ['连接失败：{msg}', 'Connection failed: {msg}'],
   'online.versionFix': ['游戏版本与服务器不同：正在切换到服务器的版本，随后自动继续…', "Your game version differs from the server's — switching to the server's version, then carrying on by itself…"],
   'online.lanOfficial': [
-    '窗口现在显示的是官方服务器的版本（与本机版本不同）：局域网里的朋友打开下面的地址得到的是本机版本，两边无法一起玩。局域网联机请先切换到本机版本。',
-    "This window shows the official server's version of the game, not this app's own: friends opening these LAN addresses get the app's version and could not play with you. For LAN play, switch to this app's version first.",
+    '窗口现在显示的是官方服务器的版本（与本机版本不同）：局域网里的朋友得到的是本机版本，两边无法一起玩。局域网联机请先切换到本机版本（局域网地址在那里显示）。',
+    "This window shows the official server's version of the game, not this app's own: friends on your network get the app's version and could not play with you. For LAN play, switch to this app's version first (it lists the LAN addresses).",
   ],
+  'online.lanOfficialSame': ['局域网联机在本机版本里进行（局域网地址在那里显示）。', "LAN play runs in this app's own version (it lists the LAN addresses)."],
+  'online.lanSwitch': [
+    '自建服务器（未填地址）就是本机的局域网服务器：创建或加入房间时会切换到本机版本继续。',
+    "Your own server with no address is this computer's LAN server: creating or joining a room switches to this app's version and carries on there.",
+  ],
+  'online.createPrompt': ['已切换到服务器的版本：点「创建房间」继续。', "Switched to the server's version — click Create room to carry on."],
   'online.useBundled': ['切换到本机版本', "Use this app's version"],
   'online.invited': ['你收到了房间 {code} 的邀请', 'You were invited to room {code}'],
   'online.invitedMode': ['邀请链接使用「{mode}」连接', 'The invite link uses {mode}'],

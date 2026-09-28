@@ -2,22 +2,35 @@
 // server's that meets a version mismatch there opens the official page with the room code (or
 // reloads, on the official page itself); the desktop page asks the app instead. Only when it can
 // help, at most once a minute. Hermetic: the "official server" is a stubbed fetch.
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isBuildMismatch } from '../../../src/net/headlessRooms';
 import { hostOnlineSession } from '../../../src/net';
 import { setOfficialServerForTests } from '../../../src/net/official';
 import { settings } from '../../../src/game/settings';
-import { choiceOf, parseInvite } from '../../../src/ui/invite';
-import { autoJoinPlan } from '../../../src/ui/screens/online';
 import {
+  desktopBundledCompat,
+  desktopInfo,
+  lanViaBundledPage,
+  officialPageDiffers,
+  reportPageBuild,
+  servedByLocalServer,
+  shareBase,
+  useBundledPage,
+} from '../../../src/ui/desktop';
+import { choiceOf, parseInvite, relayNet } from '../../../src/ui/invite';
+import { autoJoinPlan, switchGaveUp } from '../../../src/ui/screens/online';
+import {
+  cancelVersionFix,
   claimVersionFix,
   fixCreateOnServer,
   fixUrl,
   fixVersionMismatch,
   isOfficialRoomServer,
+  OFFICIAL_PROBE_TIMEOUT_MS,
   officialCompat,
   resetVersionFixForTests,
   roomOnOfficial,
+  takeCarriedName,
   takeCreateIntent,
   VERSION_FIX_EVERY_MS,
   VERSION_FIX_KEY,
@@ -59,6 +72,7 @@ function web(origin: string, body: unknown = { app: 'sanguo-warlords', build: { 
     desktop: null,
     store: store(),
     keys: {},
+    prefs: {},
     now: () => t,
     location: { origin, assign: (url) => void went.push({ how: 'assign', url }), replace: (url) => void went.push({ how: 'replace', url }) },
     fetch: async (url) => {
@@ -92,10 +106,10 @@ describe('a web page meets a version mismatch on the official server', () => {
     expect(p.went).toEqual([{ how: 'replace', url: 'https://official.test/?room=KX7QD&mode=ws&ws=wss%3A%2F%2Fofficial.test%2Fws' }]);
   });
 
-  it('创建房间 carries over as ?create=1; a key this page holds for the official server goes along (to its own page only)', async () => {
+  it('创建房间 carries over as ?create=1 on the official relay; a key this page holds for the official server goes along (to its own page only)', async () => {
     const p = web('https://johnsemail88888-droid.github.io', undefined, { keys: { 'wss://official.test': 'k3y-k3y-k3y-k3y' } });
     expect(await fixVersionMismatch({ create: true }, p.env)).toBe('open');
-    expect(p.went[0].url).toBe('https://official.test/?create=1&k=k3y-k3y-k3y-k3y');
+    expect(p.went[0].url).toBe('https://official.test/?create=1&mode=ws&ws=wss%3A%2F%2Fofficial.test%2Fws&k=k3y-k3y-k3y-k3y');
     expect(fixUrl({ room: 'KX7QD', create: true }, OFFICIAL)).toBe('https://official.test/?room=KX7QD&mode=ws&ws=wss%3A%2F%2Fofficial.test%2Fws');
     expect(fixUrl({ room: 'bad code!' }, OFFICIAL)).toBe('https://official.test/');
   });
@@ -183,7 +197,7 @@ describe('which rooms it can fix: the official server’s only', () => {
     expect(await fixCreateOnServer('ws://192.168.1.5:8787/ws', p.env)).toBe(false);
     expect(p.asked).toEqual([]);
     expect(await fixCreateOnServer('wss://official.test/ws?k=abc', p.env)).toBe(true);
-    expect(p.went[0].url).toBe('https://official.test/?create=1');
+    expect(p.went[0].url).toBe('https://official.test/?create=1&mode=ws&ws=wss%3A%2F%2Fofficial.test%2Fws');
   });
 });
 
@@ -214,12 +228,169 @@ describe('创建房间 against a server of another build (POST /api/rooms 409)',
 });
 
 describe('?create=1 on the page the fix opened', () => {
-  it('creates the room once: the parameter leaves the address bar (F5 creates none)', () => {
+  const hist = (replaced: string[]) => ({ state: null, replaceState: (_s: unknown, _t: string, url?: string | URL | null) => void replaced.push(String(url)) });
+
+  it('once, in the connection it names: the parameters leave the address bar (F5 creates none)', () => {
     const replaced: string[] = [];
-    const env = { location: { href: 'https://official.test/?create=1&desktop=1' }, history: { state: null, replaceState: (_s: unknown, _t: string, url?: string | URL | null) => void replaced.push(String(url)) } };
-    expect(takeCreateIntent(env)).toBe(true);
+    const url = `https://official.test/?create=1&mode=ws&ws=${encodeURIComponent(OFFICIAL.relay)}&desktop=1`;
+    expect(takeCreateIntent({ location: { href: url }, history: hist(replaced), desktop: {}, store: null })).toEqual({ auto: true, mode: 'ws', wsUrl: OFFICIAL.relay });
     expect(replaced).toEqual(['https://official.test/?desktop=1']);
-    expect(takeCreateIntent({ location: { href: 'https://official.test/?room=KX7QD' }, history: env.history })).toBe(false);
-    expect(takeCreateIntent({})).toBe(false);
+    // the room is made on the official server whatever the page's own saved connection (P2P, a custom relay)
+    setOfficialServerForTests(OFFICIAL);
+    expect(choiceOf('ws', OFFICIAL.relay)).toBe('official');
+    // the app's own page, the LAN server (mode=ws, no ws=): the page's own server
+    const lan = takeCreateIntent({ location: { href: 'http://127.0.0.1:8787/?desktop=1&create=1&mode=ws' }, history: hist([]), desktop: {}, store: null })!;
+    expect(lan).toEqual({ auto: true, mode: 'ws', wsUrl: '' });
+    expect(relayNet(lan.mode!, { wsUrl: lan.wsUrl! })).toEqual({ wsUrl: '' });
+    expect(choiceOf('ws', '')).toBe('ws');
+    expect(takeCreateIntent({ location: { href: 'https://official.test/?room=KX7QD' }, history: hist([]) })).toBeNull();
+    expect(takeCreateIntent({})).toBeNull();
+  });
+
+  it('at once only when this tab’s own fix (or the desktop app) loaded it — a link from anywhere waits for the player’s click', () => {
+    const url = 'https://official.test/?create=1&mode=ws&ws=wss%3A%2F%2Fofficial.test%2Fws';
+    // a link posted in a chat: no mark of this tab's fix — the online screen asks for the click
+    expect(takeCreateIntent({ location: { href: url }, history: hist([]), desktop: null, store: store() })?.auto).toBe(false);
+    expect(takeCreateIntent({ location: { href: url }, history: hist([]), desktop: null, store: null })?.auto).toBe(false);
+    // this tab's own version fix reloaded it a moment ago (the official page itself: same origin, same sessionStorage)
+    const s = store();
+    expect(claimVersionFix(s, 1_000_000)).toBe(true);
+    expect(takeCreateIntent({ location: { href: url }, history: hist([]), desktop: null, store: s, now: 1_000_500 })?.auto).toBe(true);
+    // … long ago: a link again
+    expect(takeCreateIntent({ location: { href: url }, history: hist([]), desktop: null, store: s, now: 1_000_000 + VERSION_FIX_EVERY_MS + 1 })?.auto).toBe(false);
+    // junk relays are no relay
+    expect(takeCreateIntent({ location: { href: 'https://official.test/?create=1&mode=ws&ws=javascript:x' }, history: hist([]), desktop: {}, store: null })).toEqual({ auto: true, mode: 'ws', wsUrl: '' });
+  });
+});
+
+describe('what the page of another origin gets of the player', () => {
+  it('the language and the name travel with the fix to another origin (its localStorage is its own) — not on a reload', async () => {
+    const p = web('https://johnsemail88888-droid.github.io', undefined, { prefs: { lang: 'en', name: '小明 ' } });
+    expect(await fixVersionMismatch({ room: 'KX7QD' }, p.env)).toBe('open');
+    const u = new URL(p.went[0].url);
+    expect(u.searchParams.get('lang')).toBe('en');
+    expect(u.searchParams.get('name')).toBe('小明');
+    resetVersionFixForTests();
+    const same = web('https://official.test', undefined, { prefs: { lang: 'en', name: '小明' } });
+    expect(await fixVersionMismatch({ room: 'KX7QD' }, same.env)).toBe('reload');
+    expect(same.went[0].url).not.toMatch(/lang=|name=/);
+    // junk is not carried
+    expect(fixUrl({ room: 'KX7QD' }, OFFICIAL, null, { lang: 'fr', name: '   ' })).toBe('https://official.test/?room=KX7QD&mode=ws&ws=wss%3A%2F%2Fofficial.test%2Fws');
+  });
+
+  it('?name= becomes the player’s name only on a page without one of its own; it leaves the address bar', () => {
+    const before = settings.get().playerName;
+    try {
+      settings.update({ playerName: '' });
+      const replaced: string[] = [];
+      const history = { state: null, replaceState: (_s: unknown, _t: string, url?: string | URL | null) => void replaced.push(String(url)) };
+      expect(takeCarriedName({ location: { href: 'https://official.test/?room=KX7QD&name=%E5%B0%8F%E6%98%8E' }, history })).toBe('小明');
+      expect(settings.get().playerName).toBe('小明');
+      expect(replaced).toEqual(['https://official.test/?room=KX7QD']);
+      // a name of its own wins
+      expect(takeCarriedName({ location: { href: 'https://official.test/?name=%E5%85%B3%E7%BE%BD' }, history })).toBeNull();
+      expect(settings.get().playerName).toBe('小明');
+      expect(takeCarriedName({ location: { href: 'https://official.test/?room=KX7QD' }, history })).toBeNull();
+    } finally {
+      settings.update({ playerName: before });
+    }
+  });
+});
+
+describe('取消 while the server is asked; a slow link', () => {
+  it('the web page: the tab stays, nothing is claimed', async () => {
+    let wanted = true;
+    const p = web('https://x.github.io', undefined, {
+      wanted: () => wanted,
+      fetch: async (url) => {
+        p.asked.push(url);
+        wanted = false; // 取消 pressed while the server answered
+        return { ok: true, json: async () => ({ app: 'sanguo-warlords', build: { compat: SERVER } }) };
+      },
+    });
+    expect(await fixVersionMismatch({ room: 'KX7QD' }, p.env)).toBeNull();
+    expect(p.went).toEqual([]);
+    expect(p.env.store!.getItem(VERSION_FIX_KEY)).toBeNull();
+    expect(versionFixPending(p.env.now!())).toBe(false);
+  });
+
+  it('the desktop page: 取消 tells the app, whose fix then switches nothing', async () => {
+    let cancelled = 0;
+    let answer!: (r: unknown) => void;
+    const p = web('http://127.0.0.1:8787', undefined, {
+      desktop: { fixVersion: () => new Promise((r) => (answer = r)), cancelFix: () => void cancelled++ },
+    });
+    const fix = fixVersionMismatch({ room: 'KX7QD' }, p.env);
+    cancelVersionFix();
+    expect(cancelled).toBe(1);
+    answer({ switched: false, reason: 'cancelled' });
+    expect(await fix).toBeNull();
+    cancelVersionFix(); // nothing in flight: nothing to tell
+    expect(cancelled).toBe(1);
+  });
+
+  it('a server answering after 3 s (a cross-border link) still fixes it', async () => {
+    expect(OFFICIAL_PROBE_TIMEOUT_MS).toBeGreaterThanOrEqual(8000);
+    vi.useFakeTimers();
+    try {
+      const p = web('https://x.github.io', undefined, {
+        fetch: () => new Promise((r) => setTimeout(() => r({ ok: true, json: async () => ({ app: 'sanguo-warlords', build: { compat: SERVER } }) }), 3000)),
+      });
+      const fix = fixVersionMismatch({ room: 'KX7QD' }, p.env);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(await fix).toBe('open');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('正在切换… for too long (the page is still here): the screen is the player’s again, with the mismatch it met', () => {
+    expect(switchGaveUp('你与房主的游戏版本不同', 'join')).toEqual({ errorText: expect.stringContaining('你与房主的游戏版本不同'), retryJoin: true });
+    expect(switchGaveUp('x', 'host')?.retryJoin).toBe(false);
+    expect(switchGaveUp(null, 'join')).toBeNull(); // the LAN switch: nothing went wrong
+  });
+});
+
+describe('the desktop app’s window on the official server’s page', () => {
+  const g = globalThis as { sgwlDesktop?: unknown };
+  afterEach(() => {
+    delete g.sgwlDesktop;
+  });
+
+  it('its own server is the official one, not this machine’s: 自建服务器 without an address goes to the app’s page, the room carried', () => {
+    const sent: unknown[] = [];
+    g.sgwlDesktop = { isDesktop: true, page: 'official', bundledCompat: MINE, useBundled: (req?: unknown) => void sent.push(req ?? null) };
+    expect(servedByLocalServer()).toBe(false);
+    expect(lanViaBundledPage('ws', '')).toBe(true);
+    expect(lanViaBundledPage('ws', 'ws://10.0.0.2:8787/ws')).toBe(false); // an address of the player's own: as it says
+    expect(lanViaBundledPage('official', '')).toBe(false);
+    expect(useBundledPage({ room: 'KX7QD' })).toBe(true);
+    expect(useBundledPage({ create: true })).toBe(true);
+    expect(useBundledPage()).toBe(true);
+    expect(sent).toEqual([{ room: 'KX7QD', create: false }, { room: null, create: true }, null]);
+    // no LAN addresses here: an invite link never points at the LAN for a room of this page
+    expect(desktopInfo()).toEqual({ isDesktop: true, lanUrls: [], port: 8787 });
+    expect(shareBase({ origin: 'https://official.test', pathname: '/' }, 'ws', '')).toBe('https://official.test/');
+    // the app's own page: its LAN server, as before
+    g.sgwlDesktop = { isDesktop: true, page: 'bundled', lanUrls: ['http://192.168.1.5:8787/'], port: 8787 };
+    expect(servedByLocalServer()).toBe(true);
+    expect(lanViaBundledPage('ws', '')).toBe(false);
+  });
+
+  it('LAN friends get the app’s build: the warning only when this page’s build differs from it (or the app cannot say)', () => {
+    g.sgwlDesktop = { isDesktop: true, page: 'official', bundledCompat: MINE };
+    expect(desktopBundledCompat()).toBe(MINE);
+    expect(officialPageDiffers(SERVER)).toBe(true);
+    expect(officialPageDiffers(MINE)).toBe(false); // the server updated to the app's build, F5
+    g.sgwlDesktop = { isDesktop: true, page: 'official' }; // an app that does not say
+    expect(officialPageDiffers(MINE)).toBe(true);
+    g.sgwlDesktop = { isDesktop: true, page: 'bundled', bundledCompat: MINE };
+    expect(officialPageDiffers(SERVER)).toBe(false);
+    // the page tells the app its build when it starts
+    const told: string[] = [];
+    g.sgwlDesktop = { isDesktop: true, page: 'official', reportBuild: (c: string) => void told.push(c) };
+    reportPageBuild(SERVER);
+    reportPageBuild(null);
+    expect(told).toEqual([SERVER]);
   });
 });
