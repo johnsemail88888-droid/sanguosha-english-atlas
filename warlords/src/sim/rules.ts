@@ -80,9 +80,10 @@ export function reviveTargetOf(w: World, e: Entity): EntityId | undefined {
 }
 
 /**
- * Bleed-out timers. While someone (or the hero himself) is reviving a downed hero his bleed-out
- * is paused (PUBG / Apex): `rescue` names the reviver for his HUD and VF_REVIVING. Damage still
- * shortens it (finishing a downed hero, combat.ts) — a revive under fire can be lost.
+ * Bleed-out timers. While someone else is reviving a downed hero his bleed-out is paused
+ * (PUBG / Apex): `rescue` names the reviver for his HUD and VF_REVIVING. Damage still shortens
+ * it (finishing a downed hero, combat.ts) — a revive under fire can be lost. His own 桃 does not
+ * pause it: a hero already out of time is not saved by his own card (C3-6).
  */
 export function tickDowned(w: World, heroes: readonly Entity[], dt: number): void {
   for (const e of heroes) {
@@ -93,7 +94,7 @@ export function tickDowned(w: World, heroes: readonly Entity[], dt: number): voi
     }
     let by: Entity | undefined;
     for (const r of heroes) {
-      if (reviveTargetOf(w, r) === e.id) {
+      if (r !== e && reviveTargetOf(w, r) === e.id) {
         by = r;
         break;
       }

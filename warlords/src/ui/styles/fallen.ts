@@ -66,11 +66,12 @@ export const FALLEN_CSS = /* css */ `
 .hud-rv-ring .rr-txt { font-size: ${fs(15, 11)}; font-weight: 700; color: #c8f7cf; background: var(--hud-bg); padding: ${u(3)} ${u(12)}; border-radius: ${u(4)}; white-space: nowrap; }
 .sg-hud.reviving .hud-channel { display: none; }
 
-/* ── 击倒 stamp (the 斩 kill stamp is red; a knock is amber) ────────── */
-.hud-knockstamp { position: absolute; left: 50%; top: 38%; display: flex; flex-direction: column; align-items: center; gap: ${u(4)}; opacity: 0; transform: translate(-50%, -50%); }
-.hud-knockstamp .ks-seal { display: grid; place-items: center; width: ${u(64)}; height: ${u(64)}; border-radius: ${u(10)}; background: #d98a1c; border: 3px solid #ffe2a0; box-shadow: 0 0 ${u(16)} rgba(255, 170, 40, 0.65); font-family: var(--font-display); font-size: ${fs(40, 24)}; font-weight: 900; color: #fff8e6; transform: rotate(-6deg); }
-.hud-knockstamp .lbl { font-family: var(--font-display); font-size: ${fs(20, 13)}; font-weight: 800; color: #ffd27a; letter-spacing: 0.08em; }
-.hud-knockstamp .sub { font-size: ${fs(13, 11)}; color: #ffe8c0; opacity: 0.85; }
+/* ── 击倒 stamp (the 斩 kill stamp is red and big; a knock is an amber badge between the
+   announcements and the crosshair) ─────────────────────────────────────── */
+.hud-knockstamp { position: absolute; left: 50%; top: 41%; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; column-gap: ${u(10)}; align-items: center; opacity: 0; transform: translate(-50%, -50%); padding: ${u(4)} ${u(14)} ${u(4)} ${u(6)}; border-radius: ${u(6)}; background: rgba(40, 22, 4, 0.55); }
+.hud-knockstamp .ks-seal { grid-row: 1 / 3; display: grid; place-items: center; width: ${u(46)}; height: ${u(46)}; border-radius: ${u(8)}; background: #d98a1c; border: 2px solid #ffe2a0; box-shadow: 0 0 ${u(12)} rgba(255, 170, 40, 0.6); font-family: var(--font-display); font-size: ${fs(28, 18)}; font-weight: 900; color: #fff8e6; transform: rotate(-6deg); }
+.hud-knockstamp .lbl { font-family: var(--font-display); font-size: ${fs(19, 13)}; font-weight: 800; color: #ffd27a; letter-spacing: 0.06em; white-space: nowrap; }
+.hud-knockstamp .sub { font-size: ${fs(12, 10)}; color: #ffe8c0; opacity: 0.85; white-space: nowrap; }
 
 /* ── death recap card ──────────────────────────────────────────────── */
 .hud-deathcard { position: absolute; left: ${u(28)}; top: 50%; transform: translateY(-50%); width: ${u(500)}; max-width: calc(100vw - 32px); max-height: 84vh; overflow: auto; display: none; padding: ${u(18)} ${u(22)}; pointer-events: auto; z-index: 9; font-size: ${fs(15, 11)}; text-shadow: none; }
@@ -84,7 +85,7 @@ export const FALLEN_CSS = /* css */ `
 .hud-deathcard .dc-kinfo { display: flex; flex-direction: column; gap: ${u(5)}; min-width: 0; flex: 1; }
 .hud-deathcard .dc-line { display: flex; align-items: center; gap: ${u(8)}; font-size: ${fs(18, 13)}; font-weight: 800; color: #fff0d8; }
 .hud-deathcard .dc-line .kf-how { height: ${u(26)}; width: auto; max-width: ${u(90)}; }
-.hud-deathcard .dc-kstats { display: flex; align-items: center; gap: ${u(8)}; white-space: nowrap; font-size: ${fs(13, 11)}; color: #e8d8b8; }
+.hud-deathcard .dc-kstats { display: flex; align-items: center; gap: ${u(4)} ${u(8)}; flex-wrap: wrap; white-space: nowrap; font-size: ${fs(13, 11)}; color: #e8d8b8; }
 .hud-deathcard .dc-hp { position: relative; width: ${u(80)}; flex: 0 1 auto; height: ${u(8)}; border-radius: ${u(4)}; overflow: hidden; background: rgba(0, 0, 0, 0.55); }
 .hud-deathcard .dc-hp i { position: absolute; inset: 0; transform-origin: left center; background: linear-gradient(90deg, #2f9e4f, #7fe09a); }
 .hud-deathcard .dc-krole { font-weight: 700; }

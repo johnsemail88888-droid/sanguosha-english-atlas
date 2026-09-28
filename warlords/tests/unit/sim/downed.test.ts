@@ -125,20 +125,21 @@ describe('downed: a revive pauses the bleed-out', () => {
     expect(lord.hero!.downed).toBe(false);
   });
 
-  it('eating his own 桃 while downed pauses his bleed-out (rescue names himself)', () => {
+  it("eating his own 桃 while downed does not pause it (C3-6); his channel says whom it revives", () => {
     const w = world5();
     const rebel = hero(w, 2);
     down(w, rebel, hero(w, 1));
     rebel.hero!.items = [{ id: 'tao', count: 1 }, null, null, null];
-    stepN(w, Math.round(TPS * (BLEED_OUT_TIME - 0.8)));
+    stepN(w, TPS * 2);
+    const before = remaining(w, rebel);
     w.setInput('p2', { ...emptyInput(1), actions: [{ a: 'item', slot: 0 }] });
-    w.step();
-    expect(rebel.hero!.rescue?.by).toBe(rebel.id);
-    // his own HUD says so; the public flag is only for a revive by someone else
-    expect(w.snapshotFor('p2').you!.rescue?.by).toBe(rebel.id);
+    stepN(w, TPS);
+    expect(rebel.hero!.rescue).toBeUndefined();
+    expect(remaining(w, rebel)).toBeCloseTo(before - 1, 1);
+    expect(w.snapshotFor('p2').you!.channel).toMatchObject({ kind: 'item', revive: rebel.id });
+    expect(w.snapshotFor('p2').you!.rescue).toBeUndefined();
     expect(w.snapshotFor('p1').ents.find((v) => v.id === rebel.id)!.flags & VF_REVIVING).toBe(0);
-    stepN(w, Math.round(TPS * REVIVE_TIME) + 4);
-    expect(rebel.hero!.dead).toBe(false);
+    stepN(w, TPS);
     expect(rebel.hero!.downed).toBe(false);
   });
 

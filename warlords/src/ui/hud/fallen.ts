@@ -105,34 +105,37 @@ export class DownedPanel {
     }
     this.fill.style.transform = `scaleX(${Math.min(1, rem / BLEED_TOTAL).toFixed(3)})`;
     const rescue = me.rescue;
-    if (rescue) this.rescueFill.style.transform = `scaleX(${Math.max(0, Math.min(1, rescue.progress)).toFixed(3)})`;
+    // eating your own 桃: your own channel (the bleed-out keeps running — C3-6)
+    const selfRevive = !rescue && me.channel?.revive === me.entityId ? me.channel : null;
+    const progress = rescue ? rescue.progress : selfRevive ? selfRevive.progress : 0;
+    if (rescue || selfRevive) this.rescueFill.style.transform = `scaleX(${Math.max(0, Math.min(1, progress)).toFixed(3)})`;
     const jiu = me.items.findIndex((it) => it?.id === 'jiu');
     const tao = me.items.findIndex((it) => it?.id === 'tao');
     const called = ctx.sinceCall < 3 ? 2 : ctx.sinceCall < 15 ? 1 : 0;
-    const k = `${f.lang}|${f.touch}|${rescue ? rescue.by : ''}|${jiu}|${tao}|${called}|${rem < 4 ? 1 : 0}`;
+    const k = `${f.lang}|${f.touch}|${rescue ? rescue.by : ''}|${selfRevive ? 1 : 0}|${jiu}|${tao}|${called}|${rem < 4 ? 1 : 0}|${me.squad.length > 0 ? 1 : 0}`;
     if (k === this.key) return;
     this.key = k;
-    const self = rescue !== undefined && rescue.by === me.entityId;
     setText(this.title, tx('倒地', 'DOWNED'));
     setText(
       this.state,
-      rescue ? tx('救援中 · 失血已暂停', 'Being revived · bleed-out paused') : rem < 4 ? tx('即将阵亡！', 'Bleeding out!') : tx('失血中', 'Bleeding out'),
+      rescue ? tx('救援中 · 失血已暂停', 'Being revived · bleed-out paused') : selfRevive ? tx('自救中', 'Getting up') : rem < 4 ? tx('即将阵亡！', 'Bleeding out!') : tx('失血中', 'Bleeding out'),
     );
     setClass(this.el, 'saving', !!rescue);
     setClass(this.el, 'critical', !rescue && rem < 4);
-    setClass(this.rescueRow, 'sg-hidden', !rescue);
-    if (rescue) {
-      setText(this.rescueText, self ? tx('正在吃「桃」自救…', 'Eating your Peach…') : tx('{name} 正在救你', '{name} is reviving you', { name: ctx.label(rescue.by) ?? '?' }));
-    }
+    setClass(this.rescueRow, 'sg-hidden', !rescue && !selfRevive);
+    if (rescue) setText(this.rescueText, tx('{name} 正在救你', '{name} is reviving you', { name: ctx.label(rescue.by) ?? '?' }));
+    else if (selfRevive) setText(this.rescueText, tx('正在吃「桃」自救…', 'Eating your Peach…'));
     const rows: HTMLElement[] = [];
     const row = (key: string, text: string, cls = ''): void => {
       rows.push(h('div', { class: `dn-hint ${cls}`.trim() }, key && !f.touch ? keyCap(key) : null, h('span', null, text)));
     };
     if (jiu >= 0) row(String(4 + jiu), tx('饮「酒」立刻起身', 'Drink Wine: back up at once'), 'good');
-    if (tao >= 0) row(String(4 + tao), tx('吃「桃」自救（1.5 秒，失血暂停）', 'Eat your Peach (1.5 s, bleed-out paused)'), 'good');
+    if (tao >= 0) row(String(4 + tao), tx('吃「桃」自救（需 1.5 秒，趁早）', 'Eat your Peach (takes 1.5 s: do not wait)'), 'good');
     if (called === 2) row('F', tx('已呼救：附近的人会在地图上看到你', 'Help called: nearby players see you on the map'), 'done');
     else row('F', f.touch ? tx('点「呼救」喊「需要桃！」（你的位置会暴露）', 'Tap Call: “I need a Peach!” (shows where you are)') : tx('呼救「需要桃！」（你的位置会暴露）', 'Call “I need a Peach!” (shows where you are)'));
     row(f.touch ? '' : 'WASD', tx('爬向掩体 · 中弹会加速失血', 'Crawl to cover · hits drain the bleed-out'), 'dim');
+    // your squad still fights: point them at whoever is on you
+    if (me.squad.length > 0 && !f.touch) row(tx('中键', 'MMB'), tx('标记敌人，部曲集火', 'Mark an enemy: your squad focuses him'), 'dim');
     this.hints.replaceChildren(...rows);
   }
 

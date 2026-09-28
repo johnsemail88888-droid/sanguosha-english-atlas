@@ -506,7 +506,7 @@ export interface PrivateHeroView {
   channel: { kind: ChannelState['kind']; progress: number; revive?: EntityId } | null;
   downed: boolean;
   downedRemaining: number;
-  /** (downed only) someone — or you, with your own 桃 — is reviving you: bleed-out paused */
+  /** (downed only) someone is reviving you: bleed-out paused (your own 桃 shows as channel.revive = you) */
   rescue?: { by: EntityId; progress: number };
   dead: boolean;
   statuses: { id: StatusId; remaining: number }[];

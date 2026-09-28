@@ -173,8 +173,7 @@ export function viewEntity(w: World, e: Entity): ViewEntity {
   if (h) {
     if (h.dead) v.flags |= VF_DEAD;
     if (h.downed) v.flags |= VF_DOWNED;
-    // someone else is reviving him (his own 桃 is his business: the rescue then names himself)
-    if (h.downed && h.rescue && h.rescue.by !== e.id) v.flags |= VF_REVIVING;
+    if (h.downed && h.rescue) v.flags |= VF_REVIVING;
     if (h.ads) v.flags |= VF_ADS;
     if (h.sprinting) v.flags |= VF_SPRINTING;
     if (h.reloadUntil > now) v.flags |= VF_RELOADING;
