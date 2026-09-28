@@ -110,6 +110,12 @@ const DICT = {
   'online.noWsUrl': ['尚未配置服务器地址，请先在设置中填写。', 'No server address configured yet — set it in Settings first.'],
   'online.badCode': ['请输入有效的房间号', 'Please enter a valid room code'],
   'online.failed': ['连接失败：{msg}', 'Connection failed: {msg}'],
+  'online.versionFix': ['游戏版本与服务器不同：正在切换到服务器的版本，随后自动继续…', "Your game version differs from the server's — switching to the server's version, then carrying on by itself…"],
+  'online.lanOfficial': [
+    '窗口现在显示的是官方服务器的版本（与本机版本不同）：局域网里的朋友打开下面的地址得到的是本机版本，两边无法一起玩。局域网联机请先切换到本机版本。',
+    "This window shows the official server's version of the game, not this app's own: friends opening these LAN addresses get the app's version and could not play with you. For LAN play, switch to this app's version first.",
+  ],
+  'online.useBundled': ['切换到本机版本', "Use this app's version"],
   'online.invited': ['你收到了房间 {code} 的邀请', 'You were invited to room {code}'],
   'online.invitedMode': ['邀请链接使用「{mode}」连接', 'The invite link uses {mode}'],
   'online.notFoundHint': ['房主可能使用的是「{mode}」连接方式。', 'The host may be using {mode}.'],

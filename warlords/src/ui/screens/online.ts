@@ -5,7 +5,7 @@ import type { Screen, UiCtx } from '../ctx';
 import { Bag, copyText, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { button, segmented } from '../widgets';
-import { desktopInfo, detectLocalServer, refreshLanUrls, servedByLocalServer } from '../desktop';
+import { desktopInfo, desktopPage, detectLocalServer, refreshLanUrls, servedByLocalServer, useBundledPage } from '../desktop';
 import {
   choiceChosen,
   choiceOf,
@@ -30,6 +30,7 @@ import { isOfficialWeb, officialServer } from '../../net/official';
 import type { ProbeResult } from '../../net/netCheck';
 import { checkVerdict, classifyP2pFailure, formatCheck, formatProbe, p2pFailureText, p2pFix, type P2pFailure } from '../netHelp';
 import { versionMismatchHint } from '../desktopUpdate';
+import { fixVersionMismatch, roomOnOfficial, SWITCH_PENDING_MS, versionFixPending } from '../versionFix';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
 export function normalizeRoomCode(raw: string): string {
@@ -160,6 +161,8 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   let p2pFail: { kind: P2pFailure; action: 'host' | 'join' } | null = null;
   /** 联机检测: running (results null) or its last result */
   let check: { results: ProbeResult[] | null; at: Date } | null = null;
+  /** 「版本不同」 on the official server: the page of its build is taking this attempt over (versionFix.ts) */
+  let switching = false;
   let runRef: ((kind: 'host' | 'join') => Promise<void>) | null = null;
   const runJoin = (): Promise<void> => runRef?.('join') ?? Promise.resolve();
   const sameOrigin = (): boolean => servedByLocalServer() && !ownWsUrl().trim();
@@ -176,7 +179,10 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
 
   const render = (): void => {
     const status = h('div', { class: 'sg-online-status', aria: { live: 'polite' } });
-    if (busy === 'join') {
+    if (switching) {
+      // the page is being replaced by the one of the server's build, which carries on by itself
+      status.append(h('span', { class: 'sg-spinner' }), ' ', h('span', { class: 'version-fix' }, t('online.versionFix')));
+    } else if (busy === 'join') {
       // 正在加入房间 CODE… — 取消 lets the player do something else (the late answer is dropped)
       status.append(h('span', { class: 'sg-spinner' }), ' ', h('span', { class: 'joining' }, t('online.joiningRoom', { code })), ' ',
         button(t('common.cancel'), cancel, { cls: 'small dark cancel-join', sfx: 'back' }));
@@ -233,14 +239,14 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       const v = normalizeRoomCode(codeInput.value);
       if (v !== codeInput.value) codeInput.value = v;
       code = v;
-      joinBtn.disabled = !!busy || !isValidRoomCode(code) || wsMissing;
+      joinBtn.disabled = !!busy || switching || !isValidRoomCode(code) || wsMissing;
     });
     codeInput.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' && !joinBtn.disabled) joinBtn.click();
     });
 
     const run = async (kind: 'host' | 'join'): Promise<void> => {
-      if (busy) return;
+      if (busy || switching) return;
       if (kind === 'join' && !isValidRoomCode(code)) {
         errorText = t('online.badCode');
         render();
@@ -253,12 +259,29 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
       retryJoin = false;
       p2pFail = null;
       commitChoice();
+      // (a room reached this way lives on the official server: a version mismatch there can be fixed)
+      const onOfficial = roomOnOfficial({ mode, wsUrl: settings.get().net.wsUrl });
       render();
       try {
         if (kind === 'host') await ctx.hostOnline(mode);
         else await ctx.joinOnline(code, mode);
       } catch (err) {
         if (mine !== attempt) return; // cancelled: nobody is waiting for this answer
+        // 「版本不同」 on the official server: the page of the server's build takes this attempt over — the
+        // app's window / this tab is about to be replaced (a create that hit 409 started it in the net layer)
+        const mismatch = (err as { code?: unknown } | null)?.code === 'versionMismatch';
+        const fixing = mismatch && (versionFixPending() || (onOfficial && (await fixVersionMismatch(kind === 'join' ? { room: code } : { create: true })) !== null));
+        if (fixing) {
+          if (mine !== attempt) return;
+          if (kind === 'join') clearRejoin();
+          switching = true;
+          // (nothing happened after all: the screen is the player's again)
+          setTimeout(() => {
+            switching = false;
+            if (el.isConnected && !busy) render();
+          }, SWITCH_PENDING_MS);
+          return;
+        }
         errorText = t('online.failed', { msg: errorMessage(err) });
         retryJoin = kind === 'join';
         // public P2P: say which part failed (signalling / NAT / no room) in plain words, and offer the fix
@@ -283,8 +306,8 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
     };
 
     runRef = run;
-    const hostBtn = button(t('online.host'), () => void run('host'), { cls: 'gold', sfx: 'confirm', disabled: !!busy || wsMissing });
-    const joinBtn = button(t('online.joinBtn'), () => void run('join'), { sfx: 'confirm', disabled: !!busy || !isValidRoomCode(code) || wsMissing });
+    const hostBtn = button(t('online.host'), () => void run('host'), { cls: 'gold', sfx: 'confirm', disabled: !!busy || switching || wsMissing });
+    const joinBtn = button(t('online.joinBtn'), () => void run('join'), { sfx: 'confirm', disabled: !!busy || switching || !isValidRoomCode(code) || wsMissing });
 
     el.replaceChildren(
       button(`‹ ${t('common.back')}`, () => ctx.go('title'), { cls: 'ghost small sg-back', sfx: 'back' }),
@@ -402,8 +425,15 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
         }, { cls: 'small dark' }),
       ),
     );
+    // the window shows the official server's build (the app picked it: the server runs another build than the
+    // app's own): LAN friends get the app's build from these addresses — say so and offer the app's page
+    const officialPage = desktopPage() === 'official';
     return h('div', { class: 'sg-lan' },
       h('h2', { class: 'sg-h2' }, tx('局域网联机', 'LAN play')),
+      officialPage
+        ? h('div', { class: 'sg-warn lan-version' }, t('online.lanOfficial'), ' ',
+            button(t('online.useBundled'), () => void useBundledPage(), { cls: 'small gold use-bundled', sfx: 'confirm' }))
+        : null,
       h('p', { class: 'sg-mute' }, urls.length
         ? tx('同一局域网（同一 Wi-Fi / 路由器）的朋友用浏览器打开下面的地址，选择「服务器」模式输入房间码即可加入：', 'Friends on the same network open one of these addresses in a browser, choose Server mode and enter your room code:')
         : tx('未检测到局域网地址（请检查网络连接）。', 'No LAN address found (check your network connection).')),

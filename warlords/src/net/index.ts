@@ -5,6 +5,8 @@
 //                                   WebSocket mode: a server that can run the match itself (POST
 //                                   /api/rooms, src/headless) does, and this page joins it as the room
 //                                   owner (canManage); otherwise this page hosts it (?host=browser forces that)
+//                                   — unless the server runs another build (409) and onBuildMismatch says
+//                                   the page of its build takes over (src/ui/versionFix.ts): versionMismatch
 //   joinOnlineSession(code, …)      join a room by its 5-character code
 //
 // A relay server may require an access key (RELAY_KEY, src/net/relayKey.ts): the page's
@@ -17,7 +19,7 @@ import type { GameSession } from '../game/session';
 import { settings } from '../game/settings';
 import { ClientSession, hasSeatToken, openRetryingRoomNotFound, ROOM_NOT_FOUND_RETRY_MS } from './clientSession';
 import { NetError, toNetError } from './errors';
-import { browserHostForced, createHeadlessRoom } from './headlessRooms';
+import { browserHostForced, createHeadlessRoom, isBuildMismatch } from './headlessRooms';
 import { diagnoseRelayFailure, KEY_PARAM, keyChecksSettled, keyedRelayUrl, keyFor, noteRelayAccepted } from './relayKey';
 import { HostSession } from './hostSession';
 import { sanitizeName } from './protocol';
@@ -82,9 +84,10 @@ async function openHostTransport(mode: NetMode): Promise<{ transport: Transport;
  * null: the server cannot (an older server, no headless bundle, its server-run slots taken,
  * unreachable) or joining the new room failed — the page hosts the room itself. Throws only
  * 'rateLimited', 'tooManyRooms', 'serverFull' and 'keyRequired' (the server's relay would
- * refuse the page-hosted room as well).
+ * refuse the page-hosted room as well), and 'versionMismatch' when the server runs another
+ * build and `onBuildMismatch` resolves true (the page of its build creates the room instead).
  */
-async function serverRunRoom(name: string): Promise<GameSession | null> {
+async function serverRunRoom(name: string, onBuildMismatch?: BuildMismatchHook): Promise<GameSession | null> {
   const url = await relayUrl();
   if (!url) return null; // (the page-hosted path says 未配置服务器地址)
   const lang = settings.get().lang === 'en' ? 'en' : 'zh';
@@ -96,6 +99,10 @@ async function serverRunRoom(name: string): Promise<GameSession | null> {
   if (r.kind === 'serverFull') throw new NetError('serverFull');
   if (r.kind === 'keyRequired') throw new NetError('keyRequired', key ? `key refused: ${r.reason}` : r.reason);
   if (r.kind !== 'created') {
+    // another build (409): the page of the server's build may take 创建房间 over — then no room here
+    if (onBuildMismatch && isBuildMismatch(r) && (await Promise.resolve(onBuildMismatch(url)).catch(() => false))) {
+      throw new NetError('versionMismatch', 'the server runs another build');
+    }
     console.info(`[net] the server does not run this room (${r.reason}) — hosting it in this page`);
     return null;
   }
@@ -107,10 +114,16 @@ async function serverRunRoom(name: string): Promise<GameSession | null> {
   }
 }
 
+/**
+ * The server asked to run a room (relay `url`) runs another build of the game (POST /api/rooms 409):
+ * resolve true when the page of its build takes the create over (this page is being replaced).
+ */
+export type BuildMismatchHook = (url: string) => boolean | Promise<boolean>;
+
 /** Create an online room. Resolves once the room is registered (lobby.roomCode set). */
-export async function hostOnlineSession(opts: { name: string; mode: NetMode }): Promise<GameSession> {
+export async function hostOnlineSession(opts: { name: string; mode: NetMode; onBuildMismatch?: BuildMismatchHook }): Promise<GameSession> {
   if (opts.mode === 'ws' && !browserHostForced()) {
-    const s = await serverRunRoom(playerName(opts.name));
+    const s = await serverRunRoom(playerName(opts.name), opts.onBuildMismatch);
     if (s) return s;
   }
   try {

@@ -34,6 +34,7 @@ import { clearRejoin, inviteLink, isReconnectable, loadRejoin, netFor, refreshRe
 import { copyWhenReady, pendingLink, type InviteNotice, type PendingLink } from './quickInvite';
 import { desktopGpuSoftware, desktopInfo } from './desktop';
 import { reportScreen } from './desktopUpdate';
+import { takeCreateIntent } from './versionFix';
 import { AutoQualityController, autoPick, autoTuneNeeded } from './autoQuality';
 import { perfVerdict, qualityName } from './perfcheck';
 
@@ -313,6 +314,9 @@ class App implements UiCtx {
       }
     }
     this.roomCode = room ? room.trim().toUpperCase() : null;
+    // ?create=1: a version fix brought 创建房间 over from a page of another build (versionFix.ts) — the
+    // online screen creates the room at once (the parameter leaves the address bar: F5 creates none)
+    if (opts.roomCode === undefined && takeCreateIntent() && !this.roomCode && this.webgl.ok) this.quickHost = true;
 
     this.installGlobalListeners();
     this.bag.add(
@@ -326,7 +330,7 @@ class App implements UiCtx {
     // no WebGL: an invite link still lands on the title, which explains why nothing can start.
     // A reload in the middle of an online session (F5) goes back to the online screen, which rejoins.
     const rejoin = opts.initialScreen || opts.initialSession ? null : loadRejoin();
-    this.go(opts.initialScreen ?? ((this.roomCode || rejoin) && this.webgl.ok ? 'online' : 'title'));
+    this.go(opts.initialScreen ?? ((this.roomCode || rejoin || this.quickHost) && this.webgl.ok ? 'online' : 'title'));
     if (opts.initialSession) {
       const { session, kind } = opts.initialSession;
       this.attachSession(session, kind);

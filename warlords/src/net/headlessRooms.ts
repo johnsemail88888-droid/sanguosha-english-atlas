@@ -81,6 +81,11 @@ export function classifyCreateResponse(status: number, body: unknown): CreateRoo
   return { kind: 'fallback', reason: `HTTP ${status}${error ? ` ${error}` : ''}` };
 }
 
+/** The server refused because it runs another build of the game (409): the page of its build could create the room. */
+export function isBuildMismatch(r: CreateRoomResult): boolean {
+  return r.kind === 'fallback' && /^HTTP 409\b/.test(r.reason);
+}
+
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{
   status: number;
   json(): Promise<unknown>;
