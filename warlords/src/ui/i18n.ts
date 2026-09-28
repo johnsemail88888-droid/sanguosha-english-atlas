@@ -210,6 +210,8 @@ const DICT = {
   'hud.interact.airdrop': ['打开天降锦囊', 'Open the airdrop'],
   'hud.interact.pickup': ['拾取 {name}', 'Pick up {name}'],
   'hud.interact.swap': ['替换为 {name}', 'Swap for {name}'],
+  'hud.interact.ammo': ['拾取弹药（{name}）', 'Take the ammo ({name})'],
+  'hud.interact.ammoFull': ['弹药已满', 'Ammo full'],
   'hud.interact.swapCard': ['拾取 {name}，丢弃 {slot} 号栏的 {old}', 'Take {name}, drop {old} (slot {slot})'],
   'hud.interact.full': ['锦囊栏已满', 'Item slots full'],
   'hud.interact.fullHint': ['按住 X 再按 4–7 丢弃锦囊', 'Hold X + 4–7 to discard a card'],

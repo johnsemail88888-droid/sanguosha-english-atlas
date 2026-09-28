@@ -70,6 +70,9 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     onQualityApplying: (cb) => handle.renderer?.onQualityApplying(cb) ?? (() => undefined),
     // the F3 panel / automatic quality read the renderer's live numbers
     perf: () => handle.renderer?.perf() ?? null,
+    // the HUD's sights follow the input's aim (ADS progress, scope zoom step, breath)
+    aim: () => handle.input.aimSnapshot(),
+    cycleZoom: (dir) => handle.input.aim.cycleZoom(dir),
     dispose: () => {
       offDebug?.();
       offProgress();

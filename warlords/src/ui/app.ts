@@ -4,6 +4,7 @@
 import type { GameEvent, HeroSelectView, MatchPhase, MatchSettings, Vec3 } from '../core/types';
 import type { GameSession } from '../game/session';
 import type { InputSink } from '../game/input-types';
+import type { AimSnapshot } from '../game/aimFeel';
 import { defaultQuality, isSoftwareGpu, probeGpu, settings, type NetServerConfig, type Quality } from '../game/settings';
 import type { ViewSource } from '../render/view';
 import type { ScreenId, Screen, SettingsTab, UiCtx } from './ctx';
@@ -86,6 +87,10 @@ export interface GameHandle {
   onQualityApplying?(cb: (applying: boolean) => void): () => void;
   /** Optional: live performance numbers of the 3D view (F3 panel); null before the view is built. */
   perf?(): PerfInfo | null;
+  /** Optional: the local aim this frame (ADS progress, zoom step, scope breath — game/aimFeel.ts) for the HUD's sights. */
+  aim?(): Readonly<AimSnapshot> | null;
+  /** Optional: the next zoom step of a scope that is up (touch's zoom button); true when it switched. */
+  cycleZoom?(dir: number): boolean;
 }
 
 /** The 3D view's live performance numbers (render/renderer.ts PerfSnapshot). */
