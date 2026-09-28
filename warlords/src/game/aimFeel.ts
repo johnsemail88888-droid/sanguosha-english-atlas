@@ -2,11 +2,25 @@
 // how far the sights are up (the class's ADS time, data/weaponFeel.ts), the
 // zoom the camera shows (a sniper scope's two steps, switched with the wheel),
 // whether a lens overlay covers the screen, and the breathing sway of a scope
-// (Shift holds the breath for a few seconds, then you are winded for a moment).
-// The InputController owns it: the sway is added to the look angles it sends,
-// so the host's crosshair ray (and every shot) follows the reticle exactly.
+// (Shift holds the breath for a few seconds, then you are winded for a moment),
+// and the recoil of your own shots (each class kicks the view its own way; it
+// climbs while the trigger is held and settles back once it rests).
+// The InputController owns it: sway + recoil are added to the look angles it
+// sends, so the host's crosshair ray (and every shot) follows the reticle exactly.
 import { WEAPON_BY_ID } from '../data';
-import { adsEase, adsZooms, aimProfile, BREATH_RECOVER, HOLD_BREATH_MAX, stepAdsT, swayOffset, type SightKind } from '../data/weaponFeel';
+import {
+  adsEase,
+  adsZooms,
+  aimProfile,
+  BREATH_RECOVER,
+  HOLD_BREATH_MAX,
+  RECOIL_MAX_DEG,
+  recoilSettleDelay,
+  shotKick,
+  stepAdsT,
+  swayOffset,
+  type SightKind,
+} from '../data/weaponFeel';
 
 /** What the renderer and the HUD read about the local aim this frame. */
 export interface AimSnapshot {
@@ -32,9 +46,16 @@ export interface AimSnapshot {
   winded: boolean;
   /** bows: seconds held at full draw (the arm tires after a while) */
   drawHeld: number;
-  /** sway added to the look angles (radians) */
+  /** sway + recoil added to the look angles (radians) */
   swayYaw: number;
   swayPitch: number;
+  /** the recoil part of it (radians; pitch ≥ 0 = the view kicked up) */
+  kickYaw: number;
+  kickPitch: number;
+  /** seconds since your last shot of this weapon (large: none yet) */
+  shotAge: number;
+  /** seconds between shots of this weapon (the next round is chambered after this) */
+  cycle: number;
   /** the camera is the hero's eye (near sights draw their housing only then) */
   firstPerson: boolean;
 }
@@ -55,8 +76,14 @@ export interface AimInput {
 
 /** Breath comes back in this many seconds from empty. */
 const BREATH_REFILL = 3;
-/** Overlay sights cover the screen from this aim progress on. */
-export const SCOPE_AT = 0.7;
+/**
+ * Overlay sights cover the screen from this aim progress on (the weapon is
+ * hidden then). Their zoom only starts here too, and the lens fades in over
+ * SCOPE_FADE of progress: no magnified world behind a gun model half way up.
+ */
+export const SCOPE_AT = 0.45;
+export const SCOPE_FADE = 0.25;
+const DEG = Math.PI / 180;
 
 export class AimFeel {
   private weaponId: string | null = null;
@@ -71,6 +98,10 @@ export class AimFeel {
   private winded = 0;
   private drawHeld = 0;
   private amp = 0;
+  /** recoil offset (radians) and the time since the last shot */
+  private kickP = 0;
+  private kickY = 0;
+  private shotAge = 99;
   private readonly snap: AimSnapshot = {
     weaponId: null,
     sight: 'none',
@@ -87,6 +118,10 @@ export class AimFeel {
     drawHeld: 0,
     swayYaw: 0,
     swayPitch: 0,
+    kickYaw: 0,
+    kickPitch: 0,
+    shotAge: 99,
+    cycle: 1,
     firstPerson: true,
   };
 
@@ -101,6 +136,8 @@ export class AimFeel {
       this.zoomIdx = 0;
       this.drawHeld = 0;
       this.step = 0;
+      this.kickP = this.kickY = 0;
+      this.shotAge = 99;
     }
     const def = inp.weaponId ? WEAPON_BY_ID[inp.weaponId] : undefined;
     const prof = aimProfile(def);
@@ -113,7 +150,9 @@ export class AimFeel {
     // switching 4× ↔ 8× glides (a fresh weapon starts at its first step)
     this.step = this.step <= 0 ? want : this.step + (want - this.step) * (1 - Math.exp(-d * 16));
     if (Math.abs(this.step - want) < 1e-3) this.step = want;
-    const zoom = 1 + (this.step - 1) * blend;
+    // a scope magnifies only once the eye is at it (from SCOPE_AT on, as the lens fades in); other sights with the aim
+    const zoomBlend = prof.overlay ? adsEase((this.t - SCOPE_AT) / (1 - SCOPE_AT)) : blend;
+    const zoom = 1 + (this.step - 1) * zoomBlend;
 
     // hold breath (scopes): Shift once fully aimed, up to HOLD_BREATH_MAX s, then winded
     const full = aiming && this.t >= 0.95;
@@ -146,6 +185,16 @@ export class AimFeel {
     this.amp += (amp - this.amp) * (1 - Math.exp(-d * 6));
     const sw = swayOffset(this.time, this.amp);
 
+    // recoil settles back once the trigger rests (a held trigger keeps climbing)
+    this.shotAge += d;
+    if (def && this.shotAge > recoilSettleDelay(def)) {
+      const k = Math.exp(-d / Math.max(0.03, prof.recover));
+      this.kickP *= k;
+      this.kickY *= k;
+      if (this.kickP < 1e-5) this.kickP = 0;
+      if (Math.abs(this.kickY) < 1e-5) this.kickY = 0;
+    }
+
     const s = this.snap;
     s.weaponId = inp.weaponId;
     s.sight = prof.sight;
@@ -160,10 +209,30 @@ export class AimFeel {
     s.holding = this.holding;
     s.winded = this.winded > 0;
     s.drawHeld = this.drawHeld;
-    s.swayYaw = sw.yaw;
-    s.swayPitch = sw.pitch;
+    s.swayYaw = sw.yaw + this.kickY;
+    s.swayPitch = sw.pitch + this.kickP;
+    s.kickYaw = this.kickY;
+    s.kickPitch = this.kickP;
+    s.shotAge = this.shotAge;
+    s.cycle = def ? 1 / Math.max(0.05, def.fireRate) : 1;
     s.firstPerson = inp.firstPerson ?? true;
     return s;
+  }
+
+  /**
+   * A shot of ours left the weapon (the renderer's predicted local fire): the
+   * view kicks up (and a little sideways) by the class's recoil — less once
+   * aimed for steady classes. `rand` (0..1) picks the sideways direction.
+   */
+  onShot(weaponId: string, rand = Math.random()): void {
+    if (weaponId !== this.weaponId) return;
+    const def = WEAPON_BY_ID[weaponId];
+    if (!def || def.melee) return;
+    const k = shotKick(def, adsEase(this.t));
+    this.kickP = Math.min(RECOIL_MAX_DEG * DEG, this.kickP + k.pitch * DEG);
+    const maxYaw = RECOIL_MAX_DEG * 0.5 * DEG;
+    this.kickY = Math.max(-maxYaw, Math.min(maxYaw, this.kickY + (rand * 2 - 1) * k.yaw * DEG));
+    this.shotAge = 0;
   }
 
   /** The latest snapshot (without advancing). */

@@ -2,6 +2,7 @@
 // the screen once up and has two zoom steps, the scope sways and Shift holds the breath for a while.
 import { describe, expect, it } from 'vitest';
 import { HOLD_BREATH_MAX, AIM_PROFILES } from '../../../src/data/weaponFeel';
+import { WEAPON_BY_ID } from '../../../src/data';
 import { AimFeel, SCOPE_AT, type AimInput, type AimSnapshot } from '../../../src/game/aimFeel';
 
 const DT = 1 / 60;
@@ -26,12 +27,18 @@ function maxSway(f: AimFeel, secs: number, o: Partial<AimInput>): number {
 describe('AimFeel', () => {
   it('raises the sights over the class ADS time; a sniper scope covers the screen once up', () => {
     const f = new AimFeel();
-    let s = run(f, 0.15, { ads: true });
-    expect(s.progress).toBeGreaterThan(0.4);
-    expect(s.progress).toBeLessThan(0.6);
+    // on the way up: no magnified world behind the gun — the zoom waits for the eye to reach the scope
+    let s = run(f, 0.1, { ads: true });
+    expect(s.progress).toBeGreaterThan(0.25);
+    expect(s.progress).toBeLessThan(SCOPE_AT);
     expect(s.scoped).toBe(false);
+    expect(s.zoom).toBe(1);
+    s = run(f, 0.05, { ads: true });
+    expect(s.progress).toBeGreaterThan(SCOPE_AT);
+    expect(s.progress).toBeLessThan(0.6);
+    expect(s.scoped).toBe(true);
     expect(s.zoom).toBeGreaterThan(1);
-    expect(s.zoom).toBeLessThan(4);
+    expect(s.zoom).toBeLessThan(1.5);
     s = run(f, 0.2, { ads: true });
     expect(s.progress).toBe(1);
     expect(s.progress).toBeGreaterThanOrEqual(SCOPE_AT);
@@ -121,11 +128,85 @@ describe('AimFeel', () => {
 
   it('a bow held at full draw starts to shake', () => {
     const f = new AimFeel();
-    run(f, 1, { weaponId: 'liegong', ads: true });
-    const fresh = maxSway(f, 1, { weaponId: 'liegong', ads: true });
-    run(f, 2, { weaponId: 'liegong', ads: true });
-    const tired = maxSway(f, 1, { weaponId: 'liegong', ads: true });
+    run(f, 1, { weaponId: 'xiaoji', ads: true });
+    const fresh = maxSway(f, 1, { weaponId: 'xiaoji', ads: true });
+    run(f, 2, { weaponId: 'xiaoji', ads: true });
+    const tired = maxSway(f, 1, { weaponId: 'xiaoji', ads: true });
     expect(f.snapshot.drawHeld).toBeGreaterThan(AIM_PROFILES.bow.fatigueAfter);
     expect(tired).toBeGreaterThan(fresh * 2);
+  });
+
+  it('黄忠\'s 烈弓 looks through a scope: 2.5× then 5× on the wheel, the arm still tires', () => {
+    const f = new AimFeel();
+    let s = run(f, 1, { weaponId: 'liegong', ads: true });
+    expect(s.scoped).toBe(true);
+    expect(s.sight).toBe('scope');
+    expect(s.zoom).toBeCloseTo(2.5, 6);
+    expect(f.cycleZoom(1)).toBe(true);
+    s = run(f, 0.6, { weaponId: 'liegong', ads: true });
+    expect(s.zoom).toBeCloseTo(5, 2);
+    const fresh = maxSway(f, 1, { weaponId: 'liegong', ads: true });
+    run(f, 2, { weaponId: 'liegong', ads: true });
+    expect(maxSway(f, 1, { weaponId: 'liegong', ads: true })).toBeGreaterThan(fresh * 1.4);
+  });
+});
+
+describe('AimFeel recoil', () => {
+  const DEG = Math.PI / 180;
+  /** Fire `n` shots of the weapon at its own rate (trigger held), advancing the aim between them. */
+  function spray(f: AimFeel, weaponId: string, n: number, o: Partial<AimInput> = {}): AimSnapshot {
+    const gap = 1 / WEAPON_BY_ID[weaponId]!.fireRate;
+    let s = f.snapshot as AimSnapshot;
+    for (let i = 0; i < n; i++) {
+      f.onShot(weaponId, 0.5);
+      s = run(f, gap, { weaponId, ...o });
+    }
+    return s;
+  }
+
+  it('each shot kicks the view up (the look angles carry it: the next shots follow)', () => {
+    const f = new AimFeel();
+    run(f, 1, { weaponId: 'carbine', ads: true });
+    f.onShot('carbine', 0.5);
+    const s = f.update(DT, { ...base, weaponId: 'carbine', ads: true });
+    expect(s.kickPitch).toBeGreaterThan(0.2 * DEG);
+    expect(s.swayPitch).toBeCloseTo(s.kickPitch + 0, 3);
+    expect(s.shotAge).toBeLessThan(0.05);
+  });
+
+  it('a held auto climbs; let go and the view settles back', () => {
+    const f = new AimFeel();
+    run(f, 1, { weaponId: 'carbine', ads: true });
+    const s = spray(f, 'carbine', 10, { ads: true });
+    expect(s.kickPitch).toBeGreaterThan(2 * DEG);
+    const after = run(f, 1, { weaponId: 'carbine', ads: true });
+    expect(after.kickPitch).toBeLessThan(0.05 * DEG);
+  });
+
+  it('the sniper jumps ~3° a shot and settles before the next round is chambered', () => {
+    const f = new AimFeel();
+    run(f, 1, { ads: true });
+    f.onShot('qilin', 0.5);
+    let s = f.update(DT, { ...base, ads: true });
+    expect(s.kickPitch).toBeGreaterThan(2.5 * DEG);
+    expect(s.cycle).toBeCloseTo(1 / WEAPON_BY_ID.qilin!.fireRate, 6);
+    s = run(f, 1, { ads: true });
+    expect(s.kickPitch).toBeLessThan(0.1 * DEG);
+    expect(s.shotAge).toBeGreaterThan(0.9);
+  });
+
+  it('a braced LMG climbs less aimed than from the hip; another weapon drops the recoil', () => {
+    const hip = new AimFeel();
+    run(hip, 0.1, { weaponId: 'huben' });
+    const h = spray(hip, 'huben', 8);
+    const ads = new AimFeel();
+    run(ads, 1, { weaponId: 'huben', ads: true });
+    const a = spray(ads, 'huben', 8, { ads: true });
+    expect(a.kickPitch).toBeLessThan(h.kickPitch * 0.7);
+    const s = ads.update(DT, { ...base, weaponId: 'carbine' });
+    expect(s.kickPitch).toBe(0);
+    // a shot of a weapon no longer in hand does nothing
+    ads.onShot('huben');
+    expect(ads.update(DT, { ...base, weaponId: 'carbine' }).kickPitch).toBe(0);
   });
 });

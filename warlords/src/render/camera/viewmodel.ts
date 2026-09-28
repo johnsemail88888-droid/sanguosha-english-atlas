@@ -73,6 +73,9 @@ export function adsPose(hold: HoldStyle, sightY: number, scoped = false): VmPose
       return HIP_POSE.none;
     case 'akimbo':
       return pose(0.1, -0.13, -0.38, 0.03, 0.01);
+    case 'hip':
+      // LMG / flamer: a bulky receiver — held lower and further out, so the box does not fill the lower view
+      return pose(0.012, -sightY - 0.05, -0.47);
     default:
       // a scope comes right up to the eye (the lens overlay takes over once it is there)
       if (scoped) return pose(0, -sightY + 0.004, -0.2);
@@ -418,6 +421,13 @@ export class ViewModel {
     p.y -= 0.05 * r;
     p.pitch -= 0.32 * r;
     p.roll += 0.45 * r + Math.sin(t * 9) * 0.02 * r;
+    // a scope: the weapon comes up and then drops out of the frame as the eye meets the lens
+    // (the lens overlay takes over from game/aimFeel.ts SCOPE_AT — no gun model filling the view)
+    if (held.scoped) {
+      const out = clamp((a - 0.3) / 0.15, 0, 1);
+      p.y -= 0.15 * out;
+      p.pitch -= 0.25 * out;
+    }
     // lowered (stunned / dancing / disarmed): out of the way
     const lo = this.lowerBlend;
     p.y -= 0.12 * lo;

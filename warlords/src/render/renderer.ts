@@ -12,7 +12,7 @@ import type { EntityId, GameEvent, ViewEntity } from '../core/types';
 import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
-import type { AimSnapshot } from '../game/aimFeel';
+import { SCOPE_AT, SCOPE_FADE, type AimSnapshot } from '../game/aimFeel';
 import { ScopeGlints } from './vfx/scopeGlint';
 import type { ViewSource } from './view';
 import { HERO_VIEW_RANGE, groundVariant, presetPixelRatio, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
@@ -360,6 +360,10 @@ export class GameRenderer {
     // first person: own body hidden from this camera (shadow kept), the weapon viewmodel posed
     const scoped = this.aim ? this.aim.scoped : this.look.ads && this.adsZoom >= 3 && this.zoomNow >= 1.8;
     this.fp.sync(d, localEnt, local, localEnt ? this.entities.character(localEnt.id) : undefined, { ...this.look, adsBlend: this.aim?.blend }, scoped);
+    // looking through a scope: the haze starts much further out (a target at 70 m on 极速 is not a pale blob)
+    const lens = this.aim && this.aim.scoped ? Math.min(1, Math.max(0, (this.aim.progress - SCOPE_AT) / SCOPE_FADE)) : 0;
+    const fogNear = this.preset.drawDistance * (0.35 + 0.4 * lens);
+    if (Math.abs(this.fog.near - fogNear) > 0.01) this.fog.near = fogNear;
 
     // 3. events → VFX, then re-emit to subscribers
     let evs = view.drainEvents();
@@ -1319,8 +1323,11 @@ export class GameRenderer {
       }
       view?.onShot();
       if (this.fp.active) this.fp.onShot(w.id);
-      // (first person: the viewmodel carries most of the kick, the view itself barely moves)
-      const kick = Math.min(0.05, ((def?.recoil ?? 1) * Math.PI) / 180) * (this.fp.active ? 0.4 : 1);
+      // the view's climb is the aim's recoil (game/aimFeel.ts onShot — the shots follow it); this is
+      // the camera's short punch on top. First person: the viewmodel carries most of it — unless a
+      // scope hides the weapon: then the whole punch shows (a sniper's scope jumps)
+      const scopedNow = !!this.aim?.scoped;
+      const kick = Math.min(scopedNow ? 0.1 : 0.05, ((def?.recoil ?? 1) * Math.PI) / 180) * (this.fp.active && !scopedNow ? 0.4 : 1);
       this.rig.shake.kick(kick * 0.6, (Math.random() - 0.5) * kick * 0.3);
       for (const cb of this.fireSubs) {
         try {

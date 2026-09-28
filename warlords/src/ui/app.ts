@@ -89,6 +89,8 @@ export interface GameHandle {
   perf?(): PerfInfo | null;
   /** Optional: the local aim this frame (ADS progress, zoom step, scope breath — game/aimFeel.ts) for the HUD's sights. */
   aim?(): Readonly<AimSnapshot> | null;
+  /** Optional: the next zoom step of a scope that is up (touch's zoom button); true when it switched. */
+  cycleZoom?(dir: number): boolean;
 }
 
 /** The 3D view's live performance numbers (render/renderer.ts PerfSnapshot). */

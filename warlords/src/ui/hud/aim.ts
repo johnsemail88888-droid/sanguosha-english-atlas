@@ -8,19 +8,19 @@ import type { WeaponClass, WeaponDef } from '../../data/types';
 import { RARITY_INFO, WEAPON_BY_ID, WEAPON_CLASS_INFO } from '../../data';
 import { VF_ADS, VF_AIRBORNE, VF_FIRING, VF_RELOADING } from '../../core/types';
 import {
-  SIGHT_LABEL,
   STAT_LABEL,
   adsEase,
   adsZooms,
   aimProfile,
+  aimSummary,
+  isScopedBow,
   pickupSlot,
   spreadDeg,
   weaponStats,
-  zoomLabel,
   type SightKind,
   type WeaponStat,
 } from '../../data/weaponFeel';
-import type { AimSnapshot } from '../../game/aimFeel';
+import { SCOPE_AT, SCOPE_FADE, type AimSnapshot } from '../../game/aimFeel';
 import { h, setClass, setText } from '../dom';
 import { gearName, tx } from '../i18n';
 import { RARITY_COLOR } from '../theme';
@@ -63,6 +63,9 @@ export interface AimView {
   holding: boolean;
   winded: boolean;
   drawHeld: number;
+  /** seconds since your last shot (the lens jolts, the next round chambers) and between shots */
+  shotAge: number;
+  cycle: number;
   /** first-person camera (third person: near sights show only their lit reticle, iron sights none) */
   firstPerson: boolean;
 }
@@ -92,6 +95,8 @@ export function aimViewOf(f: HudFrame, snap: Readonly<AimSnapshot> | null | unde
       holding: snap.holding,
       winded: snap.winded,
       drawHeld: snap.drawHeld,
+      shotAge: snap.shotAge,
+      cycle: snap.cycle,
       firstPerson: snap.firstPerson,
     };
   }
@@ -111,12 +116,14 @@ export function aimViewOf(f: HudFrame, snap: Readonly<AimSnapshot> | null | unde
     holding: false,
     winded: false,
     drawHeld: 0,
+    shotAge: 99,
+    cycle: def ? 1 / Math.max(0.05, def.fireRate) : 1,
     firstPerson: true,
   };
 }
 
 /** Sights that replace the crosshair once they are up (their own reticle marks the aim point). */
-const OWN_RETICLE: ReadonlySet<SightKind> = new Set(['iron', 'reddot', 'holo', 'marksman', 'scope']);
+const OWN_RETICLE: ReadonlySet<SightKind> = new Set(['iron', 'reddot', 'holo', 'reflex', 'marksman', 'scope']);
 
 // ── Crosshair (hip fire) ─────────────────────────────────────────────────────
 
@@ -258,8 +265,14 @@ function chevronMarkup(): string {
   );
 }
 
-/** Reflex sight (SMG / LMG): the round window of the sight and one glowing dot. */
+/** Reflex sight (SMGs): the round window of the sight and one glowing dot. */
 const RED_DOT = '<circle r="44" class="glass"/><circle r="44" class="rim"/><circle r="1.7" class="dotc"/>';
+/** Wide reflex sight (LMGs): a broad low window, a green chevron over a short range bar with end ticks. */
+const REFLEX =
+  '<rect x="-48" y="-26" width="96" height="52" rx="12" class="glass"/><rect x="-48" y="-26" width="96" height="52" rx="12" class="rim"/>' +
+  '<g class="lit-g"><path d="M-6 5.5 L0 -0.4 L6 5.5" stroke-width="1.6" stroke-linejoin="miter"/>' +
+  '<line x1="-17" y1="9" x2="-7" y2="9" stroke-width="1.2"/><line x1="7" y1="9" x2="17" y2="9" stroke-width="1.2"/>' +
+  '<line x1="-17" y1="6.5" x2="-17" y2="11.5" stroke-width="1.2"/><line x1="17" y1="6.5" x2="17" y2="11.5" stroke-width="1.2"/></g>';
 /** Holographic sight (rifles): a square window, a lit ring with ticks and a centre dot. */
 const HOLO =
   '<rect x="-46" y="-34" width="92" height="68" rx="6" class="glass"/><rect x="-46" y="-34" width="92" height="68" rx="6" class="rim"/>' +
@@ -270,11 +283,20 @@ const IRON =
   '<g class="metal"><path d="M-30 7 H-6 V30 Q-18 34 -30 30 Z"/><path d="M6 7 H30 V30 Q18 34 6 30 Z"/><path d="M-2.4 0.6 Q0 -0.4 2.4 0.6 V30 H-2.4 Z"/></g>' +
   '<g class="tri"><circle cx="-10.5" cy="10.5" r="1.9"/><circle cx="10.5" cy="10.5" r="1.9"/><circle cx="0" cy="3.2" r="1.7"/></g>';
 
+/** Seconds a scoped shot jolts the lens up. */
+const JOLT_TIME = 0.14;
+/** The chamber / draw arc shows for weapons slower than this between shots (s): snipers, DMRs, the scoped bow. */
+const BOLT_MIN_CYCLE = 0.3;
+
 export class SightOverlay {
   /** the lens overlay (scopes); `.on` while it shows */
   readonly el: HTMLElement;
   /** reflex / holo / iron sights and the bow's draw ring */
   readonly near: HTMLElement;
+  /** touch: a button beside the lens that switches the scope's zoom step (the wheel on desktop) */
+  readonly zoomBtn: HTMLElement;
+  /** the zoom button was tapped (the HUD switches the input's zoom step) */
+  onZoomTap: (() => void) | null = null;
   private readonly lens: HTMLElement;
   private readonly blink: HTMLElement;
   private readonly reticle: HTMLElement;
@@ -282,6 +304,9 @@ export class SightOverlay {
   private readonly hint: HTMLElement;
   private readonly breathBar: HTMLElement;
   private readonly breathFill: HTMLElement;
+  private readonly bolt: HTMLElement;
+  private readonly boltArc: SVGCircleElement;
+  private readonly boltLbl: HTMLElement;
   private readonly draw: HTMLElement;
   private readonly drawArc: SVGCircleElement;
   private readonly drawLbl: HTMLElement;
@@ -289,8 +314,12 @@ export class SightOverlay {
   private nearKind = '';
   private on = false;
   private opacity = -1;
+  private lensXf = '';
   private nearOpacity = -1;
   private hintKey = '';
+  private boltKey = '';
+  private zoomText = '';
+  private zoomBtnOn = false;
   private shownAt = -1;
 
   constructor() {
@@ -299,7 +328,11 @@ export class SightOverlay {
     this.hint = h('div', { class: 'sc-hint' });
     this.breathFill = h('i');
     this.breathBar = h('div', { class: 'sc-breath' }, this.breathFill);
-    this.lens = h('div', { class: 'sc-lens' }, this.reticle, this.zoomTag, this.breathBar, this.hint);
+    const boltRing = svg('<circle r="18" class="trk"/><circle r="18" class="arc" pathLength="100"/>', '-22 -22 44 44', 'bl-svg');
+    this.boltArc = boltRing.querySelector('.arc') as SVGCircleElement;
+    this.boltLbl = h('span', { class: 'bl-lbl' });
+    this.bolt = h('div', { class: 'sc-bolt' }, boltRing, this.boltLbl);
+    this.lens = h('div', { class: 'sc-lens' }, this.reticle, this.zoomTag, this.bolt, this.breathBar, this.hint);
     this.blink = h('div', { class: 'sc-blink' });
     this.el = h('div', { class: 'hud-scope' }, this.lens, this.blink);
     const ring = svg('<circle r="18" class="trk"/><circle r="18" class="arc" pathLength="100"/>', '-22 -22 44 44', 'dr-svg');
@@ -307,6 +340,15 @@ export class SightOverlay {
     this.drawLbl = h('div', { class: 'dr-lbl' });
     this.draw = h('div', { class: 'hud-draw' }, ring, this.drawLbl);
     this.near = h('div', { class: 'hud-sight' }, this.draw);
+    this.zoomBtn = h('button', { class: 'hud-zoombtn', type: 'button' });
+    // (a touch on the look area underneath would turn the view: this one only switches the zoom)
+    const tap = (e: Event): void => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.onZoomTap?.();
+    };
+    this.zoomBtn.addEventListener('pointerdown', tap);
+    this.zoomBtn.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
   }
 
   /** Returns whether a lens overlay covers the screen (the crosshair / prompts step aside). */
@@ -317,8 +359,8 @@ export class SightOverlay {
     const prof = aimProfile(def);
     // ── lens overlay (scope / marksman) ──
     const lensKind = alive && prof.overlay ? aim.sight : '';
-    // fades in over the last part of the scope-in (the eye reaching the scope), with a short dark blink
-    const o = lensKind ? clamp01((aim.progress - 0.5) / 0.35) : 0;
+    // fades in from SCOPE_AT (the weapon has dropped away, the zoom starts), with a short dark blink
+    const o = lensKind ? clamp01((aim.progress - SCOPE_AT) / SCOPE_FADE) : 0;
     const on = o > 0;
     if (on !== this.on) {
       this.on = on;
@@ -335,21 +377,39 @@ export class SightOverlay {
       if (q !== this.opacity) {
         this.opacity = q;
         this.el.style.opacity = String(q);
-        this.lens.style.transform = `translate(-50%, -50%) scale(${r3(0.9 + 0.1 * adsEase(q))})`;
         this.blink.style.opacity = r3(4 * q * (1 - q) * 0.6);
       }
+      // a shot kicks the whole scope up for a moment (the view's recoil follows: game/aimFeel.ts)
+      const j = aim.shotAge < JOLT_TIME ? 1 - aim.shotAge / JOLT_TIME : 0;
+      const xf = `translate(-50%, calc(-50% - ${r3(3 * j * j)}%)) scale(${r3(0.9 + 0.1 * adsEase(q))})`;
+      if (xf !== this.lensXf) {
+        this.lensXf = xf;
+        this.lens.style.transform = xf;
+      }
       this.updateLensText(f, aim, prof.holdBreath);
+      this.updateBolt(f, aim, def);
     }
-    // ── near sights (red dot / holo / iron) and the bow's draw ring ──
+    const zoomBtnOn = on && f.touch && aim.zoomSteps > 1;
+    if (zoomBtnOn !== this.zoomBtnOn) {
+      this.zoomBtnOn = zoomBtnOn;
+      setClass(this.zoomBtn, 'on', zoomBtnOn);
+    }
+    // ── near sights (red dot / holo / wide reflex / iron) and the bow's draw ring (inside the lens on a scoped bow) ──
+    const scopedBow = isScopedBow(def);
     const nearKind =
-      alive && !prof.overlay && (aim.sight === 'reddot' || aim.sight === 'holo' || (aim.sight === 'iron' && aim.firstPerson)) ? aim.sight : alive && aim.sight === 'bow' ? 'bow' : '';
+      alive && !prof.overlay && (aim.sight === 'reddot' || aim.sight === 'holo' || aim.sight === 'reflex' || (aim.sight === 'iron' && aim.firstPerson))
+        ? aim.sight
+        : alive && (aim.sight === 'bow' || scopedBow)
+          ? 'bow'
+          : '';
     // third person: the reticle floats over the world, without the sight's glass and frame
     setClass(this.near, 'tps', !aim.firstPerson);
+    setClass(this.near, 'in-scope', scopedBow);
     if (nearKind !== this.nearKind) {
       this.nearKind = nearKind;
       this.near.dataset.kind = nearKind;
       this.near.querySelector('.ns-svg')?.remove();
-      if (nearKind && nearKind !== 'bow') this.near.prepend(svg(nearKind === 'reddot' ? RED_DOT : nearKind === 'holo' ? HOLO : IRON, '-50 -50 100 100', 'ns-svg'));
+      if (nearKind && nearKind !== 'bow') this.near.prepend(svg(nearKind === 'reddot' ? RED_DOT : nearKind === 'holo' ? HOLO : nearKind === 'reflex' ? REFLEX : IRON, '-50 -50 100 100', 'ns-svg'));
     }
     const no = nearKind === 'bow' ? clamp01(aim.progress * 3) : nearKind ? clamp01((aim.blend - 0.45) / 0.4) : 0;
     const nq = Math.round(no * 50) / 50;
@@ -359,7 +419,7 @@ export class SightOverlay {
       setClass(this.near, 'on', nq > 0);
     }
     if (nearKind === 'bow' && nq > 0) {
-      // the draw fills with the aim (a full draw = aimed spread); held too long the arm shakes
+      // the draw fills with the aim (a full draw = aimed spread and full damage); held too long the arm shakes
       const full = aim.progress >= 0.999;
       const tired = full && aim.drawHeld > prof.fatigueAfter;
       this.drawArc.style.strokeDashoffset = r3(100 - aim.progress * 100);
@@ -370,11 +430,29 @@ export class SightOverlay {
     return on && o >= 0.6;
   }
 
+  /** Scoped slow guns / the scoped bow: after a shot an arc fills until the next round (arrow) is ready. */
+  private updateBolt(f: HudFrame, aim: AimView, def: WeaponDef | undefined): void {
+    const busy = !!def && aim.cycle >= BOLT_MIN_CYCLE && aim.shotAge < aim.cycle;
+    const k = busy ? clamp01(aim.shotAge / aim.cycle) : 1;
+    const key = busy ? `${Math.round(k * 40)}|${f.lang}` : '';
+    if (key === this.boltKey) return;
+    this.boltKey = key;
+    setClass(this.bolt, 'on', busy);
+    if (!busy) return;
+    this.boltArc.style.strokeDashoffset = r3(100 - k * 100);
+    setText(this.boltLbl, def?.class === 'bow' ? tx('搭箭', 'Nocking') : tx('上膛', 'Chambering'));
+  }
+
   private updateLensText(f: HudFrame, aim: AimView, holdBreath: boolean): void {
-    const z = Math.round(aim.stepZoom * 10) / 10;
     const zooms = aim.def ? adsZooms(aim.def) : [];
-    const zt = `${z}×`;
-    setText(this.zoomTag, zt);
+    // the step chosen (not the zoom gliding between steps)
+    const z = zooms[aim.zoomIndex] ?? aim.stepZoom;
+    const zt = `${Math.round(z * 10) / 10}×`;
+    if (zt !== this.zoomText) {
+      this.zoomText = zt;
+      setText(this.zoomTag, zt);
+      setText(this.zoomBtn, zooms.length > 1 ? `${zt} ⇄` : zt);
+    }
     // the hint fades out after a few seconds of every scope-in
     const fresh = f.now - this.shownAt < 3.5;
     let key = '';
@@ -388,7 +466,8 @@ export class SightOverlay {
     } else if (fresh) {
       const parts: string[] = [];
       if (holdBreath && !f.touch) parts.push(tx('Shift 屏息稳枪', 'Shift: hold breath'));
-      if (zooms.length > 1 && !f.touch) parts.push(tx('滚轮 切换 {z}', 'Wheel: {z}', { z: zooms.map((x) => `${Math.round(x * 10) / 10}×`).join('/') }));
+      const steps = zooms.map((x) => `${Math.round(x * 10) / 10}×`).join('/');
+      if (zooms.length > 1) parts.push(f.touch ? tx('点 {z} 切换倍率', 'Tap {z} to zoom', { z: zt }) : tx('滚轮 切换 {z}', 'Wheel: {z}', { z: steps }));
       key = `tip|${parts.join('|')}`;
       text = parts.join(' · ');
     }
@@ -455,14 +534,10 @@ function statRows(def: WeaponDef, vs: WeaponDef | undefined): HTMLElement[] {
   });
 }
 
-/** "狙击镜 4× / 8× · 开镜 0.3 秒" — how this weapon aims. */
+/** "狙击镜 4× / 8× · 开镜 0.3 秒 · 腰射 ±6° · Shift 屏息" — how this weapon aims (data/weaponFeel.ts aimSummary). */
 export function aimLine(def: WeaponDef): string {
-  const p = aimProfile(def);
-  const sight = tx(SIGHT_LABEL[p.sight].zh, SIGHT_LABEL[p.sight].en);
-  const secs = (Math.round(p.adsTime * 100) / 100).toString();
-  const zoom = def.adsZoom > 1.001 ? ` ${zoomLabel(def)}` : '';
-  const extra = p.holdBreath ? tx(' · Shift 屏息', ' · Shift: hold breath') : p.sight === 'bow' ? tx(' · 按住右键拉弓', ' · hold RMB to draw') : '';
-  return tx(`${sight}${zoom} · 开镜 ${secs} 秒${extra}`, `${sight}${zoom} · aim ${secs} s${extra}`);
+  const a = aimSummary(def);
+  return tx(a.zh, a.en);
 }
 
 /**
@@ -481,7 +556,7 @@ export class WeaponCard {
     this.el = h('div', { class: 'hud-wcard' });
   }
 
-  /** `aiming`: the sights are up (on touch the card then steps aside: it shares the top of the screen) */
+  /** `aiming`: the sights are up — the card steps aside (the sights and the edge of a lens need the view) */
   update(f: HudFrame, aiming = false): void {
     const me = f.me;
     const w = me && !me.dead ? me.weapons[me.activeSlot] : null;
@@ -498,7 +573,7 @@ export class WeaponCard {
       if (def) this.render(def);
     }
     this.langKey = f.lang;
-    const vis = f.now < this.until && !!me && !me.dead && !me.downed && !(f.touch && aiming);
+    const vis = f.now < this.until && !!me && !me.dead && !me.downed && !aiming;
     if (vis !== this.visible) {
       this.visible = vis;
       setClass(this.el, 'on', vis);
@@ -541,7 +616,8 @@ export class LootCompare {
 
   update(f: HudFrame, prompt: InteractPrompt | null, aiming: boolean): void {
     const me = f.me;
-    const itemId = prompt && (prompt.kind === 'pickup' || prompt.kind === 'full') ? prompt.itemId : '';
+    // (not for a copy of the gun you hold: F takes its ammo, there is nothing to compare)
+    const itemId = prompt && ((prompt.kind === 'pickup' && !prompt.ammo) || prompt.kind === 'full') ? prompt.itemId : '';
     const def = itemId ? WEAPON_BY_ID[itemId] : undefined;
     const slot = def && me ? pickupSlot(def, me.weapons[0]?.id) : 0;
     const vsId = def && me ? (me.weapons[slot]?.id ?? '') : '';

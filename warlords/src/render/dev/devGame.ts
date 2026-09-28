@@ -93,6 +93,8 @@ export function startDevGame(canvas: HTMLCanvasElement, params: URLSearchParams)
   window.__renderer = renderer;
   window.__dev = view;
   window.__input = input;
+  // recoil like the game (render/mountGame.ts)
+  renderer.onLocalFire((id) => input.aim.onShot(id));
   window.__sampleCanvas = () => {
     // render synchronously and read back in the same task (drawing buffer still valid)
     renderer.frame(1 / 60);

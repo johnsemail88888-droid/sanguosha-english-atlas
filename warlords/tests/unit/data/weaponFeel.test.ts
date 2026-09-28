@@ -1,18 +1,27 @@
 // Per-class aiming (data/weaponFeel.ts): every class aims differently, the sim's spread formula is
-// unchanged at the hip and fully aimed, a sniper has a real scope, sensitivity scales with the zoom.
+// unchanged on the ground at the hip and aimed standing still (moving aimed and mid-air are wider now),
+// a sniper (and 黄忠's 烈弓) has a real scope, each class kicks its own way, a bow's draw is its damage.
 import { describe, expect, it } from 'vitest';
 import { WEAPONS, WEAPON_BY_ID } from '../../../src/data';
 import type { WeaponClass, WeaponDef } from '../../../src/data/types';
 import {
   AIM_PROFILES,
+  AIRBORNE_MIN_SPREAD,
   BLOOM_MAX,
   BLOOM_PER_SHOT,
+  BOW_HIP_DAMAGE,
+  MOVE_AIMED,
   accuracyScore,
   adsEase,
   adsSensitivityMul,
   adsZooms,
   aimProfile,
+  aimSummary,
+  drawDamageMul,
+  isScopedBow,
   pickupSlot,
+  recoilSettleDelay,
+  shotKick,
   spreadDeg,
   stepAdsT,
   swayOffset,
@@ -82,20 +91,109 @@ describe('aim profiles per weapon class', () => {
     }
     expect(aimProfile(undefined)).toBe(AIM_PROFILES.rifle);
   });
+
+  it('黄忠\'s 烈弓 (a 复合狙击弓) aims through a real scope: 2.5× / 5×, hold breath, the draw inside the lens', () => {
+    const lg = W('liegong');
+    const p = aimProfile(lg);
+    expect(p.sight).toBe('scope');
+    expect(p.overlay).toBe(true);
+    expect(p.holdBreath).toBe(true);
+    expect(p.crosshair).toBe('bow');
+    expect(p.fatigueAfter).toBe(AIM_PROFILES.bow.fatigueAfter);
+    expect(p.sway).toBeLessThan(AIM_PROFILES.sniper.sway);
+    expect(adsZooms(lg)).toEqual([2.5, 5]);
+    expect(zoomLabel(lg)).toBe('2.5× / 5×');
+    expect(isScopedBow(lg)).toBe(true);
+    // 孙尚香's bow stays a plain drawn bow; the class table itself is untouched
+    expect(aimProfile(W('xiaoji'))).toBe(AIM_PROFILES.bow);
+    expect(isScopedBow(W('xiaoji'))).toBe(false);
+    expect(AIM_PROFILES.bow.overlay).toBe(false);
+    expect(aimProfile(lg)).toBe(aimProfile(lg));
+  });
+
+  it('the LMG has its own sight (not the SMG\'s red dot)', () => {
+    expect(AIM_PROFILES.lmg.sight).not.toBe(AIM_PROFILES.smg.sight);
+    expect(AIM_PROFILES.lmg.sight).not.toBe(AIM_PROFILES.rifle.sight);
+  });
+});
+
+describe('recoil per class (the view climbs; shots follow it)', () => {
+  const kick = (id: string, blend = 1): number => shotKick(W(id), blend).pitch;
+  it('a sniper kicks hardest, then DMRs; autos kick little per shot', () => {
+    expect(kick('qilin')).toBeGreaterThanOrEqual(2.5);
+    expect(kick('qilin')).toBeGreaterThan(kick('qinggang'));
+    expect(kick('qinggang')).toBeGreaterThan(kick('carbine') * 2);
+    expect(kick('pistol')).toBeGreaterThan(kick('carbine'));
+    expect(kick('carbine')).toBeGreaterThan(kick('smg'));
+    expect(kick('carbine')).toBeGreaterThan(0.2);
+    expect(kick('smg')).toBeGreaterThan(0.1);
+    // held down, an auto still climbs a couple of degrees a second
+    expect(kick('carbine') * W('carbine').fireRate).toBeGreaterThan(1.5);
+    expect(kick('smg') * W('smg').fireRate).toBeGreaterThan(1.5);
+    expect(kick('guding')).toBeGreaterThan(1.5);
+  });
+
+  it('each gun\'s own recoil counts: 吕布\'s rifle kicks harder than the carbine, 吕蒙\'s suppressed DMR less than 青釭', () => {
+    expect(kick('wushuang')).toBeGreaterThan(kick('carbine') * 1.5);
+    expect(kick('baiyi')).toBeLessThan(kick('qinggang'));
+  });
+
+  it('SMGs dance sideways; a braced LMG kicks 40 % less once aimed; melee never kicks', () => {
+    const smg = shotKick(W('smg'), 1);
+    expect(smg.yaw).toBeGreaterThan(smg.pitch * 0.6);
+    expect(kick('huben', 1)).toBeCloseTo(kick('huben', 0) * 0.6, 9);
+    expect(kick('qilin', 1)).toBeCloseTo(kick('qilin', 0), 9);
+    expect(shotKick(W('troop_melee'), 1)).toEqual({ pitch: 0, yaw: 0 });
+  });
+
+  it('the view settles only once the trigger rests (a held auto keeps climbing), a sniper between its shots', () => {
+    for (const id of ['carbine', 'smg', 'huben', 'zhuge']) expect(recoilSettleDelay(W(id)), id).toBeGreaterThan(1 / W(id).fireRate);
+    expect(recoilSettleDelay(W('qilin'))).toBeLessThan(0.3);
+  });
+});
+
+describe('bows: the draw is the damage', () => {
+  it('a hip shot hits for BOW_HIP_DAMAGE of a full draw; other classes are unaffected', () => {
+    expect(drawDamageMul(W('liegong'), 0)).toBeCloseTo(BOW_HIP_DAMAGE, 9);
+    expect(drawDamageMul(W('liegong'), 1)).toBe(1);
+    expect(drawDamageMul(W('xiaoji'), 0.5)).toBeGreaterThan(BOW_HIP_DAMAGE);
+    expect(drawDamageMul(W('xiaoji'), 0.5)).toBeLessThan(1);
+    expect(drawDamageMul(W('qilin'), 0)).toBe(1);
+    expect(drawDamageMul(W('carbine'), 0)).toBe(1);
+  });
 });
 
 describe('spread (the sim formula the HUD crosshair draws)', () => {
-  it('is exactly the old spread at the hip and fully aimed', () => {
+  it('is exactly the old spread on the ground: at the hip (standing or moving) and aimed standing still', () => {
     for (const def of WEAPONS) {
-      for (const ads of [false, true]) {
-        for (const moving of [false, true]) {
-          for (const airborne of [false, true]) {
-            for (const burst of [0, 3, 20]) {
-              const now = spreadDeg(def, { adsT: ads ? 1 : 0, moving, airborne, burst });
-              expect(now, `${def.id} ${ads} ${moving} ${airborne} ${burst}`).toBeCloseTo(legacySpread(def, ads, moving, airborne, burst), 9);
-            }
-          }
+      for (const [ads, moving] of [[false, false], [false, true], [true, false]] as const) {
+        for (const burst of [0, 3, 20]) {
+          const now = spreadDeg(def, { adsT: ads ? 1 : 0, moving, airborne: false, burst });
+          expect(now, `${def.id} ${ads} ${moving} ${burst}`).toBeCloseTo(legacySpread(def, ads, moving, false, burst), 9);
         }
+      }
+    }
+  });
+
+  it('aiming on the move widens the aimed cone (a scope most); mid-air nothing is accurate', () => {
+    const at = (id: string, o: { ads: boolean; moving?: boolean; airborne?: boolean }): number =>
+      spreadDeg(W(id), { adsT: o.ads ? 1 : 0, moving: !!o.moving, airborne: !!o.airborne, burst: 0 });
+    // the scoped sniper: dead on standing, not while strafing or jumping
+    expect(at('qilin', { ads: true })).toBe(0);
+    expect(at('qilin', { ads: true, moving: true })).toBeCloseTo(MOVE_AIMED.sniper!, 9);
+    expect(at('qilin', { ads: true, airborne: true })).toBeGreaterThanOrEqual(AIRBORNE_MIN_SPREAD);
+    expect(at('qinggang', { ads: true, moving: true })).toBeCloseTo(W('qinggang').spreadAds + MOVE_AIMED.dmr!, 9);
+    expect(at('liegong', { ads: true, moving: true })).toBeCloseTo(W('liegong').spreadAds + MOVE_AIMED.bow!, 9);
+    // a rifle's sights care much less
+    const rifleMove = at('carbine', { ads: true, moving: true }) - at('carbine', { ads: true });
+    expect(rifleMove).toBeGreaterThan(0);
+    expect(rifleMove).toBeLessThan(MOVE_AIMED.sniper! / 4);
+    for (const def of WEAPONS) {
+      if (def.melee) continue;
+      for (const ads of [false, true]) {
+        const air = spreadDeg(def, { adsT: ads ? 1 : 0, moving: false, airborne: true, burst: 0 });
+        expect(air, def.id).toBeGreaterThanOrEqual(AIRBORNE_MIN_SPREAD);
+        expect(air, def.id).toBeGreaterThanOrEqual(legacySpread(def, ads, false, true, 0) - 1e-9);
       }
     }
   });
@@ -177,8 +275,27 @@ describe('weapon identity: stat bars', () => {
     expect(bar('huben', 'mag')).toBeGreaterThan(bar('carbine', 'mag'));
     expect(accuracyScore(W('qilin'))).toBeGreaterThan(accuracyScore(W('carbine')));
     expect(accuracyScore(W('carbine'))).toBeGreaterThan(accuracyScore(W('guding')));
+    // 精准 is the aimed cone: the sniper tops the scoped bow and the DMR (its wild hip cone is on the aim line instead)
+    expect(accuracyScore(W('qilin'))).toBe(1);
+    expect(accuracyScore(W('qilin'))).toBeGreaterThan(accuracyScore(W('liegong')));
+    expect(accuracyScore(W('liegong'))).toBeGreaterThan(accuracyScore(W('qinggang')));
+    expect(accuracyScore(W('qinggang'))).toBeGreaterThan(accuracyScore(W('carbine')));
+    expect(accuracyScore(W('carbine'))).toBeGreaterThan(accuracyScore(W('smg')));
     // pellet guns show pellets × damage
     expect(weaponStats(W('guding'))[0]!.value).toBe(`${W('guding').damage}×${W('guding').pellets}`);
+  });
+
+  it('the aim line: sight + zoom steps, aim time, the hip cone; no sight name for the flamer', () => {
+    const q = aimSummary(W('qilin'));
+    expect(q.zh).toBe('狙击镜 4× / 8× · 开镜 0.3 秒 · 腰射 ±6° · Shift 屏息');
+    expect(q.en).toContain('Sniper scope 4× / 8×');
+    expect(q.en).toContain('hip ±6°');
+    const fl = aimSummary(W('zhuque'));
+    expect(fl.zh).not.toContain('无');
+    expect(fl.zh.startsWith('开镜')).toBe(true);
+    expect(aimSummary(W('liegong')).zh).toContain('狙击镜 2.5× / 5×');
+    expect(aimSummary(W('liegong')).zh).toContain('满弦');
+    expect(aimSummary(W('huben')).zh.startsWith('宽框反射镜')).toBe(true);
   });
 
   it('a pickup lands in the slot the sim puts it (pistols beside a primary go to slot 2)', () => {

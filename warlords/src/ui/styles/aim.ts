@@ -30,8 +30,11 @@ export const AIM_CSS = /* css */ `
 /* ── scope lens overlay (sniper / marksman) ──────────────── */
 .hud-scope { position: absolute; inset: 0; display: none; overflow: hidden; pointer-events: none; }
 .hud-scope.on { display: block; }
-/* looking through a scope: no F prompt inside the lens under the reticle (COMBAT-11) */
+/* looking through a scope: no F prompt inside the lens under the reticle (COMBAT-11), no first-match guide over the lens edge */
 .hud-scope.on ~ .hud-interact { visibility: hidden; }
+.sg-hud:has(.hud-scope.on) .hud-guide { visibility: hidden; }
+/* red dot / holo / reflex / iron sights up: the F prompt steps below the sight's window */
+.sg-hud:has(.hud-sight.on:not([data-kind="bow"])) .hud-interact { top: calc(50% + min(17vh, 16vw)); opacity: 0.7; }
 .hud-scope .sc-lens { --r: ${R_SCOPE}; position: absolute; left: 50%; top: 50%; width: calc(var(--r) * 2); height: calc(var(--r) * 2); border-radius: 50%; transform: translate(-50%, -50%);
   box-shadow: inset 0 0 calc(var(--r) * 0.18) calc(var(--r) * 0.02) rgba(0, 0, 0, 0.85), inset 0 0 0 2px rgba(120, 170, 200, 0.25), 0 0 0 3px #0b0b0b, 0 0 0 200vmax #000;
   background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.07), transparent 38%), radial-gradient(circle, transparent 72%, rgba(40, 60, 80, 0.18) 100%); }
@@ -49,6 +52,16 @@ export const AIM_CSS = /* css */ `
 .hud-scope .sc-breath i { position: absolute; inset: 0; background: linear-gradient(90deg, #7ab8ff, #cfe6ff); transform-origin: left center; }
 .hud-scope .sc-breath.low i { background: linear-gradient(90deg, #ff6a4a, #ffb09a); }
 .hud-scope .sc-blink { position: absolute; inset: 0; background: #000; opacity: 0; }
+/* after a shot of a slow gun: the next round chambering (the scoped bow: the next arrow nocked) */
+.hud-scope .sc-bolt { position: absolute; left: 17%; bottom: 15%; display: none; align-items: center; gap: ${u(6)}; font-size: ${fs(13, 11)}; font-weight: 800; color: #ffcf6a; text-shadow: 0 0 3px #000, 0 1px 0 #000; }
+.hud-scope .sc-bolt.on { display: flex; }
+.hud-scope .bl-svg { width: ${u(26)}; height: ${u(26)}; transform: rotate(-90deg); overflow: visible; }
+.hud-scope .bl-svg .trk { fill: none; stroke: rgba(255, 255, 255, 0.25); stroke-width: 4; }
+.hud-scope .bl-svg .arc { fill: none; stroke: #ffcf6a; stroke-width: 5; stroke-dasharray: 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 1px #000); }
+/* touch: switch the scope's zoom step (the wheel on desktop) — above the touch controls' look area */
+.hud-zoombtn { display: none; position: absolute; z-index: 6; left: calc(50% + min(44vh, 42vw) * 0.6); top: calc(50% + min(44vh, 42vw) * 0.52); transform: translate(-50%, -50%); min-width: 58px; min-height: 40px; padding: 0 12px; border-radius: 999px; border: 2px solid rgba(255, 207, 106, 0.8); background: rgba(12, 9, 6, 0.8); color: #ffcf6a; font-family: var(--font-display); font-weight: 900; font-size: 16px; pointer-events: auto; touch-action: none; }
+.sg-hud.touch .hud-zoombtn.on { display: grid; place-items: center; }
+.sg-hud.touch .hud-scope .sc-zoom { display: none; }
 
 /* ── near sights: red dot / holo / iron, and the bow's draw ── */
 .hud-sight { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; pointer-events: none; }
@@ -57,16 +70,20 @@ export const AIM_CSS = /* css */ `
 .hud-sight[data-kind="reddot"] .ns-svg { width: min(26vh, 24vw); height: min(26vh, 24vw); }
 .hud-sight[data-kind="holo"] .ns-svg { width: min(30vh, 28vw); height: min(30vh, 28vw); }
 .hud-sight[data-kind="iron"] .ns-svg { width: min(13vh, 12vw); height: min(13vh, 12vw); }
+.hud-sight[data-kind="reflex"] .ns-svg { width: min(32vh, 30vw); height: min(32vh, 30vw); }
 .hud-sight .glass { fill: rgba(150, 205, 255, 0.07); }
 .hud-sight.tps :is(.glass, .rim) { display: none; }
 .hud-sight .rim { fill: none; stroke: rgba(12, 12, 12, 0.72); stroke-width: 4; }
 .hud-sight[data-kind="holo"] .rim { stroke-width: 3.2; stroke: rgba(12, 12, 12, 0.6); }
 .hud-sight .dotc { fill: #ff3020; filter: drop-shadow(0 0 1.6px #ff2a10) drop-shadow(0 0 3px rgba(255, 40, 20, 0.7)); }
 .hud-sight .lit { stroke: #ff3a26; fill: none; filter: drop-shadow(0 0 1.4px rgba(255, 50, 30, 0.9)); }
+.hud-sight .lit-g { stroke: #62ff72; fill: none; filter: drop-shadow(0 0 1.4px rgba(60, 255, 90, 0.9)); }
 .hud-sight .metal { fill: #17171a; stroke: rgba(255, 255, 255, 0.22); stroke-width: 0.6; opacity: 0.92; }
 .hud-sight .tri { fill: #d8ffb0; filter: drop-shadow(0 0 1.2px rgba(170, 255, 120, 0.9)); }
 .hud-draw { position: absolute; left: 0; top: 0; width: ${u(64)}; height: ${u(64)}; transform: translate(-50%, -50%); display: none; }
 .hud-sight[data-kind="bow"] .hud-draw { display: block; }
+/* a scoped bow (烈弓): the draw ring sits in the lower half of the lens, clear of the reticle */
+.hud-sight.in-scope .hud-draw { top: calc(${R_SCOPE} * 0.42); width: ${u(46)}; height: ${u(46)}; }
 .hud-draw .dr-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
 .hud-draw .trk { fill: none; stroke: rgba(255, 255, 255, 0.22); stroke-width: 2.2; }
 .hud-draw .arc { fill: none; stroke: #e8b14a; stroke-width: 2.8; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 1px #000); }
@@ -81,6 +98,8 @@ export const AIM_CSS = /* css */ `
 .hud-wcard, .hud-lootcmp { --rc: #b9b2a2; position: absolute; width: ${u(300)}; padding: ${u(8)} ${u(12)} ${u(8)} ${u(12)}; background: linear-gradient(270deg, rgba(18, 12, 7, 0.92), rgba(18, 12, 7, 0.76)); border: 1px solid var(--hud-line); border-radius: ${u(6)}; pointer-events: none; }
 .hud-wcard { right: ${u(16)}; bottom: ${u(154)}; border-right: ${u(4)} solid var(--rc); opacity: 0; transform: translateY(${u(10)}); transition: opacity 0.25s, transform 0.25s; visibility: hidden; }
 .hud-wcard.on { opacity: 1; transform: none; visibility: visible; }
+/* the first-match guide holds the right edge: the card goes top left, under the role chip */
+.sg-hud:not(.touch):has(.hud-guide) .hud-wcard { right: auto; bottom: auto; left: ${u(16)}; top: ${u(84)}; border-right: 1px solid var(--hud-line); border-left: ${u(4)} solid var(--rc); }
 .hud-lootcmp { left: 50%; top: calc(50% + ${u(116)}); transform: translateX(-50%); border-left: ${u(4)} solid var(--rc); display: none; }
 .hud-lootcmp.on { display: block; }
 .wst-head { display: flex; align-items: center; gap: ${u(7)}; font-size: ${fs(12.5, 10)}; color: #e0cfa2; }
@@ -90,7 +109,7 @@ export const AIM_CSS = /* css */ `
 .wst-vs { margin-left: auto; font-size: 0.92em; opacity: 0.85; white-space: nowrap; }
 .wst-name { font-family: var(--font-display); font-size: ${fs(19, 13)}; font-weight: 900; margin: ${u(2)} 0 ${u(6)}; color: #fff2d6; }
 .wst-card { font-size: 0.68em; color: var(--gold-hi); margin-left: ${u(4)}; }
-.wst-row { display: grid; grid-template-columns: ${u(46)} 1fr ${u(56)} ${u(12)}; align-items: center; column-gap: ${u(7)}; font-size: ${fs(12.5, 10)}; line-height: 1.55; }
+.wst-row { display: grid; grid-template-columns: ${u(58)} 1fr ${u(56)} ${u(12)}; align-items: center; column-gap: ${u(7)}; font-size: ${fs(12.5, 10)}; line-height: 1.55; }
 .wst-lbl { color: #d9c9a0; }
 .wst-bar { position: relative; height: ${u(7)}; background: rgba(255, 255, 255, 0.1); border-radius: ${u(3)}; overflow: hidden; }
 .wst-bar > i, .wst-bar > u { position: absolute; inset: 0; transform-origin: left center; border-radius: inherit; }
@@ -107,4 +126,8 @@ export const AIM_CSS = /* css */ `
 .sg-hud.touch .hud-wcard.on { transform: translate(-50%, 0); }
 .sg-hud.touch .hud-lootcmp { display: none; }
 @media (max-height: 560px) { .hud-wcard .wst-aim { display: none; } .hud-lootcmp { top: calc(50% + ${u(104)}); } }
+/* hero detail / help: how a weapon aims (the in-match stat card's aim line) */
+.sg-weapon-card > .wc-aim { grid-column: 1 / -1; margin: 0 0 0.2em; font-size: 0.84em; font-weight: 600; color: #6a4414; }
+.sg-table.weapons td.sight { white-space: nowrap; }
+.sg-table.weapons.feel td.desc { min-width: 12em; }
 `;

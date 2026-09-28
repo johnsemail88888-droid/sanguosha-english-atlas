@@ -20,7 +20,7 @@ import { BTN_FIRE, SIM_DT } from '../core/types';
 import type { WeaponDef } from '../data/types';
 import type { DamageRequest, DamageResult, ProjectileSpec, RayHit, SimApi } from './api';
 import { BULLET_EVASION_CAP } from '../data';
-import { spreadDeg } from '../data/weaponFeel';
+import { drawDamageMul, spreadDeg } from '../data/weaponFeel';
 import { armorDef, heroDef, mountDef, usesAmmo, warnOnce, weaponDef } from './defs';
 import type { HitscanOptions } from './ext';
 import { flingGear } from './items/util';
@@ -522,6 +522,8 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
 
   // 6. HP (or bleed-out while downed)
   const h = target.hero;
+  /** the whole hit when the HP ran out under it (the shooter's number shows the shot, not the HP that was left) */
+  let full = 0;
   if (amount > 0) {
     if (h?.downed) {
       h.downedUntil -= amount * DOWNED_DAMAGE_TO_SECONDS;
@@ -530,6 +532,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
       const before = target.hp;
       target.hp = Math.max(0, target.hp - amount);
       res.dealt = before - target.hp;
+      if (amount > res.dealt + 1e-6) full = amount + res.absorbed;
     }
   }
   const total = res.dealt + res.absorbed;
@@ -549,6 +552,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
     pos,
     head: req.head,
     blocked: res.blocked,
+    ...(full > 0 ? { full: Math.round(full * 10) / 10 } : null),
   });
   // stats: HP actually removed (finishing a downed hero only shortens its bleed-out)
   if (credit?.hero && credit !== target && !h?.downed) credit.hero.stats.damage += res.dealt;
@@ -1036,6 +1040,8 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
     if (now <= rt.followUpUntil) mul *= rt.followUpMul;
     rt.followUpMul = 1;
   }
+  // bows: the draw is the damage — a hip shot hits for BOW_HIP_DAMAGE of a full draw (data/weaponFeel.ts)
+  if (def.class === 'bow') mul *= drawDamageMul(def, rt.adsWeapon === def.id ? rt.adsT : 0);
   const eye = w.shotOrigin(e);
   let dx = aim.x - eye.x;
   let dy = aim.y - eye.y;

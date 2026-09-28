@@ -175,6 +175,8 @@ export class Hud {
       else this.handle.input.pushAction({ a: 'ability', slot });
     });
     this.squad = new SquadPanel((o: SquadOrderKind) => this.handle.input.pushAction({ a: 'command', order: o }));
+    // touch: the scope's zoom button switches the input's zoom step (the wheel on desktop)
+    this.sight.onZoomTap = () => void this.handle.cycleZoom?.(1);
     this.top = new TopBar((id) => entityLabel(this.view, id, getLang())?.name ?? `#${id}`);
     // the link chip's buttons: 重试 restarts the automatic rejoin now, 离开 leaves the room (MP2-1 / MP2-2)
     this.top.onLinkAction = (a) => {
@@ -247,6 +249,7 @@ export class Hud {
       this.downed.el,
       this.sight.el,
       this.sight.near,
+      this.sight.zoomBtn,
       this.dmgDir.el,
       this.focusWarn.el,
       this.dmg.el,
@@ -483,7 +486,7 @@ export class Hud {
     const aim = aimViewOf(f, this.handle.aim?.());
     const scoped = this.sight.update(f, aim);
     this.crosshair.update(f, aim);
-    this.wcard.update(f, aim.blend > 0.3);
+    this.wcard.update(f, aim.blend > 0.3 || scoped);
     this.dmg.update(now);
     this.dmgDir.update(f);
     const prompt = this.interact.update(f);
@@ -623,7 +626,8 @@ export class Hud {
             const bySquad = ev.src !== undefined && squad.has(ev.src);
             if ((mine || bySquad) && ev.target !== myId) {
               if (ev.blocked) this.dmg.spawn(t(`hud.blocked.${ev.blocked}`), 'blocked', ev.pos, now);
-              else if (ev.amount > 0) this.dmg.spawn(String(Math.round(ev.amount)), ev.head ? 'head' : mine ? 'normal' : 'squad', ev.pos, now);
+              // (a knock / kill shows the whole shot, not just the HP that was left: ev.full)
+              else if (ev.amount > 0) this.dmg.spawn(String(Math.round(ev.full ?? ev.amount)), ev.head ? 'head' : mine ? 'normal' : 'squad', ev.pos, now);
               if (mine && !ev.blocked && ev.amount > 0) this.hitMark.hit(ev.head ? 'head' : 'hit');
             }
             if (ev.target === myId && ev.src !== undefined && ev.src !== myId && ev.amount > 0) {
@@ -1168,7 +1172,7 @@ export class Hud {
     // touch: the on-screen buttons (NP-7), not a keyboard a phone does not have
     const rows = this.isTouch()
       ? touchControlCells(getLang()).map((c) => h('div', { class: 'ctl' }, h('span', { class: 'keys' }, c.caps), h('span', null, c.text)))
-      : controlsFor(isMac()).map((c) => h('div', { class: 'ctl' }, h('span', { class: 'keys' }, c.keys.map((k) => keyCap(k === '左键' ? tx('左键', 'LMB') : k === '右键' ? tx('右键', 'RMB') : k === '中键' ? tx('中键', 'MMB') : k))), h('span', null, tx(c.zh, c.en))));
+      : controlsFor(isMac()).map((c) => h('div', { class: 'ctl' }, h('span', { class: 'keys' }, c.keys.map((k) => keyCap(k === '左键' ? tx('左键', 'LMB') : k === '右键' ? tx('右键', 'RMB') : k === '中键' ? tx('中键', 'MMB') : k === '滚轮' ? tx('滚轮', 'Wheel') : k))), h('span', null, tx(c.zh, c.en))));
     this.controlsBox.replaceChildren(
       h('div', { class: 'ctl-head' }, h('h2', { class: 'sg-h2' }, t('pause.controls')), button(t('common.back'), () => this.closeOverlay('controls'), { cls: 'small dark', sfx: 'back' })),
       h('div', { class: 'ctl-grid' }, rows),

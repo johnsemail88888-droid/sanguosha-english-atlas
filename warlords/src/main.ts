@@ -72,6 +72,7 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     perf: () => handle.renderer?.perf() ?? null,
     // the HUD's sights follow the input's aim (ADS progress, scope zoom step, breath)
     aim: () => handle.input.aimSnapshot(),
+    cycleZoom: (dir) => handle.input.aim.cycleZoom(dir),
     dispose: () => {
       offDebug?.();
       offProgress();

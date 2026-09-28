@@ -226,6 +226,9 @@ export function interactText(p: InteractPrompt, lang: 'zh' | 'en', touch = false
       return { key: 'F', text: `${tx('打开', 'Open')}${lang === 'en' ? ' ' : ''}${lang === 'en' ? n.en.toLowerCase() : n.zh}`, sub: '' };
     }
     case 'pickup':
+      // the same gun you hold: F takes its rounds (none when your reserve is already full)
+      if (p.ammo === 'full') return { key: '', text: gearName(p.itemId), sub: t('hud.interact.ammoFull') };
+      if (p.ammo === 'take') return { key: 'F', text: t('hud.interact.ammo', { name: gearName(p.itemId) }), sub: '' };
       return { key: 'F', text: p.swap ? t('hud.interact.swap', { name: gearName(p.itemId) }) : t('hud.interact.pickup', { name: gearName(p.itemId) }), sub: '' };
     case 'full': {
       // COMBAT-7: F swaps the card for slot 4–7's (dropped at your feet); the discard binding for any other slot

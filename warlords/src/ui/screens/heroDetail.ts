@@ -11,6 +11,7 @@ import { difficultyStars, kingdomBadge, magatamaRow } from '../widgets';
 import { gearArt } from '../cardArt';
 import { abilityArt, setArt } from '../artIcons';
 import { abilityShort } from '../short';
+import { aimSummary } from '../../data/weaponFeel';
 
 export const SLOT_ORDER: Record<AbilityDef['slot'], number> = { passive: 0, q: 1, e: 2, lord: 3 };
 export const SLOT_KEY: Record<AbilityDef['slot'], string> = { passive: '', q: 'Q', e: 'E', lord: 'G' };
@@ -99,10 +100,17 @@ export function weaponBlock(w: WeaponDef): HTMLElement {
       stat(tx('伤害', 'Damage'), dmg),
       stat(tx('射速', 'Rate'), `${w.fireRate}/s`),
       stat(tx('弹匣', 'Mag'), String(w.magSize)),
-      stat(tx('射程', 'Range'), `${w.maxRange}m`),
+      stat(tx('射程', 'Range'), w.melee ? `${w.maxRange}m` : `${w.falloffStart}/${w.maxRange}m`),
     ),
+    // how it aims (sight, zoom, aim time, hip cone) — the same line as the in-match stat card
+    h('p', { class: 'wc-aim' }, aimText(w)),
     h('p', { class: 'wc-desc' }, tx(w.descZh, w.descEn)),
   );
+}
+
+function aimText(w: WeaponDef): string {
+  const a = aimSummary(w);
+  return tx(a.zh, a.en);
 }
 
 function stat(label: string, value: string): HTMLElement {
