@@ -187,7 +187,7 @@ export interface ChipMemo {
 export interface ChipSession {
   shown: boolean;
   dismissed: boolean;
-  /** a join failed on a version mismatch: the update is needed now — show it whatever the throttle says */
+  /** a join failed on a version mismatch: the update is needed now — show it whatever the 24 h throttle says (✕ still closes it) */
   urgent?: boolean;
 }
 
@@ -202,8 +202,8 @@ export function chipOffer(st: UpdateState | null): 'restart' | 'download' | null
 /** Show the chip now? Once shown it stays for the launch (until ✕); a launch within 24 h of the last offer stays quiet. */
 export function chipVisible(st: UpdateState | null, memo: ChipMemo | null, session: ChipSession, now: number): boolean {
   if (!chipOffer(st)) return false;
-  if (session.urgent) return true;
   if (session.dismissed) return false;
+  if (session.urgent) return true;
   if (session.shown) return true;
   if (!memo) return true;
   const age = now - memo.at;
@@ -236,6 +236,11 @@ function localStore(): Storage | null {
 }
 
 const session: ChipSession = { shown: false, dismissed: false };
+
+/** ✕: the chip is gone for the rest of this launch (a later version mismatch brings it back). */
+export function dismissChip(): void {
+  session.dismissed = true;
+}
 
 /** "build 42" (or the version when it has no build number) */
 const buildLabel = (version: string | undefined): string => {
@@ -276,7 +281,7 @@ export function createUpdateChip(): { el: HTMLElement; refresh(): void; dispose(
       // the portable exe: the setup build updates itself from then on
       st.kind === 'portable' && st.setupUrl ? button(t('update.setup'), () => updateAction('setup'), { cls: 'small ghost setup', title: t('update.setupHint') }) : null,
       button('✕', () => {
-        session.dismissed = true;
+        dismissChip();
         render();
       }, { cls: 'icon small ghost x', title: t('update.later'), sfx: 'back' }),
     ];
@@ -291,14 +296,20 @@ export function createUpdateChip(): { el: HTMLElement; refresh(): void; dispose(
 
 /**
  * A join failed because the other side runs another game version (versionMismatch): in the
- * desktop app, check for the update now and bring the chip back. Returns the hint the error
- * message adds (null in a browser: reloading the page is the fix there, the message says so).
+ * desktop app, check for the update now and bring the chip back (even after an earlier ✕).
+ * Returns the hint the error message adds (null in a browser: reloading the page is the fix
+ * there, the message says so). "Update first" only when this app is known to be behind: an
+ * up-to-date app is often the newer side — the server (it updates when nobody plays) or the
+ * other player catches up later.
  */
 export function versionMismatchHint(): string | null {
   if (!bridge()) return null;
+  const st = updateState();
+  session.dismissed = false;
   session.urgent = true;
   updateAction('check');
-  return t('update.mismatch');
+  const behind = !!st && (st.status === 'available' || st.status === 'downloading' || st.status === 'ready');
+  return t(behind ? 'update.mismatch' : 'update.mismatchOther');
 }
 
 // ── 设置 → 通用 → 关于 ─────────────────────────────────────────────────────────
@@ -386,4 +397,9 @@ export function resetDesktopUpdateForTests(): void {
   session.shown = false;
   session.dismissed = false;
   session.urgent = false;
+}
+
+/** Tests: this launch's chip state. */
+export function chipSessionForTests(): ChipSession {
+  return { ...session };
 }

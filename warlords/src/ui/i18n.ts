@@ -65,6 +65,7 @@ const DICT = {
   'update.web': ['网页版：刷新页面就是最新版', 'Web version: reloading the page always gets the newest build'],
   'update.dev': ['开发版：不检查更新', 'Development build: no update checks'],
   'update.mismatch': ['桌面版请先更新：标题页的「重启并更新 / 下载」，或 设置 → 通用 → 关于', 'Desktop app: update it first — “Restart to update” / “Download” on the title screen, or Settings → General → About'],
+  'update.mismatchOther': ['已在检查桌面版更新（有新版本时标题页会提示）；若已是最新，说明服务器或对方还没更新，稍后再试', 'Checking for a desktop update now (the title screen offers it if there is one); if you are up to date, the server or the other player has not updated yet — try again later'],
   'settings.about': ['关于', 'About'],
 
   // ── single ──

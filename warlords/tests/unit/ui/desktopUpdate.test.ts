@@ -7,9 +7,11 @@ import {
   aboutLine,
   buildNumber,
   chipOffer,
+  chipSessionForTests,
   chipVisible,
   cleanUpdateState,
   desktopVersion,
+  dismissChip,
   isMatchScreen,
   loadChipMemo,
   onUpdateState,
@@ -166,23 +168,61 @@ describe('the title chip', () => {
     expect(chipVisible(st({ status: 'latest' }), null, fresh, now)).toBe(false);
   });
 
-  it('a version mismatch makes the update urgent: checked now, the chip back despite ✕ and the 24 h quiet', () => {
+  it('a version mismatch makes the update urgent: checked now, the chip back despite the 24 h quiet — ✕ still closes it', () => {
     const ready = st({ status: 'ready', version: '0.1.43' });
     const memo = { at: 1_000, version: '0.1.43' };
-    expect(chipVisible(ready, memo, { shown: true, dismissed: true, urgent: true }, 2_000)).toBe(true);
+    expect(chipVisible(ready, memo, { shown: true, dismissed: false, urgent: true }, 2_000)).toBe(true);
     expect(chipVisible(ready, memo, { shown: false, dismissed: false, urgent: true }, 2_000)).toBe(true);
+    expect(chipVisible(ready, memo, { shown: true, dismissed: true, urgent: true }, 2_000)).toBe(false); // ✕ after the mismatch
     expect(chipVisible(st({ status: 'latest' }), null, { shown: false, dismissed: false, urgent: true }, 2_000)).toBe(false);
     // in a browser: nothing to add (the message already says to reload)
     expect(versionMismatchHint()).toBeNull();
     overrideLang('zh');
     const mismatch = { code: 'versionMismatch', zh: '你与房主的游戏版本不同，请双方刷新到最新版本', en: 'x' };
     expect(errorMessage(mismatch)).toBe('你与房主的游戏版本不同，请双方刷新到最新版本');
-    // the desktop app: how to update, and a check right away
+    // the desktop app, an update known: how to update, and a check right away
     const app = fakeApp();
+    updateState(); // (the title screen listens from the start)
+    app.push({ kind: 'nsis', auto: true, current: '0.1.42', build: 42, status: 'ready', version: '0.1.43' });
     expect(errorMessage(mismatch)).toBe('你与房主的游戏版本不同，请双方刷新到最新版本 — 桌面版请先更新：标题页的「重启并更新 / 下载」，或 设置 → 通用 → 关于');
     expect(app.calls).toEqual([['check']]);
     expect(errorMessage({ code: 'roomFull', zh: '房间已满', en: 'The room is full' })).toBe('房间已满');
     expect(app.calls).toHaveLength(1);
+    for (const status of ['available', 'downloading'] as const) {
+      app.push({ kind: 'portable', auto: false, current: '0.1.42', build: 42, status, version: '0.1.43' });
+      expect(versionMismatchHint()).toContain('桌面版请先更新');
+    }
+  });
+
+  it('a version mismatch while the app is up to date (or has not checked): no "update first" — the other side may be behind', () => {
+    overrideLang('zh');
+    const mismatch = { code: 'versionMismatch', zh: '你与房主的游戏版本不同，请双方刷新到最新版本', en: 'x' };
+    const app = fakeApp(); // (idle: not checked yet)
+    const other = '你与房主的游戏版本不同，请双方刷新到最新版本 — 已在检查桌面版更新（有新版本时标题页会提示）；若已是最新，说明服务器或对方还没更新，稍后再试';
+    expect(errorMessage(mismatch)).toBe(other);
+    for (const status of ['latest', 'error', 'checking'] as const) {
+      app.push({ kind: 'nsis', auto: true, current: '0.1.44', build: 44, status });
+      expect(errorMessage(mismatch)).toBe(other);
+    }
+    // it still checks each time (a release may have come out since the last check)
+    expect(app.calls.filter((c) => c[0] === 'check')).toHaveLength(4);
+    overrideLang('en');
+    expect(versionMismatchHint()).toMatch(/^Checking for a desktop update now/);
+  });
+
+  it('✕ closes the chip for the launch even after a mismatch; the next mismatch brings it back', () => {
+    const app = fakeApp();
+    updateState(); // (the title screen listens from the start)
+    app.push({ kind: 'nsis', auto: true, current: '0.1.42', build: 42, status: 'ready', version: '0.1.43' });
+    const ready = updateState();
+    const memo = { at: 1_000, version: '0.1.43' }; // offered an hour ago: quiet by the 24 h rule
+    expect(chipVisible(ready, memo, chipSessionForTests(), 1_000 + 3600_000)).toBe(false);
+    versionMismatchHint();
+    expect(chipVisible(ready, memo, chipSessionForTests(), 1_000 + 3600_000)).toBe(true);
+    dismissChip();
+    expect(chipVisible(ready, memo, chipSessionForTests(), 1_000 + 3600_000)).toBe(false);
+    versionMismatchHint();
+    expect(chipVisible(ready, memo, chipSessionForTests(), 1_000 + 3600_000)).toBe(true);
   });
 
   it('the memo survives in localStorage (junk reads as none)', () => {
