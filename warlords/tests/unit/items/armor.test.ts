@@ -179,6 +179,25 @@ describe('白银狮子 baiyin', () => {
     expect(w.dealDamage({ targetId: b.id, amount: 200, type: 'zone' }).dealt).toBe(200);
   });
 
+  it("the 'hit' event says what the armor took (soak): the HUD's blue number and the armor tick key on it", () => {
+    const { w, a, b } = duel();
+    const soakOf = (armor: string, req: Parameters<World['dealDamage']>[0]): number | undefined => {
+      b.hero!.armor = armor;
+      w.drainEvents();
+      w.dealDamage(req);
+      const ev = w.drainEvents().find((e) => e.t === 'hit' && e.target === b.id);
+      return ev && ev.t === 'hit' ? ev.soak : undefined;
+    };
+    // 藤甲 −30 % on a hero bullet; 白银 over its cap: soaked
+    expect(soakOf('tengjia', { targetId: b.id, sourceId: a.id, amount: 100, type: 'normal', weaponId: 'pistol' })).toBeCloseTo(30, 1);
+    expect(soakOf('baiyin', { targetId: b.id, sourceId: a.id, amount: 145, type: 'normal', weaponId: 'qilin' })).toBeCloseTo(65, 1);
+    // nothing taken off: 青釭 (ignoreArmor) through 藤甲, 白银 under its cap, 八卦 (it dodges or lets it through whole), fire on 藤甲 (×1.75)
+    expect(soakOf('tengjia', { targetId: b.id, sourceId: a.id, amount: 46, type: 'normal', weaponId: 'qinggang', ignoreArmor: true })).toBeUndefined();
+    expect(soakOf('baiyin', { targetId: b.id, sourceId: a.id, amount: 40, type: 'normal', weaponId: 'pistol' })).toBeUndefined();
+    expect(soakOf('bagua', { targetId: b.id, sourceId: a.id, amount: 13, type: 'normal', weaponId: 'smg', canDodge: false })).toBeUndefined();
+    expect(soakOf('tengjia', { targetId: b.id, sourceId: a.id, amount: 20, type: 'fire', weaponId: 'zhuque' })).toBeUndefined();
+  });
+
   it('heals 100 when stolen by 顺手牵羊 (the thief now wears it)', () => {
     const { w, a, b } = setup();
     place(w, b, 0, 26);

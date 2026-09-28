@@ -219,21 +219,21 @@ export class Crosshair {
 
 /**
  * The colour of a damage number for a hit of yours / your squad's (spec C8):
- * a knock / kill red, a headshot gold, a bullet into armor that soaks bullets
- * pale blue (the target's armor is public: EntityView.armor), else white —
- * your squad's hits their own smaller colour.
+ * a knock / kill red, a headshot gold, a hit the target's armor actually
+ * reduced pale blue (the host's `soak`: 青釭 through armor, 八卦 and a 白银 hit
+ * under its cap stay white), else white — your squad's hits their own colour.
  */
-export function hitDamageKind(ev: Pick<Extract<GameEvent, { t: 'hit' }>, 'full' | 'head' | 'dtype'>, mine: boolean, targetArmor: string | undefined): DamageKind {
+export function hitDamageKind(ev: Pick<Extract<GameEvent, { t: 'hit' }>, 'full' | 'head' | 'soak'>, mine: boolean): DamageKind {
   if (!mine) return 'squad';
   if (ev.full !== undefined) return 'kill';
   if (ev.head) return 'head';
-  if (armorReduces(targetArmor, ev.dtype)) return 'armor';
+  if (armorReduces(ev)) return 'armor';
   return 'normal';
 }
 
-/** An armor that takes a share off this kind of hit (bullets: damage type 'normal'). */
-export function armorReduces(armor: string | undefined, dtype: DamageType): boolean {
-  return !!armor && dtype === 'normal';
+/** The target's armor took something off this hit (the host says so: GameEvent hit.soak). */
+export function armorReduces(ev: Pick<Extract<GameEvent, { t: 'hit' }>, 'soak'>): boolean {
+  return (ev.soak ?? 0) > 0;
 }
 
 export type HitKind = 'hit' | 'head' | 'down' | 'kill';
@@ -596,9 +596,13 @@ export class SightOverlay {
     return on && o >= 0.6;
   }
 
-  /** The rangefinder: metres to what the crosshair is on — amber beyond the weapon's full-damage range. */
+  /**
+   * The rangefinder: metres to what the crosshair is on — amber beyond the weapon's full-damage
+   * range. Holding over with a drawn scoped bow, the crosshair ranges the hill behind the target:
+   * it reads the impact diamond's distance instead (one number in the lens, not two).
+   */
   private updateRange(aids: Readonly<AimAidsView> | null, def: WeaponDef | undefined): void {
-    const r = aids?.range ?? null;
+    const r = aids?.impact ? aids.impact.dist : (aids?.range ?? null);
     const far = r !== null && !!def && r > def.falloffStart;
     const key = r === null ? '—' : `${Math.round(r)}|${far}`;
     if (key === this.rangeKey) return;
@@ -741,10 +745,11 @@ export function ttkAt(id: string, key: 'm5' | 'm20' | 'm50'): number | null {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
 }
 
-/** Tone of a TTK cell: fast (≤ 2.6 s), fair (≤ 4 s), slow, or none (cannot kill there). */
+/** Tone of a TTK cell: fast (≤ 2.6 s), fair (≤ 4 s), slow, or none (cannot kill there) — of the value as shown (0.1 s). */
 export function ttkTone(s: number | null): 'fast' | 'ok' | 'slow' | 'none' {
   if (s === null) return 'none';
-  return s <= 2.6 ? 'fast' : s <= 4 ? 'ok' : 'slow';
+  const v = Math.round(s * 10) / 10;
+  return v <= 2.6 ? 'fast' : v <= 4 ? 'ok' : 'slow';
 }
 
 /**

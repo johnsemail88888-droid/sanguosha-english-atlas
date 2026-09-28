@@ -74,11 +74,14 @@ export const AIM_CSS = /* css */ `
 .hud-scopebtn { --b: clamp(44px, 12vmin, 62px); display: none; position: absolute; z-index: 6; width: 56px; height: 56px; border-radius: 50%; border: 2px solid rgba(255, 207, 106, 0.85); background: rgba(12, 9, 6, 0.82); color: #ffcf6a; font-family: var(--font-display); font-weight: 900; font-size: 15px; line-height: 1; padding: 0; pointer-events: auto; touch-action: none; }
 /* (above the 镜 / 跃 buttons, clear of the skill buttons and the minimap) */
 .hud-zoombtn { right: calc(var(--b) * 2.8); bottom: calc(var(--b) * 3.6); }
-.hud-breathbtn { right: calc(var(--b) * 1.4); bottom: calc(var(--b) * 3.4); color: #cfe6ff; border-color: rgba(150, 200, 255, 0.85); }
+/* 屏息 left of 4× (12 px clear): beside 切枪 and above 镜 a thumb swapped weapons or dropped the scope */
+.hud-breathbtn { right: calc(var(--b) * 2.8 + 68px); bottom: calc(var(--b) * 3.6); color: #cfe6ff; border-color: rgba(150, 200, 255, 0.85); }
 .hud-breathbtn.down, .hud-breathbtn.holding { background: rgba(40, 90, 160, 0.9); color: #fff; }
 .hud-breathbtn.winded { border-color: #ff8a6a; color: #ffb09a; }
 .sg-hud.touch .hud-scopebtn.on { display: grid; place-items: center; }
 .sg-hud.touch .hud-scope .sc-zoom { display: none; }
+/* scoped: the skill tip strips step aside for the lens's first hint (屏息 / 4×⇄8×) */
+.sg-hud:has(.hud-scope.on) .hud-sktips { opacity: 0; }
 /* a phone: the lens hint and the breath meter sit above the vitals panel */
 .sg-hud.touch .hud-scope .sc-hint { top: 62%; }
 .sg-hud.touch .hud-scope .sc-breath { top: 58.5%; }
@@ -116,7 +119,8 @@ export const AIM_CSS = /* css */ `
 .hud-sight .lit-g { stroke: #62ff72; fill: none; filter: drop-shadow(0 0 1.4px rgba(60, 255, 90, 0.9)); }
 .hud-sight .metal { fill: #17171a; stroke: rgba(255, 255, 255, 0.22); stroke-width: 0.6; opacity: 0.92; }
 .hud-sight .tri { fill: #d8ffb0; filter: drop-shadow(0 0 1.2px rgba(170, 255, 120, 0.9)); }
-.hud-draw { position: absolute; left: 0; top: 0; width: ${u(64)}; height: ${u(64)}; transform: translate(-50%, -50%); display: none; }
+/* the draw ring sits low right of the crosshair (the bow is drawn on the left), never around it — ring, ladder and diamond buried a 35 m target */
+.hud-draw { position: absolute; left: ${u(66)}; top: ${u(46)}; width: ${u(40)}; height: ${u(40)}; transform: translate(-50%, -50%); display: none; }
 .hud-sight[data-kind="bow"] .hud-draw { display: block; }
 /* a scoped bow (烈弓): the draw ring sits in the lens's lower-left quarter, clear of the reticle's lines */
 .hud-sight.in-scope .hud-draw { left: calc(${R_SCOPE} * -0.3); top: calc(${R_SCOPE} * 0.3); width: ${u(46)}; height: ${u(46)}; }
@@ -146,7 +150,7 @@ export const AIM_CSS = /* css */ `
 .wst-rar { margin-left: auto; font-weight: 800; color: var(--rc); }
 .wst-vs { margin-left: auto; font-size: 0.92em; opacity: 0.85; white-space: nowrap; }
 .wst-name { font-family: var(--font-display); font-size: ${fs(19, 13)}; font-weight: 900; margin: ${u(2)} 0 ${u(6)}; color: #fff2d6; }
-.wst-card { font-size: 0.68em; color: var(--gold-hi); margin-left: ${u(4)}; }
+.wst-card { font-size: 0.68em; color: var(--gold-hi); margin-left: ${u(4)}; white-space: nowrap; }
 .wst-row { display: grid; grid-template-columns: max(${u(58)}, 4.3em) 1fr ${u(56)} ${u(12)}; align-items: center; column-gap: ${u(7)}; font-size: ${fs(12.5, 10)}; line-height: 1.55; }
 .wst-lbl { color: #d9c9a0; }
 .wst-bar { position: relative; height: ${u(7)}; background: rgba(255, 255, 255, 0.1); border-radius: ${u(3)}; overflow: hidden; }
@@ -172,6 +176,8 @@ export const AIM_CSS = /* css */ `
 /* touch: the weapon panel sits top right with the kill feed under it — the card goes top centre, under the zone timer */
 .sg-hud.touch .hud-wcard { bottom: auto; right: auto; left: 50%; top: ${u(78)}; transform: translate(-50%, ${u(-8)}); }
 .sg-hud.touch .hud-wcard.on { transform: translate(-50%, 0); }
+/* a phone: a compact card (name + the TTK strip) — the full one hung over the crosshair on every pickup / swap */
+.sg-hud.touch .hud-wcard :is(.wst-stats, .wst-aim) { display: none; }
 .sg-hud.touch .hud-lootcmp { display: none; }
 @media (max-height: 560px) { .hud-wcard .wst-aim { display: none; } .hud-lootcmp { top: calc(50% + ${u(104)}); } }
 /* hero detail / help: how a weapon aims (the in-match stat card's aim line) */
@@ -186,11 +192,9 @@ export const AIM_CSS = /* css */ `
 .am-ladder .tk { position: absolute; left: 0; width: 0; height: 0; }
 /* short centred ticks; the range on the left (the impact diamond's distance is on the right) — outside a bow's draw ring */
 .am-ladder { --lx: ${u(16)}; }
-.am-ladder[data-kind="bow"] { --lx: ${u(36)}; }
 .am-ladder .tk b { position: absolute; left: calc(${u(-9)} * var(--w, 1)); top: -1px; width: calc(${u(18)} * var(--w, 1)); height: 2px; background: rgba(255, 255, 255, 0.92); }
 .am-ladder .tk span { position: absolute; right: var(--lx); top: 0; transform: translateY(-52%); font: 700 ${fs(11.5, 10)} var(--font-body); color: #fff; white-space: nowrap; }
 .am-ladder .tk span:empty { display: none; }
-.am-ladder[data-kind="bow"] .tk::after { content: ''; position: absolute; right: calc(var(--lx) - ${u(26)}); top: -0.5px; width: ${u(22)}; height: 1px; background: rgba(255, 255, 255, 0.35); }
 /* inside 烈弓's lens: dark marks on the bright glass */
 .am-ladder.in-scope { filter: none; }
 .am-ladder.in-scope .tk b { background: #0a0a0a; }

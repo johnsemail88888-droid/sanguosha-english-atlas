@@ -13,15 +13,15 @@ import { WEAPON_TTK } from '../../../src/data/weaponTtk.gen';
 const W = (id: string): WeaponDef => WEAPON_BY_ID[id]!;
 
 describe('damage numbers', () => {
-  it('colour by hit: kill red, head gold, bullets into armor blue, squad its own, else white', () => {
-    expect(hitDamageKind({ full: 120, head: true, dtype: 'normal' }, true, undefined)).toBe('kill');
-    expect(hitDamageKind({ head: true, dtype: 'normal' }, true, 'tengjia')).toBe('head');
-    expect(hitDamageKind({ dtype: 'normal' }, true, 'tengjia')).toBe('armor');
-    expect(hitDamageKind({ dtype: 'fire' }, true, 'tengjia')).toBe('normal');
-    expect(hitDamageKind({ dtype: 'normal' }, true, undefined)).toBe('normal');
-    expect(hitDamageKind({ dtype: 'normal', head: true }, false, undefined)).toBe('squad');
-    expect(armorReduces('renwang', 'normal')).toBe(true);
-    expect(armorReduces(undefined, 'normal')).toBe(false);
+  it('colour by hit: kill red, head gold, a hit the armor reduced (the host says: soak) blue, squad its own, else white', () => {
+    expect(hitDamageKind({ full: 120, head: true, soak: 30 }, true)).toBe('kill');
+    expect(hitDamageKind({ head: true, soak: 30 }, true)).toBe('head');
+    expect(hitDamageKind({ soak: 30 }, true)).toBe('armor');
+    // armor worn but nothing taken off (青釭, 八卦, 白银 under its cap, fire on 藤甲): white
+    expect(hitDamageKind({}, true)).toBe('normal');
+    expect(hitDamageKind({ head: true }, false)).toBe('squad');
+    expect(armorReduces({ soak: 12 })).toBe(true);
+    expect(armorReduces({})).toBe(false);
   });
 
   it('merge within 0.6 s; the merged colour keeps the strongest tell (kill > head > armor > body)', () => {
@@ -88,6 +88,9 @@ describe('stat card: 5 / 20 / 50 m time-to-kill strip', () => {
     expect(ttkTone(3)).toBe('ok');
     expect(ttkTone(6)).toBe('slow');
     expect(ttkTone(null)).toBe('none');
+    // toned as shown: 2.62 s reads "2.6s", so it is green like 2.6
+    expect(ttkTone(2.62)).toBe('fast');
+    expect(ttkTone(2.66)).toBe('ok');
   });
 });
 

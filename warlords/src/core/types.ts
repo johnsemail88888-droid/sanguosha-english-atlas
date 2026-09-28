@@ -387,6 +387,8 @@ export type GameEvent = EventRouting &
         head?: boolean;
         /** the whole hit when the target's HP ran out under it (`amount` is only the HP that was left): the damage number shows this */
         full?: number;
+        /** damage the target's armor took off this hit (absent: none) — the pale-blue number and the armor tick */
+        soak?: number;
         /** 'redirect': the victim handed the hit to another unit (大乔 流离) — the shooter sees "deflected" */
         blocked?: 'dodge' | 'armor' | 'invuln' | 'shield' | 'nullify' | 'redirect';
       }

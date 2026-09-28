@@ -60,6 +60,8 @@ export function ladderTicks(def: WeaponDef | undefined, progress: number, zoom: 
 
 /** Labels closer than this to the previous label (px) are left off (their ticks stay). */
 export const LADDER_LABEL_GAP = 11;
+/** A ladder whose farthest mark sits closer than this to the crosshair (px) is not drawn: the impact diamond carries the holdover. */
+export const LADDER_MIN_PX = 18;
 
 /** Which ladder ticks get a range label: one every LADDER_LABEL_GAP px at least, and always the last (farthest). */
 export function ladderLabels(ticks: readonly LadderTick[]): boolean[] {
@@ -156,8 +158,11 @@ export class AimMarks {
 
   private updateLadder(def: WeaponDef | undefined, aim: AimView, fov: number): void {
     const ticks = def ? ladderTicks(def, aim.progress, aim.zoom, fov, viewport().h) : [];
-    // (a scoped bow's ladder shows once the lens is up; a plain bow's / a launcher's always)
-    const show = ticks.length > 0 && (!isScopedBow(def) || aim.scoped || aim.progress < 0.5);
+    // (a scoped bow's ladder shows once the lens is up; a plain bow's / a launcher's always) — not
+    // when the whole ladder sits within LADDER_MIN_PX of the crosshair: its marks would pile onto
+    // the target, and the impact diamond already shows the holdover
+    const spread = ticks.length > 0 ? Math.abs(ticks[ticks.length - 1]!.px) : 0;
+    const show = spread >= LADDER_MIN_PX && (!isScopedBow(def) || aim.scoped || aim.progress < 0.5);
     const kind = !def ? '' : aim.scoped ? 'scope' : def.class === 'bow' ? 'bow' : 'launcher';
     const key = show ? ticks.map((t) => `${t.d}:${Math.round(t.px)}`).join(',') + `|${kind}` : '';
     if (key === this.ladderKey) return;
@@ -193,12 +198,13 @@ export class AimMarks {
     // a grenade that would land inside its arming distance does not go off
     const arm = def.specialParams.armDist ?? 0;
     const unarmed = def.class === 'launcher' && arm > 0 && imp.dist < arm;
-    const key = `${unarmed}|${Math.round(imp.dist)}|${imp.hit}`;
+    // (inside a scope the rangefinder already reads the impact distance: no second number)
+    const key = `${unarmed}|${Math.round(imp.dist)}|${imp.hit}|${aim.scoped}`;
     if (key === this.diamondKey) return;
     this.diamondKey = key;
     setClass(this.diamond, 'unarmed', unarmed);
     setClass(this.diamond, 'air', !imp.hit);
-    setText(this.diamondLbl, unarmed ? tx('未上膛', 'Not armed') : `${Math.round(imp.dist)} m`);
+    setText(this.diamondLbl, unarmed ? tx('未上膛', 'Not armed') : aim.scoped ? '' : `${Math.round(imp.dist)} m`);
   }
 
   private updateWarning(f: HudFrame): void {

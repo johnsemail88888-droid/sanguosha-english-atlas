@@ -303,7 +303,7 @@ export interface SpreadState {
  * mobile guns — SMGs and pistols — least of all.
  */
 export const MOVE_AIMED: Readonly<Partial<Record<WeaponClass, number>>> = { sniper: 2.5, dmr: 1.2, bow: 1, smg: 0.25, pistol: 0.25 };
-const MOVE_AIMED_OTHER = 0.4;
+export const MOVE_AIMED_OTHER = 0.4;
 /** Mid-air nothing is accurate: the cone is at least this wide (degrees). */
 export const AIRBORNE_MIN_SPREAD = 4;
 
@@ -460,12 +460,15 @@ export function handlingScore(def: WeaponDef): number {
 /** The six bars of a weapon's stat card (伤害 / 射速 / 射程 / 弹匣 / 精准 / 操控). */
 export function weaponStats(def: WeaponDef): WeaponStat[] {
   const shot = weaponShotDamage(def);
-  const dmgText = def.pellets > 1 ? `${def.damage}×${def.pellets}` : String(Math.round(shot));
+  // (a rocket volley's direct hit + blast each: 方天 68×3, not the 24 the rocket's body does alone)
+  const perPellet = def.damage + (def.projectile?.explodeDamage ?? 0);
+  const dmgText = def.pellets > 1 ? `${Math.round(perPellet)}×${def.pellets}` : String(Math.round(shot));
   const melee = !!def.melee;
   const range = melee ? def.melee!.range : def.falloffStart;
   return [
     { key: 'damage', bar: clamp01(Math.sqrt(shot / 150)), value: dmgText, raw: shot },
-    { key: 'rate', bar: clamp01(0.06 + (0.94 * def.fireRate) / 15), value: `${round1(def.fireRate)}/s`, raw: def.fireRate },
+    // (two decimals under 1.5/s: 烈弓's 0.95/s is not "1/s")
+    { key: 'rate', bar: clamp01(0.06 + (0.94 * def.fireRate) / 15), value: `${def.fireRate < 1.5 ? fmt(def.fireRate) : round1(def.fireRate)}/s`, raw: def.fireRate },
     { key: 'range', bar: clamp01(Math.log(Math.max(1, range) / 5) / Math.log(30)), value: `${Math.round(range)} m`, raw: range },
     { key: 'mag', bar: melee ? 1 : clamp01(Math.log(1 + def.magSize) / Math.log(101)), value: melee ? '∞' : String(def.magSize), raw: melee ? 999 : def.magSize },
     { key: 'accuracy', bar: accuracyScore(def), value: String(Math.round(accuracyScore(def) * 100)), raw: accuracyScore(def) },
@@ -514,7 +517,14 @@ export function aimSummary(def: WeaponDef): { zh: string; en: string } {
   const p = aimProfile(def);
   const sight = p.sight === 'none' ? null : SIGHT_LABEL[p.sight];
   const zoom = sight && def.adsZoom > 1.05 ? zoomLabel(def) : '';
-  const head = (lang: 'zh' | 'en'): string => [sight?.[lang] ?? '', zoom].filter(Boolean).join(' ');
+  // 方天: no ladder (its rockets fly flat) — full aim locks targets
+  const lock = def.special === 'multiTarget' ? { n: def.specialParams.maxTargets ?? 3, m: def.specialParams.lockRange ?? 40 } : null;
+  const head = (lang: 'zh' | 'en'): string =>
+    lock
+      ? lang === 'zh'
+        ? `满镜锁定 ${lock.n} 目标 · ${lock.m} m`
+        : `full aim locks ${lock.n} targets · ${lock.m} m`
+      : [sight?.[lang] ?? '', zoom].filter(Boolean).join(' ');
   const secs = fmt(p.adsTime);
   const hip = `±${Math.round(def.spreadHip * 10) / 10}°`;
   const zh: string[] = [];
@@ -523,6 +533,16 @@ export function aimSummary(def: WeaponDef): { zh: string; en: string } {
   if (head('en')) en.push(head('en'));
   zh.push(`开镜 ${secs} 秒`, `腰射 ${hip}`);
   en.push(`aim ${secs} s`, `hip ${hip}`);
+  // a grenade is a dud inside its arming distance; every launcher's blast hurts its shooter (R6)
+  const arm = def.specialParams.armDist ?? 0;
+  if (arm > 0) {
+    zh.push(`${arm} m 内不爆`);
+    en.push(`no blast inside ${arm} m`);
+  }
+  if (def.class === 'launcher' && (def.projectile?.explodeRadius ?? 0) > 0) {
+    zh.push('溅射伤己');
+    en.push('splash hurts you');
+  }
   if (p.holdBreath) {
     zh.push('Shift 屏息');
     en.push('Shift: hold breath');

@@ -766,11 +766,14 @@ export class Hud {
             const mine = ev.src !== undefined && ev.src === myId;
             const bySquad = ev.src !== undefined && squad.has(ev.src);
             if ((mine || bySquad) && ev.target !== myId) {
+              // numbers float over the target's head (damageNumbers.ts puts them to its right), never on the aim point
+              const tv = this.view.get(ev.target);
+              const at = tv ? { x: tv.x, y: tv.y + 2.2, z: tv.z } : ev.pos;
               // a dodge / 八卦: grey 「闪」 (merged numbers per target: ./damageNumbers.ts)
-              if (ev.blocked === 'dodge') this.dmg.hit(ev.target, 0, 'dodge', ev.pos, now, mine);
-              else if (ev.blocked) this.dmg.spawn(t(`hud.blocked.${ev.blocked}`), 'blocked', ev.pos, now);
+              if (ev.blocked === 'dodge') this.dmg.hit(ev.target, 0, 'dodge', at, now, mine);
+              else if (ev.blocked) this.dmg.spawn(t(`hud.blocked.${ev.blocked}`), 'blocked', at, now);
               // (a knock / kill shows the whole shot, not just the HP that was left: ev.full)
-              else if (ev.amount > 0) this.dmg.hit(ev.target, ev.full ?? ev.amount, hitDamageKind(ev, mine, this.view.get(ev.target)?.armor), ev.pos, now, mine);
+              else if (ev.amount > 0) this.dmg.hit(ev.target, ev.full ?? ev.amount, hitDamageKind(ev, mine), at, now, mine);
               if (mine && !ev.blocked && ev.amount > 0) this.hitMark.hit(ev.head ? 'head' : 'hit');
             }
             if (ev.target === myId && ev.src !== undefined && ev.src !== myId && ev.amount > 0) {

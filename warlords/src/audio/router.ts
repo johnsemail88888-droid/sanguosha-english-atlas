@@ -184,9 +184,9 @@ export const LOCK_BEEP_EVERY = 0.8;
 /** A lock is forgotten after this long even without its 'off' event (s): no rocket flies longer. */
 const LOCK_MAX_SECONDS = 4;
 
-/** A hit on a unit wearing armor that reduces this damage type (bullets: 'normal'): the armor tick plays. */
-export function armorSoaked(armor: string | undefined, dtype: string): boolean {
-  return !!armor && dtype === 'normal';
+/** The target's armor took something off this hit (the host's GameEvent hit.soak): the armor tick plays. */
+export function armorSoaked(ev: { soak?: number }): boolean {
+  return (ev.soak ?? 0) > 0;
 }
 
 /** crate-tier variant of the crateOpen sound for a crate / airdrop entity */
@@ -771,7 +771,7 @@ export class EventRouter {
       if (ev.head) this.sink.play('headshot', {});
       else this.sink.play('hitmarker', { pitch: ev.amount >= 50 ? 0.85 : 1 });
       // an armor soaked part of it: a dull tick on top (players learn armor matters)
-      if (armorSoaked(target?.armor, ev.dtype) && this.gate('armorTick', 0.09, now)) this.sink.play('armorTick', {});
+      if (armorSoaked(ev) && this.gate('armorTick', 0.09, now)) this.sink.play('armorTick', {});
     }
   }
 

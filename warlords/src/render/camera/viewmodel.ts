@@ -80,6 +80,10 @@ export function adsPose(hold: HoldStyle, sightY: number, scoped = false): VmPose
     case 'hip':
       // LMG / flamer: a bulky receiver — held lower and further out, so the box does not fill the lower view
       return pose(0.012, -sightY - 0.05, -0.47);
+    case 'launcher':
+      // a launcher is aimed with its ladder / lock brackets, not over the tube: held right and low,
+      // or the axe head / tube tip (beyond the sight line sightHeight measures) covers the target
+      return pose(0.07, -sightY - 0.08, -0.46);
     default:
       // a scope comes right up to the eye (the lens overlay takes over once it is there)
       if (scoped) return pose(0, -sightY + 0.004, -0.2);

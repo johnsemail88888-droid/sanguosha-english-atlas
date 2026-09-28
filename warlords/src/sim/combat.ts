@@ -473,6 +473,8 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
 
   // 4. incoming modifiers
   let armorBlocked = false;
+  /** what the target's armor took off this hit (the 'hit' event's soak: the pale-blue number and the armor tick) */
+  let soak = 0;
   if (!isZone) {
     const pierce =
       isTrue ||
@@ -484,6 +486,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
       const before = amount;
       amount = applyArmor(w, target, h.armor, req, bullet, amount, src);
       if (amount <= 0 && before > 0) armorBlocked = true;
+      soak = Math.max(0, before - amount);
     }
     if (!isTrue) {
       amount *= statusValue(target, 'dmgTakenUp', now, 1);
@@ -559,6 +562,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
     head: req.head,
     blocked: res.blocked,
     ...(full > 0 ? { full: Math.round(full * 10) / 10 } : null),
+    ...(soak >= 0.05 ? { soak: Math.round(soak * 10) / 10 } : null),
   });
   // stats: HP actually removed (finishing a downed hero only shortens its bleed-out)
   if (credit?.hero && credit !== target && !h?.downed) credit.hero.stats.damage += res.dealt;

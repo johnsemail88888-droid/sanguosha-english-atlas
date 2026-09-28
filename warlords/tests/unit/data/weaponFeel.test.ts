@@ -375,8 +375,12 @@ describe('weapon identity: stat bars', () => {
     expect(accuracyScore(W('liegong'))).toBeGreaterThan(accuracyScore(W('qinggang')));
     expect(accuracyScore(W('qinggang'))).toBeGreaterThan(accuracyScore(W('carbine')));
     expect(accuracyScore(W('carbine'))).toBeGreaterThan(accuracyScore(W('smg')));
-    // pellet guns show pellets × damage
+    // pellet guns show pellets × damage; a rocket volley its direct hit + blast per rocket (方天 68×3, not 24×3)
     expect(weaponStats(W('guding'))[0]!.value).toBe(`${W('guding').damage}×${W('guding').pellets}`);
+    expect(weaponStats(W('fangtian'))[0]!.value).toBe(`${W('fangtian').damage + W('fangtian').projectile!.explodeDamage}×3`);
+    // a slow gun's rate keeps its decimals (烈弓 0.95/s is not "1/s")
+    expect(weaponStats(W('liegong')).find((x) => x.key === 'rate')!.value).toBe('0.95/s');
+    expect(weaponStats(W('carbine')).find((x) => x.key === 'rate')!.value).toBe('7.5/s');
     // 操控: a pistol handles best, then SMG > rifle > LMG; the sniper and the bow are the slowest
     expect(handlingScore(W('pistol'))).toBe(1);
     expect(handlingScore(W('smg'))).toBeGreaterThan(handlingScore(W('carbine')));
@@ -401,6 +405,16 @@ describe('weapon identity: stat bars', () => {
     expect(aimSummary(W('liegong')).zh).toContain('狙击镜 2.5× / 5×');
     expect(aimSummary(W('liegong')).zh).toContain('满弦');
     expect(aimSummary(W('huben')).zh.startsWith('宽框反射镜')).toBe(true);
+    // 方天: the lock, not a ladder its flat rockets never use; 贯石: the arming distance and the self-splash
+    const ft = aimSummary(W('fangtian'));
+    expect(ft.zh.startsWith(`满镜锁定 3 目标 · ${W('fangtian').specialParams.lockRange} m`)).toBe(true);
+    expect(ft.zh).not.toContain('标尺');
+    expect(ft.en).toContain('full aim locks 3 targets');
+    const gs = aimSummary(W('guanshi'));
+    expect(gs.zh).toContain(`${W('guanshi').specialParams.armDist} m 内不爆`);
+    expect(gs.zh).toContain('溅射伤己');
+    expect(gs.en).toContain('splash hurts you');
+    expect(aimSummary(W('carbine')).zh).not.toContain('溅射');
   });
 
   it('a pickup lands in the slot the sim puts it (pistols beside a primary go to slot 2)', () => {

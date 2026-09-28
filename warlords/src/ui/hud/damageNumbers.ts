@@ -17,6 +17,8 @@ function play(el: Element, frames: Keyframe[], opts: KeyframeAnimationOptions): 
 export const MERGE_WINDOW = 0.6;
 /** A number shows this long after its last hit (s). */
 const LIFE = 0.9;
+/** Numbers sit this many px (+ up to 10) right of their anchor — above and beside the target's head (the caller's anchor), clear of the hitmarker. */
+const NUMBER_DX = 22;
 
 export type DamageKind = 'normal' | 'head' | 'armor' | 'dodge' | 'kill' | 'squad' | 'blocked' | 'heal' | 'crit';
 
@@ -35,6 +37,8 @@ interface Floater {
   until: number;
   x: number;
   y: number;
+  /** px right of the anchor (the target's head): the number never sits on the body you are aiming at */
+  dx: number;
   /** merge key (target + whose hit) and the running total */
   key: string;
   total: number;
@@ -54,7 +58,7 @@ export class DamageNumbers {
       const inner = h('span', { class: 'n' });
       const outer = h('span', { class: 'f' }, inner);
       this.el.appendChild(outer);
-      this.pool.push({ outer, inner, world: null, until: 0, x: 0, y: 0, key: '', total: 0, kind: 'normal', lastHit: -99, anim: null });
+      this.pool.push({ outer, inner, world: null, until: 0, x: 0, y: 0, dx: 0, key: '', total: 0, kind: 'normal', lastHit: -99, anim: null });
     }
   }
 
@@ -104,7 +108,8 @@ export class DamageNumbers {
     const p = world && this.project ? this.project(world) : null;
     if (p) {
       f.world = world;
-      f.x = p.x + (Math.random() - 0.5) * 24;
+      f.dx = NUMBER_DX + Math.random() * 10;
+      f.x = p.x + f.dx;
       f.y = p.y - 10;
     } else {
       f.world = null;
@@ -156,7 +161,7 @@ export class DamageNumbers {
       }
       if (f.world && this.project) {
         const p = this.project(f.world);
-        if (p) f.outer.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y - 10)}px)`;
+        if (p) f.outer.style.transform = `translate(${Math.round(p.x + f.dx)}px, ${Math.round(p.y - 10)}px)`;
       }
     }
   }
