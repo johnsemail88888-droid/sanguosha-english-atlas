@@ -670,6 +670,10 @@ export function createRelay(opts = {}) {
         host.ws.terminate();
       }
     },
+    /** No room for another relay room (MAX_ROOMS): a server-hosted room would not get one either. */
+    full() {
+      return rooms.size >= maxRooms;
+    },
     /** /sgwl.json: rooms, sockets in rooms (players), unreliable frames dropped so far. */
     stats() {
       let players = 0;

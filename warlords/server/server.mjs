@@ -220,7 +220,7 @@ function readBody(req, limit) {
  * JSON or text/plain bodies (text/plain: a page on another origin — GitHub Pages — posts without a
  * CORS preflight); every answer carries Access-Control-Allow-Origin: *.
  */
-async function handleRoomsApi(req, res, rooms, keyError) {
+async function handleRoomsApi(req, res, rooms, keyError, relayFull = () => false) {
   if (req.method === 'OPTIONS') {
     // (the CORS preflight stays open: it carries no key)
     const pna = req.headers['access-control-request-private-network'] === 'true' ? { 'Access-Control-Allow-Private-Network': 'true' } : {};
@@ -266,6 +266,11 @@ async function handleRoomsApi(req, res, rooms, keyError) {
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     sendJson(res, 400, { error: 'bad-request' });
+    return;
+  }
+  if (relayFull()) {
+    // (no relay room for its worker either: MAX_ROOMS — a start that could only fail)
+    sendJson(res, 503, { error: 'rooms-full' });
     return;
   }
   try {
@@ -751,7 +756,7 @@ export async function startServer(opts = {}) {
     if (pathname === '/api/rooms' || pathname === '/api/rooms/') {
       const keyError = req.method === 'OPTIONS' ? null : keys.check(keyOf(req, url, true));
       if (keyError) refusedKey(req, 'POST /api/rooms', keyError);
-      handleRoomsApi(req, res, rooms, keyError).catch(() => {
+      handleRoomsApi(req, res, rooms, keyError, () => relay.full()).catch(() => {
         if (!res.headersSent) sendJson(res, 500, { error: 'worker-failed' });
         else res.destroy();
       });

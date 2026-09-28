@@ -287,6 +287,30 @@ describe('relay: environment', () => {
     expect(Date.now() - t0).toBeLessThan(2000);
   });
 
+  it('a full relay (MAX_ROOMS): POST /api/rooms answers 503 rooms-full instead of starting a worker that cannot get a room', async () => {
+    vi.stubEnv('MAX_ROOMS', '1');
+    const STUB = new URL('./fixtures/stub-room-worker.mjs', import.meta.url).pathname;
+    const { srv, url } = await serve({ headless: {}, workerPath: STUB });
+    const post = () =>
+      new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port: srv.port, path: '/api/rooms', method: 'POST', headers: { 'Content-Type': 'application/json' } }, (res) => {
+          let body = '';
+          res.on('data', (c) => (body += c));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+        });
+        req.on('error', reject);
+        req.end('{}');
+      });
+    const host = await open(url);
+    expect((await create(host)).op).toBe('created');
+    const r = await post();
+    expect(r.status).toBe(503);
+    expect(JSON.parse(r.body)).toEqual({ error: 'rooms-full' });
+    host.ws.close(1000);
+    await waitFor(() => srv.relay.stats().rooms === 0, 2000, 'room gone');
+    expect((await post()).status).toBe(201);
+  });
+
   it('defaults: 1000 rooms, a 120 s grace (a clean close still ends the room at once)', async () => {
     const { url } = await serve();
     const host = await open(url);
