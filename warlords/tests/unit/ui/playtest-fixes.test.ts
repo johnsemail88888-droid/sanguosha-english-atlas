@@ -338,6 +338,8 @@ describe('HUD bits (tasks 18 / 19 / 20 / 21)', () => {
     // MP2-4: the seat opened in another window ends this tab's session as a notice
     expect(isFatalSessionError('replacedElsewhere')).toBe(true);
     expect(isNoticeCode('replacedElsewhere')).toBe(true);
+    expect(isNoticeCode('roomClosed')).toBe(true); // the relay ended an idle room: news, not a malfunction
+    expect(isFatalSessionError('roomClosed')).toBe(true);
     expect(isFatalSessionError('relayLost')).toBe(true);
   });
 

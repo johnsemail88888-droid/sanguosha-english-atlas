@@ -568,6 +568,54 @@ describe('WsTransport: relay liveness and the host resuming its room (MP2-1 / MP
       host.leave();
     }
   });
+
+  it('the relay ends an idle room: the host is told roomClosed at once, not after the resume window', async () => {
+    const r = await ownRelay({ idleRoomMs: 300, sweepMs: 20 });
+    const hostT = await WsTransport.host(r.url, { pingMs: 100, resumeWindowMs: 60_000 });
+    const host = makeWsHost(hostT, []);
+    try {
+      const errors: { code: string; zh: string; en: string }[] = [];
+      host.on('error', (e) => errors.push(e));
+      const t0 = Date.now();
+      await waitFor(() => errors.length > 0, 3000, 'room ended');
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(errors[0]).toMatchObject({ code: 'roomClosed', zh: '服务器关闭了这个房间（空闲太久或开得太久），请重新创建房间' });
+      expect(hostT.stats.resumed).toBe(0);
+    } finally {
+      host.leave();
+      await r.close();
+    }
+  });
+
+  it('a room the relay ended while the host was away: its resume stops at the refused code (roomClosed), no retries', async () => {
+    const r = await ownRelay({ idleRoomMs: 300, sweepMs: 20, hostGraceMs: 5000 });
+    type Impl = NonNullable<NonNullable<Parameters<typeof WsTransport.host>[1]>['WebSocketImpl']>;
+    const Native = (globalThis as unknown as { WebSocket: new (url: string) => { send(d: unknown): void } }).WebSocket;
+    const sent: string[] = [];
+    // the host's resume request goes out late: the room is reaped meanwhile
+    function SlowResume(url: string) {
+      const ws = new Native(url);
+      const send = ws.send.bind(ws);
+      ws.send = (d: unknown) => {
+        if (typeof d === 'string' && d.includes('"op":"')) sent.push(JSON.parse(d).op);
+        return typeof d === 'string' && d.includes('"op":"resume"') ? void setTimeout(() => send(d), 700) : send(d);
+      };
+      return ws;
+    }
+    const hostT = await WsTransport.host(r.url, { WebSocketImpl: SlowResume as unknown as Impl, pingMs: 1000, resumeWindowMs: 60_000 });
+    try {
+      const errors: { code: string }[] = [];
+      hostT.onClose((e) => e && errors.push(e));
+      r.relay.rooms.get(hostT.roomCode).host.ws.terminate();
+      await waitFor(() => errors.length > 0, 4000, 'gave up at once');
+      expect(errors[0]).toMatchObject({ code: 'roomClosed' });
+      expect(sent.filter((op) => op === 'resume')).toHaveLength(1);
+      expect(sent.filter((op) => op === 'create')).toEqual(['create', 'create']); // the room, then once under its old code
+    } finally {
+      hostT.close();
+      await r.close();
+    }
+  });
 });
 
 describe('relay heartbeat for a frozen host (MP2-1 / MP2-8)', () => {

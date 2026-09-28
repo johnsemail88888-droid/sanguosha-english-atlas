@@ -85,6 +85,11 @@ function relayErrorToNet(code: string): NetError {
       return new NetError('roomFull', 'room code taken');
     case 'version':
       return new NetError('versionMismatch');
+    case 'roomClosed':
+      // the relay ended the room for good (idle / open for hours: server/relay.mjs) and refuses its code
+      return new NetError('roomClosed');
+    case 'rateLimited':
+      return new NetError('rateLimited');
     default:
       return new NetError('serverUnreachable', code);
   }
@@ -101,7 +106,8 @@ export const RELAY_WATCH_MS = 12_000;
 export const RELAY_DEAD_MS = 20_000;
 /**
  * Host: how long it tries to get its room back after its relay socket dropped
- * (responsive ms) — longer than the relay's HOST_GRACE_MS (30 s), so a restarted relay
+ * (responsive ms) — no longer than the relay's HOST_GRACE_MS (120 s), so the room is still
+ * there to resume for the whole window (tests/unit/server/relayLimits.test.ts); a restarted relay
  * gets the room re-created under the same code too (MP2-8); and as long as its guests
  * keep rejoining (clientSession REJOIN_WINDOW_MS, 2 min): a relay down for a minute and a
  * half (ONL3: 98 s) must not end the match while the guests still wait for the room.
@@ -142,6 +148,8 @@ export class WsTransport extends BaseTransport {
   private secret = '';
   /** host: re-establishing the relay socket (frames are kept / dropped meanwhile) */
   private resuming = false;
+  /** host: the relay said it ended the room ('roomClosed'): the drop that follows is final, no resume */
+  private roomEnded = false;
   private pending: (string | Uint8Array<ArrayBuffer>)[] = [];
   private pendingBytes = 0;
   private readonly linkHandlers = new Set<LinkStateHandler>();
@@ -319,6 +327,7 @@ export class WsTransport extends BaseTransport {
         break;
       case 'error':
         console.warn('[net] relay error', msg.code, msg.message ?? '');
+        if (this.isHost && msg.code === 'roomClosed') this.roomEnded = true;
         break;
       default:
         break;
@@ -333,6 +342,11 @@ export class WsTransport extends BaseTransport {
 
   private onSocketClosed(): void {
     if (this.closed) return;
+    // a room the relay ended (idle / too old) cannot come back: say so now, not after the resume window
+    if (this.isHost && this.roomEnded) {
+      this.fail(new NetError('roomClosed', 'ended by the relay'));
+      return;
+    }
     // the host gets its room back: the relay keeps it for a while after a drop (MP2-8)
     if (this.isHost && this.secret) {
       void this.resume();
@@ -365,6 +379,11 @@ export class WsTransport extends BaseTransport {
           await this.openResume(); // (adopted the new socket already)
           return;
         } catch (e) {
+          // the relay ended this room and refuses its code: retrying cannot bring it back
+          if (e instanceof NetError && e.code === 'roomClosed') {
+            if (!this.closed) this.fail(e);
+            return;
+          }
           console.info('[net] relay: room not back yet', e instanceof Error ? e.message : e);
         }
       }
