@@ -437,6 +437,8 @@ const Y2_MODS = 1;
 const Y2_FORCED = 2;
 /** downed and being revived: the reviver's id + that channel's progress */
 const Y2_RESCUE = 4;
+/** your channel revives a downed hero (channel.revive) */
+const Y2_CH_REVIVE = 8;
 
 function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   w.varuint(y.entityId);
@@ -480,10 +482,12 @@ function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   if (y.vel !== undefined) f |= Y_VEL;
   if (y.onGround !== undefined) f |= Y_HAS_GROUND | (y.onGround ? Y_ON_GROUND : 0);
   w.u8(f);
-  w.u8((y.moveMods ? Y2_MODS : 0) | (y.forced ? Y2_FORCED : 0) | (y.rescue ? Y2_RESCUE : 0));
+  const chRevive = y.channel?.revive;
+  w.u8((y.moveMods ? Y2_MODS : 0) | (y.forced ? Y2_FORCED : 0) | (y.rescue ? Y2_RESCUE : 0) | (chRevive !== undefined ? Y2_CH_REVIVE : 0));
   if (y.channel) {
     writeEnum(w, CHANNEL_KINDS, y.channel.kind);
     w.u16(Math.round(Math.min(1, Math.max(0, y.channel.progress)) * 65535));
+    if (chRevive !== undefined) w.varuint(chRevive);
   }
   w.u16(csQ(y.downedRemaining));
   const statuses = y.statuses.slice(0, 255);
@@ -555,6 +559,7 @@ function readYou(r: ByteReader, st: StringTable): PrivateHeroView {
   if (f & Y_CHANNEL) {
     const kind = readEnum(r, CHANNEL_KINDS);
     channel = { kind, progress: r.u16() / 65535 };
+    if (f2 & Y2_CH_REVIVE) channel.revive = r.varuint();
   }
   const downedRemaining = csDQ(r.u16());
   const ns = r.u8();

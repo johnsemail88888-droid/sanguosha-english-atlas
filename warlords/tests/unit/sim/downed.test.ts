@@ -76,6 +76,8 @@ describe('downed: a revive pauses the bleed-out', () => {
     expect(snap.you!.rescue?.by).toBe(loyal.id);
     expect(snap.you!.rescue!.progress).toBeGreaterThan(0.4);
     expect(snap.you!.rescue!.progress).toBeLessThan(0.8);
+    // the reviver's HUD knows whom he is reviving (the progress ring)
+    expect(w.snapshotFor('p1').you!.channel).toMatchObject({ kind: 'revive', revive: lord.id });
     const pub = w.snapshotFor('p3').ents.find((v) => v.id === lord.id)!;
     expect(pub.flags & VF_DOWNED).toBeTruthy();
     expect(pub.flags & VF_REVIVING).toBeTruthy();
@@ -132,6 +134,9 @@ describe('downed: a revive pauses the bleed-out', () => {
     w.setInput('p2', { ...emptyInput(1), actions: [{ a: 'item', slot: 0 }] });
     w.step();
     expect(rebel.hero!.rescue?.by).toBe(rebel.id);
+    // his own HUD says so; the public flag is only for a revive by someone else
+    expect(w.snapshotFor('p2').you!.rescue?.by).toBe(rebel.id);
+    expect(w.snapshotFor('p1').ents.find((v) => v.id === rebel.id)!.flags & VF_REVIVING).toBe(0);
     stepN(w, Math.round(TPS * REVIVE_TIME) + 4);
     expect(rebel.hero!.dead).toBe(false);
     expect(rebel.hero!.downed).toBe(false);

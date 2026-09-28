@@ -18,7 +18,9 @@ import { mountTouchControls, shouldUseTouch, type TouchControls } from '../touch
 import { button, keyCap } from '../widgets';
 import { controlsFor, touchControlCells } from '../screens/help';
 import { AbilityBar, SquadPanel, TopBar, VitalsPanel, WeaponPanel } from './panels';
-import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DownedOverlay, DuelBar, InteractPromptView, KillStamp, Scope, SpectateBar, SquadFocusWarning, ZoneWarning } from './combat';
+import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DuelBar, InteractPromptView, KillStamp, Scope, SquadFocusWarning, ZoneWarning } from './combat';
+import { DeathCard, DownedPanel, KnockStamp, ReviveMarkers, ReviveRing, SpectatePanel, killerSnapshot } from './fallen';
+import { DamageLog, HelpCalls, downedMarkers, knownFriends, type DownedMarker } from './deathlog';
 import { Announcer, ChatBox, KillFeed, PickupStrip, type FeedParty } from './feed';
 import { createGuideCard, fitGuideCard, guideClockRuns, guideCount, guideMayMount, shouldShowGuide } from './guide';
 import { drawMinimap, type MarkerInput } from './minimap';
@@ -70,8 +72,20 @@ export class Hud {
   private readonly scope = new Scope();
   private readonly interact: InteractPromptView;
   private readonly channel = new ChannelBar();
-  private readonly downed = new DownedOverlay();
-  private readonly spectate: SpectateBar;
+  /** 倒地: desaturated world, bleed-out bar, who is reviving you, how to get up (fallen.ts) */
+  private readonly downed = new DownedPanel();
+  private readonly spectate: SpectatePanel;
+  /** 救 markers over downed heroes you may save, the reviver's ring, 击倒 stamp, death recap */
+  private readonly rvMarks: ReviveMarkers;
+  private readonly rvRing: ReviveRing;
+  private readonly knockStamp = new KnockStamp();
+  private readonly deathCard: DeathCard;
+  /** hits you took (death recap) and who called for a 桃 lately (revive markers) */
+  private readonly damageLog = new DamageLog();
+  private readonly helpCalls = new HelpCalls();
+  private myDownedBy: EntityId | undefined;
+  /** this frame's revive markers, for the minimap / big map too */
+  private sosMarks: readonly DownedMarker[] = [];
   private readonly zoneWarn = new ZoneWarning();
   /** 「主公卫队正在攻击你」: a squad focusing you */
   private readonly focusWarn = new SquadFocusWarning();
@@ -177,7 +191,10 @@ export class Hud {
     this.crosshair = new Crosshair(() => settings.get().fov);
     this.dmg = new DamageNumbers(this.handle.worldToScreen ? (p) => this.handle.worldToScreen?.(p) ?? null : undefined);
     this.interact = new InteractPromptView(() => this.handle.input.pushAction({ a: 'interact' }));
-    this.spectate = new SpectateBar((dir) => this.cycleSpectate(dir), (id) => this.nameOf(id), ctx.portraits);
+    this.deathCard = new DeathCard(ctx.portraits, () => this.deathCard.hide(), () => this.confirmLeave());
+    this.spectate = new SpectatePanel((dir) => this.cycleSpectate(dir), (id) => this.nameOf(id), ctx.portraits, () => this.deathCard.reopen(), () => this.confirmLeave());
+    this.rvMarks = new ReviveMarkers(this.handle.worldToScreen ? (p) => this.handle.worldToScreen?.(p) ?? null : undefined, (id) => this.nameOf(id));
+    this.rvRing = new ReviveRing((id) => this.nameOf(id));
     this.chat = new ChatBox(
       (text) => this.session.sendChat(text),
       () => this.closeOverlay('chat'),
@@ -238,12 +255,15 @@ export class Hud {
 
     this.el = h('div', { class: 'sg-hud', data: { overlay: 'none' } },
       this.downed.el,
+      this.rvMarks.el,
       this.scope.el,
       this.dmgDir.el,
       this.focusWarn.el,
       this.dmg.el,
       this.crosshair.el,
+      this.rvRing.el,
       this.killStamp.el,
+      this.knockStamp.el,
       this.top.el,
       this.minimapWrap,
       this.feed.el,
@@ -258,6 +278,7 @@ export class Hud {
       this.pickups.el,
       this.weapon.el,
       this.spectate.el,
+      this.deathCard.el,
       this.diagEl,
       this.cardInfo,
       this.touchBar,
@@ -374,6 +395,9 @@ export class Hud {
     this.channel.relabel();
     this.downed.relabel();
     this.spectate.relabel();
+    this.rvMarks.relabel();
+    this.rvRing.relabel();
+    this.deathCard.relabel();
     this.zoneWarn.relabel();
     this.duel.relabel();
     this.scoreboard.relabel();
@@ -472,8 +496,7 @@ export class Hud {
     this.dmgDir.update(f);
     const prompt = this.interact.update(f);
     this.channel.update(f);
-    this.downed.update(f);
-    this.spectate.update(f);
+    this.updateFallen(f, now);
     this.zoneWarn.update(f);
     this.focusWarn.update(f, now, (id) => {
       const c = id !== undefined ? this.view.get(id) : undefined;
@@ -486,7 +509,8 @@ export class Hud {
     this.pickups.update(now);
     this.chat.update(now);
     this.touch?.update(f.me);
-    this.touch?.setInteract?.(prompt?.kind ?? null);
+    // downed: the touch interact button calls for help (F)
+    this.touch?.setInteract?.(f.me?.downed && !f.me.dead ? 'selfRevive' : prompt?.kind ?? null);
     // touch: the guide is fitted once the HUD is on screen (it is built during loading), and again
     // when what it shares the screen with changes — the size, the Lord's G button appearing
     if (this.guide && this.isTouch() && this.guide.clientHeight > 0) {
@@ -518,6 +542,18 @@ export class Hud {
       this.scoreboard.update(f.players, f.me, this.view.localId());
     }
     this.handleDeath(f);
+  }
+
+  /** Downed panel, revive markers / ring, spectate panel (fallen.ts). */
+  private updateFallen(f: HudFrame, now: number): void {
+    const myId = f.me?.entityId ?? null;
+    this.downed.update(f, { label: (id) => this.nameOf(id), sinceCall: myId !== null ? this.helpCalls.since(myId, now) : Infinity });
+    setClass(this.el, 'reviving', this.rvRing.update(f));
+    const alive = !!f.me && !f.me.dead;
+    const marks = alive ? downedMarkers(myId, f.myEnt, f.ents, knownFriends(f.me?.role, f.me?.knownAllies, f.ents), this.helpCalls, now) : [];
+    this.rvMarks.update(marks, f.lang);
+    this.sosMarks = marks;
+    this.spectate.update(f, this.deathCard.isOpen, this.deathCard.hasRecap);
   }
 
   private readFrame(now: number, dt: number): HudFrame {
@@ -552,6 +588,7 @@ export class Hud {
       airdrops: this.airdrops,
       now: f.now,
       knownAllies: f.me?.knownAllies ?? [],
+      sos: this.sosMarks,
     };
   }
 
@@ -613,6 +650,11 @@ export class Hud {
               const src = this.view.get(ev.src);
               if (src) this.dmgDir.add({ x: src.x, y: src.y, z: src.z }, now);
             }
+            // the death recap: what hit you, with what, how hard
+            if (myId !== null && ev.target === myId && ev.amount > 0 && !ev.blocked) {
+              const cause = ev.src !== undefined && ev.src !== myId ? this.causes.causeOf(myId, ev.src, now) : null;
+              this.damageLog.add({ at: now, src: ev.src !== myId ? ev.src : undefined, amount: ev.amount, head: !!ev.head, dtype: ev.dtype, cause });
+            }
             break;
           }
           case 'heal':
@@ -635,10 +677,21 @@ export class Hud {
             if ((aboutMe || mine) && victim?.kind === 'hero') {
               this.feed.push(this.party(ev.src, lang), this.toParty(victim), { downed: true, mine, aboutMe, now, cause: this.causes.causeOf(ev.target, ev.src, now) });
             }
+            // 击倒 (amber) — not the 斩 kill stamp: he can still be revived
+            if (mine && !aboutMe && victim?.kind === 'hero') {
+              this.knockStamp.show(heroName(victim.heroId));
+              this.crosshair.hit('head');
+            }
+            if (aboutMe) this.myDownedBy = ev.src;
             break;
           }
           case 'revived':
-            if (ev.target === myId) this.announcer.push(tx('你被救起了！', 'You were revived!'), 'info', undefined, now);
+            this.helpCalls.forget(ev.target);
+            if (ev.target === myId) {
+              this.myDownedBy = undefined;
+              const by = ev.by !== undefined && ev.by !== myId ? this.nameOf(ev.by) : null;
+              this.announcer.push(by ? tx('{name} 把你救了起来！', '{name} got you back up!', { name: by }) : tx('你被救起了！', 'You were revived!'), 'info', undefined, now);
+            }
             break;
           case 'announce':
             this.announcer.push(tx(ev.zh, ev.en), ev.kind ?? 'info', undefined, now);
@@ -658,6 +711,8 @@ export class Hud {
             break;
           }
           case 'quickchat': {
+            // 「需要桃！」 (F while downed): the caller shows up with a 救 marker for a while
+            if (ev.id === 'needPeach') this.helpCalls.note(ev.who, now);
             const who = entityLabel(this.view, ev.who, lang);
             this.chat.add({ from: who ? `${heroName(who.heroId)}${who.heroId ? '·' : ''}${who.name}` : '?', text: quickChatText(ev.id, lang), kind: 'quick' }, now);
             break;
@@ -713,22 +768,42 @@ export class Hud {
     const cause = this.causes.causeOf(ev.target, ev.killer, now);
     this.causes.forget(ev.target);
     this.feed.push(killer, victim, { mine, aboutMe, now, cause });
+    this.helpCalls.forget(ev.target);
     if (mine && !aboutMe) {
-      this.killStamp.show(`${heroName(victim.heroId)}${victim.role ? tx(`（${roleName(victim.role)}）`, ` (${roleName(victim.role)})`) : ''}`, victim.heroId);
+      // 击杀 (a kill for good) — the amber 击倒 stamp only said he was down
+      this.killStamp.show(`${tx('击杀 ', 'Eliminated ')}${heroName(victim.heroId)}${victim.role ? tx(`（${roleName(victim.role)}）`, ` (${roleName(victim.role)})`) : ''}`, victim.heroId);
       this.crosshair.hit('kill');
     }
     if (aboutMe) {
       // kept as a reference: the name is rendered (and re-rendered) in the current language
       this.spectate.killer = killer && ev.killer !== undefined ? { entityId: ev.killer } : { zone: true };
-      // the killer's painted face beside the name (when the art ships)
-      this.spectate.killerHero = killer?.heroId ?? null;
+      // spectate the killer first (PUBG): the death card sits beside him
       const killerId = ev.killer !== undefined && this.view.players().some((p) => p.entityId === ev.killer && p.alive) ? ev.killer : null;
       this.setSpectate(killerId ?? cycleSpectate(this.view.players(), null, 1, myId));
+      this.showDeathCard(ev, myId, cause, now);
     } else if (this.spectateId === ev.target) {
       this.setSpectate(cycleSpectate(this.view.players(), ev.target, 1, myId));
     }
     // role reveal banner for important deaths
     if (ev.role === 'lord') this.announcer.push(tx('主公阵亡！', 'The Lord has fallen!'), 'big', undefined, now);
+  }
+
+  /** The death recap: who, with what, the last 10 s of damage, the killer's HP — public information only. */
+  private showDeathCard(ev: Extract<GameEvent, { t: 'death' }>, myId: EntityId | null, cause: ReturnType<KillCauses['causeOf']>, now: number): void {
+    try {
+      const killerId = ev.killer !== undefined && ev.killer !== myId ? ev.killer : undefined;
+      const myEnt = myId !== null ? this.view.get(myId) : undefined;
+      this.deathCard.show({
+        recap: this.damageLog.recap(now, killerId, this.myDownedBy !== myId ? this.myDownedBy : undefined, killerId !== undefined ? cause : null),
+        role: ev.role ?? this.view.local()?.role,
+        killer: killerSnapshot(killerId, this.view.entities(), this.view.players(), myEnt),
+        label: (id) => this.nameOf(id),
+        heroOf: (id) => entityLabel(this.view, id, getLang())?.heroId,
+        online: this.ctx.sessionKind === 'online',
+      });
+    } catch (err) {
+      console.error('[hud] death card failed', err);
+    }
   }
 
   /** "hero·player" for an entity (heroes, their troops / turrets), in the current language. */
@@ -770,6 +845,9 @@ export class Hud {
     } else if (!dead && this.myDeathHandled) {
       this.myDeathHandled = false;
       this.setSpectate(null);
+      this.deathCard.reset();
+      this.damageLog.clear();
+      this.myDownedBy = undefined;
     }
     // spectate target died → next
     if (dead && this.spectateId !== null) {
@@ -833,6 +911,12 @@ export class Hud {
         this.cycleSpectate(ev.code === 'ArrowLeft' ? -1 : 1);
         return;
       }
+      // Space on the death recap: 继续观战
+      if (this.dead() && ev.code === 'Space' && this.deathCard.isOpen && this.overlay === 'none') {
+        consume();
+        this.deathCard.hide();
+        return;
+      }
       const key = keyToUi(ev.code);
       if (!key) return;
       ev.stopPropagation();
@@ -852,6 +936,17 @@ export class Hud {
         this.onUiKey('scoreboard', false, 'doc');
       }
     });
+    // dead (pointer free): a click on the world switches whom you watch — left next, right previous.
+    // Captured before the input controller, which would grab the pointer lock for a match you left.
+    this.bag.listen(doc, 'mousedown', (ev: MouseEvent) => {
+      if (!this.dead() || !this.active || this.gameOver || this.overlay !== 'none' || this.isTouch()) return;
+      if (ev.button !== 0 && ev.button !== 2) return;
+      const target = ev.target as Element | null;
+      if (target?.closest?.('button, a, input, textarea, .hud-deathcard, .hud-spectate2, .hud-minimap, .hud-feed, .hud-chat, .sg-panel, .sg-dark')) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.cycleSpectate(ev.button === 2 ? -1 : 1);
+    }, { capture: true });
     this.bag.listen(doc, 'pointerlockchange', () => {
       const locked = this.safeIsLocked();
       if (locked) {

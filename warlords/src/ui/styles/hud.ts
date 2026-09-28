@@ -199,26 +199,6 @@ export const HUD_CSS = /* css */ `
 .hud-channel .track i { display: block; height: 100%; background: linear-gradient(90deg, #d6ad52, #f5dc98); transform-origin: left center; transform: scaleX(0); }
 
 /* ── downed / spectate ─────────────────────────────────── */
-.hud-downed { position: absolute; inset: 0; display: none; }
-.hud-downed.on { display: block; }
-.hud-downed .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 30%, rgba(120, 0, 0, 0.5) 72%, rgba(50, 0, 0, 0.88)); animation: sg-heart 1.1s ease-in-out infinite; }
-@keyframes sg-heart { 0%, 100% { opacity: 0.75; } 15% { opacity: 1; } 30% { opacity: 0.8; } 45% { opacity: 1; } }
-.hud-downed .box { position: absolute; left: 50%; top: 60%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: ${u(6)}; }
-.hud-downed .ttl { font-family: var(--font-display); font-size: ${fs(36, 20)}; font-weight: 900; color: #ff6a5a; letter-spacing: 0.3em; padding-left: 0.3em; }
-.hud-downed .ringwrap { position: relative; width: ${u(76)}; height: ${u(76)}; }
-.hud-downed svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.hud-downed circle { fill: none; stroke-width: 5; }
-.hud-downed circle.bg { stroke: rgba(255, 255, 255, 0.2); }
-.hud-downed circle.fg { stroke: #ff5a4a; stroke-linecap: round; }
-.hud-downed .secs { position: absolute; inset: 0; display: grid; place-items: center; font-size: ${fs(26, 16)}; font-weight: 900; }
-.hud-downed .hint { font-size: ${fs(15, 11)}; background: var(--hud-bg); padding: ${u(4)} ${u(14)}; border-radius: ${u(4)}; }
-.hud-spectate { position: absolute; left: 50%; bottom: ${u(30)}; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: ${u(6)}; padding: ${u(10)} ${u(24)}; background: var(--hud-bg); border: 1px solid var(--hud-line); border-radius: ${u(6)}; pointer-events: auto; z-index: 8; }
-.hud-spectate.on { display: flex; }
-.hud-spectate .dead-title { font-family: var(--font-display); font-size: ${fs(26, 16)}; font-weight: 900; color: #ff8a6a; letter-spacing: 0.2em; }
-.hud-spectate .killer { font-size: ${fs(14, 11)}; opacity: 0.9; }
-.hud-spectate .killer:empty { display: none; }
-.hud-spectate .spec { display: flex; align-items: center; gap: ${u(12)}; }
-.hud-spectate .target { min-width: ${u(220)}; text-align: center; font-size: ${fs(15, 11)}; }
 .sg-hud.dead .hud-left, .sg-hud.dead .hud-abilities, .sg-hud.dead .hud-weapon, .sg-hud.dead .hud-interact, .sg-hud.dead .hud-channel { display: none; }
 .sg-hud.downed .hud-abilities { opacity: 0.4; }
 .sg-hud.no-hero :is(.hud-left, .hud-abilities, .hud-weapon, .role-chip, .hud-interact, .hud-channel) { display: none; }

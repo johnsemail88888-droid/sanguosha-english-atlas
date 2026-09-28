@@ -169,6 +169,8 @@ export interface MarkerInput {
   airdrops: ReadonlyMap<EntityId, { x: number; z: number; until: number }>;
   now: number;
   knownAllies: readonly EntityId[];
+  /** downed heroes you may save (a known ally, or someone who called 「需要桃！」 — hud/deathlog downedMarkers) */
+  sos?: readonly { x: number; z: number; reviving: boolean }[];
 }
 
 interface Transform {
@@ -308,6 +310,29 @@ function drawAirdrop(g: CanvasRenderingContext2D, x: number, y: number, s: numbe
   g.restore();
 }
 
+/** A downed hero calling for help: a pulsing ring and a cross (green while someone revives him). */
+function drawSos(g: CanvasRenderingContext2D, x: number, y: number, s: number, pulse: number, reviving: boolean, px: number): void {
+  g.save();
+  g.beginPath();
+  g.arc(x, y, s * (1.1 + pulse * 0.9), 0, Math.PI * 2);
+  g.strokeStyle = reviving ? `rgba(127, 224, 154, ${(0.9 - pulse * 0.8).toFixed(3)})` : `rgba(255, 110, 80, ${(0.9 - pulse * 0.8).toFixed(3)})`;
+  g.lineWidth = 1.6 * px;
+  g.stroke();
+  g.beginPath();
+  g.arc(x, y, s, 0, Math.PI * 2);
+  g.fillStyle = reviving ? '#1f7a3a' : '#b3261e';
+  g.fill();
+  g.strokeStyle = '#ffe2b8';
+  g.lineWidth = 1.1 * px;
+  g.stroke();
+  const a = s * 0.55;
+  const b = s * 0.18;
+  g.fillStyle = '#fff';
+  g.fillRect(x - b, y - a, b * 2, a * 2);
+  g.fillRect(x - a, y - b, a * 2, b * 2);
+  g.restore();
+}
+
 function drawExposedRing(g: CanvasRenderingContext2D, x: number, y: number, s: number, pulse: number, px: number): void {
   g.beginPath();
   g.arc(x, y, s * (1 + pulse * 0.9), 0, Math.PI * 2);
@@ -413,6 +438,11 @@ function drawMarkers(g: CanvasRenderingContext2D, tf: Transform, m: MarkerInput,
       g.lineWidth = 1.5 * px;
       g.stroke();
     }
+  }
+  // downed heroes you may save (they called for help, or you know they are with you)
+  for (const d of m.sos ?? []) {
+    const [sx, sy] = toScreen(tf, d.x, d.z);
+    if (inView(sx, sy)) drawSos(g, sx, sy, (big ? 5.5 : 4.5) * px, pulse, d.reviving, px);
   }
   // focus (you / spectated)
   const f = m.focus;

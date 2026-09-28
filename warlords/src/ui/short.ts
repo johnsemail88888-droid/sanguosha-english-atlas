@@ -210,8 +210,8 @@ const INTERACT_LABEL: Readonly<Record<InteractKind, readonly [string, string]>> 
   crate: ['打开', 'Open'],
   airdrop: ['打开', 'Open'],
   revive: ['救援', 'Revive'],
-  // downed: the button does nothing (the card slot drinks the Wine)
-  selfRevive: ['互动', 'Use'],
+  // downed: the button calls for a 桃 (「需要桃！」; the card slot drinks the Wine)
+  selfRevive: ['呼救', 'Help'],
 };
 
 /** The touch interact button's label: what a tap does now (拾取 / 打开 / 救援 …), else 「互动」. */

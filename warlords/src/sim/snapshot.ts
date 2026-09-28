@@ -44,6 +44,7 @@ import {
   VF_STUNNED,
 } from '../core/types';
 import { troopDef } from './defs';
+import { reviveTargetOf } from './rules';
 import { revealedTo, statusRows } from './status';
 import type { World } from './world';
 
@@ -172,7 +173,8 @@ export function viewEntity(w: World, e: Entity): ViewEntity {
   if (h) {
     if (h.dead) v.flags |= VF_DEAD;
     if (h.downed) v.flags |= VF_DOWNED;
-    if (h.downed && h.rescue) v.flags |= VF_REVIVING;
+    // someone else is reviving him (his own 桃 is his business: the rescue then names himself)
+    if (h.downed && h.rescue && h.rescue.by !== e.id) v.flags |= VF_REVIVING;
     if (h.ads) v.flags |= VF_ADS;
     if (h.sprinting) v.flags |= VF_SPRINTING;
     if (h.reloadUntil > now) v.flags |= VF_RELOADING;
@@ -301,6 +303,8 @@ export function privateView(w: World, e: Entity): PrivateHeroView {
   if (h.role === 'bounty' && h.bountyTargetId !== undefined) view.bountyTargetId = h.bountyTargetId;
   if (knownAllies.length) view.knownAllies = knownAllies;
   if (rt?.lastMoveMods) view.moveMods = { ...rt.lastMoveMods };
+  const revives = view.channel ? reviveTargetOf(w, e) : undefined;
+  if (view.channel && revives !== undefined) view.channel.revive = revives;
   if (h.downed && h.rescue) {
     const r = h.rescue;
     view.rescue = { by: r.by, progress: Math.max(0, Math.min(1, (now - r.start) / Math.max(1e-3, r.until - r.start))) };

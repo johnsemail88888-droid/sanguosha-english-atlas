@@ -142,10 +142,6 @@ export const ART_CSS = /* css */ `
 /* ── HUD ───────────────────────────────────────────────── */
 .kf .kf-ava { --sz: ${u(24)}; margin: ${u(3)} ${u(6)} ${u(3)} ${u(2)}; }
 .kf .who.has-ava small { margin-left: ${u(5)}; }
-.hud-spectate :is(.killer, .target) { display: inline-flex; align-items: center; justify-content: center; gap: ${u(8)}; }
-.hud-spectate .face:empty { display: none; }
-.hud-spectate .face .sg-ava { --sz: ${u(38)}; }
-.hud-spectate .killer .face .sg-ava { --sz: ${u(30)}; }
 .hud-killstamp .ks-face:empty { display: none; }
 .hud-killstamp .ks-face { order: -1; }
 .hud-killstamp .ks-face .sg-ava { --sz: ${u(84)}; box-shadow: 0 0 0 ${u(3)} var(--kc), 0 0 0 ${u(5)} #e2bd68, 0 ${u(4)} ${u(18)} rgba(0, 0, 0, 0.6); }

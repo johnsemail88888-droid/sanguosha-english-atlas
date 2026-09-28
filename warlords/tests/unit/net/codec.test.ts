@@ -119,8 +119,15 @@ describe('snapshot codec', () => {
     expect(out.you!.rescue!.progress).toBeCloseTo(0.375, 4);
     expect(out.you!.forced!.remaining).toBeCloseTo(0.1, 2);
     expect(out.you!.downedRemaining).toBeCloseTo(7.3, 2);
+    expect(out.you!.channel?.revive).toBeUndefined();
     delete snap.you!.rescue;
     expect(decodeSnapshotMsg(encodeSnapshotMsg(snap, st), st).you!.rescue).toBeUndefined();
+    // the reviver's side: whom his channel revives (hold F, or a 桃 from the item bar)
+    snap.you!.downed = false;
+    snap.you!.channel = { kind: 'item', progress: 0.5, revive: 77 };
+    const out2 = decodeSnapshotMsg(encodeSnapshotMsg(snap, st), st);
+    expect(out2.you!.channel).toEqual({ kind: 'item', progress: expect.closeTo(0.5, 4), revive: 77 });
+    expect(out2.you!.forced!.remaining).toBeCloseTo(0.1, 2);
   });
 
   it('carries sprintAds (夏侯渊 神速) and "until consumed" statuses (-1 from the sim) as Infinity', () => {

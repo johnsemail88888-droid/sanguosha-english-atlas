@@ -449,7 +449,7 @@ export const VF_ROOTED = 1 << 23;
 export const VF_SLOWED = 1 << 24;
 export const VF_BOOSTED = 1 << 25; // dmgBoost active (glow)
 export const VF_EXPOSED = 1 << 26; // 'reveal' status: shown on the minimap / outlined through walls (public, or private to this viewer)
-export const VF_REVIVING = 1 << 27; // a downed hero someone is reviving right now (bleed-out paused)
+export const VF_REVIVING = 1 << 27; // a downed hero someone else is reviving right now (bleed-out paused)
 
 export interface ViewEntity {
   id: EntityId;
@@ -502,7 +502,8 @@ export interface PrivateHeroView {
   abilityState: Record<string, number>;
   dodgeCharges: number;
   reloading: number; // seconds remaining (0 = not)
-  channel: { kind: ChannelState['kind']; progress: number } | null;
+  /** `revive`: the downed hero this channel is reviving (hold F, or a 桃 used on him — you, for your own 桃) */
+  channel: { kind: ChannelState['kind']; progress: number; revive?: EntityId } | null;
   downed: boolean;
   downedRemaining: number;
   /** (downed only) someone — or you, with your own 桃 — is reviving you: bleed-out paused */
