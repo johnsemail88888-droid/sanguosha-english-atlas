@@ -314,6 +314,18 @@ describe('战场急救: your own soldiers bandage you', () => {
     expect(rev).toMatchObject({ squad: true });
   });
 
+  it('only on the first knock of a life: knocked again, the squad cannot bandage you', () => {
+    const { w, lord, rebel } = squadWorld();
+    down(w, lord, rebel);
+    w.revive(lord.id, 100, rebel.id);
+    stepN(w, TPS * 2);
+    down(w, lord, rebel);
+    expect(lord.hero!.downedTotal).toBe(BLEED_OUT_TIMES[1]);
+    stepN(w, TPS * 8);
+    expect(lord.hero!.rescue).toBeUndefined();
+    expect(lord.hero!.downed).toBe(true);
+  });
+
   it('a hostile hero close by: the squad fights instead — and a hit breaks the bandaging', () => {
     const { w, lord, rebel } = squadWorld();
     place(w, rebel, -24, 30);

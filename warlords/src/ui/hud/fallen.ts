@@ -179,8 +179,9 @@ export class DownedPanel {
     else row('F', f.touch ? tx('点「呼救」喊「需要桃！」（你的位置会暴露）', 'Tap Call: “I need a Peach!” (shows where you are)') : tx('呼救「需要桃！」（你的位置会暴露）', 'Call “I need a Peach!” (shows where you are)'), '', called ? 'called' : 'call');
     row(f.touch ? '' : 'WASD', tx('爬向掩体 · 中弹会加速失血', 'Crawl to cover · hits drain the bleed-out'), 'dim');
     if (me.squad.length > 0) {
-      // your squad: they fight whoever is on you, and bandage you once nobody hostile is near
-      row('', tx('身边没有敌人时，部曲会来为你包扎', 'With no enemy near, your soldiers come to bandage you'), 'dim');
+      // your squad: they fight whoever is on you, and — on your first knock in a life — bandage you
+      // once nobody hostile is near
+      if (total >= BLEED_OUT_TIME) row('', tx('身边没有敌人时，部曲会来为你包扎', 'With no enemy near, your soldiers come to bandage you'), 'dim');
       if (!f.touch) row(tx('中键', 'MMB'), tx('标记敌人，部曲集火', 'Mark an enemy: your squad focuses him'), 'dim');
     }
     this.hints.replaceChildren(...rows);
@@ -381,8 +382,6 @@ export interface DeathCardInput {
   bledOut?: boolean;
   /** what you carried (it lies at your body now) */
   dropped?: { cards: number; gear: number };
-  /** your 魂幡 stands: allies may call you back (招魂) */
-  soul?: boolean;
   /** your role (now public) */
   role: RoleId | undefined;
   /** the killer's hero + public view as it was at the moment of death (null: the zone / nobody) */

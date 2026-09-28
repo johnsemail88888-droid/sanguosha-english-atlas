@@ -2,7 +2,7 @@
 // through GameHandle.onEvents (never drains the view itself). Owns the in-match
 // overlays (scoreboard, big map, wheel, chat, pause) and the touch overlay.
 import type { EntityId, GameEvent, SquadOrderKind, ViewEntity } from '../../core/types';
-import { VF_LORD, VF_SOUL } from '../../core/types';
+import { VF_LORD } from '../../core/types';
 import { HERO_BY_ID, ITEM_BY_ID } from '../../data';
 import type { GameSession } from '../../game/session';
 import { displayName } from '../../game/names';
@@ -830,7 +830,6 @@ export class Hud {
         recap,
         bledOut: bledOut(recap, this.myDownedAt, now),
         dropped: { ...this.carried },
-        soul: !!this.view.local()?.soul || this.view.entities().some((e) => e.id === myId && (e.flags & VF_SOUL) !== 0),
         role: ev.role ?? this.view.local()?.role,
         killer: killerSnapshot(killerId, this.view.entities(), this.view.players(), myEnt),
         label: (id) => this.nameOf(id),

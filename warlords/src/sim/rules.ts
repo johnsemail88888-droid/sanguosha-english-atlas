@@ -29,8 +29,10 @@ export const SQUAD_AID_TIME = 5;
 export const SQUAD_AID_HP = 60;
 /** A soldier this close (m) to his downed commander starts bandaging… */
 export const SQUAD_AID_REACH = 1.9;
-/** …while no hero hostile to the commander stands within this distance (m) of him. */
-export const SQUAD_AID_CLEAR = 12;
+/** …while no hero hostile to the commander stands within this distance (m) of him… */
+export const SQUAD_AID_CLEAR = 20;
+/** …and only on the first knock of a life (a knock that bleeds out in BLEED_OUT_TIMES[0] s). */
+export const squadAidAllowed = (h: { downedTotal?: number }): boolean => (h.downedTotal ?? BLEED_OUT_TIME) >= BLEED_OUT_TIMES[0];
 /** 招魂: a dead hero's 魂幡 stands at his body this long (s)… */
 export const SOUL_TIME = 60;
 /** …anyone holding F there this long (s) calls him back… */
@@ -222,8 +224,8 @@ export function tickSquadAid(w: World, e: Entity, heroes: readonly Entity[]): 'n
     w.killUnit(s, undefined);
     return 'done';
   }
-  // (not while he is still being hit)
-  if (h.squad.length === 0 || (e.lastDamagedAt ?? -99) >= now - 1 || squadAidBlocked(w, e, heroes)) return 'none';
+  // (not while he is still being hit; only on his first knock in this life)
+  if (h.squad.length === 0 || !squadAidAllowed(h) || (e.lastDamagedAt ?? -99) >= now - 1 || squadAidBlocked(w, e, heroes)) return 'none';
   let best: Entity | undefined;
   let bd = SQUAD_AID_REACH;
   for (const id of h.squad) {

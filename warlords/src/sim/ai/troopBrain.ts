@@ -17,7 +17,7 @@ import type { Entity, EntityId } from '../../core/types';
 import type { SimApi } from '../api';
 import { troopDef } from '../defs';
 import { ext } from '../ext';
-import { SQUAD_AID_CLEAR } from '../rules';
+import { SQUAD_AID_CLEAR, squadAidAllowed } from '../rules';
 import { followSlot } from '../troops';
 import { findCover } from './cover';
 import { dist2d, hasLineOfSight, hazardEscape, isTargetable, pickTarget, scanJitter } from './perception';
@@ -57,7 +57,7 @@ const medicMemo = new WeakMap<Entity, { tick: number; id: EntityId | undefined }
  */
 export function squadMedic(sim: SimApi, cmd: Entity): EntityId | undefined {
   const h = cmd.hero;
-  if (!h || !h.downed || h.dead || h.squad.length === 0) return undefined;
+  if (!h || !h.downed || h.dead || h.squad.length === 0 || !squadAidAllowed(h)) return undefined;
   const memo = medicMemo.get(cmd);
   if (memo && memo.tick === sim.tick) return memo.id;
   let id: EntityId | undefined;

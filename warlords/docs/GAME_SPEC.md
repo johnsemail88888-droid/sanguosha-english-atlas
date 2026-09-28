@@ -138,12 +138,12 @@ since both crowns carry the lord's bonus), swapping in:
   shoot. Anyone can revive with a 桃 (hold F on them, 1.5 s → 100 HP) — the bleed-out pauses while a
   revive channel runs; the downed hero may drink 酒 to self-revive (50 HP) or play his own 桃 (a 1.5 s
   channel → 100 HP — 三国杀: a dying player may save himself; this does not pause the bleed-out).
-  Damage while downed shortens bleed-out in proportion: **120 damage finishes any fresh knock**
+  Damage while downed shortens bleed-out in proportion: **150 damage finishes any fresh knock**
   (`DOWNED_FINISH_DAMAGE`). F while downed calls 「需要桃！」 (public SOS marker for 30 s).
   Bleed-out or finishing → **death**.
-- **战场急救 (squad aid)**: while no hero hostile to him stands within 12 m (and he was not hit in the last
-  second), the downed commander's nearest soldier runs to him and bandages him for 5 s (bleed-out
-  paused; a hit on either breaks it) → up with 60 HP; that soldier is spent.
+- **战场急救 (squad aid)**: on his first knock in a life, while no hero hostile to him stands within 20 m
+  (and he was not hit in the last second), the downed commander's nearest soldier runs to him and
+  bandages him for 5 s (bleed-out paused; a hit on either breaks it) → up with 60 HP; that soldier is spent.
 - **Death reveals the role** to everyone (kill feed: "张飞(反贼) 被 曹操 击杀"). Dead players spectate
   (cycle alive heroes, V = first / third person). Their squad disbands (troops become neutral NPCs that
   flee/fight 20 s, then vanish). **Death box**: the dead hero's items, armor, mount and secondary weapon

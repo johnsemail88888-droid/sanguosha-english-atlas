@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ViewEntity } from '../../../src/core/types';
 import { VF_DEAD, VF_DOWNED, VF_REVIVING } from '../../../src/core/types';
-import { DamageLog, HELP_MARK_TIME, HelpCalls, RECAP_WINDOW, bleedText, downedMarkers, knownFriends } from '../../../src/ui/hud/deathlog';
+import { DamageLog, HELP_MARK_TIME, HelpCalls, MARKER_RANGE, RECAP_WINDOW, bledOut, bleedText, downedMarkers, knownFriends } from '../../../src/ui/hud/deathlog';
+import { bestDownedAction } from '../../../src/ui/hud/fallen';
 
 const hero = (id: number, x: number, z: number, flags = 0, role?: ViewEntity['role']): ViewEntity => ({
   id, kind: 'hero', sub: 'zhaoyun', x, y: 0, z, yaw: 0, pitch: 0, speed: 0, hp: 0, maxHp: 400, shield: 0, flags, role,
@@ -40,6 +41,24 @@ describe('death recap: DamageLog', () => {
     expect(log.rows(6)).toEqual([]);
   });
 
+  it('a bleed-out: the recap reaches back 10 s before the knock (30 s of bleeding must not empty it)', () => {
+    const log = new DamageLog();
+    const w = (id: string) => ({ kind: 'weapon' as const, id });
+    log.add({ at: 95, src: 7, amount: 60, head: false, dtype: 'normal', cause: w('zhangba') });
+    log.add({ at: 100, src: 7, amount: 320, head: true, dtype: 'normal', cause: w('zhangba') }); // the knock
+    const r = log.recap(130, 7, 7, w('zhangba'), 100);
+    expect(r.total).toBe(380);
+    expect(r.rows[0]).toMatchObject({ src: 7, hits: 2, heads: 1 });
+    expect(r.window).toBe(40);
+    expect(r.lastHitAt).toBe(100);
+    // bled out: the last hit landed long before death; finished off: the killing blow is "now"
+    expect(bledOut(r, 100, 130)).toBe(true);
+    log.add({ at: 130, src: 9, amount: 40, head: false, dtype: 'normal', cause: null });
+    expect(bledOut(log.recap(130, 9, 7, null, 100), 100, 130)).toBe(false);
+    // never knocked (killed outright): never "bled out"
+    expect(bledOut(log.recap(130, 9, undefined, null), undefined, 130)).toBe(false);
+  });
+
   it('stays bounded under a long stream of hits', () => {
     const log = new DamageLog();
     for (let i = 0; i < 2000; i++) log.add({ at: i * 0.1, src: 1, amount: 1, head: false, dtype: 'normal', cause: null });
@@ -69,6 +88,27 @@ describe('revive markers', () => {
     expect(downedMarkers(1, { x: 0, z: 0 }, ents, new Set(), calls, 100 + HELP_MARK_TIME + 0.5).map((x) => x.id)).toEqual([]);
     // out of range
     expect(downedMarkers(1, { x: 0, z: 0 }, ents, new Set([3]), calls, 101, 15).map((x) => x.id)).toEqual([2]);
+  });
+
+  it('your own victim gets a 补刀 marker — never 救, even when he calls for help; a known ally stays 救', () => {
+    const calls = new HelpCalls();
+    const ents = [hero(1, 0, 0), hero(2, 8, 0, VF_DOWNED), hero(3, 12, 0, VF_DOWNED), hero(4, 30, 0, VF_DOWNED)];
+    calls.note(2, 100);
+    const knocked = new Set([2, 3, 4]);
+    const m = downedMarkers(1, { x: 0, z: 0 }, ents, new Set([4]), calls, 101, MARKER_RANGE, knocked);
+    expect(m.map((x) => [x.id, x.finish])).toEqual([
+      [2, true],
+      [3, true],
+      [4, false],
+    ]);
+  });
+
+  it('the one downed action that matters: 酒 > 桃 > call for help (> already called)', () => {
+    const it = (id: string) => ({ id, count: 1 });
+    expect(bestDownedAction({ items: [it('tao'), null, it('jiu'), null] }, Infinity)).toBe('jiu');
+    expect(bestDownedAction({ items: [null, it('tao'), null, null] }, Infinity)).toBe('tao');
+    expect(bestDownedAction({ items: [null, null, null, null] }, Infinity)).toBe('call');
+    expect(bestDownedAction({ items: [null, null, null, null] }, 4)).toBe('called');
   });
 
   it('HelpCalls: since / forget', () => {
