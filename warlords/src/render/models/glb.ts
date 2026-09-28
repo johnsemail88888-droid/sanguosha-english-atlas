@@ -34,6 +34,7 @@
 import * as THREE from 'three';
 import type { GLTF, GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { assetList, assetListSync } from '../../game/assets';
+import { withCdnFallback } from '../../game/assetCdn';
 import { CHARACTER_FOG_MAX } from '../core/materials';
 import { useSkyArtFog } from '../core/skyArtFog';
 import { capTexture } from '../core/gltfLoader';
@@ -216,7 +217,8 @@ export function sharedGltf(): Promise<SharedGltf> {
 /** Load a GLB into memory (rejects on failure). */
 export async function loadGltf(url: string): Promise<GLTF> {
   const { loader } = await sharedGltf();
-  return loader.loadAsync(url);
+  // (VITE_ASSET_CDN builds: from the CDN, this server as the fallback)
+  return withCdnFallback(url, (u) => loader.loadAsync(u));
 }
 
 // ── templates ────────────────────────────────────────────────────────────────

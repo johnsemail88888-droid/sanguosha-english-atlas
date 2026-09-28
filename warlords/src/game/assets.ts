@@ -10,7 +10,9 @@
 //   builds       assets/art-index.json, written by vite.config.ts, fetched once
 // Paths are relative to the site root ('assets/portraits/liubei.webp') and are used
 // as relative URLs, which works under any base (GitHub Pages /warlords/, the relay
-// server, the desktop app's embedded server).
+// server, the desktop app's embedded server). A build with VITE_ASSET_CDN loads the
+// large ones (GLBs, textures) from a CDN, falling back to these (src/game/assetCdn.ts).
+import { prepareCdn } from './assetCdn';
 
 /** Dev only: files present in public/assets at transform time (never bundled into builds). */
 const DEV_FILES: string[] = import.meta.env.DEV
@@ -47,7 +49,9 @@ async function loadListing(): Promise<ReadonlySet<string>> {
 /** Every art file this deploy ships (empty when none). Fetched once per page; start it early. */
 export function assetList(): Promise<ReadonlySet<string>> {
   if (!listing) {
-    listing = loadListing().then((s) => {
+    // (an optional CDN is asked at the same time: every art load waits for the listing, so
+    // the CDN is known to work — or not used — before the first one; nothing without a CDN)
+    listing = Promise.all([loadListing(), canFetchSideFiles() && !override ? prepareCdn() : false]).then(([s]) => {
       known = s;
       return s;
     });
