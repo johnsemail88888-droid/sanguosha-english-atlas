@@ -170,7 +170,8 @@ export class ReviveMarkers {
     const vp = viewport();
     for (let i = 0; i < n; i++) {
       const m = marks[i];
-      const p = this.project!({ x: m.x, y: m.y + 0.9, z: m.z });
+      // above the downed hero's (low) nameplate
+      const p = this.project!({ x: m.x, y: m.y + 1.7, z: m.z });
       const el = this.slot(i);
       const inside = !!p && p.x > -40 && p.y > -40 && p.x < vp.w + 40 && p.y < vp.h + 40;
       if (!inside || !p) {
@@ -414,7 +415,7 @@ export class DeathCard {
       const hero = row.src !== null ? inp.heroOf(row.src) : undefined;
       const tags: HTMLElement[] = [];
       if (row.src !== null && row.src === r.killer) tags.push(h('span', { class: 'dc-tag kill' }, tx('击杀', 'kill')));
-      if (row.src !== null && row.src === r.downedBy && r.downedBy !== r.killer) tags.push(h('span', { class: 'dc-tag knock' }, tx('击倒', 'knock')));
+      if (row.src !== null && row.src === r.downedBy) tags.unshift(h('span', { class: 'dc-tag knock' }, tx('击倒', 'knock')));
       const causes = row.causes.slice(0, 2).map((c) => causeName(c)).filter(Boolean).join(' · ');
       const detail = tx('{n} 次命中', '{n} hits', { n: row.hits }) + (row.heads ? tx(' · 爆头 {h}', ' · {h} headshots', { h: row.heads }) : '');
       const el = h('div', { class: 'dc-row' },
