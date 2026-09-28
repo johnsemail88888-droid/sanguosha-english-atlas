@@ -106,7 +106,7 @@ export const SKILLS_CSS = /* css */ `
 .sg-hud.sktip-open .hud-sktips { visibility: hidden; }
 /* the pickup lines share the spot over the bar: hidden under the tooltip, above the tips */
 .sg-hud.sktip-open .hud-pickups { visibility: hidden; }
-.sg-hud.sktips-on:not(.touch) .hud-pickups { bottom: calc(${u(112)} + var(--sktips-h, 0px) + ${u(6)}); }
+.sg-hud.sktips-on:not(.touch) .hud-pickups { bottom: calc(${u(112)} + var(--sktips-h, 0px) + ${u(12)}); }
 @keyframes sg-sktip-in { from { opacity: 0; transform: translateY(${u(8)}); } to { opacity: 1; transform: none; } }
 /* ── HUD: what an enemy skill does to you ─────────────── */
 .hud-selfcc { position: absolute; left: 50%; top: calc(50% + ${u(40)}); transform: translateX(-50%); display: none; grid-template-columns: auto auto; align-items: center; column-gap: ${u(8)}; row-gap: ${u(3)}; padding: ${u(4)} ${u(14)} ${u(4)} ${u(5)}; border-radius: ${u(8)}; background: rgba(30, 8, 20, 0.84); border: 1px solid var(--sc, #9a7ad0); box-shadow: 0 0 ${u(12)} color-mix(in srgb, var(--sc, #9a7ad0) 45%, transparent); white-space: nowrap; font-size: ${fs(14)}; font-weight: 700; color: #fff0f4; pointer-events: none; }
