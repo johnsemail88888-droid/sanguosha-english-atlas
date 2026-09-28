@@ -14,6 +14,7 @@ import { DebugHooks, debugEnabled, type DebugSessionKind } from './game/debug';
 import { assetList } from './game/assets';
 import { captureKeyFromPage } from './ui/invite';
 import { installStaleChunkReload } from './ui/staleChunks';
+import { desktopVersion } from './ui/desktopUpdate';
 
 // a SHARE / invite link's server access key (?k=…): kept for its server, out of the address bar
 captureKeyFromPage();
@@ -121,7 +122,7 @@ const deps: AppDeps = {
 const root = document.getElementById('app');
 if (!root) throw new Error('#app root missing');
 root.textContent = '';
-const app = mountApp(root, deps, { version: pkg.version });
+const app = mountApp(root, deps, { version: desktopVersion() ?? pkg.version });
 // Tear down on a real unload only: a page kept in the back/forward cache
 // (persisted) must come back exactly as it was, not as an empty #app.
 // F5 / closing the tab is not a leave: the guest keeps its seat token (sessionStorage

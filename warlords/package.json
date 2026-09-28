@@ -68,6 +68,12 @@
       "output": "release",
       "buildResources": "build-res"
     },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest/download"
+      }
+    ],
     "win": {
       "target": [
         "portable",

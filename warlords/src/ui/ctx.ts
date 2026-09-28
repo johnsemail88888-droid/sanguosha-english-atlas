@@ -40,6 +40,8 @@ export interface UiCtx {
   readonly webgl: { ok: boolean; reason: string | null };
   /** the GPU the browser renders WebGL with ('' = unknown); `software`: hardware acceleration is off (the game crawls) */
   readonly gpu: { renderer: string; software: boolean };
+  /** this build's version (the desktop app's: 0.1.<build>) — 设置 → 关于 */
+  readonly version?: string;
   sfx(name: SfxName): void;
   toast(text: string, kind?: 'info' | 'error'): void;
   confirm(text: string, opts?: { ok?: string; cancel?: string; title?: string }): Promise<boolean>;

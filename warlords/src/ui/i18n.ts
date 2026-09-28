@@ -47,6 +47,25 @@ const DICT = {
   'title.pressStart': ['天下大势，分久必合', 'The empire, long divided, must unite'],
   'title.version': ['测试版 v{v}', 'Beta v{v}'],
 
+  // ── desktop app updates (src/ui/desktopUpdate.ts) ──
+  'update.ready': ['新版本 build {n} 已下载', 'Build {n} is ready'],
+  'update.readyQuit': ['新版本 build {n} 已下载：退出游戏时自动安装', 'Build {n} is ready: it installs when you quit'],
+  'update.restart': ['重启并更新', 'Restart to update'],
+  'update.available': ['有新版本 build {n}', 'New version: build {n}'],
+  'update.download': ['下载', 'Download'],
+  'update.macHint': ['下载后打开 dmg，把 SanguoWarlords 拖进「应用程序」替换旧版', 'Open the downloaded dmg and drag SanguoWarlords into Applications to replace the old one'],
+  'update.setup': ['改用安装版（自动更新）', 'Get the installer (updates itself)'],
+  'update.setupHint': ['安装版会在后台自动更新，以后不用再手动下载', 'The installer version updates itself in the background: no more manual downloads'],
+  'update.later': ['稍后', 'Later'],
+  'update.downloading': ['正在后台下载 build {n}…', 'Downloading build {n} in the background…'],
+  'update.checking': ['正在检查更新…', 'Checking for updates…'],
+  'update.latest': ['已是最新', 'Up to date'],
+  'update.failed': ['暂时无法检查更新（离线？）', "Couldn't check for updates (offline?)"],
+  'update.check': ['检查更新', 'Check for updates'],
+  'update.web': ['网页版：刷新页面就是最新版', 'Web version: reloading the page always gets the newest build'],
+  'update.dev': ['开发版：不检查更新', 'Development build: no update checks'],
+  'settings.about': ['关于', 'About'],
+
   // ── single ──
   'single.title': ['单人练习', 'Single Player'],
   'single.players': ['人数', 'Players'],

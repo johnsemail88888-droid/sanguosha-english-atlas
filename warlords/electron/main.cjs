@@ -2,12 +2,13 @@
 // Starts the embedded LAN server (static game + WebSocket relay + PeerJS signalling, see
 // server/server.mjs) and opens the game from it, so the desktop app can host LAN rooms that
 // friends join from their browser at http://<your-LAN-IP>:<port>/.
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net, session, shell } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { mirrorFile, portOrder, readJson, writeJson } = require('./state.cjs');
+const { createUpdater } = require('./updater.cjs');
 
 const APP_NAME = '三国杀·枪火乱世';
 
@@ -67,6 +68,46 @@ async function startEmbeddedServer() {
     }
   }
   throw lastErr;
+}
+
+/** GET `url` as text through Chromium's network stack (the system proxy applies); aborted after `timeoutMs`. */
+async function fetchText(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const get = net && typeof net.fetch === 'function' ? net.fetch.bind(net) : fetch;
+    const res = await get(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+    return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Desktop updates (electron/updater.cjs): the setup build and the AppImage update themselves
+ * (background download, installed on quit, 重启并更新 on the title screen); the portable exe and
+ * the Mac app get a 下载 offer. A dev run never checks. Created on first use.
+ */
+let updater = null;
+function getUpdater() {
+  if (updater) return updater;
+  updater = createUpdater({
+    app,
+    platform: process.platform,
+    // an Intel build running under Rosetta on Apple silicon: offer the arm64 dmg
+    arch: process.platform === 'darwin' && app.runningUnderARM64Translation ? 'arm64' : process.arch,
+    env: process.env,
+    log: console,
+    fetchText,
+    openExternal: (url) => shell.openExternal(url),
+    loadAutoUpdater: () => require('electron-updater').autoUpdater,
+  });
+  updater.onChange((st) => {
+    const wc = win && win.webContents;
+    if (wc && typeof wc.send === 'function' && !(typeof wc.isDestroyed === 'function' && wc.isDestroyed())) wc.send('sgwl:update-state', st);
+  });
+  return updater;
 }
 
 /** userData/web-storage.json: the game's localStorage keys, for whichever port the window opens on. */
@@ -186,14 +227,18 @@ async function createWindow() {
       sandbox: false,
       backgroundThrottling: false, // the host keeps simulating while unfocused
       // the initial list; the page asks for a fresh one through sgwlDesktop.getLanUrls()
-      additionalArguments: [`--sgwl-port=${port}`, `--sgwl-lan=${encodeURIComponent(JSON.stringify(lanUrls(port)))}`],
+      additionalArguments: [`--sgwl-port=${port}`, `--sgwl-lan=${encodeURIComponent(JSON.stringify(lanUrls(port)))}`, `--sgwl-version=${app.getVersion()}`],
     },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.once('ready-to-show', () => win && win.show());
+  win.once('ready-to-show', () => {
+    if (win) win.show();
+    // the first update check ~10 s later, then every 4 h (none in a dev run)
+    getUpdater().start();
+  });
   win.on('closed', () => {
     win = null;
   });
@@ -284,6 +329,19 @@ ipcMain.on('sgwl:storage-save', (ev, items) => {
     ev.returnValue = 0;
   }
 });
+
+// renderer (preload: sgwlDesktop.update): the update state now, the 下载 / 重启并更新 / 检查更新 actions,
+// and whether a match is on (checks, downloads and restarts wait for its end)
+ipcMain.on('sgwl:update-get', (ev) => {
+  ev.returnValue = getUpdater().state();
+});
+ipcMain.on('sgwl:update-do', (_ev, action, which) => {
+  const u = getUpdater();
+  if (action === 'restart') u.restart();
+  else if (action === 'download') u.download(which === 'setup' ? 'setup' : undefined);
+  else if (action === 'check') void u.check();
+});
+ipcMain.on('sgwl:update-playing', (_ev, on) => getUpdater().setPlaying(!!on));
 
 // one instance: a second launch (double-clicked again) focuses the running window
 // instead of starting a second server on the next port
