@@ -5,6 +5,7 @@ import type { Vec3 } from '../core/math';
 import type { DeniedReason, Entity, EntityId, EntityKind } from '../core/types';
 import { BTN_INTERACT, ITEM_SLOTS } from '../core/types';
 import type { ItemCtx } from './api';
+import { pickupSlot } from '../data/weaponFeel';
 import { armorDef, itemDef, lootKindOf, maxReserve, maxStackOf, usesAmmo, warnOnce, weaponDef } from './defs';
 import type { ItemImplEx, StripOptions } from './ext';
 import { getItem } from './items/registry';
@@ -723,7 +724,8 @@ export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boole
   if (lo.weaponId) {
     if (!explicit) return false;
     const def = weaponDef(lo.weaponId);
-    const slot = def.class === 'pistol' && h.weapons[0] && h.weapons[0].id !== lo.weaponId ? 1 : 0;
+    // pistols beside a primary go to slot 2; a primaryOnly one (雌雄) replaces the primary (data/weaponFeel.ts pickupSlot)
+    const slot = pickupSlot(def, h.weapons[0]?.id);
     const old = h.weapons[slot];
     // the same gun you hold (a second 制式手枪): take its rounds instead of swapping one for the other
     if (old && old.id === lo.weaponId) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ITEM_BY_ID, LOOT_TABLES } from '../../../src/data';
+import { ARMOR_BY_ID, ITEM_BY_ID, LOOT_TABLES } from '../../../src/data';
 import { maxReserve, weaponDef } from '../../../src/sim/defs';
 import { aimFrame, chest, events, feet, giveAndUse, hero, hold, inject, place, send, setup, slotCount, stepN, ticks, useSlot } from './helpers';
 
@@ -555,7 +555,7 @@ describe('火攻 huogong', () => {
     expect(hb - b.hp).toBeCloseTo(40 + 30 + 90, 0);
   });
 
-  it('藤甲 takes double from the blast; chained units share the fire', () => {
+  it('藤甲 takes ×1.75 from the blast; chained units share the fire', () => {
     const { w, a, b, c } = setup();
     place(w, b, 0, 38);
     place(w, c, 30, -30); // far away, but chained
@@ -568,7 +568,7 @@ describe('火攻 huogong', () => {
     giveAndUse(w, a, 'huogong', feet(b));
     let n = 0;
     while (b.hp === hb && n++ < 60) w.step();
-    expect(hb - b.hp).toBe(80);
+    expect(hb - b.hp).toBe(40 * ARMOR_BY_ID.tengjia.params.fireMul);
     expect(hc - c.hp).toBe(40);
   });
 });

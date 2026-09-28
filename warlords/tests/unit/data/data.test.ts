@@ -464,6 +464,42 @@ describe('weapons', () => {
     }
   });
 
+  it("…nor with the wielder's own fire-rate skills (咆哮 / 苦肉 / 激将: faster and, under 咆哮, no magazine)", () => {
+    // self fire-rate buffs in the heroes' kits; a lootable gun can be in anyone's hands, a signature in its owner's
+    const SELF_RATE = ['zhangfei_paoxiao', 'huanggai_kurou', 'liubei_jijiang'];
+    const ownRate = (heroId: string): { mul: number; noMag: boolean } => {
+      let mul = 1;
+      let noMag = false;
+      for (const id of SELF_RATE) {
+        const a = ABILITY_BY_ID[id];
+        if (!a || ABILITY_HERO[id] !== heroId) continue;
+        mul = Math.max(mul, a.params.fireRateMul ?? 1);
+        if (id === 'zhangfei_paoxiao') noMag = true;
+      }
+      return { mul, noMag };
+    };
+    for (const w of WEAPONS) {
+      const wielders = w.lootable ? HEROES : HEROES.filter((h) => h.signatureWeapon === w.id);
+      for (const h of wielders) {
+        const { mul, noMag } = ownRate(h.id);
+        // nextFireAt accumulates, so shots are never closer than 1 / rate (sim/combat.ts heroFire)
+        const inWindow = Math.floor(0.5 * w.fireRate * mul + 1e-9) + 1;
+        const shots = noMag ? inWindow : Math.min(w.magSize, inWindow);
+        expect(shots * alphaHead(w), `${w.id} in ${h.id}'s hands (fire rate ×${mul})`).toBeLessThan(300);
+      }
+    }
+    // the case this rule was written for: 丈八 under 咆哮 fires at 1.99/s — two shells never land inside 0.5 s
+    expect(0.5 * WEAPON_BY_ID.zhangba.fireRate * ownRate('zhangfei').mul).toBeLessThan(1);
+  });
+
+  it('a gun with at most two rounds between reloads cannot kill a 3-HP hero with both (2 × body < 300)', () => {
+    for (const w of WEAPONS) {
+      if (w.magSize > 2 && w.pellets * w.magSize > 2) continue;
+      const body = (w.damage + (w.projectile?.explodeDamage ?? 0)) * w.pellets;
+      expect(2 * body, `${w.id} two body shots`).toBeLessThan(300);
+    }
+  });
+
   it('higher rarity never means less base DPS within a lootable weapon class', () => {
     const loot = WEAPONS.filter((w) => w.lootable);
     for (const a of loot) {

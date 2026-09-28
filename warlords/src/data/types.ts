@@ -210,6 +210,8 @@ export interface WeaponDef {
   specialParams: Record<string, number>;
   /** can appear as loot */
   lootable: boolean;
+  /** held in the primary slot only: picked up beside another primary it replaces that primary, never becomes the sidearm (雌雄 akimbo) */
+  primaryOnly?: boolean;
   model: WeaponModelSpec;
 }
 

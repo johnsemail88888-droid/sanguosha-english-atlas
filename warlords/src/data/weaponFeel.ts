@@ -309,9 +309,12 @@ export function weaponStats(def: WeaponDef): WeaponStat[] {
   ];
 }
 
-/** The weapon slot a picked-up weapon lands in (sim/inventory.ts pickUp): pistols beside a primary go to slot 2. */
+/**
+ * The weapon slot a picked-up weapon lands in (sim/inventory.ts pickUp): pistols beside a primary
+ * go to slot 2 — except a primaryOnly pistol (雌雄 akimbo), which replaces the primary.
+ */
 export function pickupSlot(def: WeaponDef, primaryId: string | null | undefined): number {
-  return def.class === 'pistol' && primaryId && primaryId !== def.id ? 1 : 0;
+  return def.class === 'pistol' && !def.primaryOnly && primaryId && primaryId !== def.id ? 1 : 0;
 }
 
 /** The sight named for the stat card / help. */

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Vec3 } from '../../../src/core/math';
 import type { Entity, GameEvent, InputAction, InputFrame, RoleId } from '../../../src/core/types';
 import { emptyInput } from '../../../src/core/types';
-import { HERO_BY_ID, isPassiveAbility } from '../../../src/data';
+import { HERO_BY_ID, WEAPON_BY_ID, isPassiveAbility } from '../../../src/data';
 import { SHU_HEROES } from '../../../src/data/heroes-shu';
 import { getAbility } from '../../../src/sim/abilities';
 import { aimAnglesFor } from '../../../src/sim/aim';
@@ -299,7 +299,7 @@ describe('张飞', () => {
     const gun = zf.hero!.weapons[0]!;
     gun.mag = 0;
     expect(cast(press(w, 1, 'q', { yaw: Math.PI }), q.id)).toBe(true);
-    expect(gun.mag).toBe(6);
+    expect(gun.mag).toBe(WEAPON_BY_ID.zhangba.magSize); // 8
     expect(w.hasStatus(zf.id, 'noReload')).toBe(true);
     expect(w.statusParam(zf.id, 'fireRateUp', 'mul', 1)).toBeCloseTo(q.params.fireRateMul, 5);
     expect(w.statusParam(near.id, 'slow', 'amount', 0)).toBeCloseTo(q.params.slow, 5);
@@ -307,7 +307,7 @@ describe('张飞', () => {
     // shooting (at the sky) does not use ammo
     send(w, 1, [], { yaw: Math.PI, pitch: 0.5, buttons: 1 });
     stepN(w, 20);
-    expect(gun.mag).toBe(6);
+    expect(gun.mag).toBe(WEAPON_BY_ID.zhangba.magSize);
     expect(w.cooldownLeft(zf.id, q.id)).toBeGreaterThan(q.cooldown! - 2);
   });
 

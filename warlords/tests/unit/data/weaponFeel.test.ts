@@ -86,7 +86,7 @@ describe('aim profiles per weapon class', () => {
     expect(adsZooms(W('carbine'))).toEqual([1.5]);
     expect(adsZooms(undefined)).toEqual([1]);
     for (const w of WEAPONS.filter((x) => x.class === 'dmr')) {
-      expect(w.adsZoom, w.id).toBeGreaterThanOrEqual(2);
+      expect(w.adsZoom, w.id).toBeGreaterThanOrEqual(1.8); // 白衣 1.8× … 倚天 2.5× (weapons spec C1)
       expect(w.adsZoom, w.id).toBeLessThan(4);
     }
     expect(aimProfile(undefined)).toBe(AIM_PROFILES.rifle);
@@ -287,9 +287,9 @@ describe('weapon identity: stat bars', () => {
 
   it('the aim line: sight + zoom steps, aim time, the hip cone; no sight name for the flamer', () => {
     const q = aimSummary(W('qilin'));
-    expect(q.zh).toBe('狙击镜 4× / 8× · 开镜 0.3 秒 · 腰射 ±6° · Shift 屏息');
+    expect(q.zh).toBe('狙击镜 4× / 8× · 开镜 0.3 秒 · 腰射 ±10° · Shift 屏息');
     expect(q.en).toContain('Sniper scope 4× / 8×');
-    expect(q.en).toContain('hip ±6°');
+    expect(q.en).toContain('hip ±10°');
     const fl = aimSummary(W('zhuque'));
     expect(fl.zh).not.toContain('无');
     expect(fl.zh.startsWith('开镜')).toBe(true);

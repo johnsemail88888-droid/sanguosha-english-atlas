@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Entity, GameEvent, InputFrame } from '../../../src/core/types';
-import { BTN_ADS, BTN_FIRE, emptyInput } from '../../../src/core/types';
+import { BTN_ADS, BTN_FIRE, SIM_HZ, emptyInput } from '../../../src/core/types';
 import { BULLET_EVASION_CAP } from '../../../src/data';
+import { AIM_PROFILES } from '../../../src/data/weaponFeel';
 import { circleAttack } from '../../../src/sim/abilities/common';
 import { isBullet as weiIsBullet } from '../../../src/sim/abilities/wei/shared';
 import type { DamageRequest } from '../../../src/sim/api';
@@ -42,6 +43,15 @@ function aimFrame(w: World, shooter: Entity, target: { x: number; y: number; z: 
   const f = { ...emptyInput(), yaw: ang.yaw, pitch: ang.pitch, aimPoint: { ...target }, viewTick: w.tick, ...p };
   f.buttons |= BTN_ADS;
   return f;
+}
+
+/** Hold the sights on `target` (seq 0 frames) until the weapon is fully aimed: a DMR's hip cone is wide (4.5°). */
+function raiseSights(w: World, shooter: Entity, target: { x: number; y: number; z: number }): void {
+  const n = Math.ceil(AIM_PROFILES.dmr.adsTime * SIM_HZ) + 2;
+  for (let i = 0; i < n; i++) {
+    w.setInput(shooter.hero!.playerId, aimFrame(w, shooter, target, { buttons: 0 }));
+    w.step();
+  }
 }
 
 function events<T extends GameEvent['t']>(evs: GameEvent[], t: T): Extract<GameEvent, { t: T }>[] {
@@ -340,7 +350,8 @@ describe('weapons', () => {
     const { w, a, b } = duel();
     b.hp = b.maxHp;
     const chest = { x: b.pos.x, y: b.pos.y + 1.1, z: b.pos.z };
-    a.hero!.weapons[0] = { id: 'qinggang', mag: 12, reserve: 48 }; // accurate DMR
+    a.hero!.weapons[0] = { id: 'qinggang', mag: 12, reserve: 48 }; // accurate DMR (once aimed)
+    raiseSights(w, a, chest);
     w.setInput('p2', aimFrame(w, a, chest, { seq: 1, buttons: BTN_FIRE }));
     w.drainEvents();
     w.step();
@@ -398,6 +409,7 @@ describe('weapons', () => {
   it('lag compensation rewinds targets to the shooter view tick', () => {
     const { w, a, b } = duel();
     a.hero!.weapons[0] = { id: 'qinggang', mag: 12, reserve: 48 };
+    raiseSights(w, a, { x: b.pos.x, y: b.pos.y + 1.1, z: b.pos.z });
     // b stands still for a few ticks at x=0 (history), then teleports 3 m to the side
     stepN(w, 5);
     const viewTick = w.tick;
