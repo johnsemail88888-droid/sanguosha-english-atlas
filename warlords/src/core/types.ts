@@ -343,7 +343,7 @@ export const emptyInput = (seq = 0): InputFrame => ({
  * size), blocked (rooted, no room, no path…), needs a second unit nearby (离间), the aimed unit
  * is not a valid target (downed, immune), or the hero is silenced / dancing.
  */
-export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced';
+export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced' | 'outOfRange';
 
 /** Optional routing shared by every GameEvent. */
 export interface EventRouting {
@@ -379,7 +379,8 @@ export type GameEvent = EventRouting &
         /** a passive trigger (奸雄, 流离, 连营 …), not an activation: no cast gesture, a lighter cue */
         proc?: boolean;
       }
-    | { t: 'status'; target: EntityId; status: StatusId; on: boolean }
+    /** `dur`: seconds it lasts (an 'on' event of a timed status; nameplates count it down) */
+    | { t: 'status'; target: EntityId; status: StatusId; on: boolean; dur?: number }
     | { t: 'heal'; target: EntityId; amount: number; src?: EntityId }
     | { t: 'downed'; target: EntityId; src?: EntityId }
     | { t: 'revived'; target: EntityId; by?: EntityId }

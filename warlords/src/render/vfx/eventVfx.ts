@@ -10,6 +10,10 @@ import { FX_COLORS, type Effects, type ShotClass } from './effects';
 import { genericAbilityVfx, getAbilityVfx, type AbilityVfxContext } from './abilities';
 import { getItemVfx } from './itemRegistry';
 import { QUICKCHAT, type QuickChatLine } from '../../ui/theme';
+import type { StatusId } from '../../core/types';
+
+/** Statuses without a snapshot flag that the nameplate badges follow from 'status' events. */
+const PLATE_EVENT_STATUSES: ReadonlySet<StatusId> = new Set<StatusId>(['silence', 'disarm', 'chained', 'dmgTakenUp']);
 
 const C = (r: number, g: number, b: number): THREE.Color => new THREE.Color(r, g, b);
 
@@ -175,8 +179,18 @@ export function handleEvents(evs: readonly GameEvent[], deps: EventVfxDeps): voi
           break;
         }
         case 'status': {
-          if (!ev.on) break;
           const tv = entities.character(ev.target);
+          // statuses the snapshot flags do not carry: the nameplate shows them from these events
+          if (tv && PLATE_EVENT_STATUSES.has(ev.status) && ev.privateTo === undefined) {
+            if (ev.on) tv.eventStatuses.add(ev.status);
+            else tv.eventStatuses.delete(ev.status);
+          }
+          // how long it lasts: the plate's badge counts it down
+          if (tv && ev.privateTo === undefined) {
+            if (ev.on && ev.dur !== undefined) tv.statusUntil.set(ev.status, deps.time + ev.dur);
+            else tv.statusUntil.delete(ev.status);
+          }
+          if (!ev.on) break;
           if (!tv) break;
           const p = tv.chestWorld(_a);
           switch (ev.status) {
