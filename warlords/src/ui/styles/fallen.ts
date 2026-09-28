@@ -54,8 +54,7 @@ export const FALLEN_CSS = /* css */ `
 .sg-hud.touch .hud-fallen-downed .dn-hint.dim { display: none; }
 
 /* the moment of death: the world drains of colour while the camera pulls back over your body */
-.sg-hud.dying::before { content: ''; position: absolute; inset: 0; pointer-events: none; -webkit-backdrop-filter: grayscale(1) brightness(0.7); backdrop-filter: grayscale(1) brightness(0.7); background: radial-gradient(ellipse at center, transparent 30%, rgba(40, 0, 0, 0.55)); animation: sg-dying 0.5s ease-out; }
-@keyframes sg-dying { from { opacity: 0; } to { opacity: 1; } }
+.sg-hud.dying::before { content: ''; position: absolute; inset: 0; pointer-events: none; -webkit-backdrop-filter: grayscale(1) brightness(0.7); backdrop-filter: grayscale(1) brightness(0.7); background: radial-gradient(ellipse at center, transparent 30%, rgba(40, 0, 0, 0.55)); }
 
 /* ── revive markers over downed heroes ─────────────────────────────── */
 .hud-rv-marks { position: absolute; inset: 0; overflow: hidden; }

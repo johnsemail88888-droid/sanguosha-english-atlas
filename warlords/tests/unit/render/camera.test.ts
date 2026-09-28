@@ -65,6 +65,28 @@ describe('TPS camera', () => {
     expect(free.back).toBe(CAM_BACK);
   });
 
+  it('spectating: a wall on the hero\'s right → over his left shoulder; the smoothed pose never ends behind a wall', () => {
+    // wall along the hero's right side (yaw 0 looks −Z, right = +X), 0.4 m away
+    const wall = { kind: 'box' as const, cx: 0.65, cy: 2, cz: 0, hx: 0.25, hy: 3, hz: 6, rot: 0 };
+    const w = new PickWorld(emptyMap([wall]));
+    const rig = new TpsCameraRig(new THREE.PerspectiveCamera());
+    for (let i = 0; i < 90; i++) rig.spectate(w, { x: 0, y: 0, z: 0 }, 0, 0, 1 / 30);
+    const p = rig.pose().pos;
+    expect(p.x).toBeLessThan(-0.2); // left of him
+    expect(p.z).toBeGreaterThan(1.5); // still behind him
+    // boxed in behind (a wall 0.6 m back): over the top
+    const back = { kind: 'box' as const, cx: 0, cy: 1, cz: 0.9, hx: 5, hy: 1, hz: 0.25, rot: 0 };
+    const w2 = new PickWorld(emptyMap([back]));
+    const rig2 = new TpsCameraRig(new THREE.PerspectiveCamera());
+    for (let i = 0; i < 90; i++) rig2.spectate(w2, { x: 0, y: 0, z: 0 }, 0, 0, 1 / 30);
+    expect(rig2.pose().pitch).toBeLessThan(-0.4);
+    // the smoothed pose lagging behind a turn never stays inside the wall
+    const rig3 = new TpsCameraRig(new THREE.PerspectiveCamera());
+    for (let i = 0; i < 60; i++) rig3.spectate(w2, { x: 0, y: 0, z: 0 }, Math.PI, 0, 1 / 30);
+    rig3.spectate(w2, { x: 0, y: 0, z: 0 }, 0, 0, 1 / 30);
+    expect(w2.segmentBlocked({ x: 0, y: 1.2, z: 0 }, rig3.pose().pos)).toBe(false);
+  });
+
   it('ADS with a magnifying weapon slides the camera forward ALONG the sim aim ray', () => {
     expect(adsBackDistance(1)).toBe(CAM_BACK);
     expect(adsBackDistance(1.2)).toBeGreaterThan(2.5); // SMG-class zoom: barely moves

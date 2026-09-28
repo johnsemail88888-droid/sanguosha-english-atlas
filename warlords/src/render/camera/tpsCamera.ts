@@ -69,9 +69,12 @@ export function resolveCameraCollision(
   downed = false,
   pad = 0.3,
   rightMax = CAM_RIGHT,
+  side: 1 | -1 = 1,
 ): CollisionResult {
   const pivot = { x: pos.x, y: pos.y + pivotHeight(downed), z: pos.z };
-  const r = rightFromYaw(yaw);
+  const r0 = rightFromYaw(yaw);
+  // side −1: over the left shoulder (spectating a hero who hugs a wall on his right)
+  const r = side === 1 ? r0 : { x: -r0.x, y: -r0.y, z: -r0.z };
   const d = dirFromYawPitch(yaw, pitch);
   let right = rightMax;
   // camera-only occluders (roof shells, under dock decks) count as well as colliders + terrain
@@ -85,7 +88,7 @@ export function resolveCameraCollision(
   return {
     pos: { x: shoulder.x + back.x * dist, y: shoulder.y + back.y * dist, z: shoulder.z + back.z * dist },
     back: dist,
-    right,
+    right: right * side,
   };
 }
 
@@ -237,7 +240,12 @@ export class TpsCameraRig {
     let back = CAM_BACK;
     if (world) {
       let res = resolveCameraCollision(world, target, yaw, p, downed);
+      // a wall on his right: over the left shoulder instead; boxed in: over the top, centred
       if (res.back < SPECTATE_TIGHT || res.right < CAM_RIGHT * 0.5) {
+        const left = resolveCameraCollision(world, target, yaw, p, downed, 0.3, CAM_RIGHT, -1);
+        if (-left.right >= CAM_RIGHT * 0.5 && left.back >= Math.max(SPECTATE_TIGHT, res.back)) res = left;
+      }
+      if (res.back < SPECTATE_TIGHT) {
         const over = resolveCameraCollision(world, target, yaw, SPECTATE_OVERHEAD_PITCH, downed, 0.3, 0);
         if (over.back > res.back) {
           res = over;
@@ -296,7 +304,7 @@ export class TpsCameraRig {
    * Slow cinematic orbit around a point (before spawn / dead without a spectate target), looking at
    * `lookUp` m above it; `rate` = how fast the pose eases in (the death pull-back is slow).
    */
-  orbit(center: Vec3, radius: number, height: number, dt: number, lookUp = 2, rate = 2): void {
+  orbit(center: Vec3, radius: number, height: number, dt: number, lookUp = 2, rate = 2, world: PickWorld | null = null): void {
     this.orbitAngle += dt * 0.06;
     const px = center.x + Math.cos(this.orbitAngle) * radius;
     const pz = center.z + Math.sin(this.orbitAngle) * radius;
@@ -305,6 +313,22 @@ export class TpsCameraRig {
     const yaw = Math.atan2(-_dir.x, -_dir.z);
     const pitch = Math.asin(clamp(_dir.y, -1, 1));
     this.approach({ x: px, y: py, z: pz }, yaw, pitch, dt, rate);
+    // (close orbits — the death pull-back over your body: never through a wall, a roof or a banner)
+    if (world) {
+      const cy = center.y + Math.max(0.4, lookUp);
+      const vx = this.pos.x - center.x;
+      const vy = this.pos.y - cy;
+      const vz = this.pos.z - center.z;
+      const len = Math.hypot(vx, vy, vz);
+      if (len > 1e-3) {
+        const d = { x: vx / len, y: vy / len, z: vz / len };
+        const hit = world.cameraDistance({ x: center.x, y: cy, z: center.z }, d, len + 0.3);
+        if (Number.isFinite(hit) && hit - 0.3 < len) {
+          const k = Math.max(0.3, hit - 0.3);
+          this.pos.set(center.x + d.x * k, cy + d.y * k, center.z + d.z * k);
+        }
+      }
+    }
   }
 
   setZoom(target: number, dt: number): void {

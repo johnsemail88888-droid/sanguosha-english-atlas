@@ -1247,7 +1247,7 @@ export class GameRenderer {
         rig.mode = 'orbit';
         if (localEnt && this.localDeadAt >= 0 && this.time - this.localDeadAt < DEATH_PULLBACK_TIME) {
           // a slow pull-back over your own body, looking down at it
-          rig.orbit({ x: localEnt.x, y: localEnt.y, z: localEnt.z }, 4, 2.6, dt, 0.3, 1.6);
+          rig.orbit({ x: localEnt.x, y: localEnt.y, z: localEnt.z }, 4, 2.6, dt, 0.3, 1.6, this.pickWorld);
         } else {
           const c = localEnt ?? this.view.map.lordSpawn;
           rig.orbit({ x: c.x, y: c.y, z: c.z }, localEnt ? 9 : 60, localEnt ? 5 : 32, dt);
