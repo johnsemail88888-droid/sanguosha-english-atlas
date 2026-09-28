@@ -230,7 +230,8 @@ describe('POST /api/rooms (stub worker)', () => {
   });
 
   it('rate limit per client IP (first X-Forwarded-For entry behind a local proxy) → 429', async () => {
-    const srv = await serve({ headless: { perIpPerMin: 2, maxRooms: 10 } });
+    // (MAX_ROOMS_PER_IP raised: the rate is what this is about)
+    const srv = await serve({ headless: { perIpPerMin: 2, maxRooms: 10 }, relay: { maxRoomsPerIp: 10 } });
     expect((await createRoom(srv, {}, '192.0.2.7')).status).toBe(201);
     expect((await createRoom(srv, {}, '192.0.2.7')).status).toBe(201);
     const third = await createRoom(srv, {}, '192.0.2.7');
@@ -299,17 +300,19 @@ describe('POST /api/rooms (stub worker)', () => {
 });
 
 describe('POST /api/rooms: abuse limits, builds, health checks (stub worker)', () => {
-  it('one client address holds at most 2 rooms at once (HEADLESS_ROOMS_PER_IP): the next → 503 rooms-full, others still get one', async () => {
+  it('one client address holds at most 2 rooms at once (MAX_ROOMS_PER_IP / HEADLESS_ROOMS_PER_IP): the next → 429 too-many-rooms, others still get one', async () => {
     const srv = await serve({ headless: { maxRooms: 4 } });
     expect((await createRoom(srv, {}, '198.51.100.20')).status).toBe(201);
     expect((await createRoom(srv, {}, '198.51.100.20')).status).toBe(201);
     const third = await createRoom(srv, {}, '198.51.100.20');
-    expect(third).toMatchObject({ status: 503, body: { error: 'rooms-full' } }); // (the page hosts its room itself)
+    // (the relay would refuse a room the page hosts itself as well: the page says so instead)
+    expect(third).toMatchObject({ status: 429, body: { error: 'too-many-rooms' } });
     expect(third.headers['access-control-allow-origin']).toBe('*');
     expect((await createRoom(srv, {}, '198.51.100.21')).status).toBe(201);
+    // HEADLESS_ROOMS_PER_IP below the relay's cap: the server-run slots are taken, the page hosts its room itself
     const one = await serve({ headless: { perIpRooms: 1 } });
     expect((await createRoom(one, {}, '198.51.100.22')).status).toBe(201);
-    expect((await createRoom(one, {}, '198.51.100.22')).status).toBe(503);
+    expect(await createRoom(one, {}, '198.51.100.22')).toMatchObject({ status: 503, body: { error: 'rooms-full' } });
   });
 
   it('a room nobody joins gives its slot back after 45 s; a health check\'s ({probe:true}) after 10 s', async () => {

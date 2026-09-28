@@ -10,9 +10,9 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs without type declarations
-import { acceptedEncodings, cacheControlFor, matchesEtag, startServer } from '../../../server/server.mjs';
+import { acceptedEncodings, cacheControlFor, ENCODED_EXTENSIONS, matchesEtag, startServer } from '../../../server/server.mjs';
 // @ts-expect-error plain .mjs without type declarations
-import { precompressDir } from '../../../scripts/precompress.mjs';
+import { BROTLI_QUALITY, precompressDir } from '../../../scripts/precompress.mjs';
 // @ts-expect-error plain .mjs without type declarations
 import { keepOldAssets, RETIRED_FILE } from '../../../scripts/keep-old-assets.mjs';
 
@@ -142,6 +142,36 @@ describe('static files: caching', () => {
     const page = await get('/');
     expect((await get('/', { 'If-None-Match': String(page.headers.etag) })).status).toBe(304);
     expect(page.headers['last-modified']).toBeTruthy();
+  });
+
+  it('the ETag follows the content, not the file time: a new build that leaves a file as it was keeps its tag (a 304, not the art again)', async () => {
+    const file = path.join(dist, 'assets', 'models', 'same.glb');
+    fs.writeFileSync(file, Buffer.alloc(3000, 3));
+    const first = await get('/assets/models/same.glb');
+    const tag = String(first.headers.etag);
+    // the update copies it again: a new time, the same bytes
+    const later = new Date(Date.now() + 3_600_000);
+    fs.writeFileSync(file, Buffer.alloc(3000, 3));
+    fs.utimesSync(file, later, later);
+    const again = await get('/assets/models/same.glb', { 'If-None-Match': tag });
+    expect(again.status).toBe(304);
+    expect(again.headers.etag).toBe(tag);
+    // other bytes (same size): another tag
+    fs.writeFileSync(file, Buffer.alloc(3000, 4));
+    fs.utimesSync(file, new Date(later.getTime() + 1000), new Date(later.getTime() + 1000));
+    const changed = await get('/assets/models/same.glb', { 'If-None-Match': tag });
+    expect(changed.status).toBe(200);
+    expect(changed.headers.etag).not.toBe(tag);
+  });
+
+  it('Vary: Accept-Encoding on every answer that may be encoded — a model sent plain too; not on images', async () => {
+    const plain = await get('/assets/models/hero.glb');
+    expect(plain.headers['content-encoding']).toBeUndefined();
+    expect(plain.headers.vary).toBe('Accept-Encoding');
+    expect((await get('/assets/models/hero.glb', { 'Accept-Encoding': 'br' })).headers.vary).toBe('Accept-Encoding');
+    expect((await get('/assets/models/ground-cobblestone.webp')).headers.vary).toBeUndefined();
+    // (whatever scripts/precompress.mjs writes variants for)
+    for (const ext of Object.keys(BROTLI_QUALITY)) expect(ENCODED_EXTENSIONS.has(ext), ext).toBe(true);
   });
 
   it('parses Accept-Encoding and If-None-Match', () => {

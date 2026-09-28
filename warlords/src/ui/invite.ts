@@ -6,7 +6,7 @@
 // the page stores it per server and takes it out of the address bar (src/net/relayKey.ts).
 import { DEFAULT_SETTINGS, settings, type NetServerConfig } from '../game/settings';
 import { isOfficialRelay, officialServer, type OfficialServer } from '../net/official';
-import { cleanKey, KEY_PARAM, keyFor, relayOrigin, resolveWsUrl, splitKey, withKey } from '../net/relayKey';
+import { addKeyCheck, cleanKey, KEY_PARAM, keyFor, relayKeyAccepted, relayOrigin, resolveWsUrl, serverHttpBase, splitKey, withKey } from '../net/relayKey';
 import { isPublicWebOrigin, shareBase } from './desktop';
 
 export type NetMode = 'peer' | 'ws';
@@ -32,7 +32,8 @@ export function customPeerServer(net: Pick<NetServerConfig, 'peerHost' | 'peerPo
  * Invite link for a room code, based on the current page URL. `mode` and a
  * non-default server travel along: `&mode=peer|ws`, then `&ph=&pp=&pa=&ps=0|1`
  * (PeerJS) or `&ws=` (relay), and a relay room on a server that requires a key
- * (one this page has stored for it) `&k=`.
+ * (one this page has stored for it) `&k=` — on that server's own page then (the same
+ * game): the key is for that server, and must not go to another site (GitHub Pages).
  */
 export function inviteLink(
   code: string,
@@ -52,10 +53,20 @@ export function inviteLink(
     } else if (conn.mode === 'ws' && conn.net.wsUrl.trim()) {
       q.set('ws', conn.net.wsUrl.trim());
     }
-    const key = conn.mode === 'ws' ? keyFor(conn.net.keys, relayOf(conn.net.wsUrl, loc.origin)) : null;
-    if (key) q.set(KEY_PARAM, key);
+    const relay = conn.mode === 'ws' ? relayOf(conn.net.wsUrl, loc.origin) : null;
+    const key = keyFor(conn.net.keys, relay);
+    if (key && relay) {
+      q.set(KEY_PARAM, key);
+      const own = serverHttpBase(relay);
+      if (own) return `${own}?${q.toString()}`;
+    }
   }
   return `${shareBase(loc, conn?.mode, conn?.mode === 'ws' ? conn.net.wsUrl : undefined)}?${q.toString()}`;
+}
+
+/** An invite link for showing on screen: its key masked (k=••••) — the full link is for copying / sharing only. */
+export function maskedInviteLink(link: string): string {
+  return link.replace(/([?&]k=)[^&#]*/g, '$1••••');
 }
 
 /** The relay a relay-mode room of this page is on: the configured address, else the page's own server. */
@@ -140,19 +151,40 @@ export function keyFromPageUrl(href: string, official: OfficialServer | null = o
  * At page start: a key in the address (a SHARE / invite link) is stored for its server
  * (settings.net.keys) and taken out of the address bar — it must not end up in a
  * bookmark, a screenshot or a link copied from there. The room, mode and ws= stay (the
- * online screen reads them). Returns the server origin the key was stored for.
+ * online screen reads them). Returns the server origin the key is for.
+ *
+ * A page that already has another key for that server keeps it unless the server says the
+ * new one is right (`check`: GET /api/rooms?k=, relayKeyAccepted) — the link may carry the
+ * owner's new key (rotate-key), or be an old / wrong one that must not lock a friend out.
+ * The net layer waits for that answer before it connects (keyChecksSettled).
  */
 export function captureKeyFromPage(
   env: { location?: { href: string }; history?: Pick<History, 'replaceState' | 'state'> } = globalThis as never,
   official: OfficialServer | null = officialServer(),
+  check: (relayUrl: string, key: string) => Promise<boolean | null> = (u, k) => relayKeyAccepted(u, k),
 ): string | null {
   const href = env.location?.href;
   if (!href) return null;
   const got = keyFromPageUrl(href, official);
   if (!got) return null;
-  if (got.key && got.origin) {
+  const { key, origin } = got;
+  if (key && origin) {
     const net = settings.get().net;
-    if (net.keys?.[got.origin] !== got.key) settings.update({ net: { ...net, keys: withKey(net.keys, got.origin, got.key) } });
+    const stored = net.keys?.[origin];
+    if (!stored) settings.update({ net: { ...net, keys: withKey(net.keys, origin, key) } });
+    else if (stored !== key) {
+      const relay = relayForKey(href, origin);
+      addKeyCheck(
+        check(relay, key).then((ok) => {
+          if (ok !== true) {
+            console.info(`[net] the link's key for ${origin} was ${ok === false ? 'refused by the server' : 'not confirmed'}: keeping the stored one`);
+            return;
+          }
+          const n = settings.get().net;
+          settings.update({ net: { ...n, keys: withKey(n.keys, origin, key) } });
+        }),
+      );
+    }
   }
   try {
     env.history?.replaceState(env.history.state, '', got.cleanHref);
@@ -160,6 +192,19 @@ export function captureKeyFromPage(
     /* a sandboxed page: the key stays visible, it still works */
   }
   return got.key ? got.origin : null;
+}
+
+/** The relay a page URL's key is checked against: its ws= relay (under its own path), else `origin`'s /ws. */
+function relayForKey(href: string, origin: string): string {
+  try {
+    const u = new URL(href);
+    const inv = parseInvite(u.search);
+    const r = inv.net.wsUrl ? resolveWsUrl(inv.net.wsUrl, { protocol: u.protocol, host: u.host }) : null;
+    if (r && relayOrigin(r) === origin) return r;
+  } catch {
+    /* fall through */
+  }
+  return `${origin}/ws`;
 }
 
 // ── reload rejoin ────────────────────────────────────────────────────────────

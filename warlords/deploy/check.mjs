@@ -195,7 +195,7 @@ export async function checkHeadless(ep, { lookup, timeoutMs, key = '' }) {
     return { ok: false, line: `⚠ 服务器托管对局：${ep.rooms} 无响应 / Server-hosted matches: no answer (${err?.message ?? err}) — ${FALLBACK}` };
   }
   const error = typeof res.body?.error === 'string' ? res.body.error : '';
-  if (res.status === 429 || error === 'rooms-full') {
+  if (res.status === 429 || error === 'rooms-full' || error === 'server-full') {
     return { ok: true, line: `⚠ 服务器托管对局：现在房间已满或请求太频繁，稍后再查 / Server-hosted matches: busy right now (${error || res.status}) — check again later` };
   }
   if (res.status !== 201 || typeof res.body?.code !== 'string') {

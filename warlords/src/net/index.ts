@@ -18,7 +18,7 @@ import { settings } from '../game/settings';
 import { ClientSession, hasSeatToken, openRetryingRoomNotFound, ROOM_NOT_FOUND_RETRY_MS } from './clientSession';
 import { NetError, toNetError } from './errors';
 import { browserHostForced, createHeadlessRoom } from './headlessRooms';
-import { diagnoseRelayFailure, KEY_PARAM, keyedRelayUrl, keyFor, noteRelayAccepted } from './relayKey';
+import { diagnoseRelayFailure, KEY_PARAM, keyChecksSettled, keyedRelayUrl, keyFor, noteRelayAccepted } from './relayKey';
 import { HostSession } from './hostSession';
 import { sanitizeName } from './protocol';
 import { normalizeRoomCode } from './roomCode';
@@ -37,6 +37,8 @@ export function createLocalSession(opts?: { name?: string }): GameSession {
 
 /** The relay URL to open with the current settings (the server's stored key appended), or null. */
 async function relayUrl(): Promise<string | null> {
+  // (a link that brought another key than the stored one: the server's word on it first)
+  await keyChecksSettled();
   const net = settings.get().net;
   const { resolveWsUrl } = await import('./wsTransport');
   const url = resolveWsUrl(net.wsUrl);
@@ -77,9 +79,10 @@ async function openHostTransport(mode: NetMode): Promise<{ transport: Transport;
 
 /**
  * WebSocket mode: ask the server to run the room (src/headless) and join it as its owner.
- * null: the server cannot (an older server, no headless bundle, rooms full, unreachable) or
- * joining the new room failed — the page hosts the room itself. Throws only 'rateLimited'
- * and 'keyRequired' (the server's relay would refuse the page-hosted room as well).
+ * null: the server cannot (an older server, no headless bundle, its server-run slots taken,
+ * unreachable) or joining the new room failed — the page hosts the room itself. Throws only
+ * 'rateLimited', 'tooManyRooms', 'serverFull' and 'keyRequired' (the server's relay would
+ * refuse the page-hosted room as well).
  */
 async function serverRunRoom(name: string): Promise<GameSession | null> {
   const url = await relayUrl();
@@ -89,6 +92,8 @@ async function serverRunRoom(name: string): Promise<GameSession | null> {
   const key = keyFor(settings.get().net.keys, url) ?? new URL(url).searchParams.get(KEY_PARAM);
   const r = await createHeadlessRoom(url, { name, lang }, { key });
   if (r.kind === 'rateLimited') throw new NetError('rateLimited');
+  if (r.kind === 'tooManyRooms') throw new NetError('tooManyRooms');
+  if (r.kind === 'serverFull') throw new NetError('serverFull');
   if (r.kind === 'keyRequired') throw new NetError('keyRequired', key ? `key refused: ${r.reason}` : r.reason);
   if (r.kind !== 'created') {
     console.info(`[net] the server does not run this room (${r.reason}) — hosting it in this page`);

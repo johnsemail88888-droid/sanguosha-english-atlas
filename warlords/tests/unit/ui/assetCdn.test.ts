@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { activeCdn, assetFetch, cdnBaseFrom, cdnState, cdnUrl, CDN_PROBE_MARK, CDN_PROBE_PATH, disableCdn, isCdnPath, prepareCdn, setAssetCdnForTests, withCdnFallback } from '../../../src/game/assetCdn';
+import { ART_INDEX_PATH, assetList, CDN_LISTING_WAIT_MS, setAssetListForTests } from '../../../src/game/assets';
 
 const CDN = 'https://cdn.example.com/warlords/';
 const PROBE = { ok: true, text: async () => `${CDN_PROBE_MARK}\n# …\n` };
@@ -77,6 +78,39 @@ describe('the probe decides', () => {
     const text = readFileSync(new URL(`../../../public/${CDN_PROBE_PATH}`, import.meta.url), 'utf8');
     expect(text.startsWith(CDN_PROBE_MARK)).toBe(true);
     expect(isCdnPath(CDN_PROBE_PATH)).toBe(false); // (never itself loaded through the CDN)
+  });
+});
+
+describe('the art listing does not wait for a CDN that hangs', () => {
+  it('a probe that never answers holds the listing CDN_LISTING_WAIT_MS at most (not its 3 s); art meanwhile comes from this server', async () => {
+    const g = globalThis as { location?: unknown };
+    const hadLocation = 'location' in g;
+    const oldLocation = g.location;
+    g.location = { protocol: 'https:', host: 'mini.example', origin: 'https://mini.example', pathname: '/' };
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', (url: string) => {
+      asked.push(url);
+      return url === ART_INDEX_PATH
+        ? Promise.resolve({ ok: true, headers: { get: () => 'application/json' }, json: async () => ({ files: ['assets/heroes/liubei.glb'] }) })
+        : new Promise(() => undefined); // (the CDN: silently dropped on this network)
+    });
+    try {
+      setAssetCdnForTests(CDN);
+      setAssetListForTests(null);
+      const t0 = Date.now();
+      await assetList(); // (the listing itself: the dev file list under vitest, the fetched one in a build)
+      const took = Date.now() - t0;
+      expect(asked).toContain(`${CDN}${CDN_PROBE_PATH}`);
+      expect(took).toBeGreaterThanOrEqual(CDN_LISTING_WAIT_MS - 50);
+      expect(took).toBeLessThan(1500);
+      expect(activeCdn()).toBeNull();
+      expect(cdnUrl('assets/heroes/liubei.glb', activeCdn())).toBe('assets/heroes/liubei.glb');
+    } finally {
+      vi.unstubAllGlobals();
+      if (hadLocation) g.location = oldLocation;
+      else delete g.location;
+      setAssetListForTests(null);
+    }
   });
 });
 

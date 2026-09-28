@@ -20,11 +20,15 @@
 //        /sgwl.json ({keyRequired}) and the game files stay public,
 //      MAX_ROOMS (1000) relay rooms at once, HOST_GRACE_MS (120000) a dropped host's room waits,
 //      MAX_SOCKETS_PER_IP (8) relay sockets per client address (loopback exempt),
+//      MAX_ROOMS_PER_IP (2) rooms per client address at once, server-hosted ones included,
 //      SGWL_GIT_SHA the commit this build is (else ../.sgwl-sha, written by deploy/install.sh).
 // Static files: precompressed .br / .gz next to a file (scripts/precompress.mjs, run by
 // deploy/install.sh after the build) are served to browsers that accept them; text files without
-// one are compressed on the fly (cached); weak ETags + 304; hashed assets/* cache for a year,
-// index.html revalidates, the rest caches a day (stale-while-revalidate a week).
+// one are compressed on the fly (cached); weak ETags from the content (hashed once per file and
+// build: an update that leaves a file as it was keeps its tag, so a returning player gets 304s,
+// not the art again) + 304; hashed assets/* cache for a year, index.html revalidates, the rest
+// caches a day (stale-while-revalidate a week). Vary: Accept-Encoding on everything that may be
+// sent encoded (precompressed models too, when sent plain).
 // Logs: ISO timestamps, a line per relay connect / close (rate-limited), a stats line a minute.
 // Embeddable: `import { startServer } from './server/server.mjs'` (Electron).
 import crypto from 'node:crypto';
@@ -220,7 +224,7 @@ function readBody(req, limit) {
  * JSON or text/plain bodies (text/plain: a page on another origin — GitHub Pages — posts without a
  * CORS preflight); every answer carries Access-Control-Allow-Origin: *.
  */
-async function handleRoomsApi(req, res, rooms, keyError, relayFull = () => false) {
+async function handleRoomsApi(req, res, rooms, keyError, relayFull = () => false, tooManyRooms = () => false) {
   if (req.method === 'OPTIONS') {
     // (the CORS preflight stays open: it carries no key)
     const pna = req.headers['access-control-request-private-network'] === 'true' ? { 'Access-Control-Allow-Private-Network': 'true' } : {};
@@ -269,12 +273,20 @@ async function handleRoomsApi(req, res, rooms, keyError, relayFull = () => false
     return;
   }
   if (relayFull()) {
-    // (no relay room for its worker either: MAX_ROOMS — a start that could only fail)
-    sendJson(res, 503, { error: 'rooms-full' });
+    // no relay room for its worker either (MAX_ROOMS), nor for a room the page would host
+    // itself: 'server-full' (the page says so; 'rooms-full' — only the server-hosted slots are
+    // taken — makes it host the room itself)
+    sendJson(res, 503, { error: 'server-full' });
+    return;
+  }
+  const ip = clientIp(req);
+  if (tooManyRooms(ip)) {
+    // (MAX_ROOMS_PER_IP: the relay would refuse a page-hosted room of this address as well)
+    sendJson(res, 429, { error: 'too-many-rooms' });
     return;
   }
   try {
-    const room = await rooms.create(clientIp(req), { name: body.name, lang: body.lang, build: body.build, probe: body.probe });
+    const room = await rooms.create(ip, { name: body.name, lang: body.lang, build: body.build, probe: body.probe });
     sendJson(res, 201, { code: room.code, ownerKey: room.ownerKey });
   } catch (err) {
     const status = typeof err?.status === 'number' ? err.status : 500;
@@ -284,6 +296,12 @@ async function handleRoomsApi(req, res, rooms, keyError, relayFull = () => false
 
 /** Text types worth compressing on the fly when no precompressed .br / .gz sits next to the file. */
 const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.map', '.svg', '.txt', '.webmanifest', '.wasm']);
+/**
+ * Extensions whose answer depends on Accept-Encoding (Vary), sent encoded or not: the text types
+ * above and what scripts/precompress.mjs writes variants for (models, their buffers) — a cache
+ * must not hand a plain answer to a browser that would get the smaller one, or the reverse.
+ */
+export const ENCODED_EXTENSIONS = new Set([...COMPRESSIBLE, '.glb', '.gltf', '.bin']);
 /** On-the-fly compression: files up to this size, results cached up to DYN_CACHE_BYTES (LRU). */
 const DYN_MAX_FILE = 8 * 1024 * 1024;
 const DYN_CACHE_BYTES = 48 * 1024 * 1024;
@@ -326,10 +344,16 @@ export function acceptedEncodings(header) {
   return /** @type {('br' | 'gzip')[]} */ (['br', 'gzip'].filter((e) => w(e) > 0).sort((a, b) => w(b) - w(a)));
 }
 
-/** A weak ETag for a file (size + mtime) and the encoding served. */
-export function etagFor(st, enc = '') {
-  return `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}${enc ? `-${enc}` : ''}"`;
+/**
+ * A weak ETag for a file and the encoding served: its size and `tag` (a hash of its content —
+ * contentTag), else its modification time.
+ */
+export function etagFor(st, enc = '', tag = '') {
+  return `W/"${st.size.toString(16)}-${tag || Math.floor(st.mtimeMs).toString(16)}${enc ? `-${enc}` : ''}"`;
 }
+
+/** Content tags kept (files; one per path, size and time — LRU). */
+const TAG_CACHE_MAX = 8192;
 
 /** If-None-Match names this ETag (weak comparison) or '*'. */
 export function matchesEtag(header, etag) {
@@ -346,6 +370,43 @@ function createStaticHandler(distDir) {
   const indexFile = path.join(root, 'index.html');
   /** requests answered and body bytes sent (the stats line) */
   const counters = { requests: 0, bytes: 0, notModified: 0 };
+  /** content tags: path + size + time → 16 hex digits of its SHA-1 (Map order = LRU) */
+  const tagCache = new Map();
+  const tagPending = new Map();
+  /**
+   * `file`'s content tag (ETag): hashed once per path, size and modification time. A new build
+   * copies every file (Vite's public/, a tarball install): new times, the same content — the same
+   * tag. '' when the file cannot be read (the time then stands in).
+   */
+  const contentTag = (file, st) => {
+    const key = `${file}\0${st.size}\0${st.mtimeMs}`;
+    const hit = tagCache.get(key);
+    if (hit !== undefined) {
+      tagCache.delete(key);
+      tagCache.set(key, hit);
+      return Promise.resolve(hit);
+    }
+    const running = tagPending.get(key);
+    if (running) return running;
+    const job = new Promise((resolve) => {
+      const h = crypto.createHash('sha1');
+      const stream = fs.createReadStream(file);
+      stream.on('data', (c) => h.update(c));
+      stream.on('error', () => resolve(''));
+      stream.on('end', () => resolve(h.digest('hex').slice(0, 16)));
+    })
+      .then((tag) => {
+        if (tag) {
+          tagCache.set(key, tag);
+          if (tagCache.size > TAG_CACHE_MAX) tagCache.delete(tagCache.keys().next().value);
+        }
+        return tag;
+      })
+      .finally(() => tagPending.delete(key));
+    tagPending.set(key, job);
+    return job;
+  };
+
   /** on-the-fly compressed files: key → Buffer (Map order = LRU) */
   const dynCache = new Map();
   const dynPending = new Map();
@@ -462,8 +523,9 @@ function createStaticHandler(distDir) {
     }
     const dynamic = !enc && COMPRESSIBLE.has(ext) && st.size >= 1024 && st.size <= DYN_MAX_FILE && accepted.length > 0;
     if (dynamic) enc = accepted[0];
-    if (enc || COMPRESSIBLE.has(ext)) headers.Vary = 'Accept-Encoding';
-    headers.ETag = etagFor(st, enc);
+    if (enc || ENCODED_EXTENSIONS.has(ext)) headers.Vary = 'Accept-Encoding';
+    const tag = await contentTag(file, st);
+    headers.ETag = etagFor(st, enc, tag);
     if (matchesEtag(req.headers['if-none-match'], String(headers.ETag))) {
       counters.notModified++;
       res.writeHead(304, headers);
@@ -495,7 +557,7 @@ function createStaticHandler(distDir) {
         res.end(req.method === 'HEAD' ? undefined : body);
         return;
       }
-      headers.ETag = etagFor(st);
+      headers.ETag = etagFor(st, '', tag);
     }
     res.writeHead(200, { ...headers, 'Content-Length': st.size });
     if (req.method === 'HEAD') {
@@ -628,10 +690,10 @@ export function statsLine(now, prev, relayStats, headless, rss) {
     `out ${mb(d('bytesOut'))}`,
     `dropped ${d('droppedUnreliable')}`,
   ];
-  const trouble = d('terminatedBacklog') + d('rateLimited') + d('refusedSockets') + d('refusedCreates') + d('reapedIdle') + d('reapedOld') + (now.refusedKeys ?? 0) - (prev?.refusedKeys ?? 0);
+  const trouble = d('terminatedBacklog') + d('rateLimited') + d('refusedSockets') + d('refusedCreates') + d('refusedRooms') + d('reapedIdle') + d('reapedOld') + (now.refusedKeys ?? 0) - (prev?.refusedKeys ?? 0);
   if (trouble > 0) {
     parts.push(
-      `terminated ${d('terminatedBacklog')} · rate-limited ${d('rateLimited')} · refused sockets ${d('refusedSockets')} / rooms ${d('refusedCreates')} / keys ${(now.refusedKeys ?? 0) - (prev?.refusedKeys ?? 0)} · reaped ${d('reapedIdle')} idle / ${d('reapedOld')} old`,
+      `terminated ${d('terminatedBacklog')} · rate-limited ${d('rateLimited')} · refused sockets ${d('refusedSockets')} / rooms ${d('refusedCreates') + d('refusedRooms')} / keys ${(now.refusedKeys ?? 0) - (prev?.refusedKeys ?? 0)} · reaped ${d('reapedIdle')} idle / ${d('reapedOld')} old`,
     );
   }
   if (now.httpRequests !== undefined) parts.push(`http ${d('httpRequests')} requests, ${mb(d('httpBytes'))} sent`);
@@ -672,10 +734,18 @@ export async function startServer(opts = {}) {
     maxRooms: envInt('MAX_ROOMS'),
     hostGraceMs: envInt('HOST_GRACE_MS'),
     maxSocketsPerIp: envInt('MAX_SOCKETS_PER_IP') || undefined,
+    maxRoomsPerIp: envInt('MAX_ROOMS_PER_IP') || undefined,
     ...(opts.relay ?? {}),
   };
   for (const k of Object.keys(relayOpts)) if (relayOpts[k] === undefined) delete relayOpts[k];
-  const relay = createRelay({ ...relayOpts, log: opts.quiet ? undefined : log });
+  /** @type {ReturnType<typeof createHeadlessRooms> | undefined} */
+  let roomsRef;
+  const relay = createRelay({
+    ...relayOpts,
+    // (server-hosted rooms an address asked for that are still starting count against it too)
+    pendingRoomsOf: (ip) => roomsRef?.startingOf(ip) ?? 0,
+    log: opts.quiet ? undefined : log,
+  });
   const serveStatic = createStaticHandler(distDir);
   const headlessOpts = typeof opts.headless === 'object' && opts.headless ? opts.headless : {};
   const workerPath = opts.workerPath ?? process.env.HEADLESS_WORKER ?? DEFAULT_WORKER;
@@ -704,15 +774,16 @@ export async function startServer(opts = {}) {
     errorLog,
     // the room's host is this server, not a player: one more socket so it seats ROOM_SEATS humans
     // (plus the relay's slack for guests rejoining on a new socket)
-    onReady: (code) => {
+    onReady: (code, ip) => {
       relay.setRoomLimit(code, ROOM_SEATS + 1 + ROOM_SLACK);
-      relay.markServerHosted(code);
+      relay.markServerHosted(code, ip);
     },
     // a worker gone for good: its guests hear so now, not after the relay's host grace
     onExit: (code) => {
       if (code) relay.endRoom(code);
     },
   });
+  roomsRef = rooms;
   /** @type {Awaited<ReturnType<typeof createPeerMount>>} */
   let peerMount = null;
   // requests refused for want of the key: counted (stats line), logged at a bounded rate
@@ -756,7 +827,7 @@ export async function startServer(opts = {}) {
     if (pathname === '/api/rooms' || pathname === '/api/rooms/') {
       const keyError = req.method === 'OPTIONS' ? null : keys.check(keyOf(req, url, true));
       if (keyError) refusedKey(req, 'POST /api/rooms', keyError);
-      handleRoomsApi(req, res, rooms, keyError, () => relay.full()).catch(() => {
+      handleRoomsApi(req, res, rooms, keyError, () => relay.full(), (ip) => relay.roomsOf(ip) >= relay.maxRoomsPerIp).catch(() => {
         if (!res.headersSent) sendJson(res, 500, { error: 'worker-failed' });
         else res.destroy();
       });

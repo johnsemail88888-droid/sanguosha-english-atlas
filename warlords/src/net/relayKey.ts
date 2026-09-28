@@ -198,6 +198,28 @@ export async function relayKeyRequired(wsUrl: string, opts: { fetchImpl?: InfoFe
   }
 }
 
+// ── key checks still running (a link with another key than the stored one) ──────
+
+let keyChecks: Promise<void> = Promise.resolve();
+
+/**
+ * A check of a key from the page's address (src/ui/invite.ts captureKeyFromPage) runs: the net
+ * layer waits for it (keyChecksSettled) before it opens a relay — the key it stores decides
+ * which one the connection presents. Bounded by the check's own timeout.
+ */
+export function addKeyCheck(p: Promise<unknown>): void {
+  const mine = p.then(
+    () => undefined,
+    () => undefined,
+  );
+  keyChecks = Promise.all([keyChecks, mine]).then(() => undefined);
+}
+
+/** Resolves once every key check started so far has finished. */
+export function keyChecksSettled(): Promise<void> {
+  return keyChecks;
+}
+
 // ── keys a relay accepted (this page) ─────────────────────────────────────────
 
 const accepted = new Set<string>();
@@ -237,10 +259,11 @@ export function resetRelayAcceptedForTests(): void {
  * Why a relay connection failed, once more precisely: a server that requires a key and
  * refused the upgrade (no key, a wrong or an outdated one) looks to the page like any
  * unreachable server — /sgwl.json tells. 'keyRequired' | null (nothing more to say).
- * A key this relay accepted earlier in this page is not the cause (a network blip).
+ * The server itself is asked whether the key is right (relayKeyAccepted) — even one this
+ * relay accepted earlier in this page: its owner may have made a new one since (rotate-key).
+ * Only when that question gets no answer does an earlier acceptance count (a network blip).
  */
 export async function diagnoseRelayFailure(url: string, opts: { fetchImpl?: InfoFetch; timeoutMs?: number } = {}): Promise<'keyRequired' | null> {
-  if (relayAcceptedBefore(url)) return null;
   if ((await relayKeyRequired(url, opts)) !== true) return null;
   let key: string | null = null;
   try {
@@ -248,9 +271,12 @@ export async function diagnoseRelayFailure(url: string, opts: { fetchImpl?: Info
   } catch {
     /* keep null */
   }
+  if (!key) return 'keyRequired';
   // a key the server says is right: the relay refused for another reason (too many sockets
   // from one address, a full server…) — "ask for the invite link" would send the player astray
-  return key && (await relayKeyAccepted(url, key, opts)) === true ? null : 'keyRequired';
+  const ok = await relayKeyAccepted(url, key, opts);
+  if (ok !== null) return ok ? null : 'keyRequired';
+  return relayAcceptedBefore(url) ? null : 'keyRequired';
 }
 
 /**

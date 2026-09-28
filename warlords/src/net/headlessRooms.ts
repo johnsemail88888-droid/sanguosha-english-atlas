@@ -3,13 +3,16 @@
 // hostOnlineSession in WebSocket mode first asks the server to run the room —
 // POST /api/rooms next to the relay's /ws — and joins it as the room owner with
 // the owner key it hands out. A server that cannot (an older server, no headless
-// bundle, rooms full, down) makes the page host the room itself, as before; only
-// "too many rooms from you right now" (429) is an error worth showing.
+// bundle, its server-run slots taken, down) makes the page host the room itself, as before;
+// "too many rooms from you right now" (429) and "the server is full" (503 server-full: its
+// relay would refuse a page-hosted room too) are errors worth showing.
 //
 //   POST /api/rooms  {name?, lang?, build?}  → 201 {code, ownerKey}
 //                                    | 429 {error:'rate-limited'}
+//                                    | 429 {error:'too-many-rooms'}  (MAX_ROOMS_PER_IP: this address holds enough rooms already)
 //                                    | 409 {error:'version-mismatch'}  (the server runs another build of the game)
-//                                    | 503 {error:'headless-unavailable' | 'rooms-full'}
+//                                    | 503 {error:'headless-unavailable' | 'rooms-full'}  (the page hosts the room itself)
+//                                    | 503 {error:'server-full'}  (MAX_ROOMS: its relay has no room for a page-hosted one either)
 //                                    | 500 {error:'worker-failed'}
 //                                    | 401 {error:'key-required' | 'bad-key'}  (RELAY_KEY: ?k=<key>, src/net/relayKey.ts)
 //
@@ -29,6 +32,10 @@ export type CreateRoomResult =
   | { kind: 'fallback'; reason: string }
   /** the server refused another room right now (429): tell the player */
   | { kind: 'rateLimited' }
+  /** this address holds as many rooms as the server allows at once (429 too-many-rooms) */
+  | { kind: 'tooManyRooms' }
+  /** the server has no room left at all (503 server-full): a page-hosted room would be refused too */
+  | { kind: 'serverFull' }
   /** the server requires an access key this page lacks or has wrong (401): its relay refuses the page too */
   | { kind: 'keyRequired'; reason: string };
 
@@ -58,11 +65,10 @@ function pageSearch(): string | undefined {
 
 /** What an answer of POST /api/rooms means for the page (see CreateRoomResult). */
 export function classifyCreateResponse(status: number, body: unknown): CreateRoomResult {
-  if (status === 429) return { kind: 'rateLimited' };
-  if (status === 401) {
-    const err = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : '';
-    return { kind: 'keyRequired', reason: err || 'HTTP 401' };
-  }
+  const error = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : '';
+  if (status === 429) return error === 'too-many-rooms' ? { kind: 'tooManyRooms' } : { kind: 'rateLimited' };
+  if (status === 503 && error === 'server-full') return { kind: 'serverFull' };
+  if (status === 401) return { kind: 'keyRequired', reason: error || 'HTTP 401' };
   if (status === 201 || status === 200) {
     const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : null;
     const code = typeof b?.code === 'string' ? normalizeRoomCode(b.code) : null;
@@ -70,10 +76,9 @@ export function classifyCreateResponse(status: number, body: unknown): CreateRoo
     if (code && isValidRoomCode(code) && ownerKey.length >= 16 && ownerKey.length <= 128) return { kind: 'created', code, ownerKey };
     return { kind: 'fallback', reason: 'malformed answer' };
   }
-  const err = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : '';
   // 404 / 405: an older server without the endpoint; 409: another build of the game (its room would
-  // desync with this page); 503: no headless bundle / rooms full; 5xx: the worker failed
-  return { kind: 'fallback', reason: `HTTP ${status}${err ? ` ${err}` : ''}` };
+  // desync with this page); 503: no headless bundle / its server-run slots taken; 5xx: the worker failed
+  return { kind: 'fallback', reason: `HTTP ${status}${error ? ` ${error}` : ''}` };
 }
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{

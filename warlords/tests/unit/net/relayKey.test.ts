@@ -179,7 +179,7 @@ describe('error mapping', () => {
     expect(e.toPayload().code).toBe('keyRequired');
   });
 
-  it('relayKeyRequired reads /sgwl.json; diagnoseRelayFailure trusts a key the relay accepted before', async () => {
+  it('relayKeyRequired reads /sgwl.json; diagnoseRelayFailure trusts a key the relay accepted before only while the server cannot say', async () => {
     const info = (body: unknown, ok = true) => async () => ({ ok, json: async () => body });
     const url = `wss://mini.example/ws?k=${KEY}`;
     expect(await relayKeyRequired(url, { fetchImpl: info({ app: 'sanguo-warlords', keyRequired: true }) })).toBe(true);
@@ -204,9 +204,17 @@ describe('error mapping', () => {
     const needs = info({ app: 'sanguo-warlords', keyRequired: true });
     expect(await diagnoseRelayFailure(url, { fetchImpl: needs })).toBe('keyRequired');
     noteRelayAccepted(url);
-    // the same key worked a minute ago: this failure is the network, not the key (rejoin keeps trying)
+    // the same key worked a minute ago and the key question gets no answer: this failure is the
+    // network, not the key (rejoin keeps trying)
     expect(await diagnoseRelayFailure(url, { fetchImpl: needs })).toBeNull();
     expect(await diagnoseRelayFailure(`wss://mini.example/ws?k=${B64_KEY}`, { fetchImpl: needs })).toBe('keyRequired');
+    // … but the server itself says the key is wrong now (its owner ran rotate-key): the page is told
+    // to ask for the new link at once, not after a reload
+    const rotated = async (u: string) =>
+      u.endsWith('/sgwl.json')
+        ? { ok: true, status: 200, json: async () => ({ app: 'sanguo-warlords', keyRequired: true }) }
+        : { ok: false, status: 401, json: async () => ({ error: 'bad-key' }) };
+    expect(await diagnoseRelayFailure(url, { fetchImpl: rotated })).toBe('keyRequired');
   });
 
   it('diagnoseRelayFailure asks the server about the key itself (GET /api/rooms?k=: 401 = refused): a right key refused for another reason is not "needs the invite link"', async () => {

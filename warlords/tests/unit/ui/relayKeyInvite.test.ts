@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, settings, type NetServerConfig } from '../../../src/game/settings';
 import { setOfficialServerForTests } from '../../../src/net/official';
 import { KEY_REFUSED, NEEDS_KEY, probeRelay } from '../../../src/net/netCheck';
-import { keyFor, withKey } from '../../../src/net/relayKey';
+import { keyChecksSettled, keyFor, withKey } from '../../../src/net/relayKey';
 import { PUBLIC_WEB_URL } from '../../../src/ui/desktop';
-import { captureKeyFromPage, inviteLink, keyFromPageUrl, parseInvite, relayAddressPatch } from '../../../src/ui/invite';
+import { captureKeyFromPage, inviteLink, keyFromPageUrl, maskedInviteLink, parseInvite, relayAddressPatch } from '../../../src/ui/invite';
 import { checkVerdict, formatProbe } from '../../../src/ui/netHelp';
 
 const KEY = 'Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5';
@@ -66,7 +66,7 @@ describe('page URL parsing', () => {
 });
 
 describe('captureKeyFromPage (page start)', () => {
-  it('stores the key for its server (settings.net.keys, not wsUrl) and rewrites the address bar', () => {
+  it('stores the key for its server (settings.net.keys, not wsUrl) and rewrites the address bar', async () => {
     const calls: string[] = [];
     const env = { location: { href: `${MINI}/?room=KX7QD&k=${KEY}` }, history: { state: { a: 1 }, replaceState: (_s: unknown, _t: string, url?: string | URL | null) => void calls.push(String(url)) } };
     const wsBefore = settings.get().net.wsUrl;
@@ -77,9 +77,41 @@ describe('captureKeyFromPage (page start)', () => {
     // a second server's key is kept next to it
     captureKeyFromPage({ location: { href: `http://192.168.1.5:8787/?k=${B64_KEY}` }, history: env.history }, null);
     expect(settings.get().net.keys).toEqual({ 'wss://mini.tail1234.ts.net': KEY, 'ws://192.168.1.5:8787': B64_KEY });
-    // a newer key (rotate-key) replaces the old one
-    captureKeyFromPage({ location: { href: `${MINI}/?k=${B64_KEY}` }, history: env.history }, null);
+    // a newer key (rotate-key) replaces the old one — once the server says it is right
+    const asked: string[] = [];
+    captureKeyFromPage({ location: { href: `${MINI}/?k=${B64_KEY}` }, history: env.history }, null, async (relay, k) => (asked.push(`${relay} ${k}`), true));
+    await keyChecksSettled();
+    expect(asked).toEqual([`${MINI_WS} ${B64_KEY}`]);
     expect(keyFor(settings.get().net.keys, MINI_WS)).toBe(B64_KEY);
+  });
+
+  it('a link with a wrong / old key does not replace a working one (the server refuses it, or cannot say); the address bar is cleaned anyway', async () => {
+    settings.update({ net: { ...settings.get().net, keys: withKey({}, 'wss://mini.tail1234.ts.net', KEY) } });
+    const calls: string[] = [];
+    const history = { state: null, replaceState: (_s: unknown, _t: string, url?: string | URL | null) => void calls.push(String(url)) };
+    const BOGUS = 'AAAAAAAAAAAAAAAAAAAAAAAA';
+    captureKeyFromPage({ location: { href: `${MINI}/?room=KX7QD&mode=ws&k=${BOGUS}` }, history }, null, async () => false);
+    await keyChecksSettled();
+    expect(keyFor(settings.get().net.keys, MINI_WS)).toBe(KEY);
+    expect(calls).toEqual([`${MINI}/?room=KX7QD&mode=ws`]);
+    captureKeyFromPage({ location: { href: `${MINI}/?k=${BOGUS}` }, history }, null, async () => null);
+    await keyChecksSettled();
+    expect(keyFor(settings.get().net.keys, MINI_WS)).toBe(KEY);
+    // the check goes to the relay the link names (ws= under a path)
+    const asked: string[] = [];
+    captureKeyFromPage(
+      { location: { href: `${MINI}/?room=KX7QD&mode=ws&ws=${encodeURIComponent('wss://mini.tail1234.ts.net/game/ws')}&k=${BOGUS}` }, history },
+      null,
+      async (relay) => (asked.push(relay), false),
+    );
+    await keyChecksSettled();
+    expect(asked).toEqual(['wss://mini.tail1234.ts.net/game/ws']);
+    // the same key again: nothing to ask
+    captureKeyFromPage({ location: { href: `${MINI}/?k=${KEY}` }, history }, null, async () => {
+      throw new Error('not asked');
+    });
+    await keyChecksSettled();
+    expect(keyFor(settings.get().net.keys, MINI_WS)).toBe(KEY);
   });
 
   it('no key in the URL: the address bar is left alone; a blocked replaceState does not throw', () => {
@@ -124,6 +156,25 @@ describe('invite links on a keyed server', () => {
     } finally {
       delete g.sgwlDesktop;
     }
+  });
+
+  it('a build without an official server (GitHub Pages): a keyed room’s link opens the keyed server’s own page — the key never goes to github.io', () => {
+    setOfficialServerForTests(null);
+    const conn = { mode: 'ws' as const, net: net({ mode: 'ws', wsUrl: MINI_WS, keys }) };
+    const pagesUrl = new URL(PUBLIC_WEB_URL);
+    const link = inviteLink('KX7QD', { origin: pagesUrl.origin, pathname: pagesUrl.pathname }, conn);
+    expect(link.startsWith(`${MINI}/?`)).toBe(true);
+    expect(link).not.toContain('github.io');
+    expect(parseInvite(new URL(link).search)).toEqual({ room: 'KX7QD', mode: 'ws', net: { wsUrl: MINI_WS }, key: KEY });
+    // (no key: the link stays on the page's own site, as before)
+    expect(inviteLink('KX7QD', { origin: pagesUrl.origin, pathname: pagesUrl.pathname }, { mode: 'ws', net: net({ mode: 'ws', wsUrl: MINI_WS }) }).startsWith(PUBLIC_WEB_URL)).toBe(true);
+  });
+
+  it('on screen the key is masked; the link itself is whole', () => {
+    const link = `${MINI}/?room=KX7QD&mode=ws&k=${encodeURIComponent(B64_KEY)}`;
+    expect(maskedInviteLink(link)).toBe(`${MINI}/?room=KX7QD&mode=ws&k=••••`);
+    expect(maskedInviteLink(`${MINI}/?k=${KEY}&room=KX7QD`)).toBe(`${MINI}/?k=••••&room=KX7QD`);
+    expect(maskedInviteLink(`${MINI}/?room=KX7QD`)).toBe(`${MINI}/?room=KX7QD`);
   });
 
   it('the page’s own server (no ws=): its key by the page origin', () => {

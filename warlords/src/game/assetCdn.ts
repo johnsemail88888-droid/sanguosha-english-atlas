@@ -10,7 +10,8 @@
 // one small probe (<cdn>assets/cdn-probe.txt, a tiny file committed in public/assets, so a
 // copy of the repository has it as well as a copy of dist/ — the art listing is generated
 // at build time and is not in git; started with the art listing, which every art load
-// waits for anyway); a CDN that is down, blocked or not CORS-enabled is never used. A file the CDN then fails to deliver is loaded from the page's own server
+// waits for — for the probe CDN_LISTING_WAIT_MS at most: src/game/assets.ts); a CDN that is
+// down, blocked or not CORS-enabled is never used. A file the CDN then fails to deliver is loaded from the page's own server
 // instead, and the CDN is dropped for the rest of the page (one failure is enough: the
 // next ones would only add waiting). The art listing itself (assets/art-index.json, what
 // this deploy ships) always comes from the page's own server.

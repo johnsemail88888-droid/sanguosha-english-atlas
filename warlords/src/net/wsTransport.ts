@@ -90,6 +90,12 @@ function relayErrorToNet(code: string): NetError {
       return new NetError('roomClosed');
     case 'rateLimited':
       return new NetError('rateLimited');
+    case 'serverFull':
+      // MAX_ROOMS: the server has no room left (not "cannot reach the server")
+      return new NetError('serverFull');
+    case 'tooManyRooms':
+      // MAX_ROOMS_PER_IP: this address holds enough rooms already
+      return new NetError('tooManyRooms');
     default:
       return new NetError('serverUnreachable', code);
   }
@@ -116,7 +122,20 @@ export const RESUME_WINDOW_MS = 120_000;
 /** Pauses between the host's attempts to reconnect to the relay (ms; the last repeats). */
 const RESUME_BACKOFF_MS = [250, 500, 1000, 2000, 3000];
 /** Reliable frames the host keeps while it reconnects to the relay (bytes; beyond: dropped). */
-const RESUME_QUEUE_BYTES = 4 * 1024 * 1024;
+export const RESUME_QUEUE_BYTES = 4 * 1024 * 1024;
+/**
+ * …and frames (beyond: dropped): ~2 minutes of a 7-guest match's reliable traffic (84 frames a
+ * second measured) — what the relay lets a host send at once after a resume (server/relay.mjs
+ * RESUME_BURST_SECONDS × its 1000 messages a second).
+ */
+export const RESUME_QUEUE_FRAMES = 10_000;
+/**
+ * The kept frames go out in slices after a resume — RESUME_FLUSH_FRAMES every RESUME_FLUSH_MS
+ * (2000 a second: 10 000 in 5 s, inside the relay's post-resume allowance), new reliable frames
+ * behind them (their order kept); snapshots flow meanwhile.
+ */
+export const RESUME_FLUSH_FRAMES = 500;
+export const RESUME_FLUSH_MS = 250;
 
 export interface WsConnectOptions {
   timeoutMs?: number;
@@ -150,8 +169,10 @@ export class WsTransport extends BaseTransport {
   private resuming = false;
   /** host: the relay said it ended the room ('roomClosed'): the drop that follows is final, no resume */
   private roomEnded = false;
+  /** host: reliable frames kept while resuming, still going out after it (in slices: drainPending) */
   private pending: (string | Uint8Array<ArrayBuffer>)[] = [];
   private pendingBytes = 0;
+  private drainTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly linkHandlers = new Set<LinkStateHandler>();
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   /** silence of the relay in responsive time (any message resets it) */
@@ -164,7 +185,7 @@ export class WsTransport extends BaseTransport {
   /** host: connected client ids */
   private readonly peerIds = new Set<PeerId>();
   /** diagnostics (tests / debug overlay) */
-  readonly stats = { unreliableDropped: 0, resumed: 0 };
+  readonly stats = { unreliableDropped: 0, resumed: 0, keptDropped: 0 };
 
   private constructor(ws: SocketLike, isHost: boolean, url: string, Impl: typeof WebSocket, opts: WsConnectOptions) {
     super();
@@ -467,6 +488,8 @@ export class WsTransport extends BaseTransport {
       /* ignore */
     }
     this.ws = got.ws;
+    // (back: sends go to the new socket from here on — resume()'s own cleanup comes after this)
+    this.resuming = false;
     if (got.secret !== undefined) this.secret = got.secret;
     this.wire(got.ws);
     this.relaySilentMs = 0;
@@ -483,12 +506,31 @@ export class WsTransport extends BaseTransport {
       this.peerIds.add(id);
       this.emitJoin(id);
     }
-    const queued = this.pending;
-    this.pending = [];
-    this.pendingBytes = 0;
-    for (const f of queued) if (!this.closed && this.ws.readyState === 1) this.ws.send(f);
-    console.info(`[net] relay: room ${this.roomCode} back (${got.peers.length} guests)`);
+    console.info(`[net] relay: room ${this.roomCode} back (${got.peers.length} guests, ${this.pending.length} frames kept)`);
+    // what was kept goes out in slices (the relay caps a socket's messages a second); new
+    // reliable frames queue behind it
+    this.drainPending();
     this.emitLinkState('ok');
+  }
+
+  /** Send the next slice of the kept frames; again in RESUME_FLUSH_MS while any are left. */
+  private drainPending(): void {
+    if (this.drainTimer) clearTimeout(this.drainTimer);
+    this.drainTimer = null;
+    // (resuming again: they stay kept for the next socket)
+    if (this.closed || this.resuming || this.ws.readyState !== 1 || !this.pending.length) return;
+    const slice = this.pending.splice(0, RESUME_FLUSH_FRAMES);
+    for (const f of slice) {
+      this.pendingBytes -= frameSize(f);
+      this.ws.send(f);
+    }
+    if (!this.pending.length) this.pendingBytes = 0;
+    else this.drainTimer = setTimeout(() => this.drainPending(), RESUME_FLUSH_MS);
+  }
+
+  /** Host: kept frames not sent yet (tests / diagnostics). */
+  get keptFrames(): number {
+    return this.pending.length;
   }
 
   private emitLinkState(state: LinkState): void {
@@ -529,8 +571,9 @@ export class WsTransport extends BaseTransport {
 
   send(to: PeerId, data: Payload, channel: Channel = 'reliable'): void {
     if (this.closed) return;
-    if (this.resuming) {
-      // kept for after the reconnect (the guests' views stay consistent); snapshots are superseded anyway
+    if (this.resuming || (channel === 'reliable' && this.pending.length)) {
+      // kept for after the reconnect (the guests' views stay consistent) — or behind what was
+      // kept, still going out; snapshots are superseded anyway
       if (channel === 'reliable') this.keep(encodeRelayFrame(this.isHost ? to : this.hostId, data, channel));
       return;
     }
@@ -543,8 +586,11 @@ export class WsTransport extends BaseTransport {
   }
 
   private keep(frame: string | Uint8Array<ArrayBuffer>): void {
-    const n = typeof frame === 'string' ? frame.length : frame.byteLength;
-    if (this.pendingBytes + n > RESUME_QUEUE_BYTES) return;
+    const n = frameSize(frame);
+    if (this.pendingBytes + n > RESUME_QUEUE_BYTES || this.pending.length >= RESUME_QUEUE_FRAMES) {
+      this.stats.keptDropped++;
+      return;
+    }
     this.pending.push(frame);
     this.pendingBytes += n;
   }
@@ -556,14 +602,17 @@ export class WsTransport extends BaseTransport {
   disconnect(peer: PeerId): void {
     if (!this.isHost || this.closed) return;
     const kick = JSON.stringify({ op: 'kick', id: peer });
-    if (this.resuming) this.keep(kick);
+    if (this.resuming || this.pending.length) this.keep(kick);
     else if (this.ws.readyState === 1) this.ws.send(kick);
   }
 
   protected doClose(): void {
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = null;
+    if (this.drainTimer) clearTimeout(this.drainTimer);
+    this.drainTimer = null;
     this.pending = [];
+    this.pendingBytes = 0;
     this.linkHandlers.clear();
     try {
       this.ws.close(1000, 'bye');
@@ -571,6 +620,10 @@ export class WsTransport extends BaseTransport {
       /* ignore */
     }
   }
+}
+
+function frameSize(frame: string | Uint8Array<ArrayBuffer>): number {
+  return typeof frame === 'string' ? frame.length : frame.byteLength;
 }
 
 function parseControl(text: string): Control | null {
