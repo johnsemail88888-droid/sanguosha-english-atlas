@@ -12,6 +12,7 @@ import { VF_AIRBORNE, VF_DEAD, VF_DOWNED, VF_OPENED } from '../../core/types';
 import type { AbilityDef, HeroDef, WeaponClass } from '../../data/types';
 import { ABILITY_BY_ID, ARMOR_BY_ID, HERO_BY_ID, ITEM_BY_ID, MOUNT_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, isPassiveAbility } from '../../data';
 import { displayName } from '../../game/names';
+import { pickupSlot } from '../../data/weaponFeel';
 
 // ── HP ───────────────────────────────────────────────────────────────────────
 
@@ -208,7 +209,8 @@ export type InteractPrompt =
   | { kind: 'revive'; targetId: EntityId; heroId: string; name: string; needPeach: boolean }
   | { kind: 'airdrop'; targetId: EntityId }
   | { kind: 'crate'; targetId: EntityId; tier: 1 | 2 | 3 }
-  | { kind: 'pickup'; targetId: EntityId; itemId: string; swap: boolean }
+  /** `ammo`: the same gun you already hold — F takes its rounds ('full': your reserve is full, F does nothing) */
+  | { kind: 'pickup'; targetId: EntityId; itemId: string; swap: boolean; ammo?: 'take' | 'full' }
   /** a card while the item bar is full: F swaps it for slot `swapSlot`'s card (`swapSlot` -1: nothing to swap, F does nothing) */
   | { kind: 'full'; targetId: EntityId; itemId: string; swapSlot: number; swapId: string }
   | { kind: 'selfRevive'; slot: number };
@@ -295,9 +297,13 @@ export function deriveInteract(me: PrivateHeroView | null, pos: { x: number; y: 
       case 'loot': {
         if (d > LOOT_RANGE) break;
         const id = e.sub;
-        if (WEAPON_BY_ID[id]) {
-          const cur = me.weapons[0];
-          consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!cur && cur.id !== id }, score);
+        const wdef = WEAPON_BY_ID[id];
+        if (wdef) {
+          // the slot the sim puts it in (a pistol beside a primary goes to slot 2): the same gun there = its ammo
+          const cur = me.weapons[pickupSlot(wdef, me.weapons[0]?.id)];
+          const same = !!cur && cur.id === id;
+          const ammo = same ? (cur.reserve >= wdef.magSize * wdef.reserveMags ? 'full' : 'take') : undefined;
+          consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!cur && !same, ...(ammo ? { ammo } : null) }, score);
         } else if (ARMOR_BY_ID[id]) {
           consider({ kind: 'pickup', targetId: e.id, itemId: id, swap: !!me.armor }, score);
         } else if (MOUNT_BY_ID[id]) {

@@ -12,6 +12,8 @@ import { shouldUseTouch } from '../touch';
 import { settings, type Lang } from '../../game/settings';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
 import { weaponCardNote, weaponClassName } from './heroDetail';
+import { AIM_BY_WEAPON, AIM_PROFILES, MOVE_AIMED, SIGHT_LABEL, accuracyScore, aimProfile, shotKick, zoomLabel } from '../../data/weaponFeel';
+import type { WeaponClass, WeaponDef } from '../../data/types';
 import { gearArt, isUnitWeapon } from '../cardArt';
 import { isMac } from '../perfcheck';
 import { artKnown, gearIcon, roleCardBadge, setArt, whenArtKnown } from '../artIcons';
@@ -38,6 +40,8 @@ export const CONTROLS: readonly ControlRow[] = [
   { keys: ['W', 'A', 'S', 'D'], zh: '移动（鼠标瞄准，点击锁定鼠标）', en: 'Move (mouse aims; click to lock the pointer)' },
   { keys: ['左键'], zh: '开火', en: 'Fire' },
   { keys: ['右键'], zh: '开镜瞄准', en: 'Aim down sights' },
+  { keys: ['右键', 'Shift'], zh: '开镜时按住 Shift：屏息稳枪（狙击镜 / 射手镜，最长 4 秒，之后会喘）', en: 'Shift while aiming: hold your breath (sniper / marksman scopes, up to 4 s, then you are winded)' },
+  { keys: ['右键', '滚轮'], zh: '开镜时滚轮：切换狙击镜倍率（麒麟弓 4× / 8×，烈弓 2.5× / 5×）', en: 'Wheel while aiming: switch the scope zoom (Qilin Bow 4× / 8×, Liegong 2.5× / 5×)' },
   { keys: ['R'], zh: '换弹', en: 'Reload' },
   { keys: ['Shift'], zh: '冲刺', en: 'Sprint' },
   { keys: ['Space'], zh: '跳跃', en: 'Jump' },
@@ -160,6 +164,7 @@ function keyLabel(k: string): string {
   if (k === '左键') return tx('左键', 'LMB');
   if (k === '右键') return tx('右键', 'RMB');
   if (k === '中键') return tx('中键', 'MMB');
+  if (k === '滚轮') return tx('滚轮', 'Wheel');
   return k;
 }
 
@@ -381,12 +386,73 @@ export function playerWeapons(): typeof WEAPONS {
   return WEAPONS.filter((w) => !isUnitWeapon(w.id)).sort((a, b) => Number(b.lootable) - Number(a.lootable));
 }
 
+/** "狙击镜 4× / 8×" — a weapon's sight and zoom steps (no zoom under 1.05×, nothing for the flamer). */
+function sightCell(w: WeaponDef): string {
+  const p = aimProfile(w);
+  if (p.sight === 'none') return '—';
+  return `${tx(SIGHT_LABEL[p.sight].zh, SIGHT_LABEL[p.sight].en)}${w.adsZoom > 1.05 ? ` ${zoomLabel(w)}` : ''}`;
+}
+
+/** How each class aims, in the order a new player meets them (玩法说明 → 武器 → 各类枪械手感). */
+const FEEL_CLASSES: readonly WeaponClass[] = ['pistol', 'smg', 'rifle', 'lmg', 'dmr', 'sniper', 'shotgun', 'bow', 'crossbow', 'launcher', 'flamer'];
+const FEEL_NOTE: Readonly<Partial<Record<WeaponClass, readonly [string, string]>>> = {
+  pistol: ['抬枪最快；每发跳得明显，回正也快', 'Up the quickest; each shot jumps, and settles fast'],
+  smg: ['后坐小但左右乱跳；近身腰射也准', 'Light kick that dances sideways; fine from the hip up close'],
+  rifle: ['稳定上跳，按住连射要往下压', 'A steady climb: pull down while you hold the trigger'],
+  lmg: ['开镜最慢；架稳后后坐只剩六成', 'Slowest to shoulder; once braced the kick drops to 60 %'],
+  dmr: ['射手镜，单发精准，每发上跳大', 'Marksman scope: precise single shots, a big kick each'],
+  sniper: ['狙击镜，滚轮 4×/8×，Shift 屏息；每枪要上膛；走动或跳起就打不准', 'Scope with 4×/8× on the wheel, Shift holds breath; bolt after each shot; moving or jumping throws it off'],
+  shotgun: ['散布环就是弹丸落点，近距离一枪', 'The ring is where the pellets go: one shot up close'],
+  bow: ['按住右键拉弓：拉满伤害最高，拉太久手会抖', 'Hold RMB to draw: a full draw hits hardest, held too long the arm shakes'],
+  crossbow: ['机械瞄具，中距离连射', 'Iron sights, rapid mid-range bolts'],
+  launcher: ['抛射标尺：瞄高打远，爆炸无视闪避', 'Range ladder: aim high to lob far; blasts ignore dodges'],
+  flamer: ['没有瞄具，16 米内持续喷射', 'No sight: a stream out to 16 m'],
+};
+
+/** A class's typical aimed kick (degrees per shot): the mean over the class's player weapons (0: none). */
+function classKick(cls: WeaponClass, list: readonly WeaponDef[]): number {
+  const ws = list.filter((w) => w.class === cls && !AIM_BY_WEAPON[w.id]);
+  if (!ws.length) return 0;
+  return ws.reduce((a, w) => a + shotKick(w, 1).pitch, 0) / ws.length;
+}
+
+function feelTable(list: readonly WeaponDef[]): HTMLElement {
+  const deg = (v: number): string => `${Math.round(v * 100) / 100}°`;
+  return h('div', { class: 'sg-table-wrap' },
+    h('table', { class: 'sg-table weapons feel' },
+      h('thead', null, h('tr', null,
+        h('th', null, tx('类型', 'Class')),
+        h('th', null, tx('瞄具', 'Sight')),
+        h('th', { class: 'num' }, tx('开镜', 'Aim time')),
+        h('th', { class: 'num' }, tx('后坐（开镜每发）', 'Kick (aimed, per shot)')),
+        h('th', { class: 'num' }, tx('晃动', 'Sway')),
+        h('th', { class: 'num' }, tx('走动开镜', 'Moving, aimed')),
+        h('th', null, tx('手感', 'Feel')),
+      )),
+      h('tbody', null, FEEL_CLASSES.map((c) => {
+        const p = AIM_PROFILES[c];
+        const note = FEEL_NOTE[c];
+        const kick = classKick(c, list);
+        return h('tr', null,
+          h('td', null, h('b', null, weaponClassName(c))),
+          h('td', null, p.sight === 'none' ? '—' : tx(SIGHT_LABEL[p.sight].zh, SIGHT_LABEL[p.sight].en)),
+          h('td', { class: 'num' }, tx(`${p.adsTime} 秒`, `${p.adsTime} s`)),
+          h('td', { class: 'num' }, kick > 0 ? `↑${deg(kick)}${p.kickYaw >= p.kick * 0.6 ? tx(' 左右乱跳', ' + sideways') : ''}` : '—'),
+          h('td', { class: 'num' }, p.sway > 0 ? `±${deg(p.sway)}${p.holdBreath ? tx(' · 可屏息', ' · hold breath') : ''}` : '—'),
+          h('td', { class: 'num' }, `+${deg(MOVE_AIMED[c] ?? 0.4)}`),
+          h('td', { class: 'desc' }, note ? tx(note[0], note[1]) : ''),
+        );
+      })),
+    ),
+  );
+}
+
 function weaponsTab(): HTMLElement {
   // what a player can hold: troop / NPC (黄巾力士's hammer, the elephant's tusks) / turret guns are never in reach
   const sorted = playerWeapons();
   return h('div', null,
     section(tx('武器：古兵器 → 现代枪械', 'Weapons: ancient → modern'),
-      para('每位武将携带一把主武器（专属或拾取）与一把副武器（手枪）。伤害在衰减距离后逐渐降低，最远射程处为 50%。', 'Every hero carries a primary (signature or looted) and a secondary (pistol). Damage falls off after the falloff distance down to 50% at max range.'),
+      para('每位武将携带一把主武器（专属或拾取）与一把副武器（手枪）。有效射程内伤害不减，之后逐渐降低，最远射程处为 50%。精准看开镜后的散布（100 = 指哪打哪）。', 'Every hero carries a primary (signature or looted) and a secondary (pistol). Full damage out to the effective range, then it falls off down to 50% at max range. Accuracy is the aimed cone (100 = dead on).'),
       h('div', { class: 'sg-table-wrap' },
         h('table', { class: 'sg-table weapons' },
           h('thead', null, h('tr', null,
@@ -395,7 +461,9 @@ function weaponsTab(): HTMLElement {
             h('th', { class: 'num' }, tx('伤害', 'Dmg')),
             h('th', { class: 'num' }, tx('射速', 'Rate')),
             h('th', { class: 'num' }, tx('弹匣', 'Mag')),
-            h('th', { class: 'num' }, tx('射程', 'Range')),
+            h('th', { class: 'num' }, tx('有效 / 最远射程', 'Eff. / max range')),
+            h('th', null, tx('瞄具 · 开镜', 'Sight · aim time')),
+            h('th', { class: 'num' }, tx('精准', 'Acc.')),
             h('th', null, tx('特性', 'Special')),
           )),
           h('tbody', null, sorted.map((w) =>
@@ -411,12 +479,21 @@ function weaponsTab(): HTMLElement {
               h('td', { class: 'num' }, w.pellets > 1 ? `${w.damage}×${w.pellets}` : String(w.damage)),
               h('td', { class: 'num' }, `${w.fireRate}/s`),
               h('td', { class: 'num' }, String(w.magSize)),
-              h('td', { class: 'num' }, `${w.maxRange} m`),
+              h('td', { class: 'num' }, w.melee ? `${w.maxRange} m` : `${w.falloffStart} / ${w.maxRange} m`),
+              h('td', { class: 'sight' }, sightCell(w), h('div', { class: 'sg-mute' }, tx(`开镜 ${aimProfile(w).adsTime} 秒`, `aim ${aimProfile(w).adsTime} s`))),
+              h('td', { class: 'num' }, String(Math.round(accuracyScore(w) * 100))),
               h('td', { class: 'desc' }, tx(w.descZh, w.descEn)),
             ),
           )),
         ),
       ),
+    ),
+    section(tx('各类枪械手感', 'How each class aims'),
+      para('开镜越快越好抬枪；后坐是每发让准星上跳的角度（松开扳机会慢慢回正，按住连射要往下压）；晃动是开镜静止时准星的呼吸摆动；走动时开镜会额外散开，跳在空中谁都打不准。',
+        'Aim time: how fast the sights come up. Kick: how far each shot throws the view up (it settles once you let go; hold the trigger and you pull down against it). Sway: the breathing drift while aimed and still. Aiming on the move widens the cone; nothing is accurate mid-air.'),
+      feelTable(sorted),
+      para('例外：黄忠的烈弓是复合狙击弓——开镜是 2.5× / 5× 狙击镜（滚轮切换），Shift 屏息，满弦伤害最高。',
+        'Exception: Huang Zhong’s Liegong is a sniper bow — it aims through a 2.5× / 5× scope (wheel), Shift holds breath, a full draw hits hardest.'),
     ),
   );
 }

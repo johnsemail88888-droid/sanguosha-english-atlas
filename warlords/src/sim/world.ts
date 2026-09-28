@@ -37,6 +37,7 @@ import type {
 import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, SIM_DT, emptyInput } from '../core/types';
 import type { GameMode } from '../core/types';
 import { ROLE_BY_ID, isPassiveAbility } from '../data';
+import { aimProfile, stepAdsT } from '../data/weaponFeel';
 import type { AbilityDef, HeroDef, WeaponDef } from '../data/types';
 import { NAV_MAIN, buildNavGrid, locateNode, findPath as navFindPath } from './map/nav';
 import type { NavGrid } from './map/nav';
@@ -210,6 +211,10 @@ export interface HeroRuntime {
   movedTick: number;
   /** decayed damage taken from each commander's troops / summons / turrets (sim/combat.ts troopFocusDamage) */
   troopHeat: Map<EntityId, { value: number; at: number }>;
+  /** aim progress 0 (hip) … 1 (aimed) over the weapon class's ADS time (data/weaponFeel.ts; spread eases with it) */
+  adsT: number;
+  /** the weapon adsT belongs to (another weapon in hand starts from the hip) */
+  adsWeapon: string;
 }
 
 export interface PlayerSlot {
@@ -491,6 +496,8 @@ export class World implements SimExt, SimHost {
         rampStart: 0,
         followUpMul: 1,
         followUpUntil: 0,
+        adsT: 0,
+        adsWeapon: '',
         focusAt: -99,
         bountyKills: 0,
         baseMaxHp: maxHp,
@@ -997,8 +1004,17 @@ export class World implements SimExt, SimHost {
       rt.lastMoveMods = { speedMul: mm.speedMul, canSprint: mm.canSprint, canJump: mm.canJump, rooted: mm.rooted, sprintAds: mm.sprintAds === true };
     }
     rt.movedTick = this.tick;
-    // aiming state (spread, VF_ADS): same precedence rule as predictMove
-    h.ads = wantAds && !h.downed && !cs.stunned && !cs.dancing && (!h.sprinting || rt.mods.sprintAds);
+    // aiming state (spread, VF_ADS): same precedence rule as predictMove; a reload lowers the sights
+    // (the client's aim drops out too: game/aimFeel.ts), so they come up again at the class's pace
+    h.ads = wantAds && !h.downed && !cs.stunned && !cs.dancing && (!h.sprinting || rt.mods.sprintAds) && !(h.reloadUntil > now);
+    // aim progress: spread eases from hip to aimed over the class's ADS time (a fresh weapon starts at the hip)
+    const aimWi = h.weapons[h.activeSlot];
+    const aimId = aimWi?.id ?? '';
+    if (aimId !== rt.adsWeapon) {
+      rt.adsWeapon = aimId;
+      rt.adsT = 0;
+    }
+    rt.adsT = stepAdsT(rt.adsT, h.ads, aimProfile(aimWi ? weaponDef(aimWi.id) : undefined).adsTime, dt);
     if (!cs.stunned) {
       e.yaw = finiteOr(input.yaw, e.yaw);
       e.pitch = clamp(finiteOr(input.pitch, 0), -1.45, 1.45);

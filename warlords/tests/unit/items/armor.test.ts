@@ -1,11 +1,25 @@
 // Armor (防具) and mounts (坐骑) behave as data/items.ts describes. The rules
 // live in SIM-CORE's combat.ts / inventory.ts; these tests pin the contract.
 import { describe, expect, it } from 'vitest';
-import { BTN_ADS, BTN_FIRE, emptyInput } from '../../../src/core/types';
+import type { Entity } from '../../../src/core/types';
+import { BTN_ADS, BTN_FIRE, SIM_HZ, emptyInput } from '../../../src/core/types';
+import { AIM_PROFILES } from '../../../src/data/weaponFeel';
 import { ARMOR_BY_ID, MOUNTS, MOUNT_BY_ID } from '../../../src/data';
 import type { World } from '../../../src/sim/world';
 import { TROOP_VS_HERO_MUL } from '../../../src/sim/combat';
 import { aimFrame, chest, feet, giveAndUse, place, send, setup, stepN, ticks } from './helpers';
+
+/**
+ * Look down the sniper scope at `b` for the class's ADS time (data/weaponFeel.ts): a sniper's
+ * aimed spread (0°) is only reached once the scope is up — a same-tick quickscope fires at hip spread.
+ */
+function scopeIn(w: World, a: Entity, b: Entity): void {
+  const n = Math.ceil(AIM_PROFILES.sniper.adsTime * SIM_HZ) + 1;
+  for (let i = 0; i < n; i++) {
+    w.setInput(a.hero!.playerId, aimFrame(w, a, chest(b), { buttons: BTN_ADS }));
+    w.step();
+  }
+}
 
 function duel(): ReturnType<typeof setup> {
   const s = setup();
@@ -159,6 +173,7 @@ describe('mounts', () => {
     b.hero!.mount = 'chitu';
     a.hero!.weapons[0] = { id: 'qilin', mag: 5, reserve: 20 };
     a.hero!.activeSlot = 0;
+    scopeIn(w, a, b);
     w.setInput(a.hero!.playerId, aimFrame(w, a, chest(b), { buttons: BTN_FIRE | BTN_ADS }));
     w.step();
     expect(b.hero!.mount).toBeNull();
@@ -173,6 +188,7 @@ describe('mounts', () => {
     b.hero!.mount = 'chitu';
     a.hero!.weapons[0] = { id: 'qilin', mag: 5, reserve: 20 };
     a.hero!.activeSlot = 0;
+    scopeIn(w, a, b);
     w.setInput(a.hero!.playerId, aimFrame(w, a, chest(b), { buttons: BTN_FIRE | BTN_ADS }));
     w.step();
     const horse = w.kindList('loot').find((l) => l.loot?.itemId === 'chitu')!;

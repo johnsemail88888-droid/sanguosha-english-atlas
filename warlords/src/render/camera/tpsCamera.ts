@@ -253,6 +253,11 @@ export class TpsCameraRig {
     this.zoom += (target - this.zoom) * k;
   }
 
+  /** Set the zoom as is (already eased by the caller: game/aimFeel.ts). */
+  setZoomNow(z: number): void {
+    this.zoom = Math.max(1, z);
+  }
+
   get currentZoom(): number {
     return this.zoom;
   }

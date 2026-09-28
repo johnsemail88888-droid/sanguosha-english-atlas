@@ -139,6 +139,8 @@ export function mountGameView(container: HTMLElement, viewSource: ViewSource, op
         for (const cb of eventSubs) cb(evs);
       });
       r.onLocalFire((id) => {
+        // recoil: the view kicks with every predicted shot of ours (game/aimFeel.ts)
+        input.aim.onShot(id);
         for (const cb of fireSubs) cb(id);
       });
       r.setSpectateTarget(spectate);
