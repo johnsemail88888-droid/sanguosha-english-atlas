@@ -86,13 +86,14 @@ export async function startPreview(port: number): Promise<Server> {
  * Rooms are hosted in the creating page (HEADLESS=0) unless `headless`: then the server runs
  * them (POST /api/rooms → a room worker from the e2e cache's bundle, src/headless).
  */
-export async function startRelay(port: number, opts: { headless?: boolean } = {}): Promise<Server> {
+export async function startRelay(port: number, opts: { headless?: boolean; env?: Record<string, string> } = {}): Promise<Server> {
   ensureBuilt('dist');
   if (opts.headless && !existsSync(HEADLESS_WORKER)) buildHeadless();
   const headlessEnv = opts.headless ? { HEADLESS: '1', HEADLESS_WORKER } : { HEADLESS: '0' };
   const proc: ChildProcess = spawn(process.execPath, ['server/server.mjs'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DIST_DIR: DIST, ...headlessEnv },
+    // (env: e.g. RELAY_KEY for a server that requires the access key)
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DIST_DIR: DIST, ...headlessEnv, ...opts.env },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   proc.stderr?.on('data', (d) => process.stderr.write(`[relay] ${d}`));
