@@ -12,12 +12,15 @@ import type { Vec3 } from '../../core/math';
 import type { Rng } from '../../core/rng';
 import type { Entity, EntityId } from '../../core/types';
 import type { WeaponDef } from '../../data/types';
+import { RECOIL_MAX_DEG, adsZooms, aimProfile, recoilSettleDelay, shotKick } from '../../data/weaponFeel';
 import type { SimApi } from '../api';
 import { aimAnglesFor, cameraRig } from '../aim';
 import type { DifficultyProfile } from './difficulty';
 import { aimPointOf } from './perception';
 
 const DEG = Math.PI / 180;
+/** seconds between fresh lead / holdover misjudgements */
+const LEAD_REDRAW = 0.6;
 /** max turn speed (rad/s) — a fast mouse flick, capped per difficulty below */
 const TURN_SPEED: Record<string, number> = { easy: 260 * DEG, normal: 480 * DEG, hard: 760 * DEG };
 
@@ -29,6 +32,11 @@ export interface AimOut {
   errAngle: number;
   /** angular radius (rad) of the target from here */
   targetAngle: number;
+  /**
+   * angle (rad) between the crosshair ray and the lead / holdover point the bot believes in (no
+   * wander error): the fire gate for projectiles, whose right aim is beside the body (C10-2)
+   */
+  leadErrAngle: number;
 }
 
 export function wrapAngle(a: number): number {
@@ -47,7 +55,15 @@ export class Aimer {
   private err: Vec3 = { x: 0, y: 0, z: 0 };
   private errGoal: Vec3 = { x: 0, y: 0, z: 0 };
   private errNextAt = 0;
-  private readonly out: AimOut = { yaw: 0, pitch: 0, point: { x: 0, y: 0, z: 0 }, errAngle: Math.PI, targetAngle: 0 };
+  /** lead / holdover misjudgement (σ units), re-drawn every LEAD_REDRAW s (C10-5) */
+  private leadNext = 0;
+  private leadG = 0;
+  private dropG = 0;
+  /** recoil the bot has not pulled back down (degrees, up / sideways) and when the last shot kicked (C10-8) */
+  private kickP = 0;
+  private kickY = 0;
+  private kickAt = -99;
+  private readonly out: AimOut = { yaw: 0, pitch: 0, point: { x: 0, y: 0, z: 0 }, errAngle: Math.PI, targetAngle: 0, leadErrAngle: Math.PI };
 
   constructor(
     private readonly prof: DifficultyProfile,
@@ -98,18 +114,41 @@ export class Aimer {
     const lead = p.leadSkill;
     const tv = target.vel;
     const desired = { x: base.x + tv.x * t * lead, y: base.y + tv.y * t * lead * 0.3, z: base.z + tv.z * t * lead };
+    const noise = p.leadNoise ?? 0;
+    const tv2 = Math.hypot(tv.x, tv.z);
+    // lead / holdover misjudged like a human's (σ = leadNoise × the target's travel / the drop),
+    // re-drawn every LEAD_REDRAW s; the bot believes it, so its fire gate cannot filter it (C10-5)
+    if (proj && proj.speed > 0 && noise > 0 && now >= this.leadNext) {
+      this.leadNext = now + LEAD_REDRAW;
+      const u = Math.max(1e-9, this.rng.next());
+      const ang = 2 * Math.PI * this.rng.next();
+      this.leadG = Math.sqrt(-2 * Math.log(u)) * Math.cos(ang);
+      this.dropG = Math.sqrt(-2 * Math.log(u)) * Math.sin(ang);
+    }
     if (proj && proj.gravity > 0 && proj.speed > 0) {
       const ft = dist / proj.speed;
-      desired.y += 0.5 * proj.gravity * ft * ft * (0.35 + 0.65 * lead);
+      desired.y += 0.5 * proj.gravity * ft * ft * (0.35 + 0.65 * lead) * (1 + this.dropG * noise);
     }
+    if (proj && proj.speed > 0 && noise > 0 && tv2 > 0.5) {
+      const off = this.leadG * noise * tv2 * (dist / proj.speed);
+      desired.x += (tv.x / tv2) * off;
+      desired.z += (tv.z / tv2) * off;
+    }
+    const ideal = { x: desired.x, y: desired.y, z: desired.z };
     // wandering aim error, settling over time
     const tracked = now - this.since;
     let sigmaDeg = p.aimErrFloor + (p.aimErrStart - p.aimErrFloor) * Math.exp(-tracked / Math.max(0.05, p.settleTime));
     const selfSpeed = Math.hypot(self.vel.x, self.vel.z);
-    const targetSpeed = Math.hypot(tv.x, tv.z);
-    if (selfSpeed > 1.5) sigmaDeg *= p.motionErr;
+    const targetSpeed = tv2;
+    // own motion: a ramp from 0.5 to 2.5 m/s (a hard 1.5 m/s step let slow, heavy guns skip it) (C10-3)
+    sigmaDeg *= 1 + (p.motionErr - 1) * Math.min(1, Math.max(0, (selfSpeed - 0.5) / 2));
     if (targetSpeed > 3) sigmaDeg *= 1 + (p.motionErr - 1) * Math.min(1.5, targetSpeed / 6);
-    if (ads) sigmaDeg *= 0.8;
+    // a magnified scope steadies the hand; ordinary sights a little (C10-4: zoom-scaled only from 4×)
+    if (ads) {
+      const zs = adsZooms(weapon);
+      const z = dist >= 75 && zs.length > 1 ? zs[1] : zs[0];
+      sigmaDeg *= z >= 4 ? 0.55 + 0.45 / z : 0.8;
+    }
     this.wander(now, dt, sigmaDeg, base, eye, dist);
     desired.x += this.err.x;
     desired.y += this.err.y;
@@ -118,12 +157,16 @@ export class Aimer {
     const want = aimAnglesFor(self.pos, desired, self.hero?.downed === true);
     const tau = tracked < 0.5 ? p.flickTau : p.trackTau;
     this.turnToward(want.yaw, want.pitch, tau, dt);
+    // the recoil it did not pull down sits on top of the view and settles once the trigger rests
+    if (weapon) this.settleKick(weapon, now, dt);
+    const kYaw = this.yaw - this.kickY * DEG;
+    const kPitch = Math.max(-1.4, Math.min(1.4, this.pitch + this.kickP * DEG));
     // crosshair point on the ray at the target's distance
-    const rig = cameraRig(self.pos, this.yaw, this.pitch, self.hero?.downed === true);
+    const rig = cameraRig(self.pos, kYaw, kPitch, self.hero?.downed === true);
     const along = Math.hypot(desired.x - rig.origin.x, desired.y - rig.origin.y, desired.z - rig.origin.z);
     const o = this.out;
-    o.yaw = this.yaw;
-    o.pitch = this.pitch;
+    o.yaw = kYaw;
+    o.pitch = kPitch;
     o.point = { x: rig.origin.x + rig.dir.x * along, y: rig.origin.y + rig.dir.y * along, z: rig.origin.z + rig.dir.z * along };
     // angular error measured from the eye (where shots start) to the real target centre
     const cx = o.point.x - eye.x;
@@ -139,7 +182,36 @@ export class Aimer {
     o.errAngle = Math.acos(Math.max(-1, Math.min(1, cos)));
     const half = target.hero?.downed ? 0.45 : Math.max(target.radius, Math.min(0.9, target.height * 0.35));
     o.targetAngle = Math.atan2(half, tl);
+    const ix = ideal.x - eye.x;
+    const iy = ideal.y - eye.y;
+    const iz = ideal.z - eye.z;
+    const il = Math.hypot(ix, iy, iz) || 1;
+    o.leadErrAngle = Math.acos(Math.max(-1, Math.min(1, (cx * ix + cy * iy + cz * iz) / (cl * il))));
     return o;
+  }
+
+  /**
+   * A shot went off: its recoil (data/weaponFeel.ts shotKick at aim blend `blend`), less the
+   * share `comp` the bot pulls back down, climbs its view (C10-8). `n` shots at once (an
+   * automatic's shots this tick).
+   */
+  kick(def: WeaponDef, blend: number, comp: number, now: number, n = 1): void {
+    if (!(n > 0)) return;
+    const k = shotKick(def, blend);
+    const rest = Math.max(0, 1 - comp) * n;
+    this.kickP = Math.min(RECOIL_MAX_DEG, this.kickP + k.pitch * rest);
+    this.kickY += (this.rng.next() * 2 - 1) * k.yaw * rest;
+    this.kickAt = now;
+  }
+
+  /** The kick settles back (the class's recover time) once the trigger rests past the settle delay. */
+  private settleKick(def: WeaponDef, now: number, dt: number): void {
+    if (this.kickP === 0 && this.kickY === 0) return;
+    if (now - this.kickAt < recoilSettleDelay(def)) return;
+    const k = Math.exp(-dt / Math.max(0.03, aimProfile(def).recover));
+    this.kickP *= k;
+    this.kickY *= k;
+    if (Math.abs(this.kickP) < 1e-3 && Math.abs(this.kickY) < 1e-3) this.kickP = this.kickY = 0;
   }
 
   /**
@@ -174,6 +246,7 @@ export class Aimer {
     // on screen: the angle between the crosshair ray and the point, seen from the camera
     o.errAngle = angleBetween(rig.origin, o.point, desired);
     o.targetAngle = 0;
+    o.leadErrAngle = o.errAngle;
     return o;
   }
 
@@ -225,6 +298,7 @@ export class Aimer {
     o.point = { x: rig.origin.x + rig.dir.x * along, y: rig.origin.y + rig.dir.y * along, z: rig.origin.z + rig.dir.z * along };
     o.errAngle = Math.PI;
     o.targetAngle = 0;
+    o.leadErrAngle = Math.PI;
     return o;
   }
 
