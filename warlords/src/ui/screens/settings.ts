@@ -6,7 +6,7 @@ import { Bag, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { button, field, nameFieldModel, segmented, slider, tabs, textInput, toggle } from '../widgets';
 import { requestGyroPermission } from '../touch';
-import { choiceOf, choicePatch, markModeChosen, type ConnChoice } from '../invite';
+import { choiceOf, choicePatch, markModeChosen, relayAddressPatch, type ConnChoice } from '../invite';
 import { officialServer } from '../../net/official';
 import { gpuShortName, isMac, qualityName } from '../perfcheck';
 import { macNotesBox } from './help';
@@ -213,7 +213,7 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
         net(choicePatch(v, settings.get().net));
         renderBody();
       }, { name: t('settings.netMode') })),
-      field(t('settings.wsUrl'), textInput(n.wsUrl, (v) => net({ wsUrl: v.trim() }), { placeholder: t('settings.wsUrlPh'), label: t('settings.wsUrl') })),
+      field(t('settings.wsUrl'), textInput(n.wsUrl, (v) => net(relayAddressPatch(v, settings.get().net)), { placeholder: t('settings.wsUrlPh'), label: t('settings.wsUrl') })),
       field(t('settings.peerHost'), (() => {
         const input = textInput(n.peerHost, (v) => net({ peerHost: v.trim() }), { placeholder: t('settings.peerHostPh'), label: t('settings.peerHost') });
         // a LAN / localhost signalling server has no TLS certificate: HTTPS/WSS off by itself

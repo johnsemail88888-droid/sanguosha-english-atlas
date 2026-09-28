@@ -1,5 +1,6 @@
 // User preferences store (contract). Persisted to localStorage when available.
 // Read by render (fov/quality), input (sensitivity), audio (volumes), net (server), UI (everything).
+import { cleanKeys, type RelayKeys } from '../net/relayKey';
 
 export type Lang = 'zh' | 'en';
 /** Graphics tiers, cheapest first: 极速 / 流畅 / 均衡 / 高清 / 极致 (render/quality.ts). */
@@ -25,8 +26,13 @@ export interface NetServerConfig {
   peerPort: number;
   peerPath: string;
   peerSecure: boolean;
-  /** ws relay url, e.g. ws://192.168.1.5:8787/ws */
+  /** ws relay url, e.g. ws://192.168.1.5:8787/ws (never with its access key: that is in `keys`) */
   wsUrl: string;
+  /**
+   * access keys of relay servers that require one (RELAY_KEY), per server origin:
+   * {'wss://host[:port]': key} — from a SHARE / invite link's k=… (src/net/relayKey.ts)
+   */
+  keys?: RelayKeys;
   /** optional TURN server for strict NATs */
   turnUrl: string;
   turnUser: string;
@@ -120,6 +126,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     peerPath: '/',
     peerSecure: true,
     wsUrl: '',
+    keys: {},
     turnUrl: '',
     turnUser: '',
     turnPass: '',
@@ -366,7 +373,8 @@ function load(): UserSettings {
       const qualityAuto = typeof parsed.qualityAuto === 'boolean' ? parsed.qualityAuto : parsed.quality === undefined || quality === legacyDefaultQuality(deviceHints());
       // the ADS sensitivity became relative to the zoom (a stored 0.6, the old default, is 1.0 now)
       const ads = parsed.adsSensRelative === true ? {} : { adsSensitivity: migrateAdsSensitivity(parsed.adsSensitivity), adsSensRelative: true };
-      return { ...DEFAULT_SETTINGS, ...parsed, ...ads, quality, qualityAuto, net: { ...DEFAULT_SETTINGS.net, ...(parsed.net ?? {}) } };
+      const net = { ...DEFAULT_SETTINGS.net, ...(parsed.net ?? {}) };
+      return { ...DEFAULT_SETTINGS, ...parsed, ...ads, quality, qualityAuto, net: { ...net, keys: cleanKeys(net.keys) } };
     }
   } catch {
     /* storage unavailable (private mode / file://) */

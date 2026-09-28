@@ -7,7 +7,13 @@
 //                         nobody plays in ends by itself after a few minutes. A problem here is a
 //                         ⚠ line, not a failure: players then host rooms in their browser as before.
 //
-//   node deploy/check.mjs https://mac-mini.tail1234.ts.net/ [--public-dns] [--no-headless] [--timeout=8000]
+//   node deploy/check.mjs https://mac-mini.tail1234.ts.net/ [--key=KEY] [--public-dns] [--no-headless] [--timeout=8000]
+//   SGWL_CHECK_KEY=KEY node deploy/check.mjs …   (the same key, kept out of the process list)
+//
+// --key / SGWL_CHECK_KEY: the server's access key (RELAY_KEY; home-host.sh passes it in the
+// environment — a command line is visible to every user of the machine in `ps`). A server that
+// wants one (/sgwl.json keyRequired) is checked with it — ?k= on the relay and on POST /api/rooms —
+// and once without it: the relay must refuse that (HTTP 401), or the key protects nothing.
 //
 // --public-dns resolves the name through public DNS (DNS-over-HTTPS at Cloudflare / Google,
 // then 1.1.1.1 / 8.8.8.8 directly) instead of this machine's resolver. On the hosting machine
@@ -34,6 +40,14 @@ export function endpoints(raw) {
   const base = `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
   const ws = base.replace(/^http/, 'ws');
   return { host: u.hostname, info: `${base}/sgwl.json`, relay: `${ws}/ws`, rooms: `${base}/api/rooms` };
+}
+
+/** `url` with the access key as ?k= (the relay and POST /api/rooms take it there); `url` itself without a key. */
+export function withKey(url, key) {
+  if (!key) return url;
+  const u = new URL(url);
+  u.searchParams.set('k', key);
+  return u.toString();
 }
 
 /** IPv4 addresses from a DNS-over-HTTPS JSON answer ({"Answer":[{"type":1,"data":"1.2.3.4"},…]}). */
@@ -172,25 +186,25 @@ async function joinRoom(url, code, { lookup, timeoutMs }) {
  * `ok: false` only when the room did not start or could not be joined (full / rate-limited
  * servers are busy, not broken).
  */
-export async function checkHeadless(ep, { lookup, timeoutMs }) {
+export async function checkHeadless(ep, { lookup, timeoutMs, key = '' }) {
   const OK = '✓ 服务器托管对局 ✓ / Server-hosted matches ✓';
   const FALLBACK = '玩家会改为在浏览器里开房 / players host rooms in their browser meanwhile';
   let res;
   try {
     // (probe: the server closes this test room after ~10 s instead of holding a slot for minutes)
-    res = await postJson(ep.rooms, { name: 'check', lang: 'zh', probe: true }, { lookup, timeoutMs: Math.max(timeoutMs, 16000) });
+    res = await postJson(withKey(ep.rooms, key), { name: 'check', lang: 'zh', probe: true }, { lookup, timeoutMs: Math.max(timeoutMs, 16000) });
   } catch (err) {
     return { ok: false, line: `⚠ 服务器托管对局：${ep.rooms} 无响应 / Server-hosted matches: no answer (${err?.message ?? err}) — ${FALLBACK}` };
   }
   const error = typeof res.body?.error === 'string' ? res.body.error : '';
-  if (res.status === 429 || error === 'rooms-full') {
+  if (res.status === 429 || error === 'rooms-full' || error === 'server-full') {
     return { ok: true, line: `⚠ 服务器托管对局：现在房间已满或请求太频繁，稍后再查 / Server-hosted matches: busy right now (${error || res.status}) — check again later` };
   }
   if (res.status !== 201 || typeof res.body?.code !== 'string') {
     return { ok: false, line: `⚠ 服务器托管对局没有启动 / Server-hosted matches did not start (HTTP ${res.status}${error ? ` ${error}` : ''}) — ${FALLBACK}` };
   }
   try {
-    await joinRoom(ep.relay, res.body.code, { lookup, timeoutMs });
+    await joinRoom(withKey(ep.relay, key), res.body.code, { lookup, timeoutMs });
   } catch (err) {
     return { ok: false, line: `⚠ 服务器托管对局：房间 ${res.body.code} 进不去 / Server-hosted matches: room ${res.body.code} could not be joined (${err?.message ?? err})` };
   }
@@ -218,8 +232,8 @@ async function openWs(url, { lookup, timeoutMs }) {
  * `ok`: the page and the relay answer. `headless`: 'ok' | 'off' | 'busy' | 'failed' | 'skipped'
  * (server-hosted matches; never part of `ok`).
  * @param {string} baseUrl
- * @param {{ publicDns?: boolean, timeoutMs?: number, headless?: boolean }} [opts]
- *   headless: false skips the server-hosted match check (no test room)
+ * @param {{ publicDns?: boolean, timeoutMs?: number, headless?: boolean, key?: string }} [opts]
+ *   headless: false skips the server-hosted match check (no test room); key: the access key
  */
 export async function checkServer(baseUrl, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? 8000;
@@ -235,6 +249,7 @@ export async function checkServer(baseUrl, opts = {}) {
   }
   let ok = true;
   let info = null;
+  const key = typeof opts.key === 'string' ? opts.key.trim() : '';
   try {
     info = await getJson(ep.info, { lookup, timeoutMs });
     if (info?.app !== 'sanguo-warlords') throw new Error('not the game server (another program answers on this address)');
@@ -246,17 +261,43 @@ export async function checkServer(baseUrl, opts = {}) {
     info = null;
     lines.push(`✗ ${ep.info}: ${err?.message ?? err}`);
   }
-  try {
-    await openWs(ep.relay, { lookup, timeoutMs });
-    lines.push(`✓ ${ep.relay} (WebSocket)`);
-  } catch (err) {
+  const keyRequired = info?.keyRequired === true;
+  if (keyRequired && !key) {
     ok = false;
-    lines.push(`✗ ${ep.relay}: ${err?.message ?? err}`);
+    lines.push(`✗ ${ep.relay}: 服务器要求访问密钥，检查时请加 --key=<密钥> / the server wants its access key — run the check with --key=<key>`);
+  } else {
+    try {
+      await openWs(withKey(ep.relay, key), { lookup, timeoutMs });
+      lines.push(`✓ ${ep.relay} (WebSocket${key && keyRequired ? ', 带密钥 / with the key' : ''})`);
+    } catch (err) {
+      ok = false;
+      const bad = /HTTP 401/.test(String(err?.message ?? err));
+      lines.push(
+        !bad
+          ? `✗ ${ep.relay}: ${err?.message ?? err}`
+          : key
+            ? `✗ ${ep.relay}: 密钥不对（HTTP 401）/ wrong access key (HTTP 401) — 用 host.env 里的 RELAY_KEY / use RELAY_KEY from host.env`
+            : `✗ ${ep.relay}: 服务器要求访问密钥（HTTP 401），检查时请加 --key=<密钥> / the server wants its access key — run the check with --key=<key>`,
+      );
+    }
+  }
+  if (ok && keyRequired) {
+    // the key must actually keep people out
+    try {
+      await openWs(ep.relay, { lookup, timeoutMs });
+      ok = false;
+      lines.push(`✗ ${ep.relay}: 不带密钥也能连上——密钥没有生效 / connects WITHOUT the key — the key protects nothing`);
+    } catch (err) {
+      const refused = /HTTP 401/.test(String(err?.message ?? err));
+      lines.push(refused ? '✓ 不带密钥的连接被拒绝 / connections without the key are refused (401)' : `⚠ 不带密钥的检查没有结果 / the no-key check was inconclusive: ${err?.message ?? err}`);
+    }
+  } else if (ok && info && !keyRequired && key) {
+    lines.push('⚠ 服务器没有设访问密钥：谁拿到网址都能玩 / the server has no access key set: anyone with the address can play');
   }
   let headless = 'skipped';
   if (ok && opts.headless !== false) {
     if (info?.headless === true) {
-      const h = await checkHeadless(ep, { lookup, timeoutMs });
+      const h = await checkHeadless(ep, { lookup, timeoutMs, key });
       lines.push(h.line);
       headless = !h.ok ? 'failed' : h.line.startsWith('✓') ? 'ok' : 'busy';
     } else {
@@ -279,15 +320,24 @@ const isMain = (() => {
 
 if (isMain) {
   const args = process.argv.slice(2);
-  const url = args.find((a) => !a.startsWith('--'));
-  const t = args.find((a) => a.startsWith('--timeout='));
+  // --key=KEY or --key KEY, else SGWL_CHECK_KEY (the scripts: not on the command line)
+  let key = String(process.env.SGWL_CHECK_KEY ?? '').trim();
+  const rest = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith('--key=')) key = args[i].slice(6);
+    else if (args[i] === '--key') key = args[++i] ?? '';
+    else rest.push(args[i]);
+  }
+  const url = rest.find((a) => !a.startsWith('--'));
+  const t = rest.find((a) => a.startsWith('--timeout='));
   if (!url) {
-    console.error('usage: node deploy/check.mjs <https://host/> [--public-dns] [--no-headless] [--timeout=ms]');
+    console.error('usage: node deploy/check.mjs <https://host/> [--key=KEY] [--public-dns] [--no-headless] [--timeout=ms]');
     process.exit(2);
   }
   const { ok, lines } = await checkServer(url, {
-    publicDns: args.includes('--public-dns'),
-    headless: !args.includes('--no-headless'),
+    key,
+    publicDns: rest.includes('--public-dns'),
+    headless: !rest.includes('--no-headless'),
     timeoutMs: t ? Number(t.slice(10)) || 8000 : 8000,
   });
   for (const l of lines) console.log(`    ${l}`);

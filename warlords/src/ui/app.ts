@@ -188,6 +188,7 @@ const FATAL_CODES = new Set([
   'unsupported',
   'replacedElsewhere',
   'relayLost',
+  'keyRequired',
 ]);
 const FATAL_ERROR = /kick|host.?left|disconnect|lost|closed|full|version|not.?found|fail|timeout|refused|ended/i;
 
@@ -198,8 +199,8 @@ export function isFatalSessionError(code: string): boolean {
 /** Session endings that are news, not malfunctions: titled 提示 / Notice instead of 出错了. */
 export function isNoticeCode(code: string): boolean {
   // replacedElsewhere: the same seat was opened in another window (a duplicated tab) — that one plays on
-  // serverClosed: the server closed a server-run room (restart / update)
-  return code === 'kicked' || code === 'hostLeft' || code === 'replacedElsewhere' || code === 'serverClosed' || /kick|host.?left/i.test(code);
+  // serverClosed: the server closed a server-run room (restart / update); roomClosed: the relay ended an idle / hours-old room
+  return code === 'kicked' || code === 'hostLeft' || code === 'replacedElsewhere' || code === 'serverClosed' || code === 'roomClosed' || /kick|host.?left/i.test(code);
 }
 
 class App implements UiCtx {

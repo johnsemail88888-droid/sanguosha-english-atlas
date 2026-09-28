@@ -12,9 +12,9 @@
 // (an empty VITE_OFFICIAL_RELAY switches the official server off).
 export const OFFICIAL_SERVER = {
   /** e.g. https://47-242-10-3.sslip.io/ — the page friends open; '' = the public GitHub Pages site */
-  web: '',
+  web: 'https://zhifengmac-mini.tail1ae114.ts.net/',
   /** e.g. wss://47-242-10-3.sslip.io/ws — '' = no official server */
-  relay: '',
+  relay: 'wss://zhifengmac-mini.tail1ae114.ts.net/ws',
 };
 
 export interface OfficialServer {

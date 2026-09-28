@@ -11,7 +11,7 @@ import { emptyInput } from '../../../src/core/types';
 import { ClientSession } from '../../../src/net/clientSession';
 import { FakeSim } from '../../../src/net/fakeSim';
 import { HostSession } from '../../../src/net/hostSession';
-import { decodeRelayFrame, encodeRelayFrame, resolveWsUrl, WsTransport } from '../../../src/net/wsTransport';
+import { decodeRelayFrame, encodeRelayFrame, resolveWsUrl, RESUME_FLUSH_FRAMES, RESUME_QUEUE_FRAMES, WsTransport } from '../../../src/net/wsTransport';
 import { flatMap, testHeroPool, waitFor } from './fixtures';
 // @ts-expect-error plain .mjs without type declarations
 import { startServer } from '../../../server/server.mjs';
@@ -150,17 +150,19 @@ describe('ws relay (raw sockets)', () => {
     await waitFor(() => host.ctrl.length > 0);
     const code = (host.ctrl[0] as { code: string }).code;
     const clients: Awaited<ReturnType<typeof rawSocket>>[] = [];
-    for (let i = 0; i < 7; i++) {
+    // 7 guests + the host fill the 8 seats; 4 more sockets fit (a dropped guest rejoins on a
+    // new socket while the relay still holds its old one — the host enforces the seats)
+    for (let i = 0; i < 7 + 4; i++) {
       const c = await rawSocket();
       c.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
       clients.push(c);
     }
     await waitFor(() => clients.every((c) => c.ctrl.length > 0));
     expect(clients.every((c) => c.ctrl[0].op === 'joined')).toBe(true);
-    const eighth = await rawSocket();
-    eighth.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
-    await waitFor(() => eighth.closed());
-    expect(eighth.ctrl[0]).toMatchObject({ op: 'error', code: 'roomFull' });
+    const extra = await rawSocket();
+    extra.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
+    await waitFor(() => extra.closed());
+    expect(extra.ctrl[0]).toMatchObject({ op: 'error', code: 'roomFull' });
     host.ws.close();
     await waitFor(() => clients.every((c) => c.closed()));
   });
@@ -250,6 +252,15 @@ describe('WsTransport over the relay', () => {
   it('maps relay failures to bilingual NetErrors', async () => {
     await expect(WsTransport.join(wsUrl, 'ZZZZZ')).rejects.toMatchObject({ code: 'roomNotFound', zh: '房间不存在' });
     await expect(WsTransport.join('ws://127.0.0.1:1/ws', 'ABCDE', { timeoutMs: 3000 })).rejects.toMatchObject({ code: 'serverUnreachable' });
+    // a full server (MAX_ROOMS) says so — not 无法连接服务器
+    const r = await ownRelay({ maxRooms: 1 });
+    try {
+      const first = await WsTransport.host(r.url);
+      await expect(WsTransport.host(r.url)).rejects.toMatchObject({ code: 'serverFull', zh: '服务器房间已满，请稍后再试' });
+      first.close();
+    } finally {
+      await r.close();
+    }
   });
 
   it('runs a host + 2 client sessions through the relay to playing, with snapshots and inputs', async () => {
@@ -566,6 +577,54 @@ describe('WsTransport: relay liveness and the host resuming its room (MP2-1 / MP
       host.leave();
     }
   });
+
+  it('the relay ends an idle room: the host is told roomClosed at once, not after the resume window', async () => {
+    const r = await ownRelay({ idleRoomMs: 300, sweepMs: 20 });
+    const hostT = await WsTransport.host(r.url, { pingMs: 100, resumeWindowMs: 60_000 });
+    const host = makeWsHost(hostT, []);
+    try {
+      const errors: { code: string; zh: string; en: string }[] = [];
+      host.on('error', (e) => errors.push(e));
+      const t0 = Date.now();
+      await waitFor(() => errors.length > 0, 3000, 'room ended');
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(errors[0]).toMatchObject({ code: 'roomClosed', zh: '服务器关闭了这个房间（空闲太久或开得太久），请重新创建房间' });
+      expect(hostT.stats.resumed).toBe(0);
+    } finally {
+      host.leave();
+      await r.close();
+    }
+  });
+
+  it('a room the relay ended while the host was away: its resume stops at the refused code (roomClosed), no retries', async () => {
+    const r = await ownRelay({ idleRoomMs: 300, sweepMs: 20, hostGraceMs: 5000 });
+    type Impl = NonNullable<NonNullable<Parameters<typeof WsTransport.host>[1]>['WebSocketImpl']>;
+    const Native = (globalThis as unknown as { WebSocket: new (url: string) => { send(d: unknown): void } }).WebSocket;
+    const sent: string[] = [];
+    // the host's resume request goes out late: the room is reaped meanwhile
+    function SlowResume(url: string) {
+      const ws = new Native(url);
+      const send = ws.send.bind(ws);
+      ws.send = (d: unknown) => {
+        if (typeof d === 'string' && d.includes('"op":"')) sent.push(JSON.parse(d).op);
+        return typeof d === 'string' && d.includes('"op":"resume"') ? void setTimeout(() => send(d), 700) : send(d);
+      };
+      return ws;
+    }
+    const hostT = await WsTransport.host(r.url, { WebSocketImpl: SlowResume as unknown as Impl, pingMs: 1000, resumeWindowMs: 60_000 });
+    try {
+      const errors: { code: string }[] = [];
+      hostT.onClose((e) => e && errors.push(e));
+      r.relay.rooms.get(hostT.roomCode).host.ws.terminate();
+      await waitFor(() => errors.length > 0, 4000, 'gave up at once');
+      expect(errors[0]).toMatchObject({ code: 'roomClosed' });
+      expect(sent.filter((op) => op === 'resume')).toHaveLength(1);
+      expect(sent.filter((op) => op === 'create')).toEqual(['create', 'create']); // the room, then once under its old code
+    } finally {
+      hostT.close();
+      await r.close();
+    }
+  });
 });
 
 describe('relay heartbeat for a frozen host (MP2-1 / MP2-8)', () => {
@@ -645,6 +704,75 @@ describe('WsTransport resume: what the guests sent meanwhile (MP2-8)', () => {
       hostT.send(aId, 'welcome back', 'reliable');
       await waitFor(() => a.data.some((d) => d.data === 'welcome back'), 2000, 'host → guest');
       hostT.close();
+    } finally {
+      await r.close();
+    }
+  });
+});
+
+describe('WsTransport resume: what the host kept while it reconnected (MP2-8)', () => {
+  it('goes out in slices after the resume, in order, new reliable frames behind it — the relay does not cut the host off', async () => {
+    // the relay's default limits (1000 messages a second, 2 s of burst): 3000 kept frames sent
+    // back to back used to cost the host its socket (4008) and the guests the newest frames
+    const r = await ownRelay({ hostGraceMs: 5000 });
+    try {
+      const hostT = await WsTransport.host(r.url, { pingMs: 1000 });
+      const joined: string[] = [];
+      hostT.onPeerJoin((p) => joined.push(p));
+      const a = await rawSocket(r.url);
+      a.ws.send(JSON.stringify({ op: 'join', v: 1, code: hostT.roomCode }));
+      await waitFor(() => joined.length === 1, 2000, 'join');
+      const aId = joined[0];
+      const n = 3000;
+      let keptAtOk = -1;
+      hostT.onLinkState((s) => {
+        if (s === 'reconnecting') {
+          // what the match produces while the relay is away (events, notices): kept
+          for (let i = 0; i < n; i++) hostT.send(aId, `e${i}`, 'reliable');
+          hostT.send(aId, 'snapshot', 'unreliable'); // (superseded anyway: not kept)
+        } else if (s === 'ok') {
+          keptAtOk = hostT.keptFrames;
+          hostT.send(aId, 'after', 'reliable'); // behind what was kept
+        }
+      });
+      r.relay.rooms.get(hostT.roomCode).host.ws.terminate();
+      await waitFor(() => keptAtOk >= 0, 4000, 'resumed');
+      // one slice went out at once, the rest follows
+      expect(keptAtOk).toBe(n - RESUME_FLUSH_FRAMES);
+      await waitFor(() => a.data.length === n + 1, 8000, 'all delivered');
+      expect(a.data.map((d) => d.data)).toEqual([...Array.from({ length: n }, (_, i) => `e${i}`), 'after']);
+      expect(r.relay.counters().rateLimited).toBe(0);
+      expect(hostT.keptFrames).toBe(0);
+      hostT.close();
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('keeps at most RESUME_QUEUE_FRAMES frames (the rest dropped, counted)', async () => {
+    const r = await ownRelay({ hostGraceMs: 5000 });
+    // the resume request goes out late: the host stays away while it sends
+    type Impl = NonNullable<NonNullable<Parameters<typeof WsTransport.host>[1]>['WebSocketImpl']>;
+    const Native = (globalThis as unknown as { WebSocket: new (url: string) => { send(d: unknown): void } }).WebSocket;
+    function SlowResume(url: string) {
+      const ws = new Native(url);
+      const send = ws.send.bind(ws);
+      ws.send = (d: unknown) => (typeof d === 'string' && d.includes('"op":"resume"') ? void setTimeout(() => send(d), 200) : send(d));
+      return ws;
+    }
+    try {
+      const hostT = await WsTransport.host(r.url, { WebSocketImpl: SlowResume as unknown as Impl, pingMs: 1000 });
+      let away = false;
+      hostT.onLinkState((s) => {
+        if (s === 'reconnecting') away = true;
+      });
+      r.relay.rooms.get(hostT.roomCode).host.ws.terminate();
+      await waitFor(() => away, 2000, 'away');
+      for (let i = 0; i < RESUME_QUEUE_FRAMES + 50; i++) hostT.send('c1', 'x', 'reliable');
+      expect(hostT.keptFrames).toBe(RESUME_QUEUE_FRAMES);
+      expect(hostT.stats.keptDropped).toBe(50);
+      hostT.close();
+      expect(hostT.keptFrames).toBe(0);
     } finally {
       await r.close();
     }

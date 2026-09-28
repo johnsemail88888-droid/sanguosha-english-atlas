@@ -2,7 +2,9 @@ name: Warlords · Deploy web version
 
 # Publishes the game to GitHub Pages under /warlords/ on the existing gh-pages branch.
 # With destination_dir set, only /warlords/ is replaced on each deploy (the atlas site
-# elsewhere on the branch is untouched), so old hashed bundles and removed art don't pile up.
+# elsewhere on the branch is untouched), so removed art doesn't pile up. The previous
+# deploys' hashed bundles (assets/*-<hash>.js|css) are carried over for 7 days: a tab
+# opened before a deploy still lazy-loads the chunks of its own build.
 # A push that only edits the art manifest is skipped here: the assets workflow fetches
 # the art, commits it and then starts this workflow itself.
 on:
@@ -39,6 +41,17 @@ jobs:
       - run: npm run build:single
       - name: Add the single-file offline build
         run: cp dist-single/index.html dist/sanguo-warlords-offline.html
+      # keep_files: false replaces /warlords/ on every deploy — also the hashed bundles a page opened
+      # before this deploy still lazy-imports (the match scene…). Carry the previous deploy's bundles
+      # over for a week (scripts/keep-old-assets.mjs; only assets/*, not the art under assets/<dir>/).
+      - name: Keep the previous deploy's bundles for pages still open
+        continue-on-error: true
+        run: |
+          rm -rf ../prev-pages
+          git clone -q --depth 1 --branch gh-pages --filter=blob:none --sparse "https://github.com/${{ github.repository }}.git" ../prev-pages
+          git -C ../prev-pages sparse-checkout set --no-cone '/warlords/assets/*' '!/warlords/assets/*/'
+          node scripts/keep-old-assets.mjs ../prev-pages/warlords dist --days=7
+          rm -rf ../prev-pages
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

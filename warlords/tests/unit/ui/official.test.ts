@@ -24,11 +24,11 @@ afterEach(() => {
 });
 
 describe('official server constant + build-time override', () => {
-  it('ships empty: no official server, today’s behaviour', () => {
-    expect(OFFICIAL_SERVER).toEqual({ web: '', relay: '' });
-    expect(officialFrom(OFFICIAL_SERVER)).toBeNull();
-    expect(officialFrom(OFFICIAL_SERVER, {})).toBeNull();
-    // this test run has no VITE_OFFICIAL_* set
+  it('ships with the owner’s Mac mini as the official server; tests and e2e builds switch it off', () => {
+    expect(OFFICIAL_SERVER).toEqual({ web: 'https://zhifengmac-mini.tail1ae114.ts.net/', relay: 'wss://zhifengmac-mini.tail1ae114.ts.net/ws' });
+    expect(officialFrom(OFFICIAL_SERVER)).toEqual({ web: 'https://zhifengmac-mini.tail1ae114.ts.net/', relay: 'wss://zhifengmac-mini.tail1ae114.ts.net/ws' });
+    expect(officialFrom(OFFICIAL_SERVER, { VITE_OFFICIAL_RELAY: '' })).toBeNull();
+    // this test run sets VITE_OFFICIAL_RELAY='' (vite.config.ts test.env): no official server
     expect(officialServer()).toBeNull();
   });
 

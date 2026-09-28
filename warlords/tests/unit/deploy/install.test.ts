@@ -4,7 +4,7 @@
 // dir), the systemd unit, the two lines the player sends back. Plus `bash -n` and,
 // when the machine has it, shellcheck.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,13 +39,31 @@ describe('deploy/install.sh', () => {
     const r = spawnSync('shellcheck', ['-x', SCRIPT], { encoding: 'utf8' });
     expect(r.stdout).toBe('');
     expect(r.status).toBe(0);
-  });
+  }, 60_000); // shellcheck -x follows install.sh: seconds on a busy machine
 
   it('sourced with SGWL_LIB=1 runs nothing (no root check, no output)', () => {
     const r = sh('echo loaded');
     expect(r.status).toBe(0);
     expect(r.out).toBe('loaded');
     expect(r.err).toBe('');
+  });
+
+  it('node_major: the major version from `node -v`, 0 when there is none or it is unreadable (no sed: BSD sed broke it on macOS)', () => {
+    const bin = path.join(TMP, 'fake-node-bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(path.join(bin, 'node'), '#!/bin/sh\nprintf "%s\\n" "$FAKE_NODE_V"\n');
+    chmodSync(path.join(bin, 'node'), 0o755);
+    const major = (v: string): string => sh('node_major', { PATH: `${bin}:/usr/bin:/bin`, FAKE_NODE_V: v }).out;
+    expect(major('v22.23.3')).toBe('22');
+    expect(major('v8.0.0')).toBe('8');
+    expect(major('v24.1.0-nightly')).toBe('24');
+    expect(major('garbage')).toBe('0');
+    expect(major('')).toBe('0');
+    const none = path.join(TMP, 'no-node-bin');
+    mkdirSync(none, { recursive: true });
+    expect(sh('node_major', { PATH: `${none}:/usr/bin:/bin` }).out).toBe('0');
+    // the sed program that failed on macOS is gone for good
+    expect(readFileSync(SCRIPT, 'utf8')).not.toMatch(/;t;s\//);
   });
 
   it('turns the public IPv4 into its sslip.io name', () => {
@@ -126,6 +144,26 @@ describe('deploy/install.sh', () => {
     expect(sh('systemd_unit /usr/bin/node /opt/sgwl/src/warlords 8787 sgwl install.sh 1').out).not.toContain('HEADLESS');
   });
 
+  it('the access key: an EnvironmentFile for the unit (not the unit itself), kept in the state file (600), a share link', () => {
+    const unit = sh('systemd_unit /usr/bin/node /opt/sgwl/src/warlords 8787 sgwl install.sh "" /etc/sgwl-key.env').out;
+    expect(unit).toMatch(/^Environment=PORT=8787\nEnvironmentFile=-\/etc\/sgwl-key.env\nExecStart=/m);
+    const both = sh('systemd_unit /usr/bin/node /w 8787 sgwl install.sh 0 /k.env A=1 B=two').out;
+    expect(both).toMatch(/^Environment=PORT=8787\nEnvironment=HEADLESS=0\nEnvironment=A=1\nEnvironment=B=two\nEnvironmentFile=-\/k.env\nExecStart=/m);
+    // install / update: made once, then kept
+    const state = path.join(TMP, 'key-state.env');
+    const first = sh('load_state; ensure_relay_key; DOMAIN=a.example.com; save_state; echo "$RELAY_KEY"', { SGWL_STATE: state });
+    expect(first.out.split('\n').pop()).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    const key = first.out.split('\n').pop()!;
+    expect(readFileSync(state, 'utf8')).toContain(`RELAY_KEY=${key}\n`);
+    expect(statSync(state).mode & 0o777).toBe(0o600);
+    expect(sh('load_state; ensure_relay_key; echo "$RELAY_KEY"', { SGWL_STATE: state }).out).toBe(key);
+    expect(sh('load_state; ensure_relay_key; echo "$RELAY_KEY"', { SGWL_STATE: state, SGWL_RELAY_KEY: 'off' }).out.split('\n').pop()).toBe('off');
+    const box = sh(`DOMAIN=a.example.com; RELAY_KEY=${key}; print_summary`).out;
+    expect(box).toContain(`https://a.example.com/?k=${key}`);
+    expect(box).toContain('把这两行发给 Claude');
+    expect(readFileSync(SCRIPT, 'utf8')).toContain('rotate-key) cmd_rotate_key ;;');
+  });
+
   it('remembers SGWL_HEADLESS in the state file (the environment wins)', () => {
     const state = path.join(TMP, 'sgwl.env');
     writeFileSync(state, '# written by warlords/deploy/install.sh\nDOMAIN=game.example.com\nSGWL_HEADLESS=0\n');
@@ -177,10 +215,10 @@ describe('deploy/install.sh', () => {
       expect(worker(dir)).toBeNull();
     });
 
-    it('build_game runs it after the page build', () => {
+    it('build_game runs it after the page build, then stamps the commit (the build is complete)', () => {
       const src = readFileSync(SCRIPT, 'utf8');
       const body = src.slice(src.indexOf('build_game() {'), src.indexOf('\n}\n', src.indexOf('build_game() {')));
-      expect(body.trim().split('\n').pop()?.trim()).toBe('build_headless');
+      expect(body.trim().split('\n').slice(-2).map((l) => l.trim())).toEqual(['build_headless', 'stamp_build']);
     });
   });
 
