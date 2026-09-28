@@ -34,7 +34,7 @@ import { GrassField } from './scene/grass';
 import { PickWorld } from './camera/pick';
 import { CameraOccluders } from './camera/camOccluders';
 import { TpsCameraRig, tpsCameraPose, PITCH_LIMIT, adsPull } from './camera/tpsCamera';
-import { FirstPersonView, firstPersonPose } from './camera/firstPerson';
+import { FirstPersonView, firstPersonPose, fpEyeOf } from './camera/firstPerson';
 import { EntityManager } from './entities/manager';
 import { preloadCharacterArt } from './models/preload';
 import { evictUnusedTemplates } from './models/glb';
@@ -121,6 +121,8 @@ export interface PerfSnapshot {
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+/** Seconds the camera pulls back over your own body after death (the HUD spectates the killer after 1.8 s). */
+const DEATH_PULLBACK_TIME = 6;
 const _dir = new THREE.Vector3();
 
 export class GameRenderer {
@@ -175,6 +177,14 @@ export class GameRenderer {
   // local control (from InputController)
   private look = { yaw: 0, pitch: 0, ads: false, fire: false, fresh: false, fp: false };
   private spectateId: EntityId | null = null;
+  /** spectate from the watched hero's eye (V) instead of over his shoulder */
+  private spectateFp = false;
+  /** render time the local hero died (the death pull-back over the body), -1 alive */
+  private localDeadAt = -1;
+  /** 0..1: the first-person camera leans toward the downed ally you revive */
+  private reviveLook = 0;
+  /** spectating in first person: eased eye height / look of the watched hero */
+  private specEye = -1;
   private freeCam: { pos: Vec3; yaw: number; pitch: number } | null = null;
   private readonly eventSubs = new Set<(evs: readonly GameEvent[]) => void>();
   private readonly fireSubs = new Set<(weaponId: string) => void>();
@@ -341,7 +351,7 @@ export class GameRenderer {
     if (local) for (const s of local.squad) this.squad.add(s.id);
 
     // 1. camera first (entities + nameplates read it)
-    this.updateCamera(d, localEnt, local?.dead ?? false);
+    this.updateCamera(d, localEnt, local?.dead ?? false, local);
 
     // 2. entities
     const ctx = this.entityCtx(d, localId, local);
@@ -365,9 +375,19 @@ export class GameRenderer {
         lv.rig.setLocalView(this.rig.mode === 'follow');
       }
     }
-    // first person: own body hidden from this camera (shadow kept), the weapon viewmodel posed
+    // first person: own body hidden from this camera (shadow kept), the weapon viewmodel posed —
+    // or, spectating from a hero's eye (V), his body and his weapon
     const scoped = this.aim ? this.aim.scoped : this.look.ads && this.adsZoom >= 3 && this.zoomNow >= 1.8;
-    this.fp.sync(d, localEnt, local, localEnt ? this.entities.character(localEnt.id) : undefined, { ...this.look, adsBlend: this.aim?.blend }, scoped);
+    const specEnt = this.rig.mode === 'spectateFirst' && this.spectateId !== null ? view.get(this.spectateId) : undefined;
+    this.fp.sync(
+      d,
+      localEnt,
+      local,
+      localEnt ? this.entities.character(localEnt.id) : undefined,
+      { ...this.look, adsBlend: this.aim?.blend },
+      scoped,
+      specEnt ? { ent: specEnt, view: this.entities.character(specEnt.id) } : null,
+    );
     // looking through a scope: the haze starts much further out (a target at 70 m on 极速 is not a pale blob)
     const lens = this.aim && this.aim.scoped ? Math.min(1, Math.max(0, (this.aim.progress - SCOPE_AT) / SCOPE_FADE)) : 0;
     const fogNear = this.preset.drawDistance * (0.35 + 0.4 * lens);
@@ -468,7 +488,7 @@ export class GameRenderer {
     const localId = view.localId();
     const local = view.local();
     const localEnt = localId !== null ? view.get(localId) : undefined;
-    this.updateCamera(0, localEnt, local?.dead ?? false);
+    this.updateCamera(0, localEnt, local?.dead ?? false, local);
     const ctx = this.entityCtx(0, localId, local);
     ctx.focusPos = this.cameraFocus(localEnt);
     this.entities.sync(view.entities(), ctx);
@@ -711,7 +731,18 @@ export class GameRenderer {
   }
 
   setSpectateTarget(id: EntityId | null): void {
+    if (id !== this.spectateId) this.specEye = -1;
     this.spectateId = id;
+  }
+
+  /** Spectate from the watched hero's eye (true) or over his shoulder (false). */
+  setSpectateView(firstPerson: boolean): void {
+    this.spectateFp = firstPerson;
+    this.specEye = -1;
+  }
+
+  get spectateFirstPerson(): boolean {
+    return this.spectateFp;
   }
 
   onLocalFire(cb: (weaponId: string) => void): () => void {
@@ -1178,6 +1209,9 @@ export class GameRenderer {
     c.camDir = this.camera.getWorldDirection(this.camDirVec);
     c.localId = localId;
     c.local = local;
+    // the downed ally you revive stays solid however close the camera kneels
+    const rv = local?.channel?.revive;
+    c.keepVisibleId = rv !== undefined && rv !== localId ? rv : null;
     c.lang = settings.get().lang;
     c.characterDistance = this.preset.characterDistance;
     c.drawDistance = this.preset.drawDistance;
@@ -1216,36 +1250,66 @@ export class GameRenderer {
     }
   }
 
-  private updateCamera(dt: number, localEnt: ViewEntity | undefined, localDead: boolean): void {
+  private updateCamera(dt: number, localEnt: ViewEntity | undefined, localDead: boolean, local: ReturnType<ViewSource['local']> = null): void {
     const rig = this.rig;
+    const dead = localDead || (localEnt ? (localEnt.flags & VF_DEAD) !== 0 : false);
+    if (dead && this.localDeadAt < 0) {
+      // the moment of death: the camera pulls straight back from where you looked, over your body
+      this.localDeadAt = this.time;
+      rig.orbitFromBehind();
+    } else if (!dead) this.localDeadAt = -1;
     if (this.freeCam) {
       rig.setPose(this.freeCam.pos, this.freeCam.yaw, this.freeCam.pitch);
       rig.setZoom(1, dt);
-    } else if (localEnt && !localDead && !(localEnt.flags & VF_DEAD)) {
+    } else if (localEnt && !dead) {
       const yaw = this.look.fresh ? this.look.yaw : localEnt.yaw;
-      const pitch = this.look.fresh ? this.look.pitch : localEnt.pitch;
+      let pitch = this.look.fresh ? this.look.pitch : localEnt.pitch;
       // the aim's eased zoom (each class's ADS time, the scope's steps); without one: the data zoom, smoothed
       const aim = this.aim;
       const zoom = aim ? aim.zoom : this.adsZoom;
       if (this.look.fp) {
         rig.mode = 'first';
-        rig.firstPerson(localEnt, this.fp.eyeHeight(localEnt, dt), yaw, pitch);
+        // reviving in first person: kneel beside him and look down at him (render only — the
+        // channel holds your gun; the mouse pitch comes back when it ends)
+        const rv = local?.channel?.revive;
+        const target = rv !== undefined && rv !== localEnt.id && !local?.downed ? this.view.get(rv) : undefined;
+        this.reviveLook += ((target ? 1 : 0) - this.reviveLook) * (1 - Math.exp(-dt * 7));
+        const eye = this.fp.eyeHeight(localEnt, dt, !!target);
+        if (target) this.reviveTarget = { x: target.x, y: target.y, z: target.z };
+        if (this.reviveLook > 0.002 && this.reviveTarget) {
+          const t = this.reviveTarget;
+          const want = Math.atan2(t.y + 0.35 - (localEnt.y + eye), Math.max(0.3, Math.hypot(t.x - localEnt.x, t.z - localEnt.z)));
+          pitch += (Math.max(-1.2, want) - pitch) * this.reviveLook * 0.85;
+        } else this.reviveTarget = null;
+        rig.firstPerson(localEnt, eye, yaw, pitch);
       } else {
+        this.reviveLook = 0;
         rig.mode = 'follow';
         rig.follow(this.pickWorld, localEnt, yaw, pitch, dt, false, (localEnt.flags & VF_DOWNED) !== 0, zoom);
       }
       if (aim) rig.setZoomNow(zoom);
       else rig.setZoom(zoom, dt);
     } else {
-      // dead / not spawned: spectate a target or orbit
+      // dead / not spawned: the death moment, then spectate a target (over the shoulder or from
+      // his eye, V), else orbit
       const target = this.spectateId !== null ? this.view.get(this.spectateId) : undefined;
-      if (target && !(target.flags & VF_DEAD)) {
+      if (target && !(target.flags & VF_DEAD) && this.spectateFp) {
+        rig.mode = 'spectateFirst';
+        const want = fpEyeOf(target);
+        this.specEye = this.specEye < 0 ? want : this.specEye + (want - this.specEye) * (1 - Math.exp(-dt * 9));
+        rig.firstPerson(target, this.specEye, target.yaw, target.pitch);
+      } else if (target && !(target.flags & VF_DEAD)) {
         rig.mode = 'spectate';
-        rig.follow(this.pickWorld, target, target.yaw, target.pitch * 0.5, dt, true, (target.flags & VF_DOWNED) !== 0);
+        rig.spectate(this.pickWorld, target, target.yaw, target.pitch, dt, (target.flags & VF_DOWNED) !== 0);
       } else {
         rig.mode = 'orbit';
-        const c = localEnt ?? this.view.map.lordSpawn;
-        rig.orbit({ x: c.x, y: c.y, z: c.z }, localEnt ? 9 : 60, localEnt ? 5 : 32, dt);
+        if (localEnt && this.localDeadAt >= 0 && this.time - this.localDeadAt < DEATH_PULLBACK_TIME) {
+          // a slow pull-back over your own body, looking down at it
+          rig.orbit({ x: localEnt.x, y: localEnt.y, z: localEnt.z }, 4, 2.6, dt, 0.3, 2.4, this.pickWorld);
+        } else {
+          const c = localEnt ?? this.view.map.lordSpawn;
+          rig.orbit({ x: c.x, y: c.y, z: c.z }, localEnt ? 9 : 60, localEnt ? 5 : 32, dt);
+        }
       }
       rig.setZoom(1, dt);
     }
@@ -1308,6 +1372,9 @@ export class GameRenderer {
     }
   }
 
+  /** where the downed ally you revive lies (the first-person look eases back from it after) */
+  private reviveTarget: { x: number; y: number; z: number } | null = null;
+
   private readonly focusVec = new THREE.Vector3();
   private readonly camDirVec = new THREE.Vector3();
   private readonly viewProj = new THREE.Matrix4();
@@ -1332,6 +1399,7 @@ export class GameRenderer {
     let e: ViewEntity | undefined;
     if (this.rig.mode === 'follow') e = localEnt;
     else if (this.rig.mode === 'spectate' && this.spectateId !== null) e = this.view.get(this.spectateId);
+    // (spectating from his eye: nothing stands between the camera and him)
     if (!e) return null;
     const downed = (e.flags & VF_DOWNED) !== 0;
     return this.focusVec.set(e.x, e.y + (downed ? 0.5 : 1.3), e.z);

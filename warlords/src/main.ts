@@ -62,6 +62,7 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     input: handle.input,
     onEvents: (cb) => handle.onEvents(cb),
     setSpectateTarget: (id) => handle.setSpectateTarget(id),
+    setSpectateView: (fp) => handle.setSpectateView(fp),
     worldToScreen: (p) => handle.worldToScreen(p),
     onLoadProgress: (cb) => handle.onProgress(cb),
     isReady: () => handle.ready,

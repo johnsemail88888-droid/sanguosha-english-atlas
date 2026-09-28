@@ -29,7 +29,8 @@ describe('PLATFORM-5: touch button labels', () => {
   });
 
   it('the interact button says what a tap does now, 互动 when nothing is in reach', () => {
-    const zh: Record<InteractKind, string> = { pickup: '拾取', full: '替换', crate: '打开', airdrop: '打开', revive: '救援', selfRevive: '互动' };
+    // downed (selfRevive): the button calls for a 桃 — F while downed is 「需要桃！」 (sim/world callForHelp)
+    const zh: Record<InteractKind, string> = { pickup: '拾取', full: '替换', crate: '打开', airdrop: '打开', revive: '救援', recall: '招魂', selfRevive: '呼救' };
     for (const [k, v] of Object.entries(zh)) expect(interactLabel(k as InteractKind, 'zh'), k).toBe(v);
     expect(interactLabel(null, 'zh')).toBe('互动');
     expect(interactLabel(undefined, 'en')).toBe('Use');

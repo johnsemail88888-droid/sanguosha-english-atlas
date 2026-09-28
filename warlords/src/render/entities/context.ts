@@ -40,4 +40,6 @@ export interface EntityCtx {
   focusPos?: THREE.Vector3 | null;
   /** normalised camera forward (screen-coverage fade of your own squad) */
   camDir?: THREE.Vector3 | null;
+  /** never near-camera faded: the downed ally the local hero is reviving (kneeling right beside him) */
+  keepVisibleId?: EntityId | null;
 }

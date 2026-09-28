@@ -493,8 +493,9 @@ export function driveUnit(
           mz /= l;
         }
       }
-      // own soldiers: out of the commander's personal space and third-person camera
-      if (own && !still) {
+      // own soldiers: out of the commander's personal space and third-person camera (not the one
+      // kneeling beside him to bandage him — 战场急救)
+      if (own && !still && !it.medic) {
         commanderRules(u, own, mx, mz, now, baseSpeed * Math.max(1, speedMul) * statusSpeedMul(u, now));
         mx = rule.x;
         mz = rule.z;
@@ -504,7 +505,7 @@ export function driveUnit(
     const speed = baseSpeed * speedMul * statusSpeedMul(u, now);
     steerMove(w.cw, moveSt, mx, mz, speed, dt, u.radius, u.height, it.jump && !cs.stunned && !cs.rooted && !cs.frozen);
   }
-  if (commanderNear(u, cmd)) enforceClearance(w, u, cmd, moveSt);
+  if (commanderNear(u, cmd) && !it.medic) enforceClearance(w, u, cmd, moveSt);
   w.markUnitMoved(u.id);
   u.onGround = moveSt.onGround;
   // facing

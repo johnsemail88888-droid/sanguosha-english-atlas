@@ -26,11 +26,16 @@ import type { HitscanOptions } from './ext';
 import { flingGear } from './items/util';
 import { rayCylinder, raycastStatic, raySphere } from './physics';
 import type { StaticHit } from './physics';
+import { BLEED_OUT_TIME, DOWNED_FINISH_DAMAGE, downedDrain } from './rules';
 import { findStatus, nullifyEffect, removeStatusIf, statusValue } from './status';
 import type { HeroRuntime, World } from './world';
 
-/** seconds of bleed-out removed per point of damage taken while downed */
-export const DOWNED_DAMAGE_TO_SECONDS = 0.1;
+/**
+ * Seconds of bleed-out removed per point of damage taken while downed, on a first knock
+ * (0.25: 120 damage finishes a fresh 30 s knock). Later knocks bleed out faster and drain in
+ * proportion (rules.ts downedDrain): finishing a knocked hero always takes DOWNED_FINISH_DAMAGE.
+ */
+export const DOWNED_DAMAGE_TO_SECONDS = BLEED_OUT_TIME / DOWNED_FINISH_DAMAGE;
 
 // ── troops vs heroes (「怎么我一下主公一下就死了？」) ─────────────────────────
 // A squad is dangerous, never a firing squad: a lord's 6–12 guards used to put
@@ -526,7 +531,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
   let full = 0;
   if (amount > 0) {
     if (h?.downed) {
-      h.downedUntil -= amount * DOWNED_DAMAGE_TO_SECONDS;
+      h.downedUntil -= amount * downedDrain(h);
       res.dealt = amount;
     } else {
       const before = target.hp;

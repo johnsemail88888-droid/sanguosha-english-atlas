@@ -1,6 +1,6 @@
 // Combat feedback: floating damage numbers, damage direction arcs, interaction
-// prompt, channel bar, downed overlay, spectate bar, outside-zone warning (the
-// crosshair, hit markers and sights: ./aim.ts).
+// prompt, channel bar, outside-zone warning (the crosshair, hit markers and
+// sights: ./aim.ts; downed / death / spectate: ./fallen.ts).
 import type { EntityId, Vec3 } from '../../core/types';
 import { HERO_BY_ID, ITEM_BY_ID } from '../../data';
 import { h, setClass, setText } from '../dom';
@@ -219,6 +219,14 @@ export function interactText(p: InteractPrompt, lang: 'zh' | 'en', touch = false
     case 'revive':
       // touch: no F key — the prompt names the button (which reads 救援 while a revive is in reach)
       return { key: '', text: t(touch ? 'hud.interact.reviveTouch' : 'hud.interact.revive', { name: `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}` }), sub: p.needPeach ? t('hud.interact.needPeach') : '' };
+    case 'recall': {
+      const name = `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}`;
+      return {
+        key: touch ? '' : 'F',
+        text: touch ? tx('按住「招魂」召回 {name}', 'Hold Recall to call {name} back', { name }) : tx('按住 F 招魂 {name}', 'Hold F to call {name} back', { name }),
+        sub: tx('5 秒 · 他将以 150 体力归来', '5 s · back with 150 HP'),
+      };
+    }
     case 'airdrop':
       return { key: 'F', text: t('hud.interact.airdrop'), sub: '' };
     case 'crate': {
@@ -312,172 +320,6 @@ export class ChannelBar {
   }
   relabel(): void {
     this.kind = '';
-  }
-}
-
-// ── Downed overlay ───────────────────────────────────────────────────────────
-
-const BLEED_TOTAL = 12;
-
-export class DownedOverlay {
-  readonly el: HTMLElement;
-  private readonly timer: HTMLElement;
-  private readonly ring: SVGCircleElement;
-  private readonly hint: HTMLElement;
-  private readonly title: HTMLElement;
-  private on = false;
-  private secs = -1;
-  private hintKey = '';
-
-  constructor() {
-    this.timer = h('b', { class: 'secs' });
-    const NS = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 60 60');
-    const bg = document.createElementNS(NS, 'circle');
-    bg.setAttribute('class', 'bg');
-    this.ring = document.createElementNS(NS, 'circle');
-    this.ring.setAttribute('class', 'fg');
-    for (const c of [bg, this.ring]) {
-      c.setAttribute('cx', '30');
-      c.setAttribute('cy', '30');
-      c.setAttribute('r', '26');
-      svg.appendChild(c);
-    }
-    this.ring.setAttribute('stroke-dasharray', String(2 * Math.PI * 26));
-    this.hint = h('div', { class: 'hint' });
-    this.title = h('div', { class: 'ttl' }, t('hud.downed'));
-    this.el = h('div', { class: 'hud-downed' }, h('div', { class: 'vignette' }), h('div', { class: 'box' }, this.title, h('div', { class: 'ringwrap' }, svg, this.timer), this.hint));
-  }
-
-  update(f: HudFrame): void {
-    const me = f.me;
-    const on = !!me && me.downed && !me.dead;
-    if (on !== this.on) {
-      this.on = on;
-      setClass(this.el, 'on', on);
-    }
-    if (!on || !me) return;
-    const rem = Math.max(0, me.downedRemaining);
-    const secs = Math.ceil(rem);
-    if (secs !== this.secs) {
-      this.secs = secs;
-      setText(this.timer, String(secs));
-    }
-    this.ring.setAttribute('stroke-dashoffset', ((2 * Math.PI * 26) * (1 - Math.min(1, rem / BLEED_TOTAL))).toFixed(1));
-    const jiu = me.items.findIndex((it) => it?.id === 'jiu');
-    // a dying hero may play his own 桃 too (a short channel, C3-6); 酒 is instant, so it's offered first
-    const tao = me.items.findIndex((it) => it?.id === 'tao');
-    const hk = `${jiu}|${tao}|${f.lang}`;
-    if (hk !== this.hintKey) {
-      this.hintKey = hk;
-      setText(
-        this.hint,
-        jiu >= 0
-          ? t('hud.interact.selfRevive', { key: String(4 + jiu) })
-          : tao >= 0
-            ? t('hud.interact.selfTao', { key: String(4 + tao) })
-            : t('hud.downedHint'),
-      );
-      setText(this.title, t('hud.downed'));
-    }
-  }
-
-  relabel(): void {
-    this.hintKey = '';
-  }
-}
-
-// ── Death / spectate bar ─────────────────────────────────────────────────────
-
-/** Who killed you: an entity (translated when shown, in the current language) or the zone. */
-export type KillerRef = { entityId: EntityId } | { zone: true } | null;
-
-export class SpectateBar {
-  readonly el: HTMLElement;
-  private readonly killerEl: HTMLElement;
-  private readonly killerText: HTMLElement;
-  private readonly killerFace: HTMLElement;
-  private readonly targetEl: HTMLElement;
-  private readonly targetText: HTMLElement;
-  private readonly targetFace: HTMLElement;
-  private readonly titleEl: HTMLElement;
-  private on = false;
-  private dirty = true;
-  private shownKiller: KillerRef = null;
-  private shownKillerHero: string | null = null;
-  private shownTarget = -1;
-  private shownLang = '';
-  /** a new reference per death (hud.ts): the name is rendered (and re-rendered) in the current language */
-  killer: KillerRef = null;
-  /** the killer's hero (for its painted face) */
-  killerHero: string | null = null;
-
-  /**
-   * `label(id)` names an entity as "hero·player" in the current language (null = unknown);
-   * `portraits`: painted faces of the killer and the spectated hero when the art ships
-   */
-  constructor(
-    private readonly cycle: (dir: 1 | -1) => void,
-    private readonly label: (id: EntityId) => string | null = () => null,
-    private readonly portraits: PortraitCache | null = null,
-  ) {
-    this.killerText = h('span');
-    this.killerFace = h('span', { class: 'face' });
-    this.killerEl = h('div', { class: 'killer' }, this.killerFace, this.killerText);
-    this.targetText = h('span');
-    this.targetFace = h('span', { class: 'face' });
-    this.targetEl = h('span', { class: 'target' }, this.targetFace, this.targetText);
-    this.titleEl = h('div', { class: 'dead-title' }, t('hud.dead'));
-    const prev = h('button', { class: 'sg-btn small dark', type: 'button', title: t('hud.prev') }, '◀');
-    const next = h('button', { class: 'sg-btn small dark', type: 'button', title: t('hud.next') }, '▶');
-    prev.addEventListener('click', () => this.cycle(-1));
-    next.addEventListener('click', () => this.cycle(1));
-    this.el = h('div', { class: 'hud-spectate' }, this.titleEl, this.killerEl, h('div', { class: 'spec' }, prev, this.targetEl, next));
-  }
-
-  update(f: HudFrame): void {
-    const on = !!f.me?.dead;
-    if (on !== this.on) {
-      this.on = on;
-      setClass(this.el, 'on', on);
-    }
-    if (!on) return;
-    // per frame while dead: compare fields instead of building a key string
-    let target: HudFrame['players'][number] | undefined;
-    for (const p of f.players) {
-      if (p.entityId === f.spectateId) {
-        target = p;
-        break;
-      }
-    }
-    const targetId = target ? target.entityId : -1;
-    const kr = this.killer;
-    if (!this.dirty && this.shownKiller === kr && this.shownKillerHero === this.killerHero && this.shownTarget === targetId && this.shownLang === f.lang) return;
-    this.dirty = false;
-    this.shownKiller = kr;
-    this.shownKillerHero = this.killerHero;
-    this.shownTarget = targetId;
-    this.shownLang = f.lang;
-    setText(this.titleEl, t('hud.dead'));
-    const killerName = !kr ? '' : 'zone' in kr ? t('hud.zoneDeath') : this.label(kr.entityId) ?? '';
-    setText(this.killerText, killerName ? t('hud.killedBy', { name: killerName }) : '');
-    setClass(this.killerEl, 'sg-hidden', !killerName);
-    this.face(this.killerFace, kr && !('zone' in kr) ? this.killerHero : null);
-    setText(this.targetText, target ? t('hud.spectating', { name: `${heroName(target.heroId)}·${displayName(target.name, f.lang)}` }) : '—');
-    this.face(this.targetFace, target?.heroId ?? null);
-  }
-
-  private face(slot: HTMLElement, heroId: string | null): void {
-    const pc = this.portraits;
-    const id = heroId && pc?.hasArt(heroId) ? heroId : '';
-    if (slot.dataset.hero === id) return;
-    slot.dataset.hero = id;
-    slot.replaceChildren(...(id && pc ? [pc.avatar(id)] : []));
-  }
-
-  relabel(): void {
-    this.dirty = true;
   }
 }
 

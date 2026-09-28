@@ -19,9 +19,11 @@ export interface UnitIntent {
   /** entity to shoot / strike when possible */
   targetId?: EntityId;
   jump: boolean;
+  /** 战场急救: kneeling beside the downed commander — his personal-space / camera rules don't push this soldier away */
+  medic?: boolean;
 }
 
-export const newIntent = (): UnitIntent => ({ moveX: 0, moveZ: 0, speedMul: 1, faceYaw: NaN, targetId: undefined, jump: false });
+export const newIntent = (): UnitIntent => ({ moveX: 0, moveZ: 0, speedMul: 1, faceYaw: NaN, targetId: undefined, jump: false, medic: false });
 
 export function resetIntent(i: UnitIntent): UnitIntent {
   i.moveX = 0;
@@ -30,6 +32,7 @@ export function resetIntent(i: UnitIntent): UnitIntent {
   i.faceYaw = NaN;
   i.targetId = undefined;
   i.jump = false;
+  i.medic = false;
   return i;
 }
 

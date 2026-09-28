@@ -627,9 +627,12 @@ export class ClientView implements ViewSource {
         ...you,
         cooldowns,
         reloading: dec(you.reloading),
-        downedRemaining: dec(you.downedRemaining),
+        // being revived pauses the bleed-out (sim/rules tickDowned): the clock holds still meanwhile
+        downedRemaining: you.rescue ? you.downedRemaining : dec(you.downedRemaining),
         statuses: you.statuses.map((s) => ({ id: s.id, remaining: dec(s.remaining) })),
       };
+      // (dead) the 魂幡's time runs out too
+      if (you.soul) this.youOut.soul = { ...you.soul, remaining: dec(you.soul.remaining) };
     }
 
     // release events that the render clock has reached (in-place compaction)

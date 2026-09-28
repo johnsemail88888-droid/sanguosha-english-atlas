@@ -37,7 +37,8 @@ export const LOADING_TIPS: readonly LoadingTip[] = [
     en: 'Press T for the claim wheel — lying is a valid strategy.',
     touch: [`点「${WHEEL[0]}」打开跳身份轮盘——但别忘了，谎言也是一种战术。`, `Tap “${WHEEL[1]}” for the claim wheel — lying is a valid strategy.`],
   },
-  { zh: '濒死时 12 秒内被队友用「桃」救起即可复活，也可以饮「酒」自救。', en: 'When downed you have 12 s: an ally can revive you with a Peach, or drink Wine to rise yourself.' },
+  { zh: '濒死时 30 秒内被队友用「桃」救起即可复活，也可以饮「酒」自救；身边没有敌人时你的部曲会来包扎。', en: 'When downed you have 30 s: an ally can revive you with a Peach, drink Wine to rise yourself — or, with no enemy near, your own soldiers bandage you.' },
+  { zh: '阵亡后 60 秒内，队友在你尸体旁按住 F 5 秒可「招魂」把你召回（每局一次）。', en: 'For 60 s after you die, an ally holding F by your body for 5 s can call you back (once per match).' },
   {
     zh: 'Z 跟随 · X 驻守 · C 进攻 · V 冲锋：别忘了指挥你的部曲。',
     en: 'Z follow · X hold · C attack · V charge — command your squad.',
