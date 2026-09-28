@@ -384,6 +384,45 @@ describe('projectile lag compensation (R11)', () => {
     expect(shoot(lag, true)).toBe(true);
     expect(shoot(lag, false)).toBe(false);
   });
+
+  /**
+   * 方天 from a 100 ms-RTT client, fully aimed at a strafer 15 m out (as he sees it): the homing
+   * rocket steers at the target's live position, so it must not be hit-tested against the rewound
+   * body (it was: every locked volley at a mover missed online).
+   */
+  function lockedVolley(strafeDir: number, seed: number): number {
+    const { w, me, t } = range('fangtian', seed);
+    t.hp = t.maxHp = 1e6;
+    placeAt(w, t, 0, 15, 0);
+    const viewLag = Math.round((0.05 + INTERP_DELAY) / SIM_DT);
+    const strafe = (): void => w.setInput(t.hero!.playerId, { ...emptyInput(seq++), yaw: 0, moveX: strafeDir });
+    const seen: { x: number; y: number; z: number }[] = [];
+    for (let i = 0; i < aimTicks(W('fangtian')) + 20; i++) {
+      strafe();
+      w.setInput(me.hero!.playerId, frameAt(me, chest(t), BTN_ADS));
+      w.step();
+      seen.push(chest(t));
+    }
+    const aim = seen[seen.length - 1 - viewLag];
+    strafe();
+    w.setInput(me.hero!.playerId, frameAt(me, aim, BTN_ADS | BTN_FIRE, { viewTick: w.tick - viewLag }));
+    w.step();
+    expect(w.projHoming.size).toBe(1);
+    const hp0 = t.hp;
+    for (let i = 0; i < 60; i++) {
+      strafe();
+      w.setInput(me.hero!.playerId, frameAt(me, aim, BTN_ADS));
+      w.step();
+    }
+    return hp0 - t.hp;
+  }
+
+  it("方天's locked rocket from a 100 ms-RTT client still hits a strafer", () => {
+    let dmg = 0;
+    for (const [dir, seed] of [[-1, 3], [1, 4], [-1, 5], [1, 6]] as const) dmg += lockedVolley(dir, seed);
+    // the homing rocket's direct hit + splash (24 + 44) per volley, at least
+    expect(dmg / 4).toBeGreaterThanOrEqual(50);
+  });
 });
 
 describe('bots shoot scoped guns only with the sights up (C10-7)', () => {

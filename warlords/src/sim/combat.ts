@@ -1286,6 +1286,10 @@ function assignHoming(w: World, e: Entity, def: WeaponDef, eye: Vec3, rockets: r
     }
     const r = free.splice(best, 1)[0];
     w.projHoming.set(r.id, { targetId: t.id, turnRate });
+    // a homing rocket steers at where its target is NOW (steerProjectile), so it is hit-tested
+    // against the present too: rewound by a remote shooter's view lag (R11) it met the target's
+    // live body and was tested against the old one — every locked volley missed a mover online
+    if (r.proj) r.proj.lagTicks = undefined;
   }
 }
 
