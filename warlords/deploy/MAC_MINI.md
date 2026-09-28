@@ -258,7 +258,7 @@ launchctl print "gui/$(id -u)/com.sanguo-warlords.server" | grep -E 'state =|pid
 | 网址能打开，但创建房间失败或连不上 | `curl -s http://127.0.0.1:8787/sgwl.json`；`tail -n 50 ~/sanguo-warlords/server.log` | 本机没响应：`launchctl kickstart -k "gui/$(id -u)/com.sanguo-warlords.server"`，30 秒后再查。日志里有 `more than 8 sockets` / `rooms a minute`：同一个公网地址连接太多或开房太频繁（家里 8 个人以上共用一个网络时会碰到），过一分钟再试。 |
 | 房主看到「服务器房间已满，请稍后再试」 | `sgwl.json` 的 `rooms` | 正常：这台 Mac 最多同时开 4 个房间（`MAX_ROOMS=4`）。等别的房间结束再开。 |
 | 房主看到「你这边已经开着房间了，请先关掉一个再创建」 | `grep 'already holds' ~/sanguo-warlords/server.log \| tail -3` | 正常：同一个公网地址（一家人共用一个网络也算一个）最多同时开 2 个房间，服务器托管的也算，免得一个人占满 4 个房间。关掉一个再开。 |
-| 房主看到「服务器关闭了这个房间（空闲太久或开得太久）」 | `grep 'ended' ~/sanguo-warlords/server.log \| tail -5` | 正常，不是故障：房间 15 分钟没有任何玩家之间的对局流量（例如房主一个人在大厅等），或者已经开了 24 小时，中转服务器就关掉它，这个房间号 10 分钟内不能再用。正在进行的对局不会因为开得久被关。让房主重新创建房间，把新的邀请链接发出去。 |
+| 房主看到「服务器关闭了这个房间（空闲太久或开得太久）」 | `grep 'ended' ~/sanguo-warlords/server.log \| tail -5` | 正常，不是故障：房间 15 分钟没有任何玩家之间的对局流量（例如房主一个人在大厅等），或者已经开了 24 小时（一晚上连着玩很多局碰不到；服务器托管的房间没有这个上限），中转服务器就关掉它，这个房间号 10 分钟内不能再用。让房主重新创建房间，把新的邀请链接发出去。 |
 | 朋友换过密钥后还是提示「需要房主发的邀请链接（带密钥）」 | 他打开的是不是 `rotate-key` 之后的新分享链接 | 让他用新链接打开一次：页面向服务器确认新密钥是对的，就换掉浏览器里的旧密钥。 |
 | 首次进游戏加载慢（美术文件） | 玩家浏览器控制台（F12）有没有 `[assets] CDN … did not answer` / `not used any more` | 构建时 `VITE_ASSET_CDN` 指向 jsDelivr 上固定提交的 `warlords/public/`，模型和贴图从那里下载；jsDelivr 连不上时页面自动改从本机下载（更慢，但能玩）。不需要处理。只想用本机：在「马上更新」那条命令前加 `SGWL_ASSET_CDN=off`（只管这一次构建，下一次自动更新又会用 CDN）。 |
 | GitHub 上已经合并了新版本，这台 Mac 还没更新 | `tail -n 20 ~/sanguo-warlords/update.log` | 看原因：「有人在玩」→ 等没人时自动更新；「CI 还没跑完」→ 等几分钟；「CI 没通过」→ 等修复；「GitHub 拒绝查询」→ 下一小时自动恢复。急用就用「马上更新」那条命令（不看 CI）。 |
