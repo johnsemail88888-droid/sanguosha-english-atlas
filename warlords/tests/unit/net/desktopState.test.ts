@@ -129,6 +129,7 @@ async function launch(userData: string): Promise<Launch> {
       setName() {},
       setAppUserModelId() {},
       whenReady: () => readyP,
+      getVersion: () => '0.1.0',
       getGPUFeatureStatus: () => ({ ...gpu }),
       getGPUInfo: () => Promise.resolve({ gpuDevice: [] }),
       quit() {},
@@ -253,6 +254,29 @@ describe('desktop app launches (electron/main.cjs + preload.cjs, stubbed Electro
     unload();
     await fourth.quit();
   }, 30_000);
+
+  it('the page gets the app version and the update bridge; a dev run never checks for updates', async () => {
+    const app = await launch(tmp());
+    const bridge: Record<string, unknown> = {};
+    const unload = preload(memStorage(), app.ipc, bridge);
+    const update = bridge.update as { onState(cb: (st: unknown) => void): () => void; download(): void; restart(): void; check(): void; playing(on: boolean): void };
+    expect(typeof update.onState).toBe('function');
+    for (const fn of ['download', 'restart', 'check', 'playing'] as const) expect(typeof update[fn]).toBe('function');
+    // what the page asks for through the bridge (main.cjs answers)
+    const ev: { returnValue?: unknown } = {};
+    app.ipc['sgwl:update-get'](ev);
+    expect(ev.returnValue).toEqual({ kind: 'none', auto: false, current: '0.1.0', build: null, status: 'idle' });
+    // actions are harmless in a dev run
+    app.ipc['sgwl:update-do']({}, 'check');
+    app.ipc['sgwl:update-do']({}, 'download');
+    app.ipc['sgwl:update-do']({}, 'restart');
+    app.ipc['sgwl:update-playing']({}, true);
+    const ev2: { returnValue?: unknown } = {};
+    app.ipc['sgwl:update-get'](ev2);
+    expect(ev2.returnValue).toMatchObject({ kind: 'none', status: 'idle' });
+    unload();
+    await app.quit();
+  });
 
   it('the page gets the WebGL status the GPU process reported, not the start-up placeholder (Mac: Metal taken for software)', async () => {
     const app = await launch(tmp());

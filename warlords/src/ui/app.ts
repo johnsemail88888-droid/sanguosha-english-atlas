@@ -34,6 +34,7 @@ import { probeWebGL, type WebGLSupport } from './webgl';
 import { clearRejoin, inviteLink, isReconnectable, loadRejoin, netFor, refreshRejoin, type RejoinInfo } from './invite';
 import { copyWhenReady, pendingLink, type InviteNotice, type PendingLink } from './quickInvite';
 import { desktopGpuSoftware, desktopInfo } from './desktop';
+import { reportScreen } from './desktopUpdate';
 import { AutoQualityController, autoPick, autoTuneNeeded } from './autoQuality';
 import { perfVerdict, qualityName } from './perfcheck';
 
@@ -765,6 +766,8 @@ class App implements UiCtx {
       prev.el.remove();
     }
     this.screenId = id;
+    // desktop app: no update check / download / restart from hero select to the end of the match
+    reportScreen(id);
     // the GPU benchmark only runs on quiet menus: a 3D screen stops it, a quiet one may start it
     if (!BENCH_SCREENS.has(id)) {
       if (this.benchRun) this.benchRun.signal.aborted = true;

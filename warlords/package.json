@@ -23,10 +23,11 @@
     "test:perf": "vitest run -c vitest.perf.config.ts"
   },
   "dependencies": {
+    "electron-updater": "6.8.9",
+    "peer": "^1.0.2",
     "peerjs": "^1.5.5",
     "three": "^0.186.1",
-    "ws": "^8.21.3",
-    "peer": "^1.0.2"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
@@ -67,6 +68,13 @@
       "output": "release",
       "buildResources": "build-res"
     },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest/download",
+        "useMultipleRangeRequest": false
+      }
+    ],
     "win": {
       "target": [
         "portable",
@@ -79,8 +87,11 @@
     },
     "nsis": {
       "artifactName": "SanguoWarlords-${version}-Windows-setup.exe",
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
       "shortcutName": "三国杀·枪火乱世"
     },
     "mac": {

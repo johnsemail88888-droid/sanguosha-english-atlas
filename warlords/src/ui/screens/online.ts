@@ -29,6 +29,7 @@ import {
 import { isOfficialWeb, officialServer } from '../../net/official';
 import type { ProbeResult } from '../../net/netCheck';
 import { checkVerdict, classifyP2pFailure, formatCheck, formatProbe, p2pFailureText, p2pFix, type P2pFailure } from '../netHelp';
+import { versionMismatchHint } from '../desktopUpdate';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
 export function normalizeRoomCode(raw: string): string {
@@ -43,8 +44,10 @@ export function normalizeRoomCode(raw: string): string {
 /** Bilingual message from a NetError-like rejection ({zh, en}) or any Error. */
 export function errorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
-    const e = err as { zh?: unknown; en?: unknown; message?: unknown };
-    if (typeof e.zh === 'string' && typeof e.en === 'string') return tx(e.zh, e.en);
+    const e = err as { zh?: unknown; en?: unknown; message?: unknown; code?: unknown };
+    // the desktop app on another version than the room: how to update it (and it checks now)
+    const hint = e.code === 'versionMismatch' ? versionMismatchHint() : null;
+    if (typeof e.zh === 'string' && typeof e.en === 'string') return hint ? `${tx(e.zh, e.en)} — ${hint}` : tx(e.zh, e.en);
     if (typeof e.message === 'string' && e.message) return e.message;
   }
   return String(err);

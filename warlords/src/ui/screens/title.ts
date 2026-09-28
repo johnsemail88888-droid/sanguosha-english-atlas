@@ -9,6 +9,7 @@ import { getLang, t, tx } from '../i18n';
 import { artBackdrop } from '../keyart';
 import { button, nameFieldModel, seal } from '../widgets';
 import { RELEASES_URL, externalLink, gpuChip, gpuWarnDismissed, gpuWarning, isDesktopOs, platformInfo } from '../perfcheck';
+import { createUpdateChip, versionText } from '../desktopUpdate';
 
 /** Periodic ridge line (period = width/2) so the layer can scroll seamlessly. */
 function ridgePath(width: number, height: number, base: number, amps: readonly [number, number, number][], seed: number): string {
@@ -126,6 +127,9 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
   const bag = new Bag();
   const el = h('div', { class: 'sg-screen sg-title', data: { screen: 'title' } });
   const bg = titleBackdrop(bag, () => el.classList.add('has-art'));
+  // desktop app: 「新版本已下载 · 重启并更新」 / 「有新版本 build N · 下载」 (hidden otherwise)
+  const update = createUpdateChip();
+  bag.add(update);
 
   const render = (): void => {
     el.replaceChildren(bg);
@@ -176,6 +180,7 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
     el.classList.toggle('no-gl', noGl);
     if (swWarn) el.append(swWarn);
     el.append(
+      update.el,
       // 「显卡：NVIDIA RTX 5090 ✓」 at a glance (red / amber → 性能体检, where the fix is)
       h('div', { class: 'sg-title-top' }, gpuChip(ctx, 'title'), langBtn),
       h('div', { class: 'sg-title-main' },
@@ -200,8 +205,9 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
           menuItem(t('title.settings'), null, () => ctx.openSettings(), 'dark'),
         ),
       ),
-      h('div', { class: 'sg-title-foot' }, t('app.subtitle'), h('span', { class: 'ver' }, t('title.version', { v: version })), desktopLink()),
+      h('div', { class: 'sg-title-foot' }, t('app.subtitle'), h('span', { class: 'ver' }, t('title.version', { v: versionText(version) })), desktopLink()),
     );
+    update.refresh();
   };
   render();
   return {

@@ -18,7 +18,7 @@
   - 真遇到陌生人来占房间，就运行 `rotate-key` 开启密钥：之后只有拿到**分享链接** `https://<机器名>.<tailnet>.ts.net/?k=<密钥>` 的人能联机（链接在 `status` 的框里）。开启后，朋友第一次要用分享链接打开一次，密钥会记在他的浏览器里；桌面版玩家也要用分享链接打开一次网页版。
   - 开了密钥时，分享链接**只出现在脚本的屏幕输出里**；日志文件里同一行写成 `?k=<key>`，日志可以放心转给别人。
 - 服务器 `~/sanguo-warlords/src/warlords/server/server.mjs` 监听 `127.0.0.1:8787`，由 launchd 常驻：崩溃自动重启，**登录后**自动启动（Mac 重启后靠第 4 步的自动登录），运行时阻止 Mac 睡眠。
-- **每 5 分钟**检查一次更新：GitHub `main` 有新提交、**并且 GitHub 上它的 warlords-ci 通过了**、并且没人在玩，才更新并重启；否则什么都不做（原因每小时最多记一行到 `update.log`）。网页版（GitHub Pages）每次推送都会更新，这样 Mac 最多晚几分钟跟上，「服务器托管对局」不会因为版本不一致长时间退回浏览器托管。 想改成每天一次：更新时加 `SGWL_UPDATE_INTERVAL=86400`（会被记住；单位秒，最少 60）。
+- **每 5 分钟**检查一次更新：GitHub `main` 有新提交、**并且 GitHub 上它的 warlords-ci 通过了**、并且没人在玩，才更新并重启；否则什么都不做（原因每小时最多记一行到 `update.log`）。网页版（GitHub Pages）每次推送都会更新，这样 Mac 最多晚几分钟跟上，「服务器托管对局」不会因为版本不一致长时间退回浏览器托管。 **想改成每天凌晨一次**：更新时加 `SGWL_UPDATE_AT=05:07`（本机时间 HH:MM，会被记住；设了它就只在这个时刻跑，`SGWL_UPDATE_AT=off` 恢复按间隔）。`SGWL_UPDATE_INTERVAL=86400`（每天一次）也会自动落在 05:07，不会从加载那一刻起算、落到晚上玩的时候。时间表改了之后，每次自动更新结束时脚本会按 `host.env` 自己改好并重新加载 LaunchAgent，不用重装。
 - 「服务器托管对局」（headless）：对局在这台 Mac 上运行，而不是在房主的浏览器里——谁都看不到别人的隐藏身份（房主也看不到），房主离开也不散场。
 - **已经装过的 Mac 要用第 3 步那条命令（新下载的脚本）跑一次 `update`**（见「日常运维」的「马上更新」）。
   - 这次 `update` 会：重写游戏服务的 LaunchAgent（`NO_PEER=1`、`MAX_ROOMS=4`、`HOST_GRACE_MS=120000`）；把自动更新改成每 5 分钟检查一次（只更新到 CI 通过的版本，有人在玩不更新；要保持每天一次就加 `SGWL_UPDATE_INTERVAL=86400`）；访问密钥保持关闭（要开就 `SGWL_RELAY_KEY=on` 或事后 `rotate-key`）。
@@ -230,7 +230,7 @@ echo "$D"; SGWL_CHECK_KEY="$K" "$N" ~/sanguo-warlords/src/warlords/deploy/check.
 
 注意：表格里的 `\|` 是 Markdown 转义，实际命令里是普通的 `|`。
 
-自动更新怎么决定（默认每 5 分钟一次，`~/Library/LaunchAgents/com.sanguo-warlords.update.plist` 的 `StartInterval`；`SGWL_UPDATE_INTERVAL` 可改）：
+自动更新怎么决定（默认每 5 分钟一次：`~/Library/LaunchAgents/com.sanguo-warlords.update.plist` 的 `StartInterval`，`SGWL_UPDATE_INTERVAL` 可改；设了 `SGWL_UPDATE_AT` 就是每天那个时刻一次：`StartCalendarInterval`）：
 
 1. 有人在玩（规则 8 的条件）→ 这一轮什么都不做。
 2. 问 GitHub `main` 最新的提交；和本机构建的一样 → 什么都不做（如果之前构建好但因为有人在玩没重启，这时补一次重启）。
