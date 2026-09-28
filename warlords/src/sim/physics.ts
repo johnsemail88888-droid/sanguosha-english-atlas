@@ -13,7 +13,7 @@ import type { Collider, MapData } from '../core/map';
 import { terrainHeight } from '../core/map';
 import type { Vec3 } from '../core/math';
 import type { InputFrame } from '../core/types';
-import { BTN_JUMP, BTN_SPRINT } from '../core/types';
+import { BTN_FIRE, BTN_JUMP, BTN_SPRINT } from '../core/types';
 import { StaticGrid } from './spatial';
 
 // ── Tunables ────────────────────────────────────────────────────────────────
@@ -95,6 +95,8 @@ export interface MoveMods {
   downed: boolean;
   /** sprinting does not break ADS (夏侯渊 神速) */
   sprintAds?: boolean;
+  /** walk multiplier while aimed (the weapon's sim/handling.ts adsMoveMul; default ADS_MUL) */
+  adsMul?: number;
   /** capsule overrides (defaults CHAR_RADIUS / CHAR_HEIGHT) */
   radius?: number;
   height?: number;
@@ -437,12 +439,13 @@ export function predictMove(cw: CollisionWorld, st: MoveState, input: InputFrame
   const inWater = isInWater(cw, st.pos);
   const moving = ml > 0.05 && !mods.rooted;
   const wantSprint = (input.buttons & BTN_SPRINT) !== 0 && mz > 0.3;
-  const sprint =
-    wantSprint && moving && mods.canSprint && !inWater && !mods.downed && (!mods.ads || mods.sprintAds === true);
+  // aiming or holding the trigger never sprints (sprint-to-fire, sim/handling.ts) — unless 神速
+  const busy = mods.ads || (input.buttons & BTN_FIRE) !== 0;
+  const sprint = wantSprint && moving && mods.canSprint && !inWater && !mods.downed && (!busy || mods.sprintAds === true);
   let speed = WALK_SPEED * Math.max(0, mods.speedMul);
   if (mods.downed) speed = WALK_SPEED * DOWNED_MUL * Math.min(1, Math.max(0, mods.speedMul));
   else if (sprint) speed *= SPRINT_MUL;
-  else if (mods.ads) speed *= ADS_MUL;
+  else if (mods.ads) speed *= mods.adsMul ?? ADS_MUL;
   if (inWater) speed *= WATER_MUL;
   if (mz < -0.1 && !mods.downed) speed *= BACKPEDAL_MUL;
 

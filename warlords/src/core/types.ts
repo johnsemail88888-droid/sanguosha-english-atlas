@@ -201,6 +201,10 @@ export interface ProjectileState {
   pierce: number; // remaining pierce-through count
   canDodge: boolean;
   onHitStatus?: { id: StatusId; duration: number; params?: Record<string, number> };
+  /** explosions before this time are duds: the direct hit only (a launcher grenade's arming distance) */
+  armAt?: number;
+  /** lag compensation (a remote human's shot): the ticks units are rewound by when this projectile tests hits, all flight long */
+  lagTicks?: number;
 }
 
 export interface LootState {
@@ -354,6 +358,11 @@ export interface EventRouting {
 export type GameEvent = EventRouting &
   (
     | { t: 'shot'; src: EntityId; weapon: string; from: Vec3; to: Vec3; hit?: EntityId }
+    /**
+     * A 方天 volley locked `target`: `rockets` home onto it (the target's HUD warns until they are
+     * gone, the shooter hears a lock tone). `broken`: a dodge roll shook those rockets off.
+     */
+    | { t: 'lock'; src: EntityId; target: EntityId; weapon: string; rockets: EntityId[]; broken?: boolean }
     | {
         t: 'hit';
         target: EntityId;

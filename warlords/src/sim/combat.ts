@@ -20,8 +20,9 @@ import { BTN_FIRE, SIM_DT } from '../core/types';
 import type { WeaponDef } from '../data/types';
 import type { DamageRequest, DamageResult, ProjectileSpec, RayHit, SimApi } from './api';
 import { BULLET_EVASION_CAP } from '../data';
-import { drawDamageMul, spreadDeg } from '../data/weaponFeel';
+import { bloomAfterShot, decayBloom, drawDamageMul, drawSpeedMul, spreadDeg } from '../data/weaponFeel';
 import { isBulletDamage } from './damageKinds';
+import { semiTrigger } from './handling';
 import { armorDef, heroDef, mountDef, usesAmmo, warnOnce, weaponDef } from './defs';
 import type { HitscanOptions } from './ext';
 import { flingGear } from './items/util';
@@ -815,6 +816,8 @@ export function explodeAt(
     falloff?: boolean;
     knockback?: number;
     selfDamage?: boolean;
+    /** the owner takes this share of the blast (launcher grenades / rockets: LAUNCHER_SELF_MUL); 0 = none unless selfDamage */
+    selfMul?: number;
     canDodge?: boolean;
     status?: { id: import('../core/types').StatusId; duration: number; params?: Record<string, number> };
     abilityId?: string;
@@ -829,7 +832,7 @@ export function explodeAt(
   for (const t of targets) {
     if (!t.alive || t.hero?.dead) continue;
     if (owner !== undefined) {
-      if (t.id === owner && !opts.selfDamage) continue;
+      if (t.id === owner && !opts.selfDamage && !((opts.selfMul ?? 0) > 0)) continue;
       if (t.id !== owner && w.creditOf(t.id) === owner) continue;
     }
     const hb = hitbox(t);
@@ -842,7 +845,7 @@ export function explodeAt(
       const r = dealDamage(w, {
         targetId: t.id,
         sourceId,
-        amount: damage * f,
+        amount: damage * f * (t.id === owner && !opts.selfDamage ? (opts.selfMul ?? 1) : 1),
         type: dtype,
         pos: c,
         canDodge: opts.canDodge ?? true,
@@ -880,22 +883,28 @@ const explosionKind = (dtype: DamageType): string =>
 /**
  * Spread cone in degrees for the hero's current state (data/weaponFeel.ts spreadDeg — the HUD
  * crosshair draws the same number): hip → aimed eased over the class's ADS time, moving widens
- * hip fire, airborne ×1.8, bloom while the trigger stays busy (+7 % per shot, capped at +50 %;
- * was +12 % / ×2 — autos were useless from the hip beyond a few metres, COMBAT-9; ramping guns
- * and flame streams don't bloom).
+ * hip fire and loosens the aimed cone by the class's MOVE_AIMED, airborne ×1.8 (≥ 4°), and the
+ * class's bloom from the shots just fired (BLOOM: it recovers only once the trigger rests).
  */
 export function currentSpread(w: World, e: Entity, def: WeaponDef): number {
   const h = e.hero!;
   const rt = w.heroRt(e.id);
   // (no runtime: a bare hero entity in a test aims instantly)
   const adsT = rt && rt.adsWeapon === def.id ? rt.adsT : h.ads ? 1 : 0;
-  return spreadDeg(def, { adsT, moving: Math.hypot(e.vel.x, e.vel.z) > 1, airborne: !e.onGround, burst: h.burst });
+  const bloom = rt ? decayBloom(def, rt.bloom, w.time - rt.lastFireAt) : 0;
+  return spreadDeg(def, { adsT, moving: Math.hypot(e.vel.x, e.vel.z) > 1, airborne: !e.onGround, bloom });
 }
 
-/** Perturb a unit direction by a random angle within a cone of `deg` degrees. */
-export function spreadDir(w: World, d: Vec3, deg: number): Vec3 {
+/**
+ * Perturb a unit direction by a random angle within a cone of `deg` degrees. `centre`: the
+ * angle is deg·u (centre-weighted: the median shot lands at half the cone) — a single bullet or
+ * arrow of a hero's gun (weapons spec R2); otherwise deg·√u (uniform over the disc): pellets,
+ * flame, troops.
+ */
+export function spreadDir(w: World, d: Vec3, deg: number, centre = false): Vec3 {
   if (deg <= 0) return { x: d.x, y: d.y, z: d.z };
-  const ang = (deg * Math.PI) / 180 * Math.sqrt(w.rng.next());
+  const u = w.rng.next();
+  const ang = ((deg * Math.PI) / 180) * (centre ? u : Math.sqrt(u));
   const th = w.rng.next() * Math.PI * 2;
   // orthonormal basis
   let ux: number;
@@ -991,15 +1000,23 @@ export function heroFire(w: World, e: Entity, rt: HeroRuntime, input: InputFrame
   const held = (input.buttons & BTN_FIRE) !== 0;
   const wasHeld = rt.prevFireHeld;
   rt.prevFireHeld = held;
-  if (!held) {
-    if (w.time - rt.lastFireAt > BURST_RESET) h.burst = 0;
+  const inst = h.weapons[h.activeSlot];
+  const def = inst ? weaponDef(inst.id) : undefined;
+  // autos fire while held; a semi-auto fires once per press — a press up to FIRE_BUFFER before the
+  // gun is ready (or while it comes up from a sprint) waits for it (sim/handling.ts semiTrigger)
+  let trigger = held;
+  if (def && !def.auto) {
+    const t = semiTrigger(w.time, held && !wasHeld, rt.fireQueuedAt, h.nextFireAt, rt.sprintOutUntil);
+    rt.fireQueuedAt = t.queuedAt;
+    trigger = t.fire;
+  }
+  if (!trigger) {
+    if (!held && w.time - rt.lastFireAt > BURST_RESET) h.burst = 0;
     return false;
   }
-  if (!canShoot) return false;
-  const inst = h.weapons[h.activeSlot];
-  if (!inst) return false;
-  const def = weaponDef(inst.id);
-  if (!def.auto && wasHeld) return false;
+  if (!canShoot || !inst || !def) return false;
+  // sprint-to-fire: the gun is still coming up (sim/handling.ts raiseFromSprint)
+  if (w.time + 1e-9 < rt.sprintOutUntil) return false;
   if (h.channel) w.cancelChannel(e.id);
   if (h.reloadUntil > w.time) return false;
   const ammo = usesAmmo(def);
@@ -1033,6 +1050,9 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
   const now = w.time;
   if (usesAmmo(def) && !findStatus(e, 'noReload', now) && !w.modifiers(e.id).infiniteAmmo) inst.mag = Math.max(0, inst.mag - 1);
   h.burst++;
+  // this shot's cone carries the bloom of the shots before it; then it adds its own (data/weaponFeel.ts BLOOM)
+  const spread = currentSpread(w, e, def);
+  rt.bloom = bloomAfterShot(def, rt.bloom, now - rt.lastFireAt);
   rt.lastFireAt = now;
   if (e.statuses.length > 0) removeStatusIf(w, e, 'stealth', breaksOnFire);
 
@@ -1059,7 +1079,6 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
     dz /= dl;
   }
   const baseDir = { x: dx, y: dy, z: dz };
-  const spread = currentSpread(w, e, def);
   const isHuman = !w.isBotHero(e);
   const rewind = isHuman ? w.rewindTickFor(e) : undefined;
 
@@ -1072,18 +1091,25 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
   if (def.projectile) {
     const pr = def.projectile;
     const count = Math.max(1, def.pellets);
-    const homing = def.special === 'multiTarget';
-    const targets = homing ? pickHomingTargets(w, e, aim, def) : [];
+    const aimT = rt.adsWeapon === def.id ? rt.adsT : 0;
+    // 方天: fired fully aimed, the volley locks distinct targets near the crosshair ray; hip-fired rockets fly straight
+    const targets = def.special === 'multiTarget' && aimT >= LOCK_ADS_T ? pickHomingTargets(w, e, eye, baseDir, def) : [];
     const fan = count > 1 ? (def.specialParams.fanDeg ?? 8) : 0;
     const forceHit = def.special === 'forceHit' || (def.specialParams.dodgeIgnore ?? 0) > 0;
+    // bows: an undrawn arrow flies slower too (data/weaponFeel.ts drawSpeedMul; its damage is in `mul`)
+    const speed = pr.speed * drawSpeedMul(def, aimT);
+    const armDist = def.specialParams.armDist ?? 0;
+    // a remote human's projectile tests hits against units rewound to what he saw, all flight long (R11)
+    const lagTicks = rewind !== undefined ? Math.max(0, w.tick - rewind) : 0;
+    const spawned: Entity[] = [];
     for (let i = 0; i < count; i++) {
-      let d = spreadDir(w, baseDir, spread);
+      let d = spreadDir(w, baseDir, spread, count === 1);
       if (fan > 0) d = rotateYaw(d, (i / (count - 1) - 0.5) * fan * (Math.PI / 180));
       const proj = w.spawnProjectile({
         kind: pr.kind,
         ownerId: e.id,
         pos: { x: eye.x + d.x * 0.6, y: eye.y + d.y * 0.6, z: eye.z + d.z * 0.6 },
-        vel: { x: d.x * pr.speed, y: d.y * pr.speed, z: d.z * pr.speed },
+        vel: { x: d.x * speed, y: d.y * speed, z: d.z * speed },
         damage: def.damage * mul,
         dtype: def.special === 'fireConvert' ? 'fire' : def.dtype,
         gravity: pr.gravity,
@@ -1093,11 +1119,16 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
         pierce: 0,
         canDodge: !forceHit,
         weaponId: def.id,
+        // arrows are thin: the default 0.1 m made bodies 25 % wider for bows than for bullets (R8)
+        radius: def.class === 'bow' && pr.explodeRadius <= 0 ? ARROW_RADIUS : undefined,
       });
-      if (targets.length > 0) {
-        w.projHoming.set(proj.id, { targetId: targets[i % targets.length].id, turnRate: def.specialParams.turnRate ?? 4 });
+      if (proj.proj) {
+        if (armDist > 0) proj.proj.armAt = now + armDist / Math.max(1, speed);
+        if (lagTicks > 0) proj.proj.lagTicks = lagTicks;
       }
+      spawned.push(proj);
     }
+    if (targets.length > 0) assignHoming(w, e, def, eye, spawned, targets);
     w.emit({ t: 'shot', src: e.id, weapon: def.id, from: eye, to: aim });
     w.hooks.onFire(e, def.id);
     return;
@@ -1112,7 +1143,7 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
   let firstHit: EntityId | undefined;
   const ignoreOwn = (x: Entity): boolean => x === e || w.creditOf(x.id) === e.id;
   for (let p = 0; p < pellets; p++) {
-    const d = spreadDir(w, baseDir, spread);
+    const d = spreadDir(w, baseDir, spread, pellets === 1);
     let from = eye;
     let remaining = def.maxRange;
     const skipIds: Entity[] = [];
@@ -1185,15 +1216,89 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
   w.hooks.onFire(e, def.id);
 }
 
-/** Distinct lock-on targets near the aim point for multiTarget rockets (方天画戟). */
-function pickHomingTargets(w: World, e: Entity, aim: Vec3, def: WeaponDef): Entity[] {
-  const radius = def.specialParams.lockRadius ?? 10;
-  const max = Math.max(1, def.specialParams.maxTargets ?? 3);
-  const cands = w
-    .queryRadius(aim, radius, { kinds: UNIT_KINDS, notFriendlyTo: e.id, exclude: [e.id] })
-    .filter((c) => !c.hero?.dead && !findStatus(c, 'untargetable', w.time));
-  cands.sort((a, b) => Math.hypot(a.pos.x - aim.x, a.pos.z - aim.z) - Math.hypot(b.pos.x - aim.x, b.pos.z - aim.z));
-  return cands.slice(0, max);
+/** 方天: a volley locks only when fired fully aimed (the launcher's ADS time; aim progress at least this). */
+export const LOCK_ADS_T = 0.95;
+/** Share of his own launcher blast the shooter takes (R6). */
+export const LAUNCHER_SELF_MUL = 0.5;
+/** Non-explosive arrows' collision radius (m). */
+export const ARROW_RADIUS = 0.04;
+
+/**
+ * Lock-on targets of a multiTarget volley (方天画戟): up to maxTargets distinct enemy units (seen,
+ * not untargetable) within lockDeg° of the crosshair ray and lockRange m of the shooter, nearest
+ * angle first. Angular, not a radius around the crosshair's hit point: that point lands short of
+ * or beside the aimed body, and the neighbours of a group went unlocked (weapons spec R7).
+ */
+export function pickHomingTargets(w: World, e: Entity, eye: Vec3, dir: Vec3, def: WeaponDef): Entity[] {
+  const p = def.specialParams;
+  const max = Math.max(1, p.maxTargets ?? 3);
+  const range = p.lockRange ?? 40;
+  const cosMax = Math.cos(((p.lockDeg ?? 10) * Math.PI) / 180);
+  const found: { e: Entity; cos: number }[] = [];
+  for (const c of w.queryRadius(e.pos, range, { kinds: UNIT_KINDS, notFriendlyTo: e.id, exclude: [e.id] })) {
+    if (!c.alive || c.hero?.dead || findStatus(c, 'untargetable', w.time)) continue;
+    const at = w.centerOf(c);
+    const vx = at.x - eye.x;
+    const vy = at.y - eye.y;
+    const vz = at.z - eye.z;
+    const vl = Math.hypot(vx, vy, vz);
+    if (vl < 1e-3 || vl > range) continue;
+    const cos = (vx * dir.x + vy * dir.y + vz * dir.z) / vl;
+    if (cos < cosMax) continue;
+    if (!w.lineOfSight(eye, at)) continue;
+    found.push({ e: c, cos });
+  }
+  found.sort((a, b) => b.cos - a.cos || a.e.id - b.e.id);
+  return found.slice(0, max).map((f) => f.e);
+}
+
+/**
+ * One homing rocket per locked target — the rocket of the fan already pointing closest to it; the
+ * rest fly straight at full damage (the card's extra 杀 targets, never extra damage on one). Each
+ * locked target is told (the 'lock' event: its HUD warns, the shooter hears the tone).
+ */
+function assignHoming(w: World, e: Entity, def: WeaponDef, eye: Vec3, rockets: readonly Entity[], targets: readonly Entity[]): void {
+  const free = rockets.slice();
+  const turnRate = def.specialParams.turnRate ?? 4;
+  for (const t of targets) {
+    if (free.length === 0) break;
+    const at = w.centerOf(t);
+    let best = 0;
+    let bestCos = -Infinity;
+    for (let i = 0; i < free.length; i++) {
+      const v = free[i].vel;
+      const vl = Math.hypot(v.x, v.y, v.z) || 1;
+      const dx = at.x - eye.x;
+      const dy = at.y - eye.y;
+      const dz = at.z - eye.z;
+      const dl = Math.hypot(dx, dy, dz) || 1;
+      const cos = (v.x * dx + v.y * dy + v.z * dz) / (vl * dl);
+      if (cos > bestCos) {
+        bestCos = cos;
+        best = i;
+      }
+    }
+    const r = free.splice(best, 1)[0];
+    w.projHoming.set(r.id, { targetId: t.id, turnRate });
+    w.emit({ t: 'lock', src: e.id, target: t.id, weapon: def.id, rockets: [r.id] });
+  }
+}
+
+/** A dodge roll shakes off every rocket homing on `target` (they fly on straight). */
+export function breakLocksOn(w: World, target: Entity): void {
+  let rockets: EntityId[] | null = null;
+  let src: EntityId | undefined;
+  let weapon = '';
+  for (const [pid, hom] of w.projHoming) {
+    if (hom.targetId !== target.id) continue;
+    const p = w.ents.get(pid);
+    w.projHoming.delete(pid);
+    if (!p?.alive) continue;
+    (rockets ??= []).push(pid);
+    src ??= p.ownerId;
+    weapon ||= p.proj?.weaponId ?? '';
+  }
+  if (rockets && src !== undefined) w.emit({ t: 'lock', src, target: target.id, weapon, rockets, broken: true });
 }
 
 function rotateYaw(d: Vec3, a: number): Vec3 {
@@ -1389,6 +1494,8 @@ export function updateProjectiles(w: World, list: readonly Entity[], dt: number)
     const d = { x: vx / (len / dt), y: vy / (len / dt), z: vz / (len / dt) };
     const owner = p.ownerId;
     const ownerCredit = w.creditOf(owner);
+    // a remote human's shot: units rewound by his view lag, the whole flight (R11 — like hitscan)
+    const rewindTick = pr.lagTicks ? Math.max(0, w.tick - pr.lagTicks) : undefined;
     // the pierced set is read live: a unit pierced earlier in this very step is not hit again
     const skip = (x: Entity): boolean =>
       x.id === owner || (ownerCredit !== undefined && w.creditOf(x.id) === ownerCredit) || (w.projPierced.get(p.id)?.has(x.id) ?? false);
@@ -1398,7 +1505,7 @@ export function updateProjectiles(w: World, list: readonly Entity[], dt: number)
     for (let guard = 0; guard < 4 && remaining > 1e-4; guard++) {
       let staticT = Infinity;
       if (raycastStatic(w.cw, from.x, from.y, from.z, d.x, d.y, d.z, remaining, staticHit)) staticT = staticHit.t;
-      const eh = raycastEntities(w, from.x, from.y, from.z, d.x, d.y, d.z, Math.min(remaining, staticT), skip, undefined, p.radius);
+      const eh = raycastEntities(w, from.x, from.y, from.z, d.x, d.y, d.z, Math.min(remaining, staticT), skip, rewindTick, p.radius);
       if (eh) {
         const hp = { x: from.x + d.x * eh.t, y: from.y + d.y * eh.t, z: from.z + d.z * eh.t };
         const t = eh.entity;
@@ -1550,14 +1657,19 @@ function steerProjectile(w: World, p: Entity, targetId: EntityId, maxAngle: numb
 function detonate(w: World, p: Entity, at: Vec3, hitId?: EntityId): void {
   const pr = p.proj!;
   projectileGone(w, p, at, hitId);
-  if (pr.explodeRadius > 0) {
+  // not yet armed (a launcher grenade inside its arming distance): a dud — the direct hit only
+  const armed = pr.armAt === undefined || w.time + 1e-9 >= pr.armAt;
+  if (pr.explodeRadius > 0 && armed) {
     const src = p.ownerId !== undefined ? w.ents.get(p.ownerId) : undefined;
+    const launcher = pr.weaponId !== undefined && weaponDef(pr.weaponId).class === 'launcher';
     explodeAt(w, at, pr.explodeRadius, pr.explodeDamage, pr.dtype === 'normal' ? 'explosive' : pr.dtype, p.ownerId, {
       kind: pr.kind,
       canDodge: pr.canDodge,
       weaponId: pr.weaponId,
       abilityId: pr.abilityId,
       knockback: pr.explodeRadius * 0.6,
+      // your own grenade / rocket hurts you too (R6)
+      selfMul: launcher ? LAUNCHER_SELF_MUL : 0,
     });
     if (pr.weaponId && src) {
       const def = weaponDef(pr.weaponId);

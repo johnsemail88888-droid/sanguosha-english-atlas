@@ -3,9 +3,13 @@
 // audio play instantly instead of one round trip later. Mirrors the sim's
 // heroFire (sim/combat.ts) gating and pacing:
 //   - no shot while dead / downed / stunned / disarmed / dancing / reloading
-//   - semi-auto weapons fire once per press, autos at fireRate (zhuge-style
-//     'rapid' ramp included); an unknown extra multiplier (fireRateUp status,
-//     passive modifiers) is inferred from the cadence of the host's own shots
+//   - semi-auto weapons fire once per press — a press up to FIRE_BUFFER early
+//     waits for the gun (sim/handling.ts semiTrigger, the host's own rule) —
+//     autos at fireRate (zhuge-style 'rapid' ramp included); an unknown extra
+//     multiplier (fireRateUp status, passive modifiers) is inferred from the
+//     cadence of the host's own shots
+//   - sprint-to-fire: fire / ADS pressed while sprinting raises the gun for the
+//     class's sprintOut first (sim/handling.ts raiseFromSprint)
 //   - the magazine gate uses host mag minus predictions not yet confirmed by a
 //     host 'shot' event, and is skipped under noReload / infinite ammo
 // Every host 'shot' of the local hero is offered to confirmHostShot(): when it
@@ -13,6 +17,7 @@
 // visuals (no double muzzle flash); shots from other sources (abilities,
 // chain effects) never consume predictions. Pure TS (unit-tested in node).
 import type { WeaponDef } from '../data/types';
+import { raiseFromSprint, semiTrigger, type HandlingDef } from '../sim/handling';
 
 /** Unconfirmed predictions older than this are dropped (host never fired them). */
 export const PREDICTION_TTL = 0.7;
@@ -30,6 +35,12 @@ export interface LocalFireGate {
   reloading: boolean;
   /** 'noReload' status (咆哮, 连营, 奇才…): firing does not consume the magazine */
   noReload: boolean;
+  /** (optional) the local hero was sprinting a moment ago (VF_SPRINTING / predicted): fire or ADS raises the gun first */
+  sprinting?: boolean;
+  /** (optional) ADS held (raises the gun out of a sprint like fire does) */
+  ads?: boolean;
+  /** (optional) 神速: sprinting keeps the gun up (no raise) */
+  sprintAds?: boolean;
 }
 
 export interface LocalWeapon {
@@ -39,7 +50,7 @@ export interface LocalWeapon {
   mag: number;
 }
 
-type FireDef = Pick<WeaponDef, 'auto' | 'fireRate' | 'magSize' | 'special' | 'specialParams'> & { melee?: unknown };
+type FireDef = Pick<WeaponDef, 'auto' | 'fireRate' | 'magSize' | 'special' | 'specialParams'> & { melee?: unknown } & Partial<HandlingDef>;
 
 interface Pending {
   t: number;
@@ -60,6 +71,10 @@ export class LocalFirePredictor {
   /** host shots confirmed with no magazine change: the hero has infinite ammo */
   private freeShots = 0;
   private lastMag = -1;
+  /** a semi-auto press waiting for the gun (−1 none) */
+  private queuedAt = -1;
+  /** the gun is coming up out of a sprint until then */
+  private raiseUntil = 0;
 
   /** Outstanding (unconfirmed) predictions for a weapon. */
   outstanding(weaponId: string): number {
@@ -88,13 +103,25 @@ export class LocalFirePredictor {
       this.rateMul = 1;
       this.freeShots = 0;
       this.lastMag = weapon.mag;
+      this.queuedAt = -1;
     }
     if (weapon.mag !== this.lastMag) {
       this.lastMag = weapon.mag;
       this.freeShots = 0;
     }
-    if (!held || !gate.canShoot || gate.reloading) return 0;
-    if (!def.auto && !pressed) return 0;
+    const hd = def.id !== undefined && def.class !== undefined ? { id: def.id, class: def.class } : undefined;
+    this.raiseUntil = raiseFromSprint(time, this.raiseUntil, !!gate.sprinting, held, !!gate.ads, !!gate.sprintAds, hd);
+    if (!gate.canShoot || gate.reloading) {
+      this.queuedAt = -1;
+      return 0;
+    }
+    let trigger = held;
+    if (!def.auto) {
+      const t = semiTrigger(time, pressed, this.queuedAt, this.nextAt, this.raiseUntil);
+      this.queuedAt = t.queuedAt;
+      trigger = t.fire;
+    } else if (time + 1e-9 < this.raiseUntil) trigger = false;
+    if (!trigger) return 0;
     const ammo = !def.melee && def.magSize > 0;
     const infinite = gate.noReload || this.freeShots >= 3;
     // resync pacing after an idle period (sim: nextFireAt < time - SIM_DT → time)
@@ -142,6 +169,8 @@ export class LocalFirePredictor {
     this.rateMul = 1;
     this.freeShots = 0;
     this.lastMag = -1;
+    this.queuedAt = -1;
+    this.raiseUntil = 0;
   }
 
   private expire(time: number): void {

@@ -153,6 +153,15 @@ export function drawDamageMul(def: WeaponDef, adsT: number): number {
   return BOW_HIP_DAMAGE + (1 - BOW_HIP_DAMAGE) * adsEase(adsT);
 }
 
+/** Bows: arrow speed of a hip (undrawn) shot as a fraction of a full draw. */
+export const BOW_HIP_SPEED = 0.55;
+
+/** Arrow-speed multiplier of a bow shot at aim progress `adsT` (1 at full draw; other classes 1): the same draw as drawDamageMul. */
+export function drawSpeedMul(def: WeaponDef, adsT: number): number {
+  if (def.class !== 'bow') return 1;
+  return BOW_HIP_SPEED + (1 - BOW_HIP_SPEED) * adsEase(adsT);
+}
+
 /** Seconds of held breath (Shift while scoped) before you must breathe out. */
 export const HOLD_BREATH_MAX = 4;
 /** After running out of breath: seconds of heavier sway before it settles. */
@@ -183,9 +192,59 @@ export function stepAdsT(t: number, aiming: boolean, adsTime: number, dt: number
 
 // ── spread (the sim's own formula; the HUD crosshair draws the same number) ──
 
-/** spread bloom per consecutive shot and its cap (fractions of the base spread) */
-export const BLOOM_PER_SHOT = 0.07;
-export const BLOOM_MAX = 0.5;
+/**
+ * Bloom per class (weapons spec R3): each shot adds `per` (a fraction of the base cone), capped at
+ * `max`; once no shot came for bloomIdle(def) the bloom recovers at `decay` per second (linearly).
+ * A held automatic burst never recovers (its shots come faster than bloomIdle).
+ */
+export interface BloomRow {
+  per: number;
+  max: number;
+  decay: number;
+}
+const NO_BLOOM: BloomRow = { per: 0, max: 0, decay: 1 };
+export const BLOOM: Readonly<Record<WeaponClass, BloomRow>> = {
+  pistol: { per: 0.25, max: 1.0, decay: 2.5 },
+  smg: { per: 0.06, max: 0.6, decay: 1.5 },
+  rifle: { per: 0.15, max: 1.0, decay: 2.0 },
+  crossbow: { per: 0.3, max: 1.2, decay: 3 },
+  lmg: { per: 0.05, max: 0.8, decay: 1.0 },
+  dmr: { per: 0.4, max: 1.6, decay: 4 },
+  sniper: NO_BLOOM, // a bolt between shots
+  bow: NO_BLOOM,
+  shotgun: NO_BLOOM,
+  launcher: NO_BLOOM,
+  flamer: NO_BLOOM,
+  melee: NO_BLOOM,
+};
+
+/** The weapon's bloom row: ramping guns (诸葛) never bloom (a wide cone instead); automatic pistols (雌雄 akimbo) bloom like SMGs. */
+export function bloomRow(def: WeaponDef): BloomRow {
+  if (def.special === 'rapid') return NO_BLOOM;
+  if (def.class === 'pistol' && def.auto) return BLOOM.smg;
+  return BLOOM[def.class] ?? NO_BLOOM;
+}
+
+/** Seconds without a shot before the bloom starts to recover: max(0.1, 1.2 / fire rate). */
+export const bloomIdle = (def: WeaponDef): number => Math.max(0.1, 1.2 / Math.max(0.05, def.fireRate));
+
+/** Bloom `since` seconds after the last shot (the bloom was `bloom` right after it). */
+export function decayBloom(def: WeaponDef, bloom: number, since: number): number {
+  if (!(bloom > 0)) return 0;
+  return Math.max(0, bloom - Math.max(0, since - bloomIdle(def)) * bloomRow(def).decay);
+}
+
+/** Bloom right after a shot fired `since` seconds after the previous one (sim/combat.ts fireOne; a local crosshair can mirror it). */
+export function bloomAfterShot(def: WeaponDef, bloom: number, since: number): number {
+  const row = bloomRow(def);
+  return Math.min(row.max, decayBloom(def, bloom, since) + row.per);
+}
+
+/** Bloom of `burst` back-to-back shots (no recovery between them): for callers that only count shots. */
+export function bloomOfBurst(def: WeaponDef, burst: number): number {
+  const row = bloomRow(def);
+  return Math.min(row.max, Math.max(0, burst) * row.per);
+}
 
 export interface SpreadState {
   /** aim progress 0 (hip) … 1 (aimed) */
@@ -193,15 +252,18 @@ export interface SpreadState {
   /** moving faster than a shuffle */
   moving: boolean;
   airborne: boolean;
-  /** consecutive shots */
-  burst: number;
+  /** bloom fraction now (decayBloom of the last shot's bloom — the sim's HeroRuntime.bloom) */
+  bloom?: number;
+  /** (legacy) consecutive shots, for a caller without a bloom: read as bloomOfBurst */
+  burst?: number;
 }
 
 /**
  * Degrees added to the aimed cone while moving: a scope is only steady standing
- * still (a sniper that strafes misses), a rifle's sights barely care.
+ * still (a sniper that strafes misses), a rifle's sights barely care, and the
+ * mobile guns — SMGs and pistols — least of all.
  */
-export const MOVE_AIMED: Readonly<Partial<Record<WeaponClass, number>>> = { sniper: 2.5, dmr: 1.2, bow: 1 };
+export const MOVE_AIMED: Readonly<Partial<Record<WeaponClass, number>>> = { sniper: 2.5, dmr: 1.2, bow: 1, smg: 0.25, pistol: 0.25 };
 const MOVE_AIMED_OTHER = 0.4;
 /** Mid-air nothing is accurate: the cone is at least this wide (degrees). */
 export const AIRBORNE_MIN_SPREAD = 4;
@@ -210,8 +272,8 @@ export const AIRBORNE_MIN_SPREAD = 4;
  * Spread cone (degrees, half-angle) for this state: hip → aimed eased over the
  * aim time; moving widens hip fire by 35 % and adds MOVE_AIMED's degrees to the
  * aimed cone; airborne ×1.8 and never under AIRBORNE_MIN_SPREAD (a scoped
- * sniper is not a laser mid-jump); +7 % per shot while the trigger stays busy,
- * capped at +50 % (ramping guns and flame streams don't bloom).
+ * sniper is not a laser mid-jump); then × (1 + bloom), the class's bloom
+ * (BLOOM) from the shots just fired.
  */
 export function spreadDeg(def: WeaponDef, s: SpreadState): number {
   const a = adsEase(s.adsT);
@@ -221,7 +283,8 @@ export function spreadDeg(def: WeaponDef, s: SpreadState): number {
     if (!def.melee) spread += (MOVE_AIMED[def.class] ?? MOVE_AIMED_OTHER) * a;
   }
   if (s.airborne && !def.melee) spread = Math.max(spread * 1.8, AIRBORNE_MIN_SPREAD);
-  if (def.special !== 'rapid' && def.class !== 'flamer') spread *= 1 + Math.min(BLOOM_MAX, Math.max(0, s.burst) * BLOOM_PER_SHOT);
+  const bloom = s.bloom ?? bloomOfBurst(def, s.burst ?? 0);
+  spread *= 1 + Math.max(0, bloom);
   return Math.max(0, spread);
 }
 

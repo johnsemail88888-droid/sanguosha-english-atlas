@@ -56,6 +56,7 @@ import {
   type MoveMods,
   type MoveState,
 } from '../sim/physics';
+import { adsMoveMul } from '../sim/handling';
 import { quantizeInput } from './codec';
 import { copyEntityInto, emptyZone, lerpEntityInto, lerpZoneInto, MAX_QUEUED_EVENTS, ViewEntityPool } from './interp';
 import { INPUT_REDUNDANCY, type InputPacket } from './protocol';
@@ -308,8 +309,11 @@ export class ClientView implements ViewSource {
   private moveMods(frame: InputFrame): MoveMods {
     const you = this.latestYou;
     const ads = (frame.buttons & BTN_ADS) !== 0;
-    if (you?.moveMods) return { ...you.moveMods, ads, downed: you.downed };
-    return estimateMoveMods(you, ads);
+    // walk speed with the sights up: the host's rule for the weapon in hand (sim/handling.ts adsMoveMul)
+    const w = you?.weapons[you.activeSlot];
+    const adsMul = adsMoveMul(w ? WEAPON_BY_ID[w.id] : undefined);
+    if (you?.moveMods) return { ...you.moveMods, ads, downed: you.downed, adsMul };
+    return { ...estimateMoveMods(you, ads), adsMul };
   }
 
   /** Advance a predicted state by one input frame (one host tick). */

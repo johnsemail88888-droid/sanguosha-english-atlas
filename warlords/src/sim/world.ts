@@ -38,6 +38,7 @@ import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, SIM_DT, emptyInput } from '../core
 import type { GameMode } from '../core/types';
 import { ROLE_BY_ID, isPassiveAbility } from '../data';
 import { aimProfile, stepAdsT } from '../data/weaponFeel';
+import { adsMoveMul, raiseFromSprint } from './handling';
 import type { AbilityDef, HeroDef, WeaponDef } from '../data/types';
 import { NAV_MAIN, buildNavGrid, locateNode, findPath as navFindPath } from './map/nav';
 import type { NavGrid } from './map/nav';
@@ -69,6 +70,7 @@ import {
   DOWNED_DAMAGE_TO_SECONDS,
   LAG_COMP_MAX_TICKS,
   LagHistory,
+  breakLocksOn,
   dealDamage,
   explodeAt,
   fireHitscanShot,
@@ -215,6 +217,12 @@ export interface HeroRuntime {
   adsT: number;
   /** the weapon adsT belongs to (another weapon in hand starts from the hip) */
   adsWeapon: string;
+  /** spread bloom right after the last shot (at lastFireAt; data/weaponFeel.ts BLOOM) */
+  bloom: number;
+  /** sprint-to-fire: the gun comes up from a sprint until this time (no shot, adsT held at 0; sim/handling.ts) */
+  sprintOutUntil: number;
+  /** a semi-auto press waiting for the gun (fire buffer, sim/handling.ts FIRE_BUFFER): when it came, −1 none */
+  fireQueuedAt: number;
 }
 
 export interface PlayerSlot {
@@ -498,6 +506,9 @@ export class World implements SimExt, SimHost {
         followUpUntil: 0,
         adsT: 0,
         adsWeapon: '',
+        bloom: 0,
+        sprintOutUntil: 0,
+        fireQueuedAt: -1,
         focusAt: -99,
         bountyKills: 0,
         baseMaxHp: maxHp,
@@ -981,6 +992,10 @@ export class World implements SimExt, SimHost {
     // as the client predicts it — never from host-only state such as last
     // tick's sprint flag.
     const wantAds = (input.buttons & BTN_ADS) !== 0;
+    // sprint-to-fire: fire or ADS pressed mid-sprint ends the sprint (predictMove: fire held never
+    // sprints) and the gun takes the class's sprintOut to come up (sim/handling.ts)
+    const heldWi = h.weapons[h.activeSlot];
+    rt.sprintOutUntil = raiseFromSprint(now, rt.sprintOutUntil, h.sprinting, (input.buttons & BTN_FIRE) !== 0, wantAds, rt.mods.sprintAds, heldWi ? weaponDef(heldWi.id) : undefined);
     const st = rt.move;
     st.pos = e.pos;
     st.vel = e.vel;
@@ -1015,6 +1030,8 @@ export class World implements SimExt, SimHost {
       rt.adsT = 0;
     }
     rt.adsT = stepAdsT(rt.adsT, h.ads, aimProfile(aimWi ? weaponDef(aimWi.id) : undefined).adsTime, dt);
+    // the gun is still coming up out of a sprint: the sights are not up yet
+    if (now < rt.sprintOutUntil) rt.adsT = 0;
     if (!cs.stunned) {
       e.yaw = finiteOr(input.yaw, e.yaw);
       e.pitch = clamp(finiteOr(input.pitch, 0), -1.45, 1.45);
@@ -1051,6 +1068,8 @@ export class World implements SimExt, SimHost {
     m.ads = wantAds; // raw button, as the client passes it (see updateHero)
     m.downed = h.downed;
     m.sprintAds = rt.mods.sprintAds;
+    // walk speed with the sights up: the class's (net/clientView.ts derives the same from the weapon)
+    m.adsMul = adsMoveMul(wdef);
     return m;
   }
 
@@ -1144,6 +1163,8 @@ export class World implements SimExt, SimHost {
     this.cancelChannel(e.id);
     this.dash(e.id, { x: dx, y: 0, z: dz }, DODGE_DISTANCE, DODGE_TIME, { invuln: true });
     h.dodgingUntil = this.time + DODGE_TIME;
+    // a roll shakes off the 方天 rockets locked on you (they fly on straight)
+    if (this.projHoming.size > 0) breakLocksOn(this, e);
     h.dodgeCharges--;
     if (h.dodgeRechargeAt <= 0) h.dodgeRechargeAt = this.time + DODGE_RECHARGE * rt.mods.dodgeRechargeMul;
     this.hooks.onDodge(e);

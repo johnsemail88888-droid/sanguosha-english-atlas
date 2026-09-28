@@ -7,9 +7,9 @@ import type { WeaponClass, WeaponDef } from '../../../src/data/types';
 import {
   AIM_PROFILES,
   AIRBORNE_MIN_SPREAD,
-  BLOOM_MAX,
-  BLOOM_PER_SHOT,
+  BLOOM,
   BOW_HIP_DAMAGE,
+  BOW_HIP_SPEED,
   MOVE_AIMED,
   accuracyScore,
   adsEase,
@@ -17,7 +17,13 @@ import {
   adsZooms,
   aimProfile,
   aimSummary,
+  bloomAfterShot,
+  bloomIdle,
+  bloomOfBurst,
+  bloomRow,
+  decayBloom,
   drawDamageMul,
+  drawSpeedMul,
   isScopedBow,
   pickupSlot,
   recoilSettleDelay,
@@ -34,12 +40,11 @@ import { crosshairStyle } from '../../../src/ui/hud/logic';
 const CLASSES: WeaponClass[] = ['pistol', 'smg', 'rifle', 'shotgun', 'dmr', 'sniper', 'lmg', 'launcher', 'flamer', 'bow', 'crossbow', 'melee'];
 const W = (id: string): WeaponDef => WEAPON_BY_ID[id]!;
 
-/** The sim's spread before the aim time existed (sim/combat.ts, COMBAT-9): what hip / aimed must still give. */
-function legacySpread(def: WeaponDef, ads: boolean, moving: boolean, airborne: boolean, burst: number): number {
+/** The sim's spread before the aim time existed (sim/combat.ts, COMBAT-9), before any bloom: what hip / aimed must still give. */
+function legacySpread(def: WeaponDef, ads: boolean, moving: boolean, airborne: boolean): number {
   let spread = ads ? def.spreadAds : def.spreadHip;
   if (moving && !ads) spread *= 1.35;
   if (airborne) spread *= 1.8;
-  if (def.special !== 'rapid' && def.class !== 'flamer') spread *= 1 + Math.min(BLOOM_MAX, burst * BLOOM_PER_SHOT);
   return Math.max(0, spread);
 }
 
@@ -160,24 +165,56 @@ describe('bows: the draw is the damage', () => {
     expect(drawDamageMul(W('xiaoji'), 0.5)).toBeLessThan(1);
     expect(drawDamageMul(W('qilin'), 0)).toBe(1);
     expect(drawDamageMul(W('carbine'), 0)).toBe(1);
+    // the same draw sets the arrow's speed (R5: not a second, stacked multiplier)
+    expect(drawSpeedMul(W('liegong'), 0)).toBeCloseTo(BOW_HIP_SPEED, 9);
+    expect(drawSpeedMul(W('liegong'), 1)).toBe(1);
+    expect(drawSpeedMul(W('xiaoji'), 0.5)).toBeCloseTo(BOW_HIP_SPEED + (1 - BOW_HIP_SPEED) * adsEase(0.5), 9);
+    expect(drawSpeedMul(W('guanshi'), 0)).toBe(1);
   });
 });
 
 describe('spread (the sim formula the HUD crosshair draws)', () => {
-  it('is exactly the old spread on the ground: at the hip (standing or moving) and aimed standing still', () => {
+  it('is the old spread on the ground (at the hip, standing or moving; aimed standing still) × (1 + the bloom)', () => {
     for (const def of WEAPONS) {
       for (const [ads, moving] of [[false, false], [false, true], [true, false]] as const) {
-        for (const burst of [0, 3, 20]) {
-          const now = spreadDeg(def, { adsT: ads ? 1 : 0, moving, airborne: false, burst });
-          expect(now, `${def.id} ${ads} ${moving} ${burst}`).toBeCloseTo(legacySpread(def, ads, moving, false, burst), 9);
+        for (const bloom of [0, 0.3, 1]) {
+          const now = spreadDeg(def, { adsT: ads ? 1 : 0, moving, airborne: false, bloom });
+          expect(now, `${def.id} ${ads} ${moving} ${bloom}`).toBeCloseTo(legacySpread(def, ads, moving, false) * (1 + bloom), 9);
         }
       }
+      // a caller that only counts shots (no bloom) reads them as back-to-back shots
+      expect(spreadDeg(def, { adsT: 0, moving: false, airborne: false, burst: 4 })).toBeCloseTo(def.spreadHip * (1 + bloomOfBurst(def, 4)), 9);
     }
+  });
+
+  it('blooms per class (R3): each shot adds its share up to the cap, no recovery inside a held burst, then a linear recovery', () => {
+    const carbine = W('carbine');
+    const row = bloomRow(carbine);
+    expect(row).toBe(BLOOM.rifle);
+    // a held burst at the gun's own rate never recovers: the bloom climbs to the cap and stays there
+    let b = 0;
+    const gap = 1 / carbine.fireRate;
+    expect(gap).toBeLessThan(bloomIdle(carbine));
+    for (let i = 1; i <= 30; i++) {
+      b = bloomAfterShot(carbine, b, gap);
+      expect(b).toBeCloseTo(Math.min(row.max, i * row.per), 9);
+    }
+    expect(decayBloom(carbine, b, bloomIdle(carbine))).toBe(b);
+    // rested: it recovers at `decay` per second after the idle time, down to 0
+    expect(decayBloom(carbine, b, bloomIdle(carbine) + 0.2)).toBeCloseTo(b - 0.2 * row.decay, 9);
+    expect(decayBloom(carbine, b, 10)).toBe(0);
+    // an SMG blooms little per shot; a DMR a lot (its follow-up shots must wait); 诸葛's ramp and the scoped / pellet / flame guns never bloom
+    expect(bloomRow(W('smg')).per).toBeLessThan(row.per);
+    expect(bloomRow(W('qinggang')).per).toBeGreaterThan(row.per);
+    for (const id of ['zhuge', 'qilin', 'liegong', 'guding', 'zhuque', 'guanshi']) expect(bloomRow(W(id)).max, id).toBe(0);
+    // 雌雄 akimbo (an automatic pistol) blooms like an SMG
+    expect(bloomRow(W('cixiong'))).toBe(BLOOM.smg);
+    expect(bloomRow(W('pistol'))).toBe(BLOOM.pistol);
   });
 
   it('aiming on the move widens the aimed cone (a scope most); mid-air nothing is accurate', () => {
     const at = (id: string, o: { ads: boolean; moving?: boolean; airborne?: boolean }): number =>
-      spreadDeg(W(id), { adsT: o.ads ? 1 : 0, moving: !!o.moving, airborne: !!o.airborne, burst: 0 });
+      spreadDeg(W(id), { adsT: o.ads ? 1 : 0, moving: !!o.moving, airborne: !!o.airborne, bloom: 0 });
     // the scoped sniper: dead on standing, not while strafing or jumping
     expect(at('qilin', { ads: true })).toBe(0);
     expect(at('qilin', { ads: true, moving: true })).toBeCloseTo(MOVE_AIMED.sniper!, 9);
@@ -188,12 +225,16 @@ describe('spread (the sim formula the HUD crosshair draws)', () => {
     const rifleMove = at('carbine', { ads: true, moving: true }) - at('carbine', { ads: true });
     expect(rifleMove).toBeGreaterThan(0);
     expect(rifleMove).toBeLessThan(MOVE_AIMED.sniper! / 4);
+    // the mobile guns lose least (SMG / pistol 0.25°, rifles 0.4°)
+    expect(at('smg', { ads: true, moving: true }) - at('smg', { ads: true })).toBeCloseTo(0.25, 9);
+    expect(at('pistol', { ads: true, moving: true }) - at('pistol', { ads: true })).toBeCloseTo(0.25, 9);
+    expect(rifleMove).toBeCloseTo(0.4, 9);
     for (const def of WEAPONS) {
       if (def.melee) continue;
       for (const ads of [false, true]) {
-        const air = spreadDeg(def, { adsT: ads ? 1 : 0, moving: false, airborne: true, burst: 0 });
+        const air = spreadDeg(def, { adsT: ads ? 1 : 0, moving: false, airborne: true, bloom: 0 });
         expect(air, def.id).toBeGreaterThanOrEqual(AIRBORNE_MIN_SPREAD);
-        expect(air, def.id).toBeGreaterThanOrEqual(legacySpread(def, ads, false, true, 0) - 1e-9);
+        expect(air, def.id).toBeGreaterThanOrEqual(legacySpread(def, ads, false, true) - 1e-9);
       }
     }
   });
@@ -202,12 +243,12 @@ describe('spread (the sim formula the HUD crosshair draws)', () => {
     const q = W('qilin');
     let prev = Infinity;
     for (let t = 0; t <= 1.0001; t += 0.1) {
-      const s = spreadDeg(q, { adsT: t, moving: false, airborne: false, burst: 0 });
+      const s = spreadDeg(q, { adsT: t, moving: false, airborne: false, bloom: 0 });
       expect(s).toBeLessThanOrEqual(prev + 1e-12);
       prev = s;
     }
     // half way up a sniper is still far from its aimed 0°
-    expect(spreadDeg(q, { adsT: 0.5, moving: false, airborne: false, burst: 0 })).toBeGreaterThan(2);
+    expect(spreadDeg(q, { adsT: 0.5, moving: false, airborne: false, bloom: 0 })).toBeGreaterThan(2);
   });
 
   it('aim progress: up over the ADS time, down in 60 % of it', () => {
