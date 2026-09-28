@@ -424,7 +424,8 @@ export class ViewModel {
     // a scope: the weapon comes up and then drops out of the frame as the eye meets the lens
     // (the lens overlay takes over from game/aimFeel.ts SCOPE_AT — no gun model filling the view)
     if (held.scoped) {
-      const out = clamp((a - 0.3) / 0.15, 0, 1);
+      // (it is fully down by blend 0.75 ≈ progress 0.68, just before SCOPE_AT 0.70 hides it)
+      const out = clamp((a - 0.55) / 0.2, 0, 1);
       p.y -= 0.15 * out;
       p.pitch -= 0.25 * out;
     }

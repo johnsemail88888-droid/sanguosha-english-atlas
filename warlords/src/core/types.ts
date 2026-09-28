@@ -291,6 +291,11 @@ export const BTN_INTERACT = 32; // F held (channels: revive/open)
  * mode, not a held control (never counts as activity).
  */
 export const BTN_FIRST_PERSON = 64;
+/**
+ * A scope's second zoom step is selected (8× on a sniper, 5× on 烈弓): other
+ * players see a brighter glint (VF_ZOOM2). A view detail, not a held control.
+ */
+export const BTN_ZOOM2 = 128;
 
 export type AbilitySlot = 'q' | 'e' | 'lord';
 
@@ -406,6 +411,12 @@ export type GameEvent = EventRouting &
         ability?: string;
       }
     | { t: 'gameOver'; result: GameResult }
+    /**
+     * A homing rocket (方天画戟) locked onto `target` (on) — or its lock ended: it
+     * hit, burst, expired or a dodge roll broke it (off). The target sees a
+     * warning toward `src`, the shooter hears the lock (sim/lockWatch.ts).
+     */
+    | { t: 'lock'; src: EntityId; target: EntityId; proj: EntityId; on: boolean }
   );
 
 export interface GameResult {
@@ -449,6 +460,7 @@ export const VF_ROOTED = 1 << 23;
 export const VF_SLOWED = 1 << 24;
 export const VF_BOOSTED = 1 << 25; // dmgBoost active (glow)
 export const VF_EXPOSED = 1 << 26; // 'reveal' status: shown on the minimap / outlined through walls (public, or private to this viewer)
+export const VF_ZOOM2 = 1 << 27; // aiming through a scope's second (stronger) zoom step: a brighter scope glint
 
 export interface ViewEntity {
   id: EntityId;

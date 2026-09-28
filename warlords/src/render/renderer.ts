@@ -9,11 +9,12 @@ import * as THREE from 'three';
 import type { Vec3 } from '../core/math';
 import { dirFromYawPitch } from '../core/math';
 import type { EntityId, GameEvent, ViewEntity } from '../core/types';
-import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
+import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_MOUNTED, VF_STUNNED } from '../core/types';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import { SCOPE_AT, SCOPE_FADE, type AimSnapshot } from '../game/aimFeel';
 import { ScopeGlints } from './vfx/scopeGlint';
+import { arrowSpeedMul, blockedAt, lockCandidates, predictImpact, type AimAidsView } from './aimAids';
 import type { ViewSource } from './view';
 import { HERO_VIEW_RANGE, groundVariant, presetPixelRatio, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
 import { AdaptiveResolution, adaptiveFloor } from './adaptiveRes';
@@ -152,6 +153,10 @@ export class GameRenderer {
   private size = { w: 1, h: 1 };
   private time = 0;
   private frameNo = 0;
+  /** the crosshair pick of the current frame (aimAids reuses it) */
+  private lastPick: { point: Vec3 | null; dist: number; frame: number } = { point: null, dist: 0, frame: -1 };
+  private readonly aids: AimAidsView = { range: null, impact: null, blocked: null, locks: [] };
+  private aidsFrame = -1;
   private fps = 60;
   /** smoothed main-thread ms per frame (PerfSnapshot.jsMs) */
   private jsMs = 0;
@@ -646,21 +651,35 @@ export class GameRenderer {
    * Crosshair query: ray from the (latest) camera through the screen centre
    * against colliders + terrain + water + entities (render meshes are ignored).
    */
+  /**
+   * The local hero's crosshair ray as the host rebuilds it (third person: from
+   * behind the shoulder, sim/aim.ts cameraRig; first person: the eye), from the
+   * freshest look angles; null without a live local hero (spectating, free cam).
+   */
+  aimRay(): { origin: Vec3; dir: Vec3; nearClip: number } | null {
+    if (this.disposed || this.freeCam !== null) return null;
+    const localId = this.view.localId();
+    const ent = localId !== null ? this.view.get(localId) : undefined;
+    if (!ent || ent.flags & VF_DEAD) return null;
+    const yaw = this.look.fresh ? this.look.yaw : ent.yaw;
+    const pitch = this.look.fresh ? this.look.pitch : ent.pitch;
+    // first person: the eye the camera sits at (the host starts the ray and the shots there)
+    return this.fp.active ? firstPersonPose(ent, yaw, pitch, this.camera.position.y - ent.y) : tpsCameraPose(ent, yaw, pitch, (ent.flags & VF_DOWNED) !== 0);
+  }
+
+  /** Static geometry (colliders + terrain) between two points (the aim assist skips targets behind walls). */
+  lineBlocked(a: Vec3, b: Vec3): boolean {
+    return this.pickWorld.segmentBlocked(a, b);
+  }
+
   pick(): { aimPoint: Vec3; aimTargetId?: EntityId } {
     if (this.disposed) return { aimPoint: { x: 0, y: 0, z: 0 } };
     const localId = this.view.localId();
-    const ent = localId !== null ? this.view.get(localId) : undefined;
     let origin: Vec3;
     let dir: Vec3;
     let minDist = 0;
-    if (ent && this.freeCam === null && !(ent.flags & VF_DEAD)) {
-      // canonical pose from the freshest look angles (not last frame's camera)
-      const yaw = this.look.fresh ? this.look.yaw : ent.yaw;
-      const pitch = this.look.fresh ? this.look.pitch : ent.pitch;
-      // first person: the eye the camera sits at (the host starts the ray and the shots there)
-      const pose = this.fp.active
-        ? firstPersonPose(ent, yaw, pitch, this.camera.position.y - ent.y)
-        : tpsCameraPose(ent, yaw, pitch, (ent.flags & VF_DOWNED) !== 0);
+    const pose = this.aimRay();
+    if (pose) {
       origin = pose.origin;
       dir = pose.dir;
       minDist = Math.max(0, pose.nearClip - 0.3);
@@ -677,8 +696,76 @@ export class GameRenderer {
       minDist,
       maxUnitDist: this.preset.characterDistance,
     });
+    this.lastPick = hit ? { point: hit.point, dist: hit.dist, frame: this.frameNo } : { point: null, dist: 0, frame: this.frameNo };
     if (!hit) return { aimPoint: { x: origin.x + dir.x * maxDist, y: origin.y + dir.y * maxDist, z: origin.z + dir.z * maxDist } };
     return hit.entityId !== undefined ? { aimPoint: hit.point, aimTargetId: hit.entityId } : { aimPoint: hit.point };
+  }
+
+  /**
+   * What the HUD draws from the world this frame (weapons spec C4 / C6 / C7 / C8,
+   * computed once per frame on demand): the range to the crosshair point, where
+   * a lobbed round / drawn arrow lands, the third-person blocked-shot point, and
+   * who a fully aimed 方天画戟 would lock. Screen points are CSS px in the container.
+   */
+  aimAids(): Readonly<AimAidsView> {
+    const out = this.aids;
+    if (this.aidsFrame === this.frameNo) return out;
+    this.aidsFrame = this.frameNo;
+    out.range = null;
+    out.impact = null;
+    out.blocked = null;
+    out.locks = [];
+    const view = this.view;
+    const localId = view.localId();
+    const ent = localId !== null ? view.get(localId) : undefined;
+    const local = view.local();
+    const ray = this.aimRay();
+    if (!ent || !local || local.dead || !ray) return out;
+    if (this.lastPick.frame !== this.frameNo) this.pick();
+    const lp = this.lastPick;
+    const aimPoint = lp.point ?? { x: ray.origin.x + ray.dir.x * 600, y: ray.origin.y + ray.dir.y * 600, z: ray.origin.z + ray.dir.z * 600 };
+    if (lp.point) out.range = lp.dist;
+    const w = local.weapons[local.activeSlot];
+    const def = w ? WEAPON_BY_ID[w.id] : undefined;
+    if (!def || def.melee) return out;
+    // the shot leaves the eye (first person: the camera; third: the hero's eye, not the camera behind the shoulder)
+    const downed = (ent.flags & VF_DOWNED) !== 0;
+    const eye = this.fp.active ? ray.origin : { x: ent.x, y: ent.y + (downed ? 0.5 : ent.flags & VF_MOUNTED || ent.mount ? 2.07 : 1.62), z: ent.z };
+    if (!this.fp.active && lp.point) {
+      const b = blockedAt(eye, lp.point, (o, d, m) => this.pickWorld.staticDistance(o, d, m));
+      if (b) out.blocked = this.worldToScreen(b);
+    }
+    const aim = this.aim;
+    const progress = aim && aim.weaponId === def.id ? aim.progress : 0;
+    const pr = def.projectile;
+    if (pr && pr.gravity > 0 && (def.class === 'launcher' || (def.class === 'bow' && progress >= 0.5))) {
+      const dx = aimPoint.x - eye.x;
+      const dy = aimPoint.y - eye.y;
+      const dz = aimPoint.z - eye.z;
+      const dl = Math.hypot(dx, dy, dz) || 1;
+      const dir = { x: dx / dl, y: dy / dl, z: dz / dl };
+      const ents = view.entities();
+      const imp = predictImpact(
+        { origin: { x: eye.x + dir.x * 0.6, y: eye.y + dir.y * 0.6, z: eye.z + dir.z * 0.6 }, dir, speed: pr.speed * arrowSpeedMul(def, progress), gravity: pr.gravity, lifetime: pr.lifetime },
+        (o, d, m) => this.pickWorld.raycast(o, d, m, { entities: ents, ignore: localId }),
+      );
+      const sp = imp ? this.worldToScreen(imp.point) : null;
+      if (imp && sp) out.impact = { x: sp.x, y: sp.y, dist: Math.hypot(imp.point.x - eye.x, imp.point.y - eye.y, imp.point.z - eye.z), hit: imp.hit };
+    }
+    if (def.special === 'multiTarget' && progress >= 0.95) {
+      const cands = lockCandidates(
+        { origin: ray.origin, dir: ray.dir, coneDeg: def.specialParams.lockDeg ?? 6, range: def.specialParams.lockRange ?? 40, max: Math.max(1, def.specialParams.maxTargets ?? 3), selfId: localId },
+        view.entities(),
+        (a, b) => this.pickWorld.segmentBlocked(a, b),
+      );
+      const locks: { id: EntityId; x: number; y: number }[] = [];
+      for (const c of cands) {
+        const sp = this.worldToScreen(c.point);
+        if (sp) locks.push({ id: c.id, x: sp.x, y: sp.y });
+      }
+      out.locks = locks;
+    }
+    return out;
   }
 
   getCameraPose(): { pos: Vec3; yaw: number; pitch: number } {
@@ -1324,10 +1411,11 @@ export class GameRenderer {
       view?.onShot();
       if (this.fp.active) this.fp.onShot(w.id);
       // the view's climb is the aim's recoil (game/aimFeel.ts onShot — the shots follow it); this is
-      // the camera's short punch on top. First person: the viewmodel carries most of it — unless a
-      // scope hides the weapon: then the whole punch shows (a sniper's scope jumps)
+      // only a cosmetic punch on top, never more than COSMETIC_KICK_MAX_DEG: the camera must not leave
+      // the aim (the viewmodel and the scope's jolt carry the feel). First person: less still — unless
+      // a scope hides the weapon
       const scopedNow = !!this.aim?.scoped;
-      const kick = Math.min(scopedNow ? 0.1 : 0.05, ((def?.recoil ?? 1) * Math.PI) / 180) * (this.fp.active && !scopedNow ? 0.4 : 1);
+      const kick = Math.min(COSMETIC_KICK_MAX_DEG, def?.recoil ?? 1) * (Math.PI / 180) * (this.fp.active && !scopedNow ? 0.4 : 1);
       this.rig.shake.kick(kick * 0.6, (Math.random() - 0.5) * kick * 0.3);
       for (const cb of this.fireSubs) {
         try {
@@ -1339,6 +1427,9 @@ export class GameRenderer {
     }
   }
 }
+
+/** Cap of the camera's cosmetic punch per shot (degrees): the aim itself is the recoil (game/aimFeel.ts). */
+export const COSMETIC_KICK_MAX_DEG = 0.1;
 
 /**
  * When the current frame started: its requestAnimationFrame time (document.timeline
