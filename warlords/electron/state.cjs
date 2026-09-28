@@ -6,9 +6,15 @@
 //  - the last port that worked is remembered (userData/desktop.json) and tried first;
 //  - the game's own localStorage keys ('sgwl…') are mirrored to userData/web-storage.json by
 //    the preload, and restored into whatever origin the window opens on when that origin has
-//    not seen the newest mirror yet (a different port, or the same one after another port
-//    wrote newer settings).
-// Plain CommonJS without Electron imports: main.cjs and preload.cjs use it, the unit tests too.
+//    not seen the newest mirror yet (a different port, the official server's page — electron/
+//    page.cjs — or the same one after another origin wrote newer settings).
+//  - an origin writes only the keys it changed since it last synced (a patch): an origin with
+//    stale settings (another port's, the official page's, a page going away after the window
+//    switched) never overwrites newer ones it did not touch.
+// The preload is sandboxed (it can only require 'electron'): it reads and writes its origin's
+// 'sgwl…' keys; what to restore and what to write is decided here, in the main process
+// (syncPlan, mirrorFile().patch).
+// Plain CommonJS without Electron imports: main.cjs uses it, the unit tests too.
 'use strict';
 
 const fs = require('node:fs');
@@ -63,6 +69,57 @@ function snapshotStorage(store) {
   return items;
 }
 
+/** Only string values of the game's keys. */
+function cleanItems(items) {
+  const clean = {};
+  if (items && typeof items === 'object') for (const [k, v] of Object.entries(items)) if (isGameKey(k) && typeof v === 'string') clean[k] = v;
+  return clean;
+}
+
+/**
+ * What an origin holding `items` (its 'sgwl…' localStorage keys, the mark included) must change
+ * to hold `mirror`: { version (held afterwards; 0 = no mirror yet), set: { key: value }, remove: [key] }.
+ * Nothing to change when it holds that version already. Keys that are not the game's are never named.
+ */
+function syncPlan(items, mirror) {
+  const have = items && typeof items === 'object' ? items : {};
+  if (!validMirror(mirror)) return { version: 0, set: {}, remove: [] };
+  if (Number(have[MARK_KEY]) === mirror.version) return { version: mirror.version, set: {}, remove: [] };
+  const want = cleanItems(mirror.items);
+  const set = {};
+  for (const [k, v] of Object.entries(want)) if (have[k] !== v) set[k] = v;
+  set[MARK_KEY] = String(mirror.version);
+  const remove = Object.keys(have).filter((k) => isGameKey(k) && !Object.prototype.hasOwnProperty.call(want, k));
+  return { version: mirror.version, set, remove };
+}
+
+/** An origin's 'sgwl…' keys, its mark included: what the preload reads and sends (syncPlan's `items`). */
+function storageKeys(store) {
+  const items = {};
+  for (let i = 0; i < store.length; i++) {
+    const k = store.key(i);
+    if (typeof k !== 'string' || !k.startsWith(KEY_PREFIX)) continue;
+    const v = store.getItem(k);
+    if (typeof v === 'string') items[k] = v;
+  }
+  return items;
+}
+
+/** Carry out a syncPlan on `store` (the preload does the same). Returns true when it changed anything. */
+function applyPlan(store, plan) {
+  if (!plan || typeof plan !== 'object') return false;
+  let changed = false;
+  for (const k of Array.isArray(plan.remove) ? plan.remove : []) {
+    store.removeItem(k);
+    changed = true;
+  }
+  for (const [k, v] of Object.entries(plan.set && typeof plan.set === 'object' ? plan.set : {})) {
+    store.setItem(k, v);
+    changed = true;
+  }
+  return changed;
+}
+
 /**
  * Bring `store` (this origin's localStorage) to the mirror's state unless it already holds
  * that version. Returns true when it changed anything. Keys that are not the game's are
@@ -70,37 +127,40 @@ function snapshotStorage(store) {
  */
 function restoreStorage(store, mirror) {
   if (!validMirror(mirror)) return false;
-  if (Number(store.getItem(MARK_KEY)) === mirror.version) return false;
-  const stale = [];
-  for (let i = 0; i < store.length; i++) {
-    const k = store.key(i);
-    if (isGameKey(k) && !Object.prototype.hasOwnProperty.call(mirror.items, k)) stale.push(k);
-  }
-  for (const k of stale) store.removeItem(k);
-  for (const [k, v] of Object.entries(mirror.items)) if (isGameKey(k) && typeof v === 'string') store.setItem(k, v);
-  store.setItem(MARK_KEY, String(mirror.version));
-  return true;
+  return applyPlan(store, syncPlan(storageKeys(store), mirror));
 }
 
 /**
- * The file-side store: `load()` the mirror, `save(items, origin)` a new version of it
- * (returns that version, which the saving origin then marks as held).
+ * The file-side store: `load()` the mirror; `save(items, origin)` a new version of it holding
+ * `items`; `patch({ set, del }, origin)` a new version with only these keys changed (what an
+ * origin changed since it last synced) — both return the new mirror's version, which the saving
+ * origin then marks as held (`patch` returns the whole new mirror).
  */
 function mirrorFile(file) {
+  const load = () => {
+    const m = readJson(file);
+    return validMirror(m) ? m : null;
+  };
+  const write = (items, origin) => {
+    const cur = load();
+    const m = { version: (cur ? cur.version : 0) + 1, origin: typeof origin === 'string' ? origin : '', savedAt: Date.now(), items };
+    writeJson(file, m);
+    return m;
+  };
   return {
-    load() {
-      const m = readJson(file);
-      return validMirror(m) ? m : null;
-    },
+    load,
     save(items, origin) {
-      const cur = readJson(file);
-      const version = (validMirror(cur) ? cur.version : 0) + 1;
-      const clean = {};
-      if (items && typeof items === 'object') for (const [k, v] of Object.entries(items)) if (isGameKey(k) && typeof v === 'string') clean[k] = v;
-      writeJson(file, { version, origin: typeof origin === 'string' ? origin : '', savedAt: Date.now(), items: clean });
-      return version;
+      return write(cleanItems(items), origin).version;
+    },
+    patch(change, origin) {
+      const cur = load();
+      const items = { ...(cur ? cleanItems(cur.items) : {}) };
+      const c = change && typeof change === 'object' ? change : {};
+      if (Array.isArray(c.del)) for (const k of c.del) if (isGameKey(k)) delete items[k];
+      Object.assign(items, cleanItems(c.set));
+      return write(items, origin);
     },
   };
 }
 
-module.exports = { PORTS, KEY_PREFIX, MARK_KEY, portOrder, readJson, writeJson, snapshotStorage, restoreStorage, mirrorFile };
+module.exports = { PORTS, KEY_PREFIX, MARK_KEY, portOrder, readJson, writeJson, snapshotStorage, storageKeys, syncPlan, applyPlan, restoreStorage, mirrorFile };
