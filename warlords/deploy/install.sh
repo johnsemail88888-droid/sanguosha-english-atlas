@@ -65,6 +65,36 @@ ASSET_CDN=
 
 # ── output ──────────────────────────────────────────────────────────────────
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
+# log_tee FILE: stdin to stdout as it comes, and appended to FILE with every access key masked
+# (?k=… / &k=… → k=<key>): the share link reaches the terminal (and Claude reading it), never the
+# log file — a log gets passed around when something goes wrong
+log_tee() {
+  awk -v logf="$1" '{
+    print; fflush()
+    line = $0
+    while (match(line, /[?&]k=[A-Za-z0-9_-]+/)) line = substr(line, 1, RSTART + 2) "<key>" substr(line, RSTART + RLENGTH)
+    print line >>logf; fflush(logf)
+  }'
+}
+# scrub_log FILE: access keys already in FILE masked in place (a log written by an older version of
+# these scripts, which logged the share link as it was)
+scrub_log() {
+  local f=$1 tmp
+  if [[ ! -f $f ]] || ! grep -qE '[?&]k=[A-Za-z0-9_-]' "$f" 2>/dev/null; then return 0; fi
+  tmp=$(mktemp "$f.XXXXXX") || return 0
+  if awk '{ while (match($0, /[?&]k=[A-Za-z0-9_-]+/)) $0 = substr($0, 1, RSTART + 2) "<key>" substr($0, RSTART + RLENGTH); print }' "$f" >"$tmp"; then
+    cat "$tmp" >"$f"
+  fi
+  rm -f "$tmp"
+}
+# open_log FILE: FILE exists, readable by its owner only (it may hold paths, addresses, errors)
+open_log() {
+  (
+    umask 077
+    : >>"$1"
+  )
+  chmod 600 "$1" 2>/dev/null || true
+}
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
 die() {
   printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2
@@ -941,7 +971,7 @@ cmd_status() {
 }
 
 on_error() {
-  warn "第 $1 行出错。请把本窗口最后 30 行（或 $LOG_FILE）发给 Claude。/ Failed at line $1 — send the last 30 lines (or $LOG_FILE) to Claude."
+  warn "第 $1 行出错。请把本窗口最后 30 行发给 Claude。/ Failed at line $1 — send the last 30 lines of this window to Claude."
 }
 
 main() {
@@ -951,7 +981,9 @@ main() {
   [[ $EUID -eq 0 ]] || die "请用 root 运行（命令前加 sudo）/ run as root (prefix the command with sudo)"
   command -v systemctl >/dev/null 2>&1 || die "需要 systemd / systemd is required"
   mkdir -p "$(dirname "$LOG_FILE")"
-  exec > >(tee -a "$LOG_FILE") 2>&1
+  scrub_log "$LOG_FILE"
+  open_log "$LOG_FILE"
+  exec > >(log_tee "$LOG_FILE") 2>&1
   trap 'on_error $LINENO' ERR
   log "$(date '+%F %T') sgwl install.sh ${cmd}"
   case $cmd in

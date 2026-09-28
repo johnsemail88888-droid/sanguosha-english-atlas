@@ -2,6 +2,7 @@
 // and — when /sgwl.json says headless:true — a server-hosted room started and joined through the
 // relay. Server-hosted match problems are ⚠ lines, never a failed check (players then host rooms
 // in their browser).
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -104,6 +105,23 @@ describe('deploy/check.mjs --key (a server with RELAY_KEY)', () => {
     const wrong = await check(srv, { key: 'not-the-key' });
     expect(wrong.ok).toBe(false);
     expect(wrong.lines.join('\n')).toMatch(/wrong access key \(HTTP 401\)/);
+  });
+
+  it('the command line takes the key from SGWL_CHECK_KEY (home-host.sh: not in the process list)', async () => {
+    const srv = await serve({ workerPath: STUB, relayKey: KEY });
+    const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../deploy/check.mjs');
+    const runCli = (env: Record<string, string>) =>
+      new Promise<{ code: number | null; out: string }>((resolve) => {
+        const p = spawn(process.execPath, [SCRIPT, `http://127.0.0.1:${srv.port}/`, '--no-headless'], { env: { ...process.env, ...env } });
+        let out = '';
+        p.stdout.on('data', (d) => (out += d));
+        p.on('close', (code) => resolve({ code, out }));
+      });
+    const withEnv = await runCli({ SGWL_CHECK_KEY: KEY });
+    expect(withEnv.code).toBe(0);
+    expect(withEnv.out).toContain('with the key');
+    expect(withEnv.out).not.toContain(KEY);
+    expect((await runCli({ SGWL_CHECK_KEY: '' })).code).toBe(1);
   });
 
   it('a key given to a server without one: fine, with a ⚠ that anyone can play', async () => {

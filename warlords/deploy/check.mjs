@@ -8,10 +8,12 @@
 //                         ⚠ line, not a failure: players then host rooms in their browser as before.
 //
 //   node deploy/check.mjs https://mac-mini.tail1234.ts.net/ [--key=KEY] [--public-dns] [--no-headless] [--timeout=8000]
+//   SGWL_CHECK_KEY=KEY node deploy/check.mjs …   (the same key, kept out of the process list)
 //
-// --key: the server's access key (RELAY_KEY; home-host.sh passes it). A server that wants one
-// (/sgwl.json keyRequired) is checked with it — ?k= on the relay and on POST /api/rooms — and
-// once without it: the relay must refuse that (HTTP 401), or the key protects nothing.
+// --key / SGWL_CHECK_KEY: the server's access key (RELAY_KEY; home-host.sh passes it in the
+// environment — a command line is visible to every user of the machine in `ps`). A server that
+// wants one (/sgwl.json keyRequired) is checked with it — ?k= on the relay and on POST /api/rooms —
+// and once without it: the relay must refuse that (HTTP 401), or the key protects nothing.
 //
 // --public-dns resolves the name through public DNS (DNS-over-HTTPS at Cloudflare / Google,
 // then 1.1.1.1 / 8.8.8.8 directly) instead of this machine's resolver. On the hosting machine
@@ -318,8 +320,8 @@ const isMain = (() => {
 
 if (isMain) {
   const args = process.argv.slice(2);
-  // --key=KEY or --key KEY
-  let key = '';
+  // --key=KEY or --key KEY, else SGWL_CHECK_KEY (the scripts: not on the command line)
+  let key = String(process.env.SGWL_CHECK_KEY ?? '').trim();
   const rest = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith('--key=')) key = args[i].slice(6);

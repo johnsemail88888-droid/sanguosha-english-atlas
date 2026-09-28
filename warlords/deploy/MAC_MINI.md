@@ -15,10 +15,15 @@
 
 - 公网地址 `https://<机器名>.<tailnet>.ts.net/`（Tailscale Funnel：不用在路由器上开端口，不暴露家里的 IP）。
 - **访问密钥**：机器名是公开的（写进了公开的证书透明日志），所以服务器要求密钥。安装时自动生成一次，存在 `~/sanguo-warlords/host.env`（只有本账户能读）。朋友要用**分享链接** `https://<机器名>.<tailnet>.ts.net/?k=<密钥>` 进入——安装、`update`、`status` 结束时的框里第一行就是它。不带密钥的网址能打开页面，但进不了联机（页面会提示「需要房主发的邀请链接（带密钥）」）。链接传出去了就运行 `rotate-key` 换一个（见「日常运维」）。
+  - 分享链接**只出现在脚本的屏幕输出里**（你在 Bash 里看到的输出）；日志文件 `home-host.log` 里同一行写成 `?k=<key>`，所以日志可以放心转给别人。
+  - 朋友用分享链接打开一次，密钥就记在他的浏览器里（地址栏里的 `?k=…` 会自己消失）。游戏大厅里显示的邀请链接把密钥遮成 `k=••••`，点「复制」/「分享」拿到的是完整链接；带密钥的邀请链接总是指向这台 Mac 的网址（即使房主是从 GitHub Pages 网页版开的房），密钥不会被发到别的网站。
+  - 朋友的浏览器已经有一个能用的密钥时，打开一个带**别的**密钥的链接（旧链接、写错的链接），页面会先问服务器：新密钥对才换，不对就保留原来那个。
 - 服务器 `~/sanguo-warlords/src/warlords/server/server.mjs` 监听 `127.0.0.1:8787`，由 launchd 常驻：崩溃自动重启，**登录后**自动启动（Mac 重启后靠第 4 步的自动登录），运行时阻止 Mac 睡眠。
 - **每 5 分钟**检查一次更新：GitHub `main` 有新提交、**并且 GitHub 上它的 warlords-ci 通过了**、并且没人在玩，才更新并重启；否则什么都不做（原因每小时最多记一行到 `update.log`）。网页版（GitHub Pages）每次推送都会更新，这样 Mac 最多晚几分钟跟上，「服务器托管对局」不会因为版本不一致长时间退回浏览器托管。
 - 「服务器托管对局」（headless）：对局在这台 Mac 上运行，而不是在房主的浏览器里——谁都看不到别人的隐藏身份（房主也看不到），房主离开也不散场。
-- **已经装过的 Mac 第一次拿到访问密钥和 5 分钟更新时，要用第 3 步那条命令（新下载的脚本）跑一次 `update`**（见「日常运维」的「马上更新」）。自动更新只会换游戏版本，不会自己开启密钥、也不会改成 5 分钟一次：密钥必须由这次 `update` 生成并打印出分享链接，主人拿到链接才能发给朋友。
+- **已经装过的 Mac（装的是还没有访问密钥的旧版本）要用第 3 步那条命令（新下载的脚本）跑一次 `update`**（见「日常运维」的「马上更新」）。
+  - 不跑的话：旧版本每天 05:07 的自动更新会自己把游戏换成新版本（之后仍然每天 05:07 一次，但只更新到 CI 通过的版本），**但不会开启访问密钥**——服务器一直谁都能连，也不会改成每 5 分钟一次。新版本的自动更新会每小时在 `update.log` / `home-host.log` 里记一行、并在 Mac 屏幕上弹一条通知：「访问密钥未开启：运行 update 生成分享链接」。
+  - 这次 `update` 会：生成密钥（存进 `host.env`）；重写游戏服务的 LaunchAgent（带 `RELAY_KEY`、`NO_PEER=1`、`MAX_ROOMS=4`、`HOST_GRACE_MS=120000`）；把自动更新改成每 5 分钟一次；最后在屏幕上打印分享链接。
   - 更新完用 `curl -s http://127.0.0.1:8787/sgwl.json` 确认有 `"keyRequired":true` 和 `"headless":true`。
   - 这之后朋友以前的网址（不带 `k=`）不能联机了：把新的分享链接发给他们。
 
@@ -133,7 +138,7 @@ tail -n 40 ~/sanguo-warlords/home-host.log | perl -pe 's/\e\[[0-9;]*m//g'
 | `SGWL_EXIT=0`，并且有 `朋友可以访问了 / reachable from the internet` | 成功 | 记下框里的**分享链接**（`分享链接 SHARE LINK:` 那一行，带 `?k=`）和下面两行（游戏网址、中继地址），进入第 4 步。 |
 | `SGWL_EXIT=0`，但有 `[!] 公网暂时还访问不到 https://…` | 服务和 Funnel 已装好，只是公网 DNS 还没生效 | 进入第 4 步；第 5 步的 `status` 会再验证公网。 |
 | `SGWL_EXIT=2`（最后一段是黄字说明） | 需要主人操作 | 看下表，主人做完后，重跑同一条命令。 |
-| 其他非 0（`[x] …` 或 `[!] 第 N 行出错`） | 出错 | 看下表；表里没有的，把本次输出的最后 30 行原样给主人，请他转给云端的 Claude。 |
+| 其他非 0（`[x] …` 或 `[!] 第 N 行出错`） | 出错 | 看下表；表里没有的，把日志的最后 30 行（下面这条命令的输出）原样给主人，请他转给云端的 Claude：`tail -n 30 ~/sanguo-warlords/home-host.log \| perl -pe 's/\e\[[0-9;]*m//g; s/([?&]k=)[A-Za-z0-9_-]+/$1<key>/g'`。日志里的密钥已经遮住了（`?k=<key>`）；**不要转发屏幕输出**，那里的分享链接带着真密钥。 |
 
 注意：**那个框（分享链接 / 游戏网址 / 中继地址）失败时也会打印**，框后面还有几行「让这台 Mac 一直在线」的提示，所以不能只凭框判断成功。
 
@@ -142,7 +147,7 @@ tail -n 40 ~/sanguo-warlords/home-host.log | perl -pe 's/\e\[[0-9;]*m//g'
 | `Funnel 还没有开启…`（等了 15 分钟没人点 Enable） | 👤 请主人打开刚才的链接点 **Enable**，并确认第 2 步的 HTTPS Certificates 已开，然后重跑。 |
 | `Tailscale 没有连接（状态 …）` | 👤 同第 1 步的登录处理，然后重跑。 |
 | `[x] 端口 8787 已被另一个游戏服务占用…` | 某个已登录账户里开着桌面版（本账户的 `lsof` 看不到）：👤 请主人在所有账户里退出 SanguoWarlords.app，然后重跑。 |
-| `[x] 游戏服务没有启动`（上面是 server.log 的最后 30 行） | 有 `EADDRINUSE`：8787 被别的程序占着，请主人退出它。否则把这 30 行原样给主人，请他转给云端 Claude。 |
+| `[x] 游戏服务没有启动`（上面是 server.log 的最后 30 行） | 有 `EADDRINUSE`：8787 被别的程序占着，请主人退出它。否则把这 30 行原样给主人，请他转给云端 Claude（server.log 里没有密钥）。 |
 | `请不要加 sudo` | 你加了 sudo：去掉以后重跑。 |
 | Node / npm 下载失败、超时 | 网络问题：等一分钟重跑，已下载的部分会复用。 |
 
@@ -184,14 +189,14 @@ bash ~/sanguo-warlords/bin/home-host.sh status; echo "exit=$?"
 ```bash
 curl -s --max-time 2 http://127.0.0.1:8787/sgwl.json; echo
 D=$(sed -n 's/^DOMAIN=//p' ~/sanguo-warlords/host.env); K=$(sed -n 's/^RELAY_KEY=//p' ~/sanguo-warlords/host.env); N="$(sed -n 's/^NODE_BIN_DIR=//p' ~/sanguo-warlords/host.env)/node"
-echo "$D"; "$N" ~/sanguo-warlords/src/warlords/deploy/check.mjs "https://$D/" --public-dns --key="$K"; echo "exit=$?"
+echo "$D"; SGWL_CHECK_KEY="$K" "$N" ~/sanguo-warlords/src/warlords/deploy/check.mjs "https://$D/" --public-dns; echo "exit=$?"
 ```
 
 期望看到：
 
 - `status` 的 `exit=0`。输出里有服务运行中、`访问密钥 access key: 开 on`、`Funnel: https://… → http://127.0.0.1:8787`、`公网 / internet: 正常 / OK`，最后打印那个框（分享链接 + 两行）。如果有黄字「Tailscale 密钥会在 … 过期」，把它记进第 6 步的未完成项（第 2 步的 Disable key expiry）。
 - `sgwl.json` 里有 `"app":"sanguo-warlords"`、`"keyRequired":true` 和 `"headless":true`（「服务器托管对局」已启用），`"build"` 里是这次构建的提交号。如果是 `"headless":false`：`grep -n 服务器托管对局 ~/sanguo-warlords/home-host.log | tail -3` 看构建有没有失败；刚从旧版本更新上来的，用第 3 步的命令再跑一次 `update`（见「日常运维」）。`false` 时游戏照样能玩，只是房间在房主的浏览器里运行。`sgwl.json` 里**永远不会**出现密钥本身。
-- `check.mjs` 的 `exit=0`，并且有 `✓ 不带密钥的连接被拒绝 / connections without the key are refused (401)`。
+- `check.mjs` 的 `exit=0`，并且有 `✓ 不带密钥的连接被拒绝 / connections without the key are refused (401)`。（密钥通过环境变量 `SGWL_CHECK_KEY` 传给它，不放在命令行上：命令行本机所有账户都能用 `ps` 看到。）
 
 最后请 👤 主人**用手机、关掉 Wi-Fi、用蜂窝网络**打开**分享链接**：能进标题页（地址栏里的 `?k=…` 会自己消失），点「联机」→「创建房间」能拿到房间码，就说明外网的朋友也能进。再用不带 `?k=` 的游戏网址试一次联机：应该提示「需要房主发的邀请链接（带密钥）」。
 
@@ -218,9 +223,9 @@ echo "$D"; "$N" ~/sanguo-warlords/src/warlords/deploy/check.mjs "https://$D/" --
 | 马上更新到最新版，不等自动更新（会重启服务；放后台运行；不看 CI 结果）。用新下载的脚本：本机 `bin/` 里的副本可能是旧的 | `curl -fsSL https://raw.githubusercontent.com/johnsemail88888-droid/sanguosha-english-atlas/main/warlords/deploy/home-host.sh -o /tmp/sgwl-home-host.sh && caffeinate -i bash /tmp/sgwl-home-host.sh update; echo "SGWL_EXIT=$?"` |
 | 停止当服务器（服务、自动更新、Funnel 全关） | `bash ~/sanguo-warlords/bin/home-host.sh stop` |
 | 重新开始当服务器 | 重跑第 3 步（密钥不变，分享链接照旧） |
-| 服务器日志（每行带 UTC 时间；有人时每分钟一行 `[stats]`；每个连接/断开一行 `[relay] +` / `[relay] -`） | `tail -n 100 ~/sanguo-warlords/server.log` |
-| 自动更新日志（为什么没更新：有人在玩 / CI 还在跑 / CI 没过 / GitHub 限流…，同一原因每小时最多一行） | `tail -n 50 ~/sanguo-warlords/update.log` |
-| 安装/更新脚本日志 | `tail -n 50 ~/sanguo-warlords/home-host.log \| perl -pe 's/\e\[[0-9;]*m//g'` |
+| 服务器日志（每行带 UTC 时间；有人时每分钟一行 `[stats]`；每个连接/断开一行 `[relay] +` / `[relay] -`；从不写密钥） | `tail -n 100 ~/sanguo-warlords/server.log` |
+| 自动更新日志（为什么没更新：有人在玩 / CI 还在跑 / CI 没过 / GitHub 限流 / 访问密钥未开启…，同一原因每小时最多一行） | `tail -n 50 ~/sanguo-warlords/update.log` |
+| 安装/更新脚本日志（分享链接在这里写成 `?k=<key>`；要链接用 `status`） | `tail -n 50 ~/sanguo-warlords/home-host.log \| perl -pe 's/\e\[[0-9;]*m//g'` |
 | 现在有没有人在玩 | `curl -s http://127.0.0.1:8787/sgwl.json`，按规则 8 判断（`headlessHumans`、`headlessPlaying`，以及 `rooms` / `players` 和 `headlessRooms` 比） |
 | 现在跑的是哪个版本 | `curl -s http://127.0.0.1:8787/sgwl.json` 里的 `"build":{"compat":…,"sha":…}`（`sha` 是 GitHub 上的提交号） |
 | Funnel 指向哪里 | `/Applications/Tailscale.app/Contents/MacOS/Tailscale funnel status` |
@@ -230,6 +235,7 @@ echo "$D"; "$N" ~/sanguo-warlords/src/warlords/deploy/check.mjs "https://$D/" --
 
 自动更新怎么决定（每 5 分钟一次，`~/Library/LaunchAgents/com.sanguo-warlords.update.plist` 的 `StartInterval 300`）：
 
+0. 服务器没开访问密钥、`host.env` 里也没有 `RELAY_KEY=` 这一行（从旧版本装上来、还没跑过 `update`）→ 每小时记一行并在 Mac 上弹通知「访问密钥未开启：运行 update 生成分享链接」。自动更新**不会**自己生成密钥（朋友手里的旧网址会突然失效）。
 1. 有人在玩（规则 8 的条件）→ 这一轮什么都不做。
 2. 问 GitHub `main` 最新的提交；和本机构建的一样 → 什么都不做（如果之前构建好但因为有人在玩没重启，这时补一次重启）。
 3. 不一样 → 问 GitHub 这个提交的 `warlords-ci` 结果：通过 → 下载**这个提交**、构建、再确认没人在玩、重启；还在跑 → 等下一轮；没通过 → 不更新；这个提交没有 warlords-ci（只改了别的目录）→ 用最近一个 CI 通过的提交。
@@ -241,7 +247,7 @@ launchd 服务状态：
 launchctl print "gui/$(id -u)/com.sanguo-warlords.server" | grep -E 'state =|pid ='
 ```
 
-日志超过 5 MB 会自动轮转。
+日志超过 5 MB 会自动轮转。`~/sanguo-warlords` 目录是 700、日志文件是 600：本机别的账户读不到（`host.env` 和 LaunchAgent 里有密钥）。
 
 ## 故障排查
 
@@ -250,11 +256,14 @@ launchctl print "gui/$(id -u)/com.sanguo-warlords.server" | grep -E 'state =|pid
 | 朋友打不开网址 | `status`；`$TS funnel status` | Funnel 没指向 8787：重跑第 3 步。Tailscale 掉线：👤 主人点菜单栏重新连接。机器 key 过期：👤 主人在后台 Disable key expiry 并重新登录。 |
 | 朋友看到「需要房主发的邀请链接（带密钥）」 | `grep '\[auth\]' ~/sanguo-warlords/server.log \| tail -5`（`key-required` = 没带密钥，`bad-key` = 旧密钥） | 把**分享链接**（`status` 或上表「只要分享链接」）发给他，让他用这个链接打开一次（密钥会记在他的浏览器里）。换过密钥（`rotate-key`）以后，所有人都要新链接。 |
 | 网址能打开，但创建房间失败或连不上 | `curl -s http://127.0.0.1:8787/sgwl.json`；`tail -n 50 ~/sanguo-warlords/server.log` | 本机没响应：`launchctl kickstart -k "gui/$(id -u)/com.sanguo-warlords.server"`，30 秒后再查。日志里有 `more than 8 sockets` / `rooms a minute`：同一个公网地址连接太多或开房太频繁（家里 8 个人以上共用一个网络时会碰到），过一分钟再试。 |
-| 房主看到「服务器关闭了这个房间（空闲太久或开得太久）」 | `grep 'ended' ~/sanguo-warlords/server.log \| tail -5` | 正常，不是故障：房间 15 分钟没有任何对局流量（例如房主一个人在大厅等）或开了 3 小时，中转服务器就关掉它，这个房间号 10 分钟内不能再用。让房主重新创建房间，把新的邀请链接发出去。 |
+| 房主看到「服务器房间已满，请稍后再试」 | `sgwl.json` 的 `rooms` | 正常：这台 Mac 最多同时开 4 个房间（`MAX_ROOMS=4`）。等别的房间结束再开。 |
+| 房主看到「你这边已经开着房间了，请先关掉一个再创建」 | `grep 'already holds' ~/sanguo-warlords/server.log \| tail -3` | 正常：同一个公网地址（一家人共用一个网络也算一个）最多同时开 2 个房间，服务器托管的也算，免得一个人占满 4 个房间。关掉一个再开。 |
+| 房主看到「服务器关闭了这个房间（空闲太久或开得太久）」 | `grep 'ended' ~/sanguo-warlords/server.log \| tail -5` | 正常，不是故障：房间 15 分钟没有任何玩家之间的对局流量（例如房主一个人在大厅等），或者已经开了 24 小时，中转服务器就关掉它，这个房间号 10 分钟内不能再用。正在进行的对局不会因为开得久被关。让房主重新创建房间，把新的邀请链接发出去。 |
+| 朋友换过密钥后还是提示「需要房主发的邀请链接（带密钥）」 | 他打开的是不是 `rotate-key` 之后的新分享链接 | 让他用新链接打开一次：页面向服务器确认新密钥是对的，就换掉浏览器里的旧密钥。 |
 | 首次进游戏加载慢（美术文件） | 玩家浏览器控制台（F12）有没有 `[assets] CDN … did not answer` / `not used any more` | 构建时 `VITE_ASSET_CDN` 指向 jsDelivr 上固定提交的 `warlords/public/`，模型和贴图从那里下载；jsDelivr 连不上时页面自动改从本机下载（更慢，但能玩）。不需要处理。只想用本机：在「马上更新」那条命令前加 `SGWL_ASSET_CDN=off`（只管这一次构建，下一次自动更新又会用 CDN）。 |
 | GitHub 上已经合并了新版本，这台 Mac 还没更新 | `tail -n 20 ~/sanguo-warlords/update.log` | 看原因：「有人在玩」→ 等没人时自动更新；「CI 还没跑完」→ 等几分钟；「CI 没通过」→ 等修复；「GitHub 拒绝查询」→ 下一小时自动恢复。急用就用「马上更新」那条命令（不看 CI）。 |
 | 本机 8787 没响应，launchd 显示没在运行 | `tail -n 50 ~/sanguo-warlords/server.log` | `EADDRINUSE`（桌面版开着？）：👤 请主人退出它。否则重跑第 3 步。 |
-| 更新后起不来 | `tail -n 80 ~/sanguo-warlords/home-host.log` | 把错误原文给主人，请他转给云端 Claude。临时恢复：重跑第 3 步。 |
+| 更新后起不来 | `tail -n 30 ~/sanguo-warlords/home-host.log \| perl -pe 's/([?&]k=)[A-Za-z0-9_-]+/$1<key>/g'` | 把这 30 行原样给主人，请他转给云端 Claude（密钥已遮住）。临时恢复：重跑第 3 步。 |
 | Mac 重启后服务没起来 | 这个账户有没有登录 | 👤 主人登录一次，或者开启自动登录（第 4 步）。 |
 | 延迟高、卡顿 | 是不是 Wi-Fi；家里有没有人在大量上传 | 插网线；玩的时候避开大文件上传。游戏里按 Tab 能看到每个人的 ping。 |
 
@@ -264,7 +273,8 @@ launchctl print "gui/$(id -u)/com.sanguo-warlords.server" | grep -E 'state =|pid
 |---|---|
 | `~/sanguo-warlords/src/warlords` | 游戏源码和构建产物（`dist/` 是网页，带预压缩的 `.br` / `.gz`；`dist-headless/` 是服务器托管对局的房间程序，每个房间一个 worker 线程；`.sgwl-sha` 是这次构建的提交号） |
 | `~/sanguo-warlords/bin/home-host.sh` | 本机的脚本副本，自动更新用它 |
-| `~/sanguo-warlords/host.env` | 安装状态（`DOMAIN`、`RELAY_KEY` 访问密钥、`NODE_BIN_DIR`），权限 600 |
+| `~/sanguo-warlords/host.env` | 安装状态（`DOMAIN`、`RELAY_KEY` 访问密钥、`NODE_BIN_DIR`），权限 600（整个 `~/sanguo-warlords` 是 700） |
+| `~/sanguo-warlords/home-host.log`、`update.log`、`server.log` | 日志，权限 600；`home-host.log` 里的密钥写成 `k=<key>` |
 | `~/sanguo-warlords/auto-update.state` | 自动更新的记录（每种跳过原因上次记日志的时间、上次失败的构建） |
 | `~/sanguo-warlords/.update.lock` | 安装/更新正在进行时才有的锁（进程没了会自动接管） |
 | `~/sanguo-warlords/node` | 只在本机没有 Node ≥22 且 Homebrew 不可用或装不上时（例如非管理员账户）才有：私有的 Node 22 |

@@ -127,8 +127,9 @@ describe('the access key', () => {
     const status = text.slice(text.indexOf('cmd_status() {'), text.indexOf('auto_restart() {'));
     expect(status).toContain('RELAY_KEY=$(saved_relay_key)');
     expect(status).toContain('print_summary');
-    expect(text).toMatch(/check\.mjs" "\$url" \$\{key\[@\]\+"\$\{key\[@\]\}"\}/);
-    expect(text).toContain('key=("--key=$RELAY_KEY")');
+    // (in the environment, not on the command line: `ps` shows every user a command line)
+    expect(text).toContain('SGWL_CHECK_KEY=$key node "$APP_DIR/deploy/check.mjs" "$url"');
+    expect(text).not.toMatch(/--key=\$RELAY_KEY/);
   });
 
   it('rotate-key: a new key saved, the service rewritten with it, the new link printed', () => {
@@ -146,6 +147,87 @@ describe('the access key', () => {
     expect(r.out).toContain(`https://mac.tail1.ts.net/?k=${key}`);
     expect(r.err).toContain('old share links stop working');
     expect(mode(path.join(dir, 'host.env'))).toBe(0o600);
+  });
+});
+
+describe('the key stays out of the logs', () => {
+  const KEY = 'Zm9vYmFyLWtleS0xMjM0NTY3ODkwYWJj';
+
+  it('log_tee: every line to the terminal as it is, to the log file with the key masked; the log is 600', () => {
+    const dir = mkdtempSync(path.join(TMP, 'log-'));
+    const f = path.join(dir, 'home-host.log');
+    const r = sh(
+      `open_log ${q(f)}; { echo "==> start"; echo "  分享链接 SHARE LINK:  https://mac.tail1.ts.net/?k=${KEY}"; echo "https://h/?room=AB12C&mode=ws&k=${KEY}&x=1"; } | log_tee ${q(f)}`,
+    );
+    expect(r.status).toBe(0);
+    expect(r.out).toContain(`https://mac.tail1.ts.net/?k=${KEY}`); // (the terminal: Claude reads the link there)
+    const logged = readFileSync(f, 'utf8');
+    expect(logged).not.toContain(KEY);
+    expect(logged).toContain('SHARE LINK:  https://mac.tail1.ts.net/?k=<key>');
+    expect(logged).toContain('?room=AB12C&mode=ws&k=<key>&x=1');
+    expect(logged).toContain('==> start');
+    expect(mode(f)).toBe(0o600);
+  });
+
+  it('scrub_log: a log an older version wrote (the link as it was) is masked in place; rotated copies stay 600', () => {
+    const dir = mkdtempSync(path.join(TMP, 'scrub-'));
+    const f = path.join(dir, 'home-host.log');
+    writeFileSync(f, `line 1\n  分享链接 SHARE LINK:  https://mac.tail1.ts.net/?k=${KEY}\nline 3\n`);
+    chmodSync(f, 0o644);
+    expect(sh(`scrub_log ${q(f)}; scrub_log ${q(f)}; scrub_log ${q(path.join(dir, 'missing.log'))}`).status).toBe(0);
+    expect(readFileSync(f, 'utf8')).toBe('line 1\n  分享链接 SHARE LINK:  https://mac.tail1.ts.net/?k=<key>\nline 3\n');
+    writeFileSync(f, 'x'.repeat(2000));
+    chmodSync(f, 0o644);
+    expect(sh(`rotate_log ${q(f)} 1000`).status).toBe(0);
+    expect(mode(f)).toBe(0o600);
+    expect(mode(`${f}.1`)).toBe(0o600);
+  });
+
+  it('main: the install dir 700, the log through log_tee (masked); on_error asks for the last 30 lines only', () => {
+    const text = readFileSync(SCRIPT, 'utf8');
+    const main = text.slice(text.indexOf('main() {'));
+    expect(main).toContain('chmod 700 "$INSTALL_DIR"');
+    expect(main).toContain('exec > >(log_tee "$LOG_FILE") 2>&1');
+    expect(main).not.toContain('tee -a');
+    const inst = readFileSync(INSTALL, 'utf8');
+    expect(inst.slice(inst.indexOf('main() {'))).toContain('exec > >(log_tee "$LOG_FILE") 2>&1');
+    const err = run(INSTALL, 'LOG_FILE=/var/log/x.log; on_error 12').err;
+    expect(err).toContain('the last 30 lines');
+    expect(err).not.toContain('/var/log/x.log');
+  });
+});
+
+describe('an install from before the access key (the auto-update does not make one)', () => {
+  const OPEN = JSON.stringify({ app: 'sanguo-warlords', rooms: 1, players: 2, keyRequired: false });
+  const noticeRun = (dir: string, stats: string, now: string) =>
+    sh(`HOST_OS=linux; key_off_notice ${q(stats)}`, { SGWL_DIR: dir, SGWL_NOW: now });
+
+  it('an open server and no RELAY_KEY line in host.env: the log says so, at most once an hour', () => {
+    const dir = mkdtempSync(path.join(TMP, 'koff-'));
+    writeFileSync(path.join(dir, 'host.env'), 'DOMAIN=mac.tail1.ts.net\n');
+    const r1 = noticeRun(dir, OPEN, '5000000');
+    expect(r1.status).toBe(0);
+    expect(r1.out).toContain('访问密钥未开启：运行 update 生成分享链接');
+    expect(noticeRun(dir, OPEN, '5000300').out).toBe('');
+    expect(noticeRun(dir, OPEN, `${5000000 + 3600}`).out).toContain('run update to make the share link');
+    // a server that reports no keyRequired at all (the version before the key): the same
+    expect(noticeRun(mkdtempSync(path.join(TMP, 'koff-')), '{"app":"sanguo-warlords","rooms":0}', '1').out).toContain('访问密钥未开启');
+  });
+
+  it('nothing when the key is on, or the owner chose off (a RELAY_KEY line)', () => {
+    const dir = mkdtempSync(path.join(TMP, 'kon-'));
+    writeFileSync(path.join(dir, 'host.env'), 'DOMAIN=mac.tail1.ts.net\n');
+    expect(noticeRun(dir, JSON.stringify({ keyRequired: true }), '1').out).toBe('');
+    const off = mkdtempSync(path.join(TMP, 'koff-'));
+    writeFileSync(path.join(off, 'host.env'), 'DOMAIN=mac.tail1.ts.net\nRELAY_KEY=off\n');
+    expect(noticeRun(off, OPEN, '1').out).toBe('');
+    // the auto-update asks on every run, busy or not
+    const text = readFileSync(SCRIPT, 'utf8');
+    const auto = text.slice(text.indexOf('cmd_auto_update() {'), text.indexOf('cmd_rotate_key() {'));
+    expect(auto.indexOf('key_off_notice "$stats"')).toBeGreaterThan(0);
+    expect(auto.indexOf('key_off_notice "$stats"')).toBeLessThan(auto.indexOf('if game_busy "$stats"'));
+    // on the Mac: a notification too (osascript, the text as arguments — no quoting games)
+    expect(text).toContain("osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title (item 2 of argv)'");
   });
 });
 

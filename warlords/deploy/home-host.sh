@@ -397,9 +397,12 @@ hand_over() {
 rotate_log() {
   local f=$1 max=$2 size
   [[ -f $f ]] || return 0
+  # (logs are the owner's only — launchd creates them 644)
+  chmod 600 "$f" 2>/dev/null || true
   size=$(wc -c <"$f" | tr -d ' ')
   ((size > max)) || return 0
   cp "$f" "$f.1"
+  chmod 600 "$f.1" 2>/dev/null || true
   : >"$f"
 }
 
@@ -839,16 +842,17 @@ check_build_points_here() {
 # check_public → status 0 once friends can reach the game (public DNS → Funnel → this machine),
 # with the access key — and the relay must refuse a socket without it
 check_public() {
-  local url _i key=()
+  local url _i key=''
   url=$(game_url "$DOMAIN")
   [[ -f $APP_DIR/deploy/check.mjs ]] || return 1
-  if [[ -n $RELAY_KEY && $RELAY_KEY != off ]]; then key=("--key=$RELAY_KEY"); fi
+  # (the key goes in the environment: a command line is visible to every user in `ps`)
+  if [[ -n $RELAY_KEY && $RELAY_KEY != off ]]; then key=$RELAY_KEY; fi
   log "检查（本机经 Tailscale）/ checking through Tailscale"
-  node "$APP_DIR/deploy/check.mjs" "$url" ${key[@]+"${key[@]}"} || warn "经 Tailscale 访问失败 / not reachable through Tailscale"
+  SGWL_CHECK_KEY=$key node "$APP_DIR/deploy/check.mjs" "$url" || warn "经 Tailscale 访问失败 / not reachable through Tailscale"
   log "检查公网访问（朋友走的路：公网 DNS → Funnel）/ checking from the internet side (public DNS → Funnel)"
   # (the server-hosted match check ran above: no test room per retry)
   for _i in $(seq 1 12); do
-    if node "$APP_DIR/deploy/check.mjs" "$url" --public-dns --no-headless ${key[@]+"${key[@]}"}; then return 0; fi
+    if SGWL_CHECK_KEY=$key node "$APP_DIR/deploy/check.mjs" "$url" --public-dns --no-headless; then return 0; fi
     sleep 10
   done
   return 1
@@ -887,6 +891,23 @@ load_key_setting() {
     log "已生成访问密钥：从现在起朋友要用最后打印的「分享链接」进入 / made an access key: from now on friends join through the SHARE LINK printed at the end"
   elif [[ $RELAY_KEY == off ]]; then
     warn "访问密钥已关闭（SGWL_RELAY_KEY=off）：谁拿到网址都能玩 / access key off: anyone with the address can play"
+  fi
+}
+
+# key_off_notice SGWL_JSON: the server runs without the access key and nobody chose that (host.env has
+# no RELAY_KEY line: an install from before the key — the auto-update does not make one, friends'
+# links would stop working): say so at most once an hour — the log, and a notification on the Mac
+key_off_notice() {
+  if [[ $(stat_flag "$1" keyRequired) == true ]] || grep -q '^RELAY_KEY=' "$STATE_FILE" 2>/dev/null; then return 0; fi
+  local now last msg
+  now=$(now_s)
+  last=$(au_get "skip:key-off")
+  if [[ $last =~ ^[0-9]+$ ]] && ((now - last < SKIP_LOG_EVERY)); then return 0; fi
+  msg="访问密钥未开启：运行 update 生成分享链接 / the access key is not on — run update to make the share link"
+  skip_log key-off "$msg（… | bash -s -- update）"
+  if [[ $HOST_OS == macos ]] && command -v osascript >/dev/null 2>&1; then
+    osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title (item 2 of argv)' -e 'end run' \
+      "$msg" "三国杀·枪火乱世 服务器 / game server" >/dev/null 2>&1 || true
   fi
 }
 
@@ -1122,6 +1143,7 @@ cmd_auto_update() {
     skip_log server-down "游戏服务没有响应（launchd / systemd 会重启它），这一轮不更新 / the game server does not answer (launchd / systemd restarts it) — no update this round"
     return 0
   fi
+  key_off_notice "$stats"
   if game_busy "$stats"; then
     skip_log busy "有人在玩（房间 $(stat_field "$stats" rooms)，玩家 $(human_players "$stats")，服务器托管 $(stat_field "$stats" headlessHumans)），不更新 / a game is on — no update"
     return 0
@@ -1252,8 +1274,18 @@ main() {
     if [[ $EUID -ne 0 ]]; then SUDO=sudo; fi
   fi
   mkdir -p "$INSTALL_DIR"
-  # (a hand-over from the previous version's script: its output already goes to the log)
-  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then exec > >(tee -a "$LOG_FILE") 2>&1; fi
+  # everything in it is this user's alone (host.env and the LaunchAgent hold the access key; the logs)
+  chmod 700 "$INSTALL_DIR" 2>/dev/null || true
+  # (a hand-over from the previous version's script: its output already goes to the log; the log
+  # gets every line with the access key masked — the terminal shows the share link)
+  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then
+    # (what an older version logged as it was — the first update from one hands over to this
+    # script while the old one's log copy still takes every line: masked on the next run)
+    scrub_log "$LOG_FILE"
+    scrub_log "$LOG_FILE.1"
+    open_log "$LOG_FILE"
+    exec > >(log_tee "$LOG_FILE") 2>&1
+  fi
   trap 'on_error $LINENO' ERR
   trap release_lock EXIT
   # (the auto-update runs every 5 minutes: it writes its heading only when it has something to say)

@@ -195,7 +195,7 @@ English section below → [English](#english).*
   ```
   同一 Wi-Fi / 路由器下的朋友用浏览器打开终端里显示的 `http://192.168.x.x:8787`，选择「服务器」模式，一人创建房间、其他人输入房间码即可——从这个服务器打开的网页会自动使用同源中继，无需任何设置。
   服务器放到公网上时设 `RELAY_KEY=<24 位以上的随机串>`：联机（`/ws`、`/api/rooms`）要带 `?k=<密钥>`，玩家打开 `http://…/?k=<密钥>` 即可；
-  其他可选环境变量：`MAX_ROOMS`（中继房间上限，默认 1000）、`HOST_GRACE_MS`（房主掉线后房间保留，默认 120000）。网页文件自动压缩（`node scripts/precompress.mjs dist` 可预压缩）。
+  其他可选环境变量：`MAX_ROOMS`（中继房间上限，默认 1000）、`MAX_ROOMS_PER_IP`（同一地址同时开的房间，默认 2）、`HOST_GRACE_MS`（房主掉线后房间保留，默认 120000）。网页文件自动压缩（`node scripts/precompress.mjs dist` 可预压缩）。
 
 ### 3. 在云服务器（VPS）上部署（适合中国大陆玩家）
 公共 PeerJS 云与部分 STUN 在国内可能较慢或无法连接，推荐在国内云服务器上自建：
@@ -421,8 +421,8 @@ domain: `curl … | sudo DOMAIN=your.domain bash`). Update later with `curl … 
   same-origin relay automatically (`npm run build:headless` too, optionally: server-hosted matches). The desktop app has
   the server built in: its online screen lists your LAN addresses with copy buttons (also under the menu 游戏 → 局域网联机地址…).
   On the open internet set `RELAY_KEY=<24+ random characters>`: online play (`/ws`, `/api/rooms`) then needs `?k=<key>` —
-  players open `http://…/?k=<key>`. Also `MAX_ROOMS` (relay rooms, default 1000) and `HOST_GRACE_MS` (how long a dropped
-  host's room waits, default 120000). Game files are served compressed (`node scripts/precompress.mjs dist` precompresses).
+  players open `http://…/?k=<key>`. Also `MAX_ROOMS` (relay rooms, default 1000), `MAX_ROOMS_PER_IP` (rooms one address
+  holds at once, default 2) and `HOST_GRACE_MS` (how long a dropped host's room waits, default 120000). Game files are served compressed (`node scripts/precompress.mjs dist` precompresses).
 - **VPS (recommended for players in mainland China,** where the public PeerJS cloud and some STUN servers are slow or
   blocked): clone the repo on a server, `npm ci && npm run build && PORT=8787 npm run server`, open TCP 8787 in the
   firewall and let players use `http://<server-ip>:8787` in Server mode. For a domain + HTTPS put Nginx/Caddy in front
