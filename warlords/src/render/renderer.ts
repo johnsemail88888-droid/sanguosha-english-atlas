@@ -13,6 +13,7 @@ import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { AimSnapshot } from '../game/aimFeel';
+import { ScopeGlints } from './vfx/scopeGlint';
 import type { ViewSource } from './view';
 import { HERO_VIEW_RANGE, groundVariant, presetPixelRatio, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
 import { AdaptiveResolution, adaptiveFloor } from './adaptiveRes';
@@ -187,6 +188,8 @@ export class GameRenderer {
   private lastLocalHp = -1;
   private squad = new Set<EntityId>();
   private zoomNow = 1;
+  /** other heroes' scopes glinting toward the camera (vfx/scopeGlint.ts) */
+  private readonly glints = new ScopeGlints();
   /** the local aim (InputController → setAim each frame; null: none yet — the look's ADS button and the data zoom) */
   private aim: Readonly<AimSnapshot> | null = null;
   /** pixel ratio controller (frame time → canvas resolution) */
@@ -281,6 +284,7 @@ export class GameRenderer {
     this.fx.shakeAt = (pos, intensity, radius) => this.shakeAt(pos, intensity, radius);
     this.scene.add(this.fx.group);
     this.scene.add(this.entities.group);
+    this.scene.add(this.glints.group);
     this.zone = new ZoneVisual(displayMap(map));
     this.scene.add(this.zone.group);
     this.post = new PostChain(this.renderer, this.sky, this.scene, this.camera, {
@@ -335,6 +339,7 @@ export class GameRenderer {
     const ctx = this.entityCtx(d, localId, local);
     ctx.focusPos = this.cameraFocus(localEnt);
     this.entities.sync(view.entities(), ctx);
+    this.glints.update(view.entities(), localId, this.camera.position, this.time, this.zoomNow, ctx.blocked);
 
     // fade the local hero when the camera is pushed into them (walls behind,
     // tight corners) and while aiming a magnifying weapon (the camera slides in)
@@ -544,6 +549,7 @@ export class GameRenderer {
     g.name = 'warmSamples';
     g.visible = false;
     this.fx.fx.prewarm();
+    this.glints.prewarm();
     const plate = new Nameplate();
     const hazards = hazardWarmSamples();
     const chibi = chibiWarmSample();
@@ -814,6 +820,7 @@ export class GameRenderer {
     // the match's character models (textures ~5 MB each) go with it; the next match reloads from the HTTP cache
     evictUnusedTemplates();
     this.fx.dispose();
+    this.glints.dispose();
     this.fp.dispose();
     this.zone.dispose();
     this.fires.dispose();

@@ -149,7 +149,6 @@ const tanHalf = (fovDeg: number): number => Math.tan((fovDeg * Math.PI) / 360);
  * inch as a red dot does.
  */
 export function adsSensitivityMul(zoom: number, baseFov: number, adsSetting: number): number {
-  if (zoom <= 1.001) return 1;
   const ref = tanHalf(zoomedFov(baseFov, 1.5));
   const now = tanHalf(zoomedFov(baseFov, zoom));
   return adsSetting * Math.min(1, now / ref);

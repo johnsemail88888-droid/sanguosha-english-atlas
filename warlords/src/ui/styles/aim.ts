@@ -41,10 +41,10 @@ export const AIM_CSS = /* css */ `
 .hud-scope .sc-svg .ctr { filter: drop-shadow(0 0 1.2px #ff5030); }
 .hud-scope .sc-svg .chev { filter: drop-shadow(0 0 1.6px rgba(255, 170, 40, 0.9)); }
 .hud-scope .sc-zoom { position: absolute; right: 17%; bottom: 15%; font-family: var(--font-display); font-weight: 900; font-size: ${fs(20, 13)}; color: #ffcf6a; text-shadow: 0 0 3px #000, 0 1px 0 #000; }
-.hud-scope .sc-hint { position: absolute; left: 50%; top: 70%; transform: translateX(-50%); padding: ${u(2)} ${u(12)}; font-size: ${fs(13, 11)}; white-space: nowrap; color: #f5ead0; background: rgba(0, 0, 0, 0.55); border-radius: 999px; }
+.hud-scope .sc-hint { position: absolute; left: 50%; top: 83%; transform: translateX(-50%); padding: ${u(2)} ${u(12)}; font-size: ${fs(13, 11)}; white-space: nowrap; color: #f5ead0; background: rgba(0, 0, 0, 0.55); border-radius: 999px; }
 .hud-scope .sc-hint:empty { display: none; }
 .hud-scope .sc-hint.warn { color: #ffb09a; }
-.hud-scope .sc-breath { position: absolute; left: 50%; top: 64%; width: 22%; height: ${u(5)}; transform: translateX(-50%); background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px; overflow: hidden; display: none; }
+.hud-scope .sc-breath { position: absolute; left: 50%; top: 78%; width: 22%; height: ${u(5)}; transform: translateX(-50%); background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px; overflow: hidden; display: none; }
 .hud-scope .sc-breath.on { display: block; }
 .hud-scope .sc-breath i { position: absolute; inset: 0; background: linear-gradient(90deg, #7ab8ff, #cfe6ff); transform-origin: left center; }
 .hud-scope .sc-breath.low i { background: linear-gradient(90deg, #ff6a4a, #ffb09a); }
