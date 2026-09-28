@@ -220,6 +220,7 @@ export const SCREENS_CSS = /* css */ `
 .box-head .count { margin-left: auto; }
 .seat-tools { display: flex; justify-content: flex-end; }
 .box-head .seat-tools { align-self: center; }
+.lobby-headless { margin: 0.6em 0 0; font-size: 0.85em; line-height: 1.4; }
 .settings-panel .sg-field { grid-template-columns: minmax(6em, 36%) 1fr; }
 .settings-panel .ro { font-weight: 700; }
 /* a guest only reads the settings: two per row, so 身份分配 fits a short screen (MP2-11) */
