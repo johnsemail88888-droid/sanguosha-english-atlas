@@ -180,8 +180,8 @@ export function createTitleScreen(ctx: UiCtx, version: string): Screen {
     el.classList.toggle('no-gl', noGl);
     if (swWarn) el.append(swWarn);
     el.append(
-      // 「显卡：NVIDIA RTX 5090 ✓」 at a glance (red / amber → 性能体检, where the fix is)
       update.el,
+      // 「显卡：NVIDIA RTX 5090 ✓」 at a glance (red / amber → 性能体检, where the fix is)
       h('div', { class: 'sg-title-top' }, gpuChip(ctx, 'title'), langBtn),
       h('div', { class: 'sg-title-main' },
         h('div', { class: 'sg-logo' },
