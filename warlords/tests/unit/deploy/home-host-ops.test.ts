@@ -247,6 +247,90 @@ describe('Tailscale key expiry', () => {
   });
 });
 
+describe('the auto-update schedule: every N seconds, or daily at a fixed time', () => {
+  const at = (env: Record<string, string>, dir = mkdtempSync(path.join(TMP, 'at-'))) =>
+    sh('load_update_interval; echo "$UPDATE_INTERVAL|$UPDATE_AT"', { SGWL_DIR: dir, ...env }).out.split('\n').pop();
+
+  it('SGWL_UPDATE_AT=HH:MM wins; a day-long interval means 05:07; off goes back to the interval; nonsense is ignored', () => {
+    expect(at({})).toBe('300|');
+    expect(at({ SGWL_UPDATE_AT: '05:07' })).toBe('300|05:07');
+    expect(at({ SGWL_UPDATE_AT: '3:30' })).toBe('300|03:30');
+    expect(at({ SGWL_UPDATE_INTERVAL: '86400' })).toBe('86400|05:07');
+    expect(at({ SGWL_UPDATE_INTERVAL: '86400', SGWL_UPDATE_AT: 'off' })).toBe('86400|');
+    expect(at({ SGWL_UPDATE_AT: '25:00' })).toBe('300|');
+    expect(at({ SGWL_UPDATE_AT: 'dawn' })).toBe('300|');
+    // remembered in host.env
+    const dir = mkdtempSync(path.join(TMP, 'at-'));
+    sh('load_key_setting; load_update_interval; DOMAIN=m; save_state', { SGWL_DIR: dir, SGWL_UPDATE_AT: '04:45' });
+    expect(readFileSync(path.join(dir, 'host.env'), 'utf8')).toContain('SGWL_UPDATE_AT=04:45\n');
+    expect(at({}, dir)).toBe('300|04:45');
+  });
+
+  it('LaunchAgent: StartCalendarInterval (Hour, Minute) for a fixed time, StartInterval otherwise', () => {
+    const daily = sh('update_plist com.sanguo-warlords.update /x/home-host.sh 300 /usr/bin /x/update.log 05:07').out;
+    expect(daily).toContain('<key>StartCalendarInterval</key>');
+    expect(daily).not.toContain('<key>StartInterval</key>');
+    const every = sh('update_plist com.sanguo-warlords.update /x/home-host.sh 300 /usr/bin /x/update.log').out;
+    expect(every).toContain('<key>StartInterval</key>\n\t<integer>300</integer>');
+    expect(every).not.toContain('StartCalendarInterval');
+    if (python) {
+      expect(readPlist(daily).StartCalendarInterval).toEqual({ Hour: 5, Minute: 7 });
+      expect(readPlist(every).StartInterval).toBe(300);
+      const reload = readPlist(sh('reload_plist com.sanguo-warlords.update "/Users/x/Library/LaunchAgents/com.sanguo-warlords.update.plist"', { HOME: '/Users/x' }).out);
+      expect(reload.Label).toBe('com.sanguo-warlords.update-reload');
+      expect(reload.RunAtLoad).toBe(true);
+      expect((reload.ProgramArguments as string[]).slice(3)).toEqual([
+        'sgwl-reload',
+        'com.sanguo-warlords.update',
+        '/Users/x/Library/LaunchAgents/com.sanguo-warlords.update.plist',
+        '/Users/x/Library/LaunchAgents/com.sanguo-warlords.update-reload.plist',
+        'com.sanguo-warlords.update-reload',
+      ]);
+    }
+  });
+
+  it('systemd timer: OnCalendar daily at the time (Persistent), else every N seconds after the last run', () => {
+    const daily = sh('update_units /x/home-host.sh sgwl 300 /usr/bin 05:07').out;
+    expect(daily).toContain('OnCalendar=*-*-* 05:07:00\nPersistent=true');
+    expect(daily).not.toContain('OnUnitInactiveSec');
+    const every = sh('update_units /x/home-host.sh sgwl 300 /usr/bin').out;
+    expect(every).toContain('OnUnitInactiveSec=300s');
+    expect(every).not.toContain('OnCalendar');
+  });
+
+  it('resync_updater (run after every auto-update): an out-of-date LaunchAgent is rewritten and reloaded by a one-shot agent — no reinstall', () => {
+    const home = mkdtempSync(path.join(TMP, 'rs-home-'));
+    const dir = mkdtempSync(path.join(TMP, 'rs-'));
+    const agents = path.join(home, 'Library', 'LaunchAgents');
+    mkdirSync(agents, { recursive: true });
+    const plist = path.join(agents, 'com.sanguo-warlords.update.plist');
+    // what the version before this one wrote: StartInterval 86400 (loaded in the evening)
+    writeFileSync(plist, sh(`update_plist com.sanguo-warlords.update ${q(path.join(dir, 'bin', 'home-host.sh'))} 86400 /usr/bin /x/update.log`, { SGWL_DIR: dir, HOME: home }).out + '\n');
+    writeFileSync(path.join(dir, 'host.env'), 'DOMAIN=m\nSGWL_UPDATE_INTERVAL=86400\n');
+    const bin = mkdtempSync(path.join(TMP, 'rs-bin-'));
+    const calls = path.join(bin, 'calls');
+    writeFileSync(path.join(bin, 'launchctl'), `#!/bin/sh\necho "$*" >>${q(calls)}\n`);
+    chmodSync(path.join(bin, 'launchctl'), 0o755);
+    const env = { SGWL_DIR: dir, HOME: home, PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}` };
+    const r = sh('HOST_OS=macos; load_update_interval; resync_updater', env);
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('daily at 05:07');
+    expect(readFileSync(plist, 'utf8')).toContain('<key>StartCalendarInterval</key>');
+    expect(existsSync(path.join(agents, 'com.sanguo-warlords.update-reload.plist'))).toBe(true);
+    expect(readFileSync(calls, 'utf8')).toMatch(/bootstrap gui\/\d+ .*com\.sanguo-warlords\.update-reload\.plist/);
+    // up to date: nothing happens
+    rmSync(calls);
+    const again = sh('HOST_OS=macos; load_update_interval; resync_updater', env);
+    expect(again.out).toBe('');
+    expect(existsSync(calls)).toBe(false);
+    // on Linux (a timer needs root): left to the next install / update
+    expect(sh('HOST_OS=linux; load_update_interval; resync_updater', env).out).toBe('');
+    // and the auto-update runs it last
+    const text = readFileSync(SCRIPT, 'utf8');
+    expect(text).toMatch(/auto-update\)\n\s+cmd_auto_update\n\s+resync_updater/);
+  });
+});
+
 describe('auto-update: pure decisions', () => {
   const A = 'a'.repeat(40);
   const B = 'b'.repeat(40);
