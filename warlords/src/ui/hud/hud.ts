@@ -483,7 +483,7 @@ export class Hud {
     const aim = aimViewOf(f, this.handle.aim?.());
     const scoped = this.sight.update(f, aim);
     this.crosshair.update(f, aim);
-    this.wcard.update(f);
+    this.wcard.update(f, aim.blend > 0.3);
     this.dmg.update(now);
     this.dmgDir.update(f);
     const prompt = this.interact.update(f);

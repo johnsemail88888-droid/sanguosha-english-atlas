@@ -44,14 +44,14 @@ function glintTexture(): THREE.Texture {
   if (g) {
     const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
     r.addColorStop(0, 'rgba(255,255,255,1)');
-    r.addColorStop(0.18, 'rgba(255,246,214,0.95)');
-    r.addColorStop(0.45, 'rgba(255,214,140,0.28)');
-    r.addColorStop(1, 'rgba(255,200,120,0)');
+    r.addColorStop(0.28, 'rgba(255,248,220,1)');
+    r.addColorStop(0.5, 'rgba(255,196,110,0.4)');
+    r.addColorStop(1, 'rgba(255,180,90,0)');
     g.fillStyle = r;
     g.fillRect(0, 0, 64, 64);
     // four thin rays
     g.globalCompositeOperation = 'lighter';
-    for (const [w, h] of [[64, 3], [3, 64]] as const) {
+    for (const [w, h] of [[64, 5], [5, 64]] as const) {
       const lg = g.createLinearGradient(32 - w / 2, 32 - h / 2, 32 + w / 2, 32 + h / 2);
       lg.addColorStop(0, 'rgba(255,240,200,0)');
       lg.addColorStop(0.5, 'rgba(255,250,235,0.9)');
@@ -96,9 +96,9 @@ export class ScopeGlints {
       if (s <= 0.02 || blocked(_eye, { x: camPos.x, y: camPos.y, z: camPos.z })) continue;
       const sp = this.sprite(n++);
       sp.position.set(_eye.x, _eye.y, _eye.z);
-      // ~1.1° across at full strength whatever the distance / zoom, with a slow twinkle
+      // ~3° across at full strength whatever the distance / zoom, with a slow twinkle
       const twinkle = 0.85 + 0.15 * Math.sin(time * 7.3 + e.id * 1.7);
-      const size = (dist * 0.02 * (0.55 + 0.45 * s) * twinkle) / Math.max(1, zoom);
+      const size = (dist * 0.052 * (0.45 + 0.55 * s) * twinkle) / Math.max(1, zoom);
       sp.scale.set(size, size, 1);
       (sp.material as THREE.SpriteMaterial).opacity = Math.min(1, 0.35 + 0.75 * s);
       sp.visible = true;

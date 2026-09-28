@@ -379,7 +379,7 @@ export class SightOverlay {
       text = tx('屏息中', 'Holding breath');
     } else if (fresh) {
       const parts: string[] = [];
-      if (holdBreath) parts.push(tx('Shift 屏息稳枪', 'Shift: hold breath'));
+      if (holdBreath && !f.touch) parts.push(tx('Shift 屏息稳枪', 'Shift: hold breath'));
       if (zooms.length > 1 && !f.touch) parts.push(tx('滚轮 切换 {z}', 'Wheel: {z}', { z: zooms.map((x) => `${Math.round(x * 10) / 10}×`).join('/') }));
       key = `tip|${parts.join('|')}`;
       text = parts.join(' · ');
@@ -473,7 +473,8 @@ export class WeaponCard {
     this.el = h('div', { class: 'hud-wcard' });
   }
 
-  update(f: HudFrame): void {
+  /** `aiming`: the sights are up (on touch the card then steps aside: it shares the top of the screen) */
+  update(f: HudFrame, aiming = false): void {
     const me = f.me;
     const w = me && !me.dead ? me.weapons[me.activeSlot] : null;
     const id = w?.id ?? '';
@@ -489,7 +490,7 @@ export class WeaponCard {
       if (def) this.render(def);
     }
     this.langKey = f.lang;
-    const vis = f.now < this.until && !!me && !me.dead && !me.downed;
+    const vis = f.now < this.until && !!me && !me.dead && !me.downed && !(f.touch && aiming);
     if (vis !== this.visible) {
       this.visible = vis;
       setClass(this.el, 'on', vis);

@@ -101,7 +101,9 @@ export const AIM_CSS = /* css */ `
 .wst-d.dn { color: #ff7a6a; }
 .wst-aim { margin-top: ${u(6)}; font-size: ${fs(12, 10)}; color: #cfe2ff; opacity: 0.92; }
 .sg-hud.dead :is(.hud-wcard, .hud-lootcmp, .hud-sight), .sg-hud.downed :is(.hud-wcard, .hud-lootcmp) { display: none; }
-.sg-hud.touch .hud-wcard { bottom: auto; top: ${u(118)}; right: ${u(250)}; }
+/* touch: the weapon panel sits top right with the kill feed under it — the card goes top centre, under the zone timer */
+.sg-hud.touch .hud-wcard { bottom: auto; right: auto; left: 50%; top: ${u(78)}; transform: translate(-50%, ${u(-8)}); }
+.sg-hud.touch .hud-wcard.on { transform: translate(-50%, 0); }
 .sg-hud.touch .hud-lootcmp { display: none; }
 @media (max-height: 560px) { .hud-wcard .wst-aim { display: none; } .hud-lootcmp { top: calc(50% + ${u(104)}); } }
 `;
