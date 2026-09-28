@@ -41,7 +41,7 @@ import { Sight } from './sight';
 import { UNIT_KINDS, aimPointOf, dist2d, hasLineOfSight, hazardEscape, isTargetable } from './perception';
 import { RoleStrategy, clampIntoZone, pressure } from './strategy';
 import { Witness } from './witness';
-import { AdsTracker, BurstControl, LOCK_DODGE, RECOIL_COMP, kickBlend, launcherTooClose, onTarget, plantsFeet, sidearmInside, sightsReady, wantsAds } from './weaponUse';
+import { AdsTracker, BurstControl, LOCK_DODGE, RECOIL_COMP, kickBlend, launcherTooClose, lockedRocketAt, onTarget, plantsFeet, sidearmInside, sightsReady, wantsAds } from './weaponUse';
 
 const DECIDE_EVERY = 0.25;
 const LOS_EVERY = 0.12;
@@ -1131,7 +1131,7 @@ export class HeroBot implements BotBrain, BotView {
     if (h.dodgeCharges > 0 && now >= this.nextDodgeAt) {
       const burst = this.underFire > 0.1 && now - this.lastHurtAt < 0.25;
       const incoming = prof.dodgeProjectiles && this.incomingProjectile();
-      if (LOCK_DODGE[prof.name] > 0 && this.lockedRocket()) {
+      if (LOCK_DODGE[prof.name] > 0 && lockedRocketAt(sim, self)) {
         this.nextDodgeAt = now + 1.2;
         if (this.rng.next() < LOCK_DODGE[prof.name]) this.dodgeQueued = true;
       } else if ((burst || incoming) && this.rng.next() < prof.dodgeChance) {
@@ -1149,24 +1149,6 @@ export class HeroBot implements BotBrain, BotView {
       mz /= l;
     }
     return { x: mx, z: mz, jump, sprint };
-  }
-
-  /** A lock-on (方天) rocket homing at us: it flies at us from within 35 m, nose on (±12°). */
-  private lockedRocket(): boolean {
-    const { sim, self } = this;
-    const c = { x: self.pos.x, y: self.pos.y + 1, z: self.pos.z };
-    for (const p of sim.queryRadius(self.pos, 35, { kinds: ['projectile'] })) {
-      const wid = p.proj?.weaponId;
-      if (!wid || WEAPON_BY_ID[wid]?.special !== 'multiTarget' || this.x.creditOf(p.id) === self.id) continue;
-      const vl = Math.hypot(p.vel.x, p.vel.y, p.vel.z);
-      const rx = c.x - p.pos.x;
-      const ry = c.y - p.pos.y;
-      const rz = c.z - p.pos.z;
-      const rl = Math.hypot(rx, ry, rz);
-      if (vl < 1 || rl < 1e-3) continue;
-      if ((p.vel.x * rx + p.vel.y * ry + p.vel.z * rz) / (vl * rl) > Math.cos(12 * DEG)) return true;
-    }
-    return false;
   }
 
   private incomingProjectile(): boolean {

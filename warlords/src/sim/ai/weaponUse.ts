@@ -3,8 +3,10 @@
 // inside a scope's / launcher's minimum range, and the recoil a bot fails to pull down. HeroBot
 // and the weapon duel harness (tests/unit/balance/duelHarness.ts DuelBrain) both use these, so a
 // balance measured in duels is the balance the bots in a match play.
-import type { BotDifficulty } from '../../core/types';
+import type { BotDifficulty, Entity } from '../../core/types';
+import { WEAPON_BY_ID } from '../../data/weapons';
 import type { WeaponDef } from '../../data/types';
+import type { SimApi } from '../api';
 import { adsEase, aimProfile, stepAdsT } from '../../data/weaponFeel';
 import type { Rng } from '../../core/rng';
 import type { AimOut } from './aimer';
@@ -108,6 +110,27 @@ export const launcherTooClose = (def: WeaponDef, d: number): boolean => def.clas
 
 /** How much of each shot's recoil a bot pulls back down (C10-8); the rest climbs its aim. */
 export const RECOIL_COMP: Readonly<Record<BotDifficulty, number>> = { easy: 0.4, normal: 0.6, hard: 0.8 };
+
+/**
+ * A lock-on (方天) rocket is homing at `self`: one of someone else's multiTarget rockets within
+ * 35 m flying at it nose on (±12°) — what the target's lock warning shows a human (C10-9).
+ */
+export function lockedRocketAt(sim: SimApi, self: Entity): boolean {
+  const c = { x: self.pos.x, y: self.pos.y + 1, z: self.pos.z };
+  const cos = Math.cos(12 * DEG);
+  for (const p of sim.queryRadius(self.pos, 35, { kinds: ['projectile'] })) {
+    const wid = p.proj?.weaponId;
+    if (!wid || p.ownerId === self.id || WEAPON_BY_ID[wid]?.special !== 'multiTarget') continue;
+    const vl = Math.hypot(p.vel.x, p.vel.y, p.vel.z);
+    const rx = c.x - p.pos.x;
+    const ry = c.y - p.pos.y;
+    const rz = c.z - p.pos.z;
+    const rl = Math.hypot(rx, ry, rz);
+    if (vl < 1 || rl < 1e-3) continue;
+    if ((p.vel.x * rx + p.vel.y * ry + p.vel.z * rz) / (vl * rl) > cos) return true;
+  }
+  return false;
+}
 
 /** Chance a bot dodge-rolls when a 方天 rocket is locked on it (C10-9). */
 export const LOCK_DODGE: Readonly<Record<BotDifficulty, number>> = { easy: 0, normal: 0.3, hard: 0.6 };
