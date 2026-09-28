@@ -11,9 +11,14 @@ export function aimTag(def: AbilityDef, lang: SkillLang): HTMLElement {
   return h('span', { class: `sk-aim a-${a}` }, AIM_LABEL[a][lang === 'en' ? 1 : 0]);
 }
 
-/** The key numbers as chips (伤害 90 · 位移 8 米 · …); `skipCooldown` when the cooldown shows elsewhere. */
-export function skillChips(def: AbilityDef, lang: SkillLang, opts: { skipCooldown?: boolean } = {}): HTMLElement | null {
-  const stats = skillStats(def, lang).filter((s) => !(opts.skipCooldown && s.kind === 'cooldown'));
+/**
+ * The key numbers as chips (伤害 90 · 位移 8 米 · …); `skipCooldown` when the cooldown shows
+ * elsewhere, `max`: the first few only (the HUD tooltip: the order puts what matters first).
+ */
+export function skillChips(def: AbilityDef, lang: SkillLang, opts: { skipCooldown?: boolean; max?: number } = {}): HTMLElement | null {
+  const stats = skillStats(def, lang)
+    .filter((s) => !(opts.skipCooldown && s.kind === 'cooldown'))
+    .slice(0, opts.max ?? Infinity);
   if (!stats.length) return null;
   return h('div', { class: 'sk-chips' }, stats.map((s) => h('span', { class: `sk-chip k-${s.kind}` }, h('i', null, s.label), h('b', null, s.value))));
 }

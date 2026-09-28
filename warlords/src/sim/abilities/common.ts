@@ -54,7 +54,8 @@ export const alive = (e: Entity | undefined): e is Entity => !!e && e.alive && !
  * so an ability can write `return deny(ctx, 'needOther');`.
  */
 export function deny(ctx: AbilityCtx, reason: DeniedReason | undefined): false {
-  ctx.deniedReason = reason;
+  // a crosshair helper already found the aimed unit out of range: that says more than "no target"
+  ctx.deniedReason = reason === 'noTarget' && ctx.deniedReason === 'outOfRange' ? 'outOfRange' : reason;
   return false;
 }
 
@@ -89,11 +90,22 @@ export function flatAimDir(ctx: AbilityCtx): Vec3 {
   return { x, y: 0, z };
 }
 
+/** Aim that finds a unit this far out still says "too far" rather than "no target". */
+const OUT_OF_RANGE_PROBE = 200;
+
+/**
+ * Why no target was found: 'outOfRange' when the crosshair is on a fitting unit beyond the
+ * skill's range (「目标太远」), else 'noTarget'. Only asked on a refusal.
+ */
+export function missReason(ctx: AbilityCtx, filter: QueryFilter): DeniedReason {
+  return ctx.sim.aimTarget(ctx.self, OUT_OF_RANGE_PROBE, filter) ? 'outOfRange' : 'noTarget';
+}
+
 /** Enemy (anything not on your own side) under the crosshair. */
 export function crosshairEnemy(ctx: AbilityCtx, range: number, kinds: EntityKind[] = UNIT_KINDS): Entity | undefined {
   const t = ctx.sim.aimTarget(ctx.self, range, { kinds, notFriendlyTo: ctx.self.id });
   // provisional refusal reason: an activate() that gives up for want of a target need not say why
-  if (!t && ctx.deniedReason === undefined) ctx.deniedReason = 'noTarget';
+  if (!t && ctx.deniedReason === undefined) ctx.deniedReason = missReason(ctx, { kinds, notFriendlyTo: ctx.self.id });
   return t;
 }
 

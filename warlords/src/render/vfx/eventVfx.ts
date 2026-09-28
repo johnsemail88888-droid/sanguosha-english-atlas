@@ -185,6 +185,11 @@ export function handleEvents(evs: readonly GameEvent[], deps: EventVfxDeps): voi
             if (ev.on) tv.eventStatuses.add(ev.status);
             else tv.eventStatuses.delete(ev.status);
           }
+          // how long it lasts: the plate's badge counts it down
+          if (tv && ev.privateTo === undefined) {
+            if (ev.on && ev.dur !== undefined) tv.statusUntil.set(ev.status, deps.time + ev.dur);
+            else tv.statusUntil.delete(ev.status);
+          }
           if (!ev.on) break;
           if (!tv) break;
           const p = tv.chestWorld(_a);

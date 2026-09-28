@@ -9,7 +9,7 @@ import type { AbilityCtx, SimApi } from '../../api';
 import { maxReserve, usesAmmo, weaponDef } from '../../defs';
 import { ext, isDebuff } from '../../ext';
 import { registerHazardKind } from '../../hazards';
-import { UNIT_KINDS, alive } from '../common';
+import { UNIT_KINDS, alive, missReason } from '../common';
 
 /** Default dodge-roll charges (SimExt.maxDodgeCharges adds the extra ones). */
 export { BASE_DODGE_CHARGES } from '../../ext';
@@ -137,8 +137,8 @@ export function crosshairFoe(ctx: AbilityCtx, range: number, kinds: EntityKind[]
     }
   }
   // why a cast that needs a foe did nothing (the world's abilityDenied cue): only downed bodies
-  // under the crosshair → 'invalidTarget', nothing at all → 'noTarget'
-  ctx.deniedReason ??= skipped ? 'invalidTarget' : 'noTarget';
+  // under the crosshair → 'invalidTarget', a foe out of range → 'outOfRange', nothing at all → 'noTarget'
+  ctx.deniedReason ??= skipped ? 'invalidTarget' : missReason(ctx, { kinds, notFriendlyTo: self.id });
   return undefined;
 }
 

@@ -40,6 +40,8 @@ export interface PlateData {
   bubble?: string;
   /** status badges over the plate (plateStatuses), most important first; absent / empty: none */
   statuses?: readonly StatusId[];
+  /** whole seconds left of each badge's status (same order; ≤ 0: not shown) — control effects count down */
+  statusSecs?: readonly number[];
 }
 
 /** Snapshot flags → the status they show (the order is the badges' priority: control first). */
@@ -58,30 +60,32 @@ const FLAG_STATUS: readonly [number, StatusId][] = [
   [VF_BOOSTED, 'dmgBoost'],
   [VF_HASTE, 'haste'],
 ];
-/** statuses without a flag, known from 'status' events (沉默 / 缴械 / 连环 / 易伤): shown right after the hard control */
+/** statuses without a flag, known from 'status' events (沉默 / 缴械 / 连环 / 易伤) */
 const EVENT_STATUS_ORDER: readonly StatusId[] = ['silence', 'disarm', 'chained', 'dmgTakenUp'];
-/** badges over a plate at most */
-export const MAX_PLATE_BADGES = 5;
+/** badge priority: what the unit cannot do first (control), then what marks it, then the rest */
+const BADGE_ORDER: readonly StatusId[] = ['stun', 'freeze', 'dance', 'charm', 'silence', 'disarm', 'root', 'chained', 'marked', 'slow', 'burn', 'dmgTakenUp', 'reveal', 'invuln', 'shield', 'dmgBoost', 'haste'];
+/** badges over a plate at most (big enough to read at a distance: a few only) */
+export const MAX_PLATE_BADGES = 3;
+/** control effects: their badge shows the seconds left */
+export const TIMED_BADGES: ReadonlySet<StatusId> = new Set<StatusId>(['stun', 'freeze', 'dance', 'charm', 'silence', 'disarm', 'root']);
 
 /**
  * The status badges over a hero's nameplate: what its flags say (stun, slow, burn …) plus
- * the event-tracked ones (silence, disarm …), control first, at most MAX_PLATE_BADGES.
+ * the event-tracked ones (silence, disarm …), control first (BADGE_ORDER), at most MAX_PLATE_BADGES.
  */
 export function plateStatuses(flags: number, extra: ReadonlySet<StatusId> | null): StatusId[] {
-  const out: StatusId[] = [];
-  const push = (id: StatusId): void => {
-    if (out.length < MAX_PLATE_BADGES && !out.includes(id)) out.push(id);
-  };
-  for (let i = 0; i < 3; i++) if (flags & FLAG_STATUS[i][0]) push(FLAG_STATUS[i][1]);
-  if (extra) for (const id of EVENT_STATUS_ORDER) if (extra.has(id)) push(id);
-  for (let i = 3; i < FLAG_STATUS.length; i++) if (flags & FLAG_STATUS[i][0]) push(FLAG_STATUS[i][1]);
-  return out;
+  const have = new Set<StatusId>();
+  for (const [bit, id] of FLAG_STATUS) if (flags & bit) have.add(id);
+  if (extra) for (const id of EVENT_STATUS_ORDER) if (extra.has(id)) have.add(id);
+  return BADGE_ORDER.filter((id) => have.has(id)).slice(0, MAX_PLATE_BADGES);
 }
 
 const W = 384;
-const H = 136;
-/** plate height as a fraction of the screen height */
-export const PLATE_SCREEN_FRAC = 0.085;
+/** the badge row over the plate (status badges / quick-chat bubble), then the plate itself */
+const TOP = 24;
+const H = 136 + TOP;
+/** plate height as a fraction of the screen height (the plate itself stays 0.085 of it; the badge row is on top) */
+export const PLATE_SCREEN_FRAC = (0.085 * H) / (H - TOP);
 
 export class Nameplate {
   readonly sprite: THREE.Sprite;
@@ -135,7 +139,7 @@ export class Nameplate {
     const hpQ = Math.round((d.hp / Math.max(1, d.maxHp)) * 60);
     const shQ = Math.round(d.shield / 5);
     const s = this.shown;
-    const stKey = d.statuses && d.statuses.length ? d.statuses.join(',') : '';
+    const stKey = d.statuses && d.statuses.length ? `${d.statuses.join(',')}|${d.statusSecs?.join(',') ?? ''}` : '';
     if (
       s.valid &&
       s.heroName === d.heroName &&
@@ -191,6 +195,15 @@ export class Nameplate {
 function draw(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, d: PlateData): void {
   g.clearRect(0, 0, W, H);
   const kc = d.kingdom ? KINGDOM_COLORS[d.kingdom] : '#b08a3a';
+  // the status badges use the whole badge row; the rest is drawn TOP lower
+  if (!d.bubble && d.statuses && d.statuses.length) drawStatusBadges(g, d.statuses, d.statusSecs, 2);
+  g.save();
+  g.translate(0, TOP);
+  drawPlate(g, d, kc);
+  g.restore();
+}
+
+function drawPlate(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, d: PlateData, kc: string): void {
   let y = 4;
   // quick-chat bubble (top)
   if (d.bubble) {
@@ -207,7 +220,7 @@ function draw(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, d
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText(d.bubble, W / 2, y + 17, tw - 16);
-  } else if (d.statuses && d.statuses.length) drawStatusBadges(g, d.statuses, y);
+  }
   y = 40;
   // name row
   g.textBaseline = 'middle';
@@ -300,31 +313,44 @@ function draw(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, d
   for (let k = 100; k < total; k += 100) g.fillRect(bx + (bw * k) / total - 1, barY, 2, bh);
 }
 
-/** A row of status badges (glyph on the status colour; debuffs framed red, buffs gold) in the bubble row. */
-function drawStatusBadges(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, ids: readonly StatusId[], y: number): void {
-  const size = 32;
-  const gap = 6;
-  const total = ids.length * size + (ids.length - 1) * gap;
+/**
+ * A row of status badges over the plate: the glyph on the status colour (debuffs framed red,
+ * buffs gold), and for a control effect the seconds left beside it (「晕 2」).
+ */
+function drawStatusBadges(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, ids: readonly StatusId[], secs: readonly number[] | undefined, y: number): void {
+  const size = 52;
+  const secW = 38;
+  const gap = 8;
+  const widths = ids.map((_, i) => size + ((secs?.[i] ?? 0) > 0 ? secW : 0));
+  const total = widths.reduce((a, b) => a + b, 0) + (ids.length - 1) * gap;
   let x = (W - total) / 2;
-  g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.font = `bold 22px ${CALLIGRAPHY_FONT}`;
-  for (const id of ids) {
+  ids.forEach((id, i) => {
     const hint = STATUS_HINT_BY_ID[id];
     const col = hint?.color ?? '#b0b0b0';
-    g.fillStyle = 'rgba(10,8,6,0.85)';
-    roundRect(g, x - 2, y - 2, size + 4, size + 4, 7);
+    const w = widths[i];
+    g.fillStyle = 'rgba(10,8,6,0.88)';
+    roundRect(g, x - 2, y - 2, w + 4, size + 4, 10);
     g.fill();
     g.fillStyle = col;
-    roundRect(g, x, y, size, size, 6);
+    roundRect(g, x, y, size, size, 9);
     g.fill();
     g.strokeStyle = hint?.debuff ? '#ff4a3a' : '#f0c850';
-    g.lineWidth = 2.5;
+    g.lineWidth = 3.5;
+    roundRect(g, x, y, w, size, 9);
     g.stroke();
+    g.textAlign = 'center';
+    g.font = `bold 36px ${CALLIGRAPHY_FONT}`;
     g.fillStyle = '#140c06';
-    g.fillText(hint?.icon ?? '?', x + size / 2, y + size / 2 + 1);
-    x += size + gap;
-  }
+    g.fillText(hint?.icon ?? '?', x + size / 2, y + size / 2 + 2);
+    const s = secs?.[i] ?? 0;
+    if (s > 0) {
+      g.font = `bold 32px ${UI_FONT}`;
+      g.fillStyle = '#ffffff';
+      g.fillText(String(s), x + size + secW / 2 - 1, y + size / 2 + 1);
+    }
+    x += w + gap;
+  });
 }
 
 function drawCrown(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, cx: number, cy: number, s: number): void {

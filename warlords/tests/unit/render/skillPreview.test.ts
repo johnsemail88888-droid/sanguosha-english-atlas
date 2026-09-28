@@ -2,7 +2,7 @@
 // ground while an aimed skill's key is held.
 import { describe, expect, it } from 'vitest';
 import { ABILITY_BY_ID } from '../../../src/data';
-import { SkillPreview, clampToRange, planSkillPreview, previewTone, type PreviewUnit } from '../../../src/render/vfx/skillPreview';
+import { SkillPreview, clampToRange, planSkillPreview, previewReach, previewStatus, previewTone, type PreviewUnit } from '../../../src/render/vfx/skillPreview';
 
 const at = { x: 0, y: 0, z: 0 };
 // yaw 0 faces −z
@@ -80,7 +80,85 @@ describe('planSkillPreview', () => {
 
   it('a secondary area around the target (离间 15 m)', () => {
     const foe: PreviewUnit = { id: 3, x: 4, y: 0, z: -10, kind: 'hero', own: false };
-    expect(plan('diaochan_lijian', undefined, foe)!.area).toMatchObject({ x: 4, z: -10, rOut: 15 });
+    const other: PreviewUnit = { id: 4, x: 8, y: 0, z: -12, kind: 'hero', own: false };
+    const p = planSkillPreview({ def: ABILITY_BY_ID.diaochan_lijian, caster: at, yaw: 0, aimPoint: { x: 4, y: 1, z: -10 }, target: foe, units: [foe, other] })!;
+    expect(p.area).toMatchObject({ x: 4, z: -10, rOut: 15 });
+  });
+
+  it('an enemy under the crosshair but out of range is "far" (with its distance), not "no target"', () => {
+    const foe: PreviewUnit = { id: 7, x: 0, y: 0, z: -20, kind: 'hero', own: false };
+    const p = planSkillPreview({ def: ABILITY_BY_ID.zhangliao_tuxi, caster: at, yaw: 0, aimPoint: { x: 0, y: 1.1, z: -20 }, target: foe })!; // range 12
+    expect(p).toMatchObject({ valid: false, reason: 'far', targetId: 7, tone: 'invalid' });
+    expect(p.dist!).toBeCloseTo(20, 0);
+    // nothing aimed at: 'none'
+    expect(plan('zhangliao_tuxi')).toMatchObject({ valid: false, reason: 'none' });
+    // 青囊 (no target → yourself) still casts, and says the aimed ally was too far
+    const ally: PreviewUnit = { id: 8, x: 0, y: 0, z: -40, kind: 'hero', own: false };
+    expect(plan('huatuo_qingnang', { x: 0, y: 1, z: -40 }, ally)).toMatchObject({ valid: true, reason: 'far', marker: { x: 0, z: 0 } });
+  });
+
+  it('like the sim, a unit just off the crosshair counts, and your own soldier in front does not block it', () => {
+    const foe: PreviewUnit = { id: 7, x: 0.4, y: 0, z: -10, kind: 'hero', own: false };
+    const mine: PreviewUnit = { id: 9, x: 0, y: 0, z: -5, kind: 'troop', own: true };
+    const p = planSkillPreview({ def: ABILITY_BY_ID.guanyu_yijue, caster: at, yaw: 0, aimPoint: { x: 0, y: 1.1, z: -10 }, target: mine, units: [mine, foe] })!;
+    expect(p).toMatchObject({ valid: true, targetId: 7, marker: { x: 0.4, z: -10 } });
+    // 20° off: not aimed at
+    const aside: PreviewUnit = { ...foe, x: 4 };
+    expect(planSkillPreview({ def: ABILITY_BY_ID.guanyu_yijue, caster: at, yaw: 0, aimPoint: { x: 0, y: 1.1, z: -10 }, target: null, units: [aside] })!.valid).toBe(false);
+  });
+
+  it('反间 / 离间 draw a line to the hero the target will be turned on; with nobody near 反间 disarms, 离间 is not cast', () => {
+    const foe: PreviewUnit = { id: 3, x: 0, y: 0, z: -10, kind: 'hero', own: false };
+    const other: PreviewUnit = { id: 4, x: 6, y: 0, z: -12, kind: 'hero', own: false };
+    const downed: PreviewUnit = { id: 5, x: 1, y: 0, z: -11, kind: 'hero', own: false, downed: true };
+    const fj = planSkillPreview({ def: ABILITY_BY_ID.zhouyu_fanjian, caster: at, yaw: 0, aimPoint: { x: 0, y: 1, z: -10 }, target: foe, units: [foe, other, downed] })!;
+    expect(fj).toMatchObject({ valid: true, targetId: 3, linkId: 4 });
+    expect(fj.link).toMatchObject({ x: 0, z: -10 });
+    const alone = planSkillPreview({ def: ABILITY_BY_ID.zhouyu_fanjian, caster: at, yaw: 0, aimPoint: { x: 0, y: 1, z: -10 }, target: foe, units: [foe] })!;
+    expect(alone).toMatchObject({ valid: true, fallback: 'disarm', link: null });
+    const lj = planSkillPreview({ def: ABILITY_BY_ID.diaochan_lijian, caster: at, yaw: 0, aimPoint: { x: 0, y: 1, z: -10 }, target: foe, units: [foe] })!;
+    expect(lj).toMatchObject({ valid: false, reason: 'alone', tone: 'invalid' });
+    // 离间 falls back on a soldier near it that is not its own
+    const soldier: PreviewUnit = { id: 6, x: 3, y: 0, z: -10, kind: 'troop', own: false, owner: 99 };
+    const itsOwn: PreviewUnit = { id: 7, x: 1, y: 0, z: -10, kind: 'troop', own: false, owner: 3 };
+    expect(planSkillPreview({ def: ABILITY_BY_ID.diaochan_lijian, caster: at, yaw: 0, aimPoint: { x: 0, y: 1, z: -10 }, target: foe, units: [foe, itsOwn, soldier] })).toMatchObject({ valid: true, linkId: 6 });
+  });
+
+  it('an area counts (and marks) the units it would catch: foes for harm, never yours', () => {
+    const units: PreviewUnit[] = [
+      { id: 2, x: 0, y: 0, z: -7, kind: 'hero', own: false },
+      { id: 3, x: 5, y: 0, z: 5, kind: 'troop', own: false },
+      { id: 4, x: 0, y: 0, z: -12, kind: 'hero', own: false }, // outside the 10 m ring
+      { id: 5, x: 2, y: 0, z: 0, kind: 'troop', own: true }, // yours
+    ];
+    const wz = planSkillPreview({ def: ABILITY_BY_ID.zhangliao_weizhen, caster: at, yaw: 0, aimPoint: at, target: null, units })!;
+    expect(wz.caught).toBe(2);
+    expect(wz.caughtUnits.map((u) => u.id)).toEqual([2, 3]);
+    // a cone: only what is in front
+    const cone = planSkillPreview({ def: ABILITY_BY_ID.zhangfei_duanqiao, caster: at, yaw: 0, aimPoint: at, target: null, units })!;
+    expect(cone.caughtUnits.map((u) => u.id)).toEqual([2]);
+    // a projectile line stops at its first hit: not counted
+    expect(planSkillPreview({ def: ABILITY_BY_ID.huangzhong_chuanyang, caster: at, yaw: 0, aimPoint: at, target: null, units })!.caught).toBeUndefined();
+    // a plain enemy-target skill: no count
+    expect(planSkillPreview({ def: ABILITY_BY_ID.guanyu_yijue, caster: at, yaw: 0, aimPoint: { x: 0, y: 1.1, z: -7 }, target: units[0], units })!.caught).toBeUndefined();
+  });
+
+  it('a point skill aimed past its range lands on the ring: clamped, with a pin at the landing spot', () => {
+    const far = plan('zhugeliang_bazhen', { x: 0, y: 0, z: -200 })!;
+    expect(far.clamped).toBe(30);
+    expect(far.pin!.z).toBeCloseTo(-30, 6);
+    const near = plan('zhugeliang_bazhen', { x: 0, y: 0, z: -8 })!;
+    expect(near.clamped).toBeUndefined();
+    expect(near.pin).toBeNull();
+    // (a 20 m circle is a sliver seen from the eye: pinned too, not clamped)
+    expect(plan('zhugeliang_bazhen', { x: 0, y: 0, z: -20 })!.pin).not.toBeNull();
+  });
+
+  it('units matter as far as the skill reaches', () => {
+    expect(previewReach(ABILITY_BY_ID.zhangliao_weizhen)).toBe(12);
+    expect(previewReach(ABILITY_BY_ID.zhugeliang_bazhen)).toBe(39);
+    expect(previewReach(ABILITY_BY_ID.zhouyu_fanjian)).toBeGreaterThanOrEqual(60);
+    expect(previewStatus(null)).toEqual({ valid: true });
   });
 
   it('pure self buffs have nothing to draw', () => {
@@ -120,6 +198,14 @@ describe('SkillPreview (meshes)', () => {
     // an invalid target skill reports it
     sp.update(0.016, { ...frame, def: ABILITY_BY_ID.guanyu_yijue });
     expect(sp.valid).toBe(false);
+    expect(sp.status).toMatchObject({ valid: false, reason: 'none' });
+    // a far point skill: the pin stands at the landing spot
+    sp.update(0.016, { ...frame, aimPoint: { x: 0, y: 0, z: -90 } });
+    expect(sp.status).toMatchObject({ valid: true, clamped: 30 });
+    expect(visible()).toBe(3); // range ring + circle + pin
+    // nothing held: valid again
+    sp.update(0.016, { ...frame, def: null });
+    expect(sp.status).toEqual({ valid: true });
     sp.dispose();
   });
 });

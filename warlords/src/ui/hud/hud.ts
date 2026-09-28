@@ -32,7 +32,7 @@ import { trackViewport } from './viewport';
 import { gpuWarnDismissed, gpuWarning, isMac, perfLines } from '../perfcheck';
 import type { AbilityDef } from '../../data/types';
 import type { SkillAimInfo } from '../../game/input';
-import { SkillAimHint, SkillCastFeed, SkillCastTracker, SkillReadyTips, SkillTooltip, heldDef } from './skills';
+import { SelfCcBanner, SkillAimHint, SkillCastFeed, SkillCastTracker, SkillReadyTips, SkillTooltip, heldDef } from './skills';
 
 /** `setPaused` of a local single-player session (GameSession G2 extension; optional). */
 type PausableSession = GameSession & { setPaused?(paused: boolean): void };
@@ -158,8 +158,13 @@ export class Hud {
   private readonly skillFeed = new SkillCastFeed((id) => this.nameOf(id));
   private readonly skillTips = new SkillReadyTips();
   private readonly castTracker = new SkillCastTracker();
+  private readonly selfCc = new SelfCcBanner((id) => this.shortName(id));
   /** the skill icon under the pointer */
   private hoverSkill: AbilityDef | null = null;
+  /** held skills released with nothing to cast on (the aim hint shakes once for each) */
+  private aimRefusals = 0;
+  /** the first-ready tips' height (the pickup lines go above them) */
+  private tipsH = -1;
 
   constructor(private readonly ctx: UiCtx, deps: HudDeps) {
     this.view = deps.view;
@@ -258,6 +263,7 @@ export class Hud {
       this.crosshair.el,
       this.skillAim.el,
       this.skillFeed.el,
+      this.selfCc.el,
       this.killStamp.el,
       this.top.el,
       this.minimapWrap,
@@ -538,19 +544,39 @@ export class Hud {
     this.handleDeath(f);
   }
 
-  /** The held / hovered skill's tooltip and hint, first-ready tips, closing cast results. */
+  /** The held / hovered skill's tooltip and hint, first-ready tips, closing cast results, control effects on you. */
   private updateSkills(f: HudFrame): void {
     const me = f.me;
     const alive = !!me && !me.dead;
-    const aim = (this.handle.input as { aimingInfo?(): SkillAimInfo | null }).aimingInfo?.() ?? null;
+    const input = this.handle.input as { aimingInfo?(): SkillAimInfo | null; aimRefusal?(): { n: number; info: SkillAimInfo | null } };
+    const aim = input.aimingInfo?.() ?? null;
     const held = alive && aim ? heldDef(me!.heroId, aim.slot) : null;
     this.abilities.setHeld(held ? aim!.slot : null);
-    this.skillAim.update(held, aim?.valid ?? true, f.lang);
+    const names = (a: SkillAimInfo | null): { target: string | null; link: string | null } => ({
+      target: a?.targetId !== undefined ? this.shortName(a.targetId) : null,
+      link: a?.linkId !== undefined ? this.shortName(a.linkId) : null,
+    });
+    // a release with nothing to cast on was not sent: the hint says why, shaking
+    const refusal = input.aimRefusal?.();
+    if (refusal && refusal.n !== this.aimRefusals) {
+      this.aimRefusals = refusal.n;
+      const def = alive && refusal.info ? heldDef(me!.heroId, refusal.info.slot) : null;
+      if (def && refusal.info) this.skillAim.refused(def, refusal.info, f.lang, names(refusal.info), f.now);
+    }
+    this.skillAim.update(held, aim ?? true, f.lang, names(aim), f.now);
     const show = held ?? (alive ? this.hoverSkill : null);
     if (show) this.skillTip.show(show, f.lang, !!held, show.slot === 'lord' && me!.role !== 'lord');
     else this.skillTip.hide();
     setClass(this.el, 'sktip-open', !!show);
     this.skillTips.update(f);
+    // the pickup lines stack above the first-ready tips (they share the spot over the bar)
+    const th = this.skillTips.height();
+    if (th !== this.tipsH) {
+      this.tipsH = th;
+      this.el.style.setProperty('--sktips-h', `${th}px`);
+      setClass(this.el, 'sktips-on', th > 0);
+    }
+    this.selfCc.update(me, f.elapsed, f.lang);
     for (const r of this.castTracker.tick(f.elapsed)) this.skillFeed.show(r, f.lang, f.now);
     this.skillFeed.update(f.now);
   }
@@ -639,6 +665,11 @@ export class Hud {
       // (cast windows run on the match clock: skills take their sim time, whatever the frame rate)
       const results = this.castTracker.push(evs, me && myId !== null ? { id: myId, heroId: me.heroId } : null, this.view.elapsed(), { isOwn: own, isHero: (id) => this.view.get(id)?.kind === 'hero' });
       for (const r of results) this.skillFeed.show(r, lang, now);
+      // what enemy skills do to me (「沉默 · 不能放技能 ← 关羽「义绝」」)
+      this.selfCc.ingest(evs, myId, this.view.elapsed(), (id) => {
+        const e = this.view.get(id);
+        return e ? { x: e.x, z: e.z } : null;
+      });
     } catch (err) {
       console.error('[hud] skill results failed', err);
     }
@@ -773,6 +804,13 @@ export class Hud {
     }
     // role reveal banner for important deaths
     if (ev.role === 'lord') this.announcer.push(tx('主公阵亡！', 'The Lord has fallen!'), 'big', undefined, now);
+  }
+
+  /** A unit's short name: the hero's name (张飞), or a soldier's / summon's own. */
+  private shortName(id: EntityId): string | null {
+    const l = entityLabel(this.view, id, getLang());
+    if (!l) return null;
+    return l.kind === 'hero' && l.heroId ? heroName(l.heroId) : l.name;
   }
 
   /** "hero·player" for an entity (heroes, their troops / turrets), in the current language. */

@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameEvent } from '../../../src/core/types';
 import { ABILITY_BY_ID } from '../../../src/data';
-import { SKILL_TIPS_KEY, SkillCastTracker, aimHintText, castResultText, castWindow, readTipCounts, readyTip } from '../../../src/ui/hud/skills';
+import { SKILL_TIPS_KEY, SelfCcModel, SkillCastTracker, aimHintText, castResultText, castWindow, readTipCounts, readyTip } from '../../../src/ui/hud/skills';
 
 const ME = 1;
 const me = { id: ME, heroId: 'guanyu' };
@@ -134,10 +134,78 @@ describe('SkillCastTracker', () => {
 
 describe('held-skill hint', () => {
   it('how to cast, or what is missing', () => {
-    expect(aimHintText(ABILITY_BY_ID.guanyu_qinglong, 'Q', true, 'zh')).toEqual({ name: '青龙斩', how: '松开 Q 施放 · 右键取消', bad: false });
-    expect(aimHintText(ABILITY_BY_ID.guanyu_yijue, 'E', false, 'zh')).toEqual({ name: '义绝', how: '准星对准一名敌人（30 米内）', bad: true });
+    expect(aimHintText(ABILITY_BY_ID.guanyu_qinglong, 'Q', true, 'zh')).toEqual({ name: '青龙斩', how: '松开 Q 施放 · 右键取消', bad: false, warn: false });
+    expect(aimHintText(ABILITY_BY_ID.guanyu_yijue, 'E', false, 'zh')).toEqual({ name: '义绝', how: '准星对准一名敌人（30 米内）', bad: true, warn: false });
     expect(aimHintText(ABILITY_BY_ID.liubei_jimin, 'Q', false, 'en').how).toBe('Put the crosshair on a hero (within 25 m)');
     expect(aimHintText(ABILITY_BY_ID.sunshangxiang_jieyin, 'Q', false, 'zh').how).toBe('准星对准一名男性武将（25 米内）');
+  });
+
+  it('an enemy aimed at out of range is "too far", not "aim at an enemy"', () => {
+    const far = aimHintText(ABILITY_BY_ID.zhangliao_tuxi, 'Q', { valid: false, reason: 'far', targetId: 5, dist: 20.4 }, 'zh', { target: '孙权' });
+    expect(far).toMatchObject({ how: '孙权 20 米 · 太远（12 米内）', bad: true });
+    expect(aimHintText(ABILITY_BY_ID.zhangliao_tuxi, 'Q', { valid: false, reason: 'far', targetId: 5, dist: 20 }, 'en', { target: 'Sun Quan' }).how).toBe('Sun Quan 20 m · too far (within 12 m)');
+    // a skill that works without a target still casts (on you), in amber
+    const qn = aimHintText(ABILITY_BY_ID.huatuo_qingnang, 'E', { valid: true, reason: 'far', targetId: 5, dist: 40 }, 'zh', { target: '张飞' });
+    expect(qn).toMatchObject({ bad: false, warn: true });
+    expect(qn.how).toContain('对自己施放');
+  });
+
+  it('names the target, 反间 / 离间 partners, the fallback, how many the area catches, a clamped point', () => {
+    expect(aimHintText(ABILITY_BY_ID.guanyu_yijue, 'E', { valid: true, targetId: 3 }, 'zh', { target: '张飞' }).how).toBe('松开 E 施放 · → 张飞 · 右键取消');
+    expect(aimHintText(ABILITY_BY_ID.zhouyu_fanjian, 'Q', { valid: true, targetId: 3, linkId: 4 }, 'zh', { target: '关羽', link: '张飞' }).how).toContain('关羽 → 张飞');
+    const alone = aimHintText(ABILITY_BY_ID.zhouyu_fanjian, 'Q', { valid: true, targetId: 3, fallback: 'disarm' }, 'zh', { target: '关羽' });
+    expect(alone).toMatchObject({ bad: false, warn: true });
+    expect(alone.how).toContain('关羽 身边无人 → 改为缴械 3 秒');
+    expect(aimHintText(ABILITY_BY_ID.diaochan_lijian, 'Q', { valid: false, reason: 'alone', targetId: 3 }, 'zh', { target: '关羽' })).toMatchObject({ how: '关羽 身边 15 米内无人可离间', bad: true });
+    expect(aimHintText(ABILITY_BY_ID.zhangliao_weizhen, 'E', { valid: true, caught: 4 }, 'zh').how).toBe('松开 E 施放 · 范围内 4 人 · 右键取消');
+    const clamped = aimHintText(ABILITY_BY_ID.zhugeliang_bazhen, 'Q', { valid: true, clamped: 30 }, 'zh');
+    expect(clamped).toMatchObject({ warn: true });
+    expect(clamped.how.startsWith('超出射程 · 落在 30 米处')).toBe(true);
+  });
+});
+
+describe('反间 cast result', () => {
+  it('says why it disarmed instead of charming', () => {
+    const r = { seq: 1, abilityId: 'zhouyu_fanjian', units: 0, heroes: 0, damage: 0, statuses: [{ id: 'disarm' as const, n: 1 }], target: 7, done: false, missed: false, self: false };
+    expect(castResultText(r, 'zh', '关羽')).toBe('→ 关羽（附近无人可打）');
+    expect(castResultText({ ...r, statuses: [{ id: 'charm', n: 1 }] }, 'zh', '关羽')).toBe('→ 关羽');
+  });
+});
+
+describe('what enemy skills do to you (SelfCcModel)', () => {
+  const pos: Record<number, { x: number; z: number }> = { 1: { x: 0, z: 0 }, 9: { x: 0, z: -8 }, 10: { x: 30, z: 0 } };
+  const posOf = (id: number) => pos[id] ?? null;
+  const names: Record<number, string> = { 9: '关羽', 10: '张辽' };
+
+  it('names the control effect, what it does, the time left and who did it', () => {
+    const b = new SelfCcModel((id) => names[id] ?? null);
+    b.ingest([{ t: 'ability', src: 9, ability: 'guanyu_yijue', target: 1 }, { t: 'status', target: 1, status: 'silence', on: true, dur: 6 }], 1, 10, posOf);
+    const v = b.view({ statuses: [{ id: 'silence', remaining: 5.8 }], dead: false }, 10.2, 'zh');
+    expect(v).toMatchObject({ kind: 'cc', icon: '默', text: '沉默 5.8 秒 · 不能放技能、用锦囊 ← 关羽「义绝」', frac: 1 });
+    // the bar drains
+    expect(b.view({ statuses: [{ id: 'silence', remaining: 2.9 }], dead: false }, 13, 'zh')!.frac).toBeCloseTo(0.5, 6);
+    // stun outranks silence
+    expect(b.view({ statuses: [{ id: 'silence', remaining: 2 }, { id: 'stun', remaining: 1.2 }], dead: false }, 14, 'zh')!.text).toBe('眩晕 1.2 秒 · 不能移动、开火、放技能');
+    expect(b.view({ statuses: [], dead: false }, 15, 'zh')).toBeNull();
+    expect(b.view({ statuses: [{ id: 'silence', remaining: 2 }], dead: true }, 15, 'zh')).toBeNull();
+  });
+
+  it('an area skill around you is the source when nothing was aimed at you; one far away is not', () => {
+    const b = new SelfCcModel((id) => names[id] ?? null);
+    // 张辽 30 m away: his 10 m 威震 cannot have reached you
+    b.ingest([{ t: 'ability', src: 10, ability: 'zhangliao_weizhen' }, { t: 'status', target: 1, status: 'silence', on: true }], 1, 5, posOf);
+    expect(b.view({ statuses: [{ id: 'silence', remaining: 2 }], dead: false }, 5, 'zh')!.text).not.toContain('←');
+    pos[10] = { x: 6, z: 0 };
+    b.ingest([{ t: 'ability', src: 10, ability: 'zhangliao_weizhen' }, { t: 'status', target: 1, status: 'silence', on: true }], 1, 6, posOf);
+    expect(b.view({ statuses: [{ id: 'silence', remaining: 2 }], dead: false }, 6, 'zh')!.text).toContain('← 张辽「威震逍遥津」');
+  });
+
+  it('a skill that only hurts you gets a short notice with its damage', () => {
+    const b = new SelfCcModel((id) => names[id] ?? null);
+    const def = ABILITY_BY_ID.guanyu_qinglong;
+    b.ingest([{ t: 'ability', src: 9, ability: def.id }, { t: 'hit', target: 1, src: 9, amount: 50, dtype: def.dtype!, pos: { x: 0, y: 0, z: 0 } }, { t: 'hit', target: 1, src: 9, amount: 27, dtype: def.dtype!, pos: { x: 0, y: 0, z: 0 } }], 1, 3, posOf);
+    expect(b.view({ statuses: [], dead: false }, 3.1, 'zh')).toMatchObject({ kind: 'hit', text: '关羽「青龙斩」 −77' });
+    expect(b.view({ statuses: [], dead: false }, 9, 'zh')).toBeNull();
   });
 });
 

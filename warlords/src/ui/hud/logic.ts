@@ -432,7 +432,7 @@ export class UiKeyDeduper {
 // ── refused cards / abilities ────────────────────────────────────────────────
 
 /** Reasons the sim gives for a refused card / ability ('sfx' abilityDenied / itemDenied). */
-export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced';
+export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced' | 'outOfRange';
 
 /**
  * Warning text for a refused card / ability of ours (sfx 'itemDenied' /
@@ -448,6 +448,9 @@ export function deniedText(ev: { reason?: unknown; item?: unknown; ability?: unk
   switch (reason) {
     case 'noTarget':
       msg = { zh: '准星需对准目标', en: 'Aim at a target first' };
+      break;
+    case 'outOfRange':
+      msg = { zh: '目标太远', en: 'Target out of range' };
       break;
     case 'fullHp':
       msg = { zh: '体力已满', en: 'Already at full health' };

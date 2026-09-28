@@ -63,6 +63,22 @@ describe('aimed skills: preview while held, cast on release', () => {
     expect(s.frame().actions).toEqual([{ a: 'ability', slot: 'e' }]);
   });
 
+  it('releasing with nothing to cast on (no target / too far) cancels instead of casting, and counts the refusal', () => {
+    const s = new InputState();
+    s.setAimSlots(['q']);
+    s.keyDown('KeyQ');
+    s.aimBlocked = true; // the renderer's preview: no target in range
+    s.keyUp('KeyQ');
+    expect(s.frame().actions).toEqual([]);
+    expect(s.aimRefusals).toBe(1);
+    expect(s.aimBlocked).toBe(false);
+    // aimed properly the next time: cast
+    s.keyDown('KeyQ');
+    s.keyUp('KeyQ');
+    expect(s.frame().actions).toEqual([{ a: 'ability', slot: 'q' }]);
+    expect(s.aimRefusals).toBe(1);
+  });
+
   it('the fire button still shoots while a preview shows', () => {
     const s = new InputState();
     s.setAimSlots(['q']);
@@ -89,5 +105,8 @@ describe('aimSlotsFor: which slots preview', () => {
     // the lord skill slot counts for the real Lord only (刘备 激将: a ring around you)
     expect(aimSlotsFor({ heroId: 'liubei', role: 'lord', cooldowns: {}, charges: {} })).toContain('lord');
     expect(aimSlotsFor({ heroId: 'liubei', role: 'rebel', cooldowns: {}, charges: {} })).not.toContain('lord');
+    // silenced / stunned / dancing: no skill casts, so a press is refused at once (no preview)
+    expect(aimSlotsFor({ heroId: 'guanyu', cooldowns: {}, charges: {}, statuses: [{ id: 'silence' }] })).toEqual([]);
+    expect(aimSlotsFor({ heroId: 'guanyu', cooldowns: {}, charges: {}, statuses: [{ id: 'slow' }] })).toEqual(['q', 'e']);
   });
 });

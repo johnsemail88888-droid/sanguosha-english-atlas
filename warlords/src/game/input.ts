@@ -11,6 +11,7 @@ import { settings } from './settings';
 import { CAMERA_TOGGLE_KEY, resolveCameraView, toggledCameraView, type CameraView } from '../render/camera/viewMode';
 import { heroAbility } from '../data/heroes';
 import { skillAimed } from '../data/skillInfo';
+import type { PreviewStatus } from '../render/vfx/skillPreview';
 
 /** Radians of yaw/pitch per pixel of mouse movement at sensitivity 1. */
 export const LOOK_RAD_PER_PX = 0.0022;
@@ -22,30 +23,37 @@ export type UiKey = 'scoreboard' | 'map' | 'chat' | 'menu' | 'quickchat';
 export interface InputRendererLike {
   pick(): { aimPoint: Vec3; aimTargetId?: EntityId };
   setLookAngles?(yaw: number, pitch: number, ads?: boolean, fireHeld?: boolean, firstPerson?: boolean): void;
-  /** the skill whose key is held (its targeting preview), null for none; returns whether the aim is valid now */
-  setSkillAim?(slot: AbilitySlot | null): boolean;
+  /** the skill whose key is held (its targeting preview), null for none; returns what releasing now would do */
+  setSkillAim?(slot: AbilitySlot | null): PreviewStatus;
   readonly adsZoom?: number;
   readonly view?: {
     viewTick(): number;
-    local(): { activeSlot: number; weapons: unknown[]; heroId?: string; role?: string; cooldowns?: Record<string, number>; charges?: Record<string, number>; downed?: boolean; dead?: boolean } | null;
+    local(): { activeSlot: number; weapons: unknown[]; heroId?: string; role?: string; cooldowns?: Record<string, number>; charges?: Record<string, number>; downed?: boolean; dead?: boolean; statuses?: readonly { id: string }[] } | null;
     localId(): EntityId | null;
     get(id: EntityId): { yaw: number; pitch: number; x?: number; z?: number } | undefined;
   };
 }
 
-/** The held skill preview as the HUD reads it: which slot, and whether releasing now would find its target. */
-export interface SkillAimInfo {
+/**
+ * The held skill preview as the HUD reads it: which slot, and what releasing now would do
+ * (valid, or why not: no target / too far …; the picked unit; how many the area catches).
+ */
+export interface SkillAimInfo extends PreviewStatus {
   slot: AbilitySlot;
-  valid: boolean;
 }
+
+/** Statuses that keep every skill from casting (the press is refused at once instead of previewing). */
+const NO_CAST_STATUSES: ReadonlySet<string> = new Set(['silence', 'stun', 'dance']);
 
 /**
  * Slots of this hero whose skills preview while held and cast on release: the aimed
  * skills (an area on the ground or a unit to pick, data/skillInfo.ts) that are ready.
- * A skill on cooldown (or a downed / dead hero) casts on press, so the refusal shows at once.
+ * A skill on cooldown (or a downed / dead / silenced / stunned hero) casts on press, so the
+ * refusal shows at once.
  */
-export function aimSlotsFor(local: { heroId?: string; role?: string; cooldowns?: Record<string, number>; charges?: Record<string, number>; downed?: boolean; dead?: boolean } | null): AbilitySlot[] {
+export function aimSlotsFor(local: { heroId?: string; role?: string; cooldowns?: Record<string, number>; charges?: Record<string, number>; downed?: boolean; dead?: boolean; statuses?: readonly { id: string }[] } | null): AbilitySlot[] {
   if (!local?.heroId || local.downed || local.dead) return [];
+  if (local.statuses?.some((s) => NO_CAST_STATUSES.has(s.id))) return [];
   const out: AbilitySlot[] = [];
   for (const { slot, def } of aimedSkillsOf(local.heroId)) {
     // the lord skill works for the real Lord only (anyone else's G is refused on press)
@@ -210,6 +218,13 @@ export class InputState {
   private aimSlots: readonly AbilitySlot[] = [];
   /** the held skill key whose targeting preview is showing */
   private aim: { slot: AbilitySlot; code: string } | null = null;
+  /**
+   * Releasing the held skill now would do nothing (its preview finds no target in range —
+   * InputController.sample sets it every frame): the release cancels instead of casting.
+   */
+  aimBlocked = false;
+  /** held skills released while blocked (the HUD shakes the hint once for each) */
+  aimRefusals = 0;
   enabled = true;
   /** the camera is first person: frames carry BTN_FIRST_PERSON (the host's crosshair / shots start at the eye) */
   firstPerson = false;
@@ -251,7 +266,10 @@ export class InputState {
     if (this.aim && this.aim.code === code) {
       const slot = this.aim.slot;
       this.aim = null;
-      this.pushAction({ a: 'ability', slot });
+      // nothing to cast it on: not sent (the sim would only refuse it); the hint says why
+      if (this.aimBlocked) this.aimRefusals++;
+      else this.pushAction({ a: 'ability', slot });
+      this.aimBlocked = false;
     }
     if (code === DISCARD_KEY && this.keys.has(code) && !this.discardChord) {
       const b = KEY_MAP[code];
@@ -452,6 +470,8 @@ export class InputController implements InputSink {
   private readonly wheel = new WheelGesture();
   /** last frame's held skill preview (HUD: tooltip + 「松开施放」 hint) */
   private skillAim: SkillAimInfo | null = null;
+  /** the last held preview (what a refused release was missing) */
+  private lastSkillAim: SkillAimInfo | null = null;
 
   constructor(target: HTMLElement, opts: InputControllerOptions = {}) {
     this.target = target;
@@ -672,15 +692,22 @@ export class InputController implements InputSink {
     // aimed skills preview while their key is held (touch buttons still cast on tap)
     this.state.setAimSlots(this.touchMode ? [] : aimSlotsFor(view?.local() ?? null));
     const slot = this.state.aimingSlot();
-    const valid = renderer.setSkillAim?.(slot) ?? true;
-    this.skillAim = slot ? { slot, valid } : null;
+    const status = renderer.setSkillAim?.(slot) ?? { valid: true };
+    this.skillAim = slot ? { ...status, slot } : null;
+    if (this.skillAim) this.lastSkillAim = this.skillAim;
+    this.state.aimBlocked = !!slot && !status.valid;
     const aim = renderer.pick();
     return this.state.frame(aim, view?.viewTick());
   }
 
-  /** The skill preview showing (its key held) and whether releasing now would find a target; null for none. */
+  /** The skill preview showing (its key held) and what releasing now would do; null for none. */
   aimingInfo(): SkillAimInfo | null {
     return this.skillAim;
+  }
+
+  /** Held skills released with nothing to cast on (not sent), and what the last preview said. */
+  aimRefusal(): { n: number; info: SkillAimInfo | null } {
+    return { n: this.state.aimRefusals, info: this.lastSkillAim };
   }
 
   dispose(): void {

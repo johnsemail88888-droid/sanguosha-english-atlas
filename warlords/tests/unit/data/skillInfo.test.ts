@@ -133,6 +133,30 @@ describe('key-number chips', () => {
     expect(skillStats(byId('huatuo_mafei'), 'zh').find((s) => s.kind === 'stun')?.value).toBe('1.2 秒');
   });
 
+  it('the effects the line names come right after the damage, in its order; unnamed ones go last', () => {
+    // 咆哮 is about free ammo and fire rate first, the slow second
+    expect(skillStats(byId('zhangfei_paoxiao'), 'zh').map((s) => s.kind)).toEqual(['fireRate', 'slow', 'radius', 'duration', 'cooldown']);
+    expect(skillStats(byId('zhangfei_paoxiao'), 'zh')[0].value).toBe('+40%');
+    // 激将: the militia, then the fire rate
+    expect(skillStats(byId('liubei_jijiang'), 'zh').slice(0, 2).map((s) => s.kind)).toEqual(['summon', 'fireRate']);
+    // 突袭's line now says it slows
+    expect(skillLine(byId('zhangliao_tuxi'), 'zh')).toContain('减速');
+    // an effect the line never names comes after the cooldown (the first a short row drops)
+    const tieji = skillStats(byId('machao_tieji'), 'zh').map((s) => s.kind);
+    expect(tieji.indexOf('silence')).toBeLessThan(tieji.indexOf('cooldown'));
+  });
+
+  it('a piercing shot shows how many it goes through', () => {
+    expect(skillStatsText(byId('huangzhong_chuanyang'), 'zh')).toBe('伤害 140 · 穿透 3 · 冷却 12 秒');
+  });
+
+  it('反间 says what happens with nobody near its target; 洛神 shows its odds', () => {
+    expect(skillLine(byId('zhouyu_fanjian'), 'zh')).toBe('魅惑准星处敌人 2.5 秒去打 30 米内另一武将；无人则缴械 3 秒');
+    expect(skillLine(byId('zhenji_luoshen'), 'zh')).toBe('最多抽 4 次锦囊：成功率 60%→30% 递减，失败即停');
+    expect(skillArea(byId('zhouyu_fanjian'))).toMatchObject({ kind: 'target', link: { radius: 30, fallback: 'disarm' } });
+    expect(skillArea(byId('diaochan_lijian'))).toMatchObject({ kind: 'target', radius: 15, link: { radius: 15, fallback: 'units' } });
+  });
+
   it('a fallback effect is not shown as the skill’s point, a preview-only length is not a range', () => {
     expect(skillStats(byId('zhouyu_fanjian'), 'zh').some((s) => s.kind === 'disarm')).toBe(false);
     expect(skillStats(byId('huangzhong_chuanyang'), 'zh').some((s) => s.kind === 'range')).toBe(false);

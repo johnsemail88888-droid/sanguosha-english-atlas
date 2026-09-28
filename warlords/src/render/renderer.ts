@@ -49,7 +49,7 @@ import { MountRig } from './models/mounts';
 import { Effects } from './vfx/effects';
 import { handleEvents, shotClass } from './vfx/eventVfx';
 import { ZoneVisual } from './vfx/zone';
-import { SkillPreview, type PreviewUnit } from './vfx/skillPreview';
+import { SkillPreview, previewReach, type PreviewStatus, type PreviewUnit } from './vfx/skillPreview';
 import { autoScaleCap } from './adaptiveRes';
 import { GpuTimer } from './gpuTimer';
 
@@ -684,11 +684,12 @@ export class GameRenderer {
 
   /**
    * The skill whose key is held (InputController, every frame): its targeting preview is
-   * drawn on the ground. Returns whether releasing now would act (false: no target in range).
+   * drawn on the ground. Returns what releasing now would do (last frame's plan: valid or
+   * why not, the picked unit, how many the area catches …).
    */
-  setSkillAim(slot: AbilitySlot | null): boolean {
+  setSkillAim(slot: AbilitySlot | null): PreviewStatus {
     this.skillAimSlot = slot;
-    return this.skillPreview.valid;
+    return this.skillPreview.status;
   }
 
   getCameraPose(): { pos: Vec3; yaw: number; pitch: number } {
@@ -1232,7 +1233,7 @@ export class GameRenderer {
       yaw: this.look.fresh ? this.look.yaw : localEnt?.yaw ?? 0,
       aimPoint: pick?.aimPoint ?? null,
       target: def ? this.previewUnit(pick?.aimTargetId, localEnt) : null,
-      units: def && localEnt ? this.previewUnitsNear(localEnt, 22) : undefined,
+      units: def && localEnt ? this.previewUnitsNear(localEnt, previewReach(def)) : undefined,
     });
   }
 
@@ -1254,7 +1255,7 @@ export class GameRenderer {
     if (!t || !localEnt || t.flags & VF_DEAD) return null;
     const own = t.id === localEnt.id || t.owner === localEnt.id || this.squad.has(t.id);
     const gender = t.kind === 'hero' ? HERO_BY_ID[t.sub]?.gender : undefined;
-    return { id: t.id, x: t.x, y: t.y, z: t.z, kind: t.kind, own, ...(gender ? { male: gender === 'male' } : {}) };
+    return { id: t.id, x: t.x, y: t.y, z: t.z, kind: t.kind, own, ...(gender ? { male: gender === 'male' } : {}), ...(t.owner !== undefined ? { owner: t.owner } : {}), ...(t.flags & VF_DOWNED ? { downed: true } : {}) };
   }
 
   /** Our own cast: its area stays on the ground for a moment (a key tap or a touch button shows it too). */

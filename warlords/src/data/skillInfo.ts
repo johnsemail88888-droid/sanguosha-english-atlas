@@ -33,7 +33,17 @@ export type SkillArea =
    * `reach`: the real range when the strip only shows part of it (the chips read it; absent: start + length) */
   | { kind: 'line'; start: number; length: number; width: number; endRadius?: number; reach?: number }
   /** the unit under the crosshair within `range` (a secondary area of `radius` m around it) */
-  | { kind: 'target'; range: number; side: 'enemy' | 'ally'; radius?: number; selfFallback?: boolean; maleOnly?: boolean };
+  | { kind: 'target'; range: number; side: 'enemy' | 'ally'; radius?: number; selfFallback?: boolean; maleOnly?: boolean; link?: SkillLink };
+
+/**
+ * A target skill that turns the picked unit on another one (反间 / 离间): the nearest other
+ * hero within `radius` m of it. Nobody there: 反间 disarms it instead (`fallback: 'disarm'`),
+ * 离间 turns it on the nearest soldier / NPC (`fallback: 'units'`), else it is not cast.
+ */
+export interface SkillLink {
+  radius: number;
+  fallback: 'disarm' | 'units';
+}
 
 export interface DashStop {
   width: number;
@@ -91,7 +101,9 @@ const AREA_OVERRIDE: Readonly<Record<string, (p: Record<string, number>) => Skil
   sunshangxiang_jieyin: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'ally', maleOnly: true }),
   zhangliao_tuxi: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'enemy', radius: num(p, 'radius') }),
   // the second hero is picked around the first
-  diaochan_lijian: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'enemy', radius: num(p, 'radius') }),
+  diaochan_lijian: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'enemy', radius: num(p, 'radius'), link: { radius: num(p, 'radius'), fallback: 'units' } }),
+  // the hero it turns on is searched `searchRadius` m around the target (none: disarmed)
+  zhouyu_fanjian: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'enemy', link: { radius: num(p, 'searchRadius'), fallback: 'disarm' } }),
   diaochan_lianhuan: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'enemy', radius: num(p, 'radius') }),
   zhangjiao_taiping: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'enemy', radius: num(p, 'radius') }),
   // self buffs whose `radius` is not an area the player aims
@@ -251,7 +263,7 @@ export const SKILL_LINES: Readonly<Record<string, readonly [string, string]>> = 
   xiahoudun_charge: ['冲锋 {dash} 米：撞到的首个武将受 {damage} 伤害并眩晕', 'Charge {dash} m: the first hero hit takes {damage} and is stunned'],
   // 张辽
   zhangliao_liaolai: ['攻击背对你的目标伤害 +{mul+%}', '+{mul+%} damage to targets facing away'],
-  zhangliao_tuxi: ['闪到准星处敌人身后，偷附近至多 {maxTargets} 人的锦囊', 'Blink behind the aimed enemy; steal a card from up to {maxTargets} nearby'],
+  zhangliao_tuxi: ['闪到准星处敌人身后，偷附近至多 {maxTargets} 人的锦囊并减速', 'Blink behind the aimed enemy; steal a card from up to {maxTargets} nearby and slow them'],
   zhangliao_weizhen: ['{radius} 米内敌将沉默 {silence} 秒并减速，士兵眩晕', 'Enemy heroes within {radius} m silenced {silence} s + slowed; soldiers stunned'],
   // 许褚
   xuchu_huchi: ['免疫击退与击飞；带兵 +{troopBonus}', 'Immune to knockback; squad +{troopBonus}'],
@@ -263,7 +275,7 @@ export const SKILL_LINES: Readonly<Record<string, readonly [string, string]>> = 
   guojia_guimou: ['标记准星处敌人 {duration} 秒：受到伤害 +{takenMul+%} 并暴露', 'Mark the aimed enemy {duration} s: takes +{takenMul+%} damage, revealed'],
   // 甄姬
   zhenji_qingguo: ['移动中 {chance%} 几率闪开子弹', 'While moving, {chance%} chance to evade bullets'],
-  zhenji_luoshen: ['连续判定最多 {maxDraws} 次，每次成功得 1 张锦囊', 'Draw up to {maxDraws} times; each success gives a card'],
+  zhenji_luoshen: ['最多抽 {maxDraws} 次锦囊：成功率 {chance1%}→{chance4%} 递减，失败即停', 'Up to {maxDraws} card draws: odds {chance1%}→{chance4%}, a miss ends it'],
   zhenji_lingbo: ['向前闪现 {blink} 米：落点 {damage} 冰霜伤害，原地留减速冰区', 'Blink {blink} m: {damage} frost damage where you land, a slowing field behind'],
   // 夏侯渊
   xiahouyuan_jixing: ['移速 +{speedMul+%}；冲刺时不收镜', '+{speedMul+%} move speed; sprinting keeps your aim'],
@@ -288,7 +300,7 @@ export const SKILL_LINES: Readonly<Record<string, readonly [string, string]>> = 
   huanggai_huochuan: ['放出火船：{radius} 米内 {damage} 火焰伤害，留下火海', 'Launch a fire ship: {damage} fire damage within {radius} m, leaves flames'],
   // 周瑜
   zhouyu_yingzi: ['换弹快 {reloadMul-%}；技能冷却 -{cdMul-%}', 'Reload {reloadMul-%} faster; cooldowns -{cdMul-%}'],
-  zhouyu_fanjian: ['魅惑准星处敌人 {duration} 秒，让它打身边另一名武将', 'Charm the aimed enemy {duration} s: it attacks another hero near it'],
+  zhouyu_fanjian: ['魅惑准星处敌人 {duration} 秒去打 {searchRadius} 米内另一武将；无人则缴械 {disarm} 秒', 'Charm the aimed enemy {duration} s: it attacks a hero within {searchRadius} m (none: disarmed {disarm} s)'],
   zhouyu_chibi: ['{delay} 秒后沿前方 {length} 米投下火海：{damage} 火焰伤害', 'After {delay} s, napalm {length} m ahead: {damage} fire damage'],
   // 大乔
   daqiao_liuli: ['中弹时 {chance%} 几率把伤害转给 {radius} 米内他人', 'When shot, {chance%} chance to pass the damage to someone within {radius} m'],
@@ -341,7 +353,7 @@ export function skillLine(def: AbilityDef, lang: SkillLang): string {
 
 // ── key-number chips ─────────────────────────────────────────────────────────
 
-export type StatKind = 'damage' | 'dot' | 'heal' | 'shield' | 'stun' | 'silence' | 'disarm' | 'slow' | 'range' | 'move' | 'radius' | 'arc' | 'duration' | 'summon' | 'cooldown' | 'charges';
+export type StatKind = 'damage' | 'dot' | 'heal' | 'shield' | 'stun' | 'silence' | 'disarm' | 'slow' | 'fireRate' | 'pierce' | 'range' | 'move' | 'radius' | 'arc' | 'duration' | 'summon' | 'cooldown' | 'charges';
 
 export const STAT_LABEL: Readonly<Record<StatKind, readonly [string, string]>> = {
   damage: ['伤害', 'Damage'],
@@ -352,6 +364,8 @@ export const STAT_LABEL: Readonly<Record<StatKind, readonly [string, string]>> =
   silence: ['沉默', 'Silence'],
   disarm: ['缴械', 'Disarm'],
   slow: ['减速', 'Slow'],
+  fireRate: ['射速', 'Fire rate'],
+  pierce: ['穿透', 'Pierces'],
   range: ['射程', 'Range'],
   move: ['位移', 'Move'],
   radius: ['范围', 'Area'],
@@ -376,16 +390,54 @@ export interface SkillStat {
 const secs = (v: number, lang: SkillLang): string => (lang === 'en' ? `${fmtNum(v)} s` : `${fmtNum(v)} 秒`);
 const meters = (v: number, lang: SkillLang): string => (lang === 'en' ? `${fmtNum(v)} m` : `${fmtNum(v)} 米`);
 
+/** Effect chips and the params that carry them (a line naming the param — or the chip's word — is about it). */
+const EFFECT_PARAMS: Readonly<Partial<Record<StatKind, readonly string[]>>> = {
+  stun: ['stun', 'stunHero'],
+  silence: ['silence'],
+  disarm: ['disarm'],
+  slow: ['slow'],
+  fireRate: ['fireRateMul'],
+  summon: ['count'],
+};
+
 /**
- * The key numbers of a skill, in reading order (what it does → where → how long → cooldown).
+ * Where the skill's one line first talks about this effect (its word or its number), -1: it
+ * does not. The effect chips follow the line's order (咆哮: 射速 before 减速); an effect the
+ * line never names comes after the range / time / cooldown chips (the first a short row drops).
+ */
+function linePos(def: AbilityDef, kind: StatKind): number {
+  const tpl = SKILL_LINES[def.id]?.[0];
+  if (!tpl) return 0;
+  const at = [tpl.indexOf(STAT_LABEL[kind][0]), ...(EFFECT_PARAMS[kind] ?? []).map((k) => tpl.search(new RegExp(`\\{${k}[%+-]*\\}`)))].filter((i) => i >= 0);
+  return at.length ? Math.min(...at) : -1;
+}
+
+/**
+ * The key numbers of a skill, in reading order: what it does (damage / heal, then the effects
+ * its one line names) → where → how long → cooldown → effects the line does not name.
  * Everything comes from params / cooldown / charges; a number the params do not carry is
  * never invented.
  */
 export function skillStats(def: AbilityDef, lang: SkillLang): SkillStat[] {
   const p = def.params;
   const out: SkillStat[] = [];
+  /** effects the line does not mention: after the cooldown */
+  const late: SkillStat[] = [];
+  /** the effects the line names, in its order (placed where the first effect chip was added) */
+  const effects: (SkillStat & { pos: number })[] = [];
+  let effectsAt = -1;
   const add = (kind: StatKind, value: string): void => {
-    if (!out.some((s) => s.kind === kind)) out.push({ kind, label: lang === 'en' ? STAT_LABEL[kind][1] : STAT_LABEL[kind][0], value });
+    if ([...out, ...late, ...effects].some((s) => s.kind === kind)) return;
+    const stat = { kind, label: lang === 'en' ? STAT_LABEL[kind][1] : STAT_LABEL[kind][0], value };
+    if (!EFFECT_PARAMS[kind]) out.push(stat);
+    else {
+      const pos = linePos(def, kind);
+      if (pos < 0) late.push(stat);
+      else {
+        if (effectsAt < 0) effectsAt = out.length;
+        effects.push({ ...stat, pos });
+      }
+    }
   };
   const has = (k: string): boolean => p[k] !== undefined && Number.isFinite(p[k]) && p[k] > 0;
   const passive = def.slot === 'passive' || def.cooldown === undefined;
@@ -412,7 +464,9 @@ export function skillStats(def: AbilityDef, lang: SkillLang): SkillStat[] {
     if (has('silence')) add('silence', secs(p.silence, lang));
     if (has('disarm') && !skip?.includes('disarm')) add('disarm', secs(p.disarm, lang));
     if (has('slow')) add('slow', pct(p.slow));
+    if (has('fireRateMul') && p.fireRateMul > 1) add('fireRate', `+${plusPct(p.fireRateMul)}`);
     if (has('count') && has('lifetime')) add('summon', `${fmtNum(p.count)}`);
+    if (has('pierce')) add('pierce', fmtNum(p.pierce));
   }
   // where
   const area = skillArea(def);
@@ -456,7 +510,11 @@ export function skillStats(def: AbilityDef, lang: SkillLang): SkillStat[] {
   } else if (has('icd')) {
     add('cooldown', secs(p.icd, lang));
   }
-  return out;
+  if (effects.length) {
+    effects.sort((a, b) => a.pos - b.pos);
+    out.splice(effectsAt, 0, ...effects.map(({ kind, label, value }) => ({ kind, label, value })));
+  }
+  return [...out, ...late];
 }
 
 /** "准星敌人 · 伤害 90 · 射程 30 米 · 冷却 9 秒": the chips as one line (tooltips, tips). */

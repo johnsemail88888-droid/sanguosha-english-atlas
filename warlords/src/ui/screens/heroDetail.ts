@@ -1,7 +1,7 @@
 // Hero detail panel shared by 选将 and 武将图鉴: header, 勾玉, abilities with
 // key badges, signature weapon, troops, and (gallery) bio / playstyle / quotes.
 import type { AbilityDef, HeroDef, WeaponDef } from '../../data/types';
-import { HERO_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, WEAPON_CLASS_INFO, isPassiveAbility } from '../../data';
+import { ABILITY_HERO, HERO_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, WEAPON_CLASS_INFO, isPassiveAbility } from '../../data';
 import type { UiCtx } from '../ctx';
 import { Bag, appendChildren, h } from '../dom';
 import { getLang, heroName, heroTitle, kingdomName, t, tx } from '../i18n';
@@ -26,6 +26,18 @@ export function slotLabel(slot: AbilityDef['slot'], passive = false): string {
   return SLOT_KEY[slot];
 }
 
+/**
+ * The original 三国杀 skill a remade one is based on (〔突袭〕), unless another skill of the
+ * same hero already carries that name — 火烧赤壁〔英姿〕 next to the passive 英姿 read as a
+ * link between the two.
+ */
+export function sgsTag(a: AbilityDef): string | null {
+  if (!a.sgsSkill || a.sgsSkill === a.nameZh) return null;
+  const hero = HERO_BY_ID[ABILITY_HERO[a.id]];
+  if (hero?.abilities.some((b) => b !== a && b.nameZh === a.sgsSkill)) return null;
+  return a.sgsSkill;
+}
+
 export function abilityBlock(a: AbilityDef, opts: { dimLord?: boolean } = {}): HTMLElement {
   const dim = a.slot === 'lord' && opts.dimLord;
   // the painted skill icon beside the text (a hidden slot without art); while the file loads the
@@ -41,7 +53,7 @@ export function abilityBlock(a: AbilityDef, opts: { dimLord?: boolean } = {}): H
     h('div', { class: 'ab-head' },
       h('span', { class: `ab-key k-${a.slot}` }, slotLabel(a.slot, isPassiveAbility(a))),
       h('span', { class: 'ab-name' }, tx(a.nameZh, a.nameEn)),
-      a.sgsSkill && a.sgsSkill !== a.nameZh ? h('span', { class: 'ab-sgs' }, `〔${a.sgsSkill}〕`) : null,
+      sgsTag(a) ? h('span', { class: 'ab-sgs' }, `〔${sgsTag(a)}〕`) : null,
       isPassiveAbility(a) ? null : aimTag(a, lang),
     ),
     skillLineEl(a, lang),
