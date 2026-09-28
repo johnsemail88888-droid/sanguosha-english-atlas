@@ -7,6 +7,7 @@ import { BTN_ADS, BTN_FIRE, BTN_SPRINT, INTERP_DELAY, SIM_DT, emptyInput } from 
 import { WEAPON_BY_ID } from '../../../src/data';
 import type { WeaponDef } from '../../../src/data/types';
 import { AIM_PROFILES, BLOOM, BOW_HIP_DAMAGE, BOW_HIP_SPEED, aimProfile } from '../../../src/data/weaponFeel';
+import { sightsReady } from '../../../src/sim/ai/weaponUse';
 import { aimAnglesFor } from '../../../src/sim/aim';
 import { LAUNCHER_SELF_MUL, currentSpread, explodeAt, spreadDir } from '../../../src/sim/combat';
 import type { AbilityImplEx } from '../../../src/sim/ext';
@@ -371,5 +372,19 @@ describe('projectile lag compensation (R11)', () => {
     const lag = Math.round((0.05 + INTERP_DELAY) / SIM_DT); // one-way 50 ms + interpolation
     expect(shoot(lag, true)).toBe(true);
     expect(shoot(lag, false)).toBe(false);
+  });
+});
+
+describe('bots shoot scoped guns only with the sights up (C10-7)', () => {
+  it('sniper, DMR (a near sight, no lens overlay since C5) and 烈弓 wait for aim progress 0.9; a rifle does not', () => {
+    expect(aimProfile(W('qinggang')).overlay).toBe(false);
+    for (const id of ['qilin', 'qinggang', 'yitian', 'baiyi']) {
+      expect(sightsReady(W(id), 0.5, 30), id).toBe(false);
+      expect(sightsReady(W(id), 0.9, 30), id).toBe(true);
+    }
+    expect(sightsReady(W('liegong'), 0.5, 8)).toBe(false); // scoped bow inside 10 m
+    expect(sightsReady(W('liegong'), 0.9, 30)).toBe(false); // a bow beyond 10 m: full draw
+    expect(sightsReady(W('liegong'), 0.95, 30)).toBe(true);
+    expect(sightsReady(W('carbine'), 0, 30)).toBe(true);
   });
 });

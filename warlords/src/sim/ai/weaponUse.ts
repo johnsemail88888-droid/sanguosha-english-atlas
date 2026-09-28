@@ -54,12 +54,14 @@ export class AdsTracker {
 }
 
 /**
- * The sights are up enough to shoot (C10-7): a scope (lens overlay) at aim progress ≥ 0.9, a bow
- * drawn ≥ 0.95 beyond 10 m (a snap shot up close is fine); everything else any time.
+ * The sights are up enough to shoot (C10-7): a scoped gun — the sniper, a DMR (its near sight is
+ * no lens overlay, but its hip cone is 3–4.5° against 0.1–0.2° aimed) or 烈弓's scope — at aim
+ * progress ≥ 0.9, a bow drawn ≥ 0.95 beyond 10 m (a snap shot up close is fine); everything else
+ * any time.
  */
 export function sightsReady(def: WeaponDef, adsT: number, d: number): boolean {
   if (def.class === 'bow' && d > 10) return adsT >= 0.95;
-  if (aimProfile(def).overlay) return adsT >= 0.9;
+  if (def.class === 'sniper' || def.class === 'dmr' || aimProfile(def).overlay) return adsT >= 0.9;
   return true;
 }
 
