@@ -2,7 +2,9 @@ name: Warlords · Deploy web version
 
 # Publishes the game to GitHub Pages under /warlords/ on the existing gh-pages branch.
 # With destination_dir set, only /warlords/ is replaced on each deploy (the atlas site
-# elsewhere on the branch is untouched), so old hashed bundles and removed art don't pile up.
+# elsewhere on the branch is untouched), so removed art doesn't pile up. The previous
+# deploys' hashed bundles (assets/*-<hash>.js|css) are carried over for 7 days: a tab
+# opened before a deploy still lazy-loads the chunks of its own build.
 # A push that only edits the art manifest is skipped here: the assets workflow fetches
 # the art, commits it and then starts this workflow itself.
 on:
@@ -39,6 +41,41 @@ jobs:
       - run: npm run build:single
       - name: Add the single-file offline build
         run: cp dist-single/index.html dist/sanguo-warlords-offline.html
+      - name: Keep the previous deploys' hashed bundles for 7 days
+        # keep_files:false below replaces /warlords/ — the chunks an open tab still needs
+        # (assets/world-<hash>.js…) would 404 and its next match would fail to load
+        # (src/ui/staleChunks.ts then reloads it once, as a fallback). Top-level hashed
+        # bundles of the live site that this build no longer has are copied into dist,
+        # dated in assets/retired-bundles.txt ("<epoch> <name>": when each went out of use)
+        # and dropped once that is 7 days ago. Art files are never carried over.
+        run: |
+          set -euo pipefail
+          keep_days=7
+          now=$(date +%s)
+          manifest=dist/assets/retired-bundles.txt
+          : > "$manifest"
+          if ! git fetch --no-tags --depth=1 origin gh-pages; then
+            echo "no gh-pages branch to keep bundles from"
+            exit 0
+          fi
+          old=$(git show FETCH_HEAD:warlords/assets/retired-bundles.txt 2>/dev/null || true)
+          git ls-tree --full-tree FETCH_HEAD warlords/assets/ | while read -r _mode type _obj path; do
+            name=${path#warlords/assets/}
+            [ "$type" = blob ] || continue
+            case "$name" in
+              */* | retired-bundles.txt) continue ;;
+              *-*.js | *-*.css) ;;
+              *) continue ;;
+            esac
+            [ -e "dist/assets/$name" ] && continue
+            since=$(printf '%s\n' "$old" | awk -v n="$name" '$2 == n { print $1; exit }')
+            case "$since" in '' | *[!0-9]*) since=$now ;; esac
+            if [ $((now - since)) -lt $((keep_days * 86400)) ]; then
+              git show "FETCH_HEAD:$path" > "dist/assets/$name"
+              echo "$since $name" >> "$manifest"
+            fi
+          done
+          echo "carried over $(wc -l < "$manifest") bundle(s) of earlier deploys"
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

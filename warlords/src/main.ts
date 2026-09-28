@@ -12,6 +12,11 @@ import { registerAllVfx } from './render/vfx/registerAll';
 import { mountApp, type AppDeps, type GameHandle } from './ui/app';
 import { DebugHooks, debugEnabled, type DebugSessionKind } from './game/debug';
 import { assetList } from './game/assets';
+import { captureKeyFromPage } from './ui/invite';
+import { installStaleChunkReload } from './ui/staleChunks';
+
+// a SHARE / invite link's server access key (?k=…): kept for its server, out of the address bar
+captureKeyFromPage();
 
 // which optional painted art this deploy ships (one small listing fetch, none in the
 // single-file build): start it before anything asks, the title screen needs it first
@@ -115,15 +120,24 @@ root.textContent = '';
 const app = mountApp(root, deps, { version: pkg.version });
 // Tear down on a real unload only: a page kept in the back/forward cache
 // (persisted) must come back exactly as it was, not as an empty #app.
-window.addEventListener('pagehide', (ev) => {
-  if ((ev as PageTransitionEvent).persisted) return;
-  // F5 / closing the tab is not a leave: the guest keeps its seat token (sessionStorage
-  // survives a reload of this tab) and the reloaded page reclaims the same seat with it —
-  // not just by player name. Leave it before app.dispose(), whose plain leave() (the same
-  // one the Leave button and "back to title" after game over use) would forget the token;
-  // on the already closed session that second leave() is a no-op.
+// F5 / closing the tab is not a leave: the guest keeps its seat token (sessionStorage
+// survives a reload of this tab) and the reloaded page reclaims the same seat with it —
+// not just by player name. Leave it before app.dispose(), whose plain leave() (the same
+// one the Leave button and "back to title" after game over use) would forget the token;
+// on the already closed session that second leave() is a no-op.
+let tornDown = false;
+function teardown(): void {
+  if (tornDown) return;
+  tornDown = true;
   guest?.leave({ keepToken: true });
   guest = null;
   app.dispose();
   audio.dispose();
+}
+window.addEventListener('pagehide', (ev) => {
+  if ((ev as PageTransitionEvent).persisted) return;
+  teardown();
 });
+// a lazy chunk of this build is gone (a redeploy while the tab was open): reload once —
+// torn down like F5 first, so an online guest's reload rejoins its seat (src/ui/staleChunks.ts)
+installStaleChunkReload(window, { beforeReload: teardown });
