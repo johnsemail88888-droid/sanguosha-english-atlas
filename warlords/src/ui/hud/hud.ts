@@ -370,7 +370,7 @@ export class Hud {
     if (offApplying) this.bag.add(offApplying);
     this.bag.add(this.handle.onEvents((evs) => this.onEvents(evs)));
     // the crosshair blooms with every predicted shot of ours (not a round trip later with the host's 'shot')
-    const offFire = this.handle.onLocalFire?.(() => this.crosshair.shot(performance.now() / 1000));
+    const offFire = this.handle.onLocalFire?.((weaponId) => this.crosshair.shot(performance.now() / 1000, weaponId));
     if (offFire) this.bag.add(offFire);
     this.bag.add(
       this.session.on('chat', (c) => {
@@ -792,7 +792,7 @@ export class Hud {
             break;
           case 'shot':
             // our own shots: the crosshair blooms like the sim's spread (hosts without local fire only)
-            if (ev.src === myId && !this.handle.onLocalFire) this.crosshair.shot(now);
+            if (ev.src === myId && !this.handle.onLocalFire) this.crosshair.shot(now, ev.weapon);
             // soldiers' hits on you: the squad focus warning
             if (ev.hit !== undefined && ev.hit === myId) {
               const s = this.view.get(ev.src);

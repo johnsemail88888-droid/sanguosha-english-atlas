@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import type { Vec3 } from '../core/math';
 import { dirFromYawPitch } from '../core/math';
 import type { AbilitySlot, EntityId, GameEvent, ViewEntity } from '../core/types';
-import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_MOUNTED, VF_STUNNED } from '../core/types';
+import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_MOUNTED, VF_SPRINTING, VF_STUNNED } from '../core/types';
 import { ABILITY_BY_ID, ABILITY_HERO, HERO_BY_ID, WEAPON_BY_ID, heroAbility } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import { SCOPE_AT, SCOPE_FADE, type AimSnapshot } from '../game/aimFeel';
@@ -799,7 +799,7 @@ export class GameRenderer {
     }
     if (def.special === 'multiTarget' && progress >= 0.95) {
       const cands = lockCandidates(
-        { origin: ray.origin, dir: ray.dir, coneDeg: def.specialParams.lockDeg ?? 6, range: def.specialParams.lockRange ?? 40, max: Math.max(1, def.specialParams.maxTargets ?? 3), selfId: localId },
+        { origin: ray.origin, dir: ray.dir, coneDeg: def.specialParams.lockDeg ?? 10, range: def.specialParams.lockRange ?? 40, max: Math.max(1, def.specialParams.maxTargets ?? 3), selfId: localId },
         view.entities(),
         (a, b) => this.pickWorld.segmentBlocked(a, b),
       );
@@ -1519,6 +1519,10 @@ export class GameRenderer {
     gate.canShoot = false;
     gate.reloading = false;
     gate.noReload = false;
+    // sprint-to-fire (sim/handling.ts raiseFromSprint, the host's own rule): fire or ADS out of a sprint raises the gun first
+    gate.sprinting = !!ent && (ent.flags & VF_SPRINTING) !== 0;
+    gate.ads = this.look.ads;
+    gate.sprintAds = !!local?.moveMods?.sprintAds;
     if (ent && local && !local.dead && !local.downed && !(ent.flags & (VF_DEAD | VF_DOWNED | VF_STUNNED | VF_DANCING))) {
       gate.canShoot = true;
       for (const st of local.statuses) {

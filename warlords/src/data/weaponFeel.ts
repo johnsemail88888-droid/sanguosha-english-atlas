@@ -196,7 +196,7 @@ export function drawDamageMul(def: WeaponDef, adsT: number): number {
 export const BOW_HIP_SPEED = 0.55;
 
 /** Arrow-speed multiplier of a bow shot at aim progress `adsT` (1 at full draw; other classes 1): the same draw as drawDamageMul. */
-export function drawSpeedMul(def: WeaponDef, adsT: number): number {
+export function drawSpeedMul(def: Pick<WeaponDef, 'class'>, adsT: number): number {
   if (def.class !== 'bow') return 1;
   return BOW_HIP_SPEED + (1 - BOW_HIP_SPEED) * adsEase(adsT);
 }

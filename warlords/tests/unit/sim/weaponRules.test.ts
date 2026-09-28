@@ -10,7 +10,7 @@ import { AIM_PROFILES, BLOOM, BOW_HIP_DAMAGE, BOW_HIP_SPEED, aimProfile } from '
 import { aimAnglesFor } from '../../../src/sim/aim';
 import { LAUNCHER_SELF_MUL, currentSpread, explodeAt, spreadDir } from '../../../src/sim/combat';
 import type { AbilityImplEx } from '../../../src/sim/ext';
-import { ADS_MOVE, FIRE_BUFFER, SPRINT_OUT, adsMoveMul, semiTrigger, sprintOutTime } from '../../../src/sim/handling';
+import { FIRE_BUFFER, adsMoveMul, semiTrigger, sprintOutTime } from '../../../src/sim/handling';
 import { WALK_SPEED } from '../../../src/sim/physics';
 import type { World } from '../../../src/sim/world';
 import { heroAt, makeDummy, placeAt, rangeWorld } from '../balance/range';
@@ -296,10 +296,14 @@ describe('sprint-to-fire and the ADS walk speed (C1)', () => {
   });
 
   it("walking with the sights up: each class's own pace (pistol 0.75 … sniper 0.42)", () => {
-    expect(adsMoveMul(W('pistol'))).toBe(ADS_MOVE.pistol);
-    expect(adsMoveMul(W('qilin'))).toBe(ADS_MOVE.sniper);
-    expect(adsMoveMul(W('cixiong'))).toBe(ADS_MOVE.smg); // SMG handling (C1)
-    expect(sprintOutTime(W('cixiong'))).toBe(SPRINT_OUT.smg);
+    // the C1 table (data/weaponFeel.ts aim profiles)
+    expect(adsMoveMul(W('pistol'))).toBe(0.75);
+    expect(adsMoveMul(W('qilin'))).toBe(0.42);
+    expect(adsMoveMul(W('huben'))).toBe(0.45);
+    expect(adsMoveMul(W('cixiong'))).toBe(0.72); // SMG handling (C1)
+    expect(sprintOutTime(W('cixiong'))).toBe(0.12);
+    expect(sprintOutTime(W('qilin'))).toBe(0.3);
+    expect(sprintOutTime(W('pistol'))).toBe(0.1);
     for (const id of ['pistol', 'carbine', 'qilin']) {
       const { w, me } = range(id);
       placeAt(w, me, 0, -60, Math.PI);

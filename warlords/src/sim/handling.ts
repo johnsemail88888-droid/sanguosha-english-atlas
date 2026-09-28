@@ -3,63 +3,24 @@
 // semi-auto fire buffer. The host (sim/world.ts, sim/combat.ts heroFire, sim/physics.ts) and the
 // client (net/clientView.ts movement prediction, render/localFire.ts shot prediction) call these
 // same functions, so a prediction never disagrees with the host about them (weapons spec C1, R10).
-import type { WeaponClass, WeaponDef } from '../data/types';
-import { aimProfile } from '../data/weaponFeel';
-
-/** Walk-speed multiplier while aimed, per class (replaces physics ADS_MUL 0.6 for heroes). */
-export const ADS_MOVE: Readonly<Record<WeaponClass, number>> = {
-  pistol: 0.75,
-  smg: 0.72,
-  flamer: 0.7,
-  shotgun: 0.68,
-  rifle: 0.6,
-  crossbow: 0.6,
-  bow: 0.55,
-  dmr: 0.52,
-  launcher: 0.5,
-  lmg: 0.45,
-  sniper: 0.42,
-  melee: 0.6,
-};
-
-/** Seconds a gun takes to come up out of a sprint before it can fire (sprint-to-fire), per class. */
-export const SPRINT_OUT: Readonly<Record<WeaponClass, number>> = {
-  pistol: 0.1,
-  smg: 0.12,
-  flamer: 0.12,
-  shotgun: 0.15,
-  rifle: 0.18,
-  crossbow: 0.18,
-  bow: 0.2,
-  dmr: 0.22,
-  launcher: 0.25,
-  lmg: 0.28,
-  sniper: 0.3,
-  melee: 0,
-};
-
-/** Weapons that handle like another class (雌雄 akimbo: an SMG's handling, spec C1). */
-export const HANDLES_LIKE: Readonly<Record<string, WeaponClass>> = { cixiong: 'smg' };
+import type { WeaponDef } from '../data/types';
+import { AIM_PROFILES, aimProfile, type AimProfile } from '../data/weaponFeel';
 
 /** What the handling rules read of a weapon (the client's shot predictor carries only this much). */
 export type HandlingDef = Pick<WeaponDef, 'id' | 'class'>;
 
-/** The aim profile's own handling numbers when it carries them (data/weaponFeel.ts AimProfile, once it has adsMove / sprintOut). */
-type HandlingFields = Partial<Record<'adsMove' | 'sprintOut', number>>;
-// (aimProfile reads only the id and the class)
-const own = (def: HandlingDef): HandlingFields => aimProfile(def as WeaponDef) as HandlingFields;
-const handlingClass = (def: HandlingDef): WeaponClass => HANDLES_LIKE[def.id] ?? def.class;
+// the aim profile (data/weaponFeel.ts AIM_PROFILES + AIM_BY_WEAPON: 雌雄 handles like an SMG) carries
+// both numbers per class, weapons spec C1; aimProfile reads only the id and the class
+const profileOf = (def: HandlingDef): AimProfile => aimProfile(def as WeaponDef);
 
-/** Walk-speed multiplier with this weapon's sights up (physics MoveMods.adsMul). */
+/** Walk-speed multiplier with this weapon's sights up (physics MoveMods.adsMul; a rifle's without a weapon). */
 export function adsMoveMul(def: HandlingDef | undefined): number {
-  if (!def) return ADS_MOVE.rifle;
-  return own(def).adsMove ?? ADS_MOVE[handlingClass(def)] ?? ADS_MOVE.rifle;
+  return def ? profileOf(def).adsMove : AIM_PROFILES.rifle.adsMove;
 }
 
-/** Seconds this weapon takes to come up out of a sprint. */
+/** Seconds this weapon takes to come up out of a sprint (0 without a weapon). */
 export function sprintOutTime(def: HandlingDef | undefined): number {
-  if (!def) return 0;
-  return own(def).sprintOut ?? SPRINT_OUT[handlingClass(def)] ?? SPRINT_OUT.rifle;
+  return def ? profileOf(def).sprintOut : 0;
 }
 
 /**

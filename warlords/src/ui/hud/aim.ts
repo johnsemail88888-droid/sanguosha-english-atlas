@@ -17,6 +17,8 @@ import {
   adsZooms,
   aimProfile,
   aimSummary,
+  bloomAfterShot,
+  decayBloom,
   isScopedBow,
   pickupSlot,
   pxPerMil,
@@ -137,17 +139,17 @@ const OWN_RETICLE: ReadonlySet<SightKind> = new Set(['iron', 'reddot', 'holo', '
 
 // ── Crosshair (hip fire) ─────────────────────────────────────────────────────
 
-/** Seconds without a shot (trigger released) before the bloom is gone — sim BURST_RESET. */
-const BURST_RESET = 0.35;
-
 export class Crosshair {
   readonly el: HTMLElement;
   private style = '';
   private cls = '';
   private gap = -1;
   private hidden = false;
-  private burst = 0;
+  /** the bloom right after our last shot and when it was (the sim's HeroRuntime.bloom / lastFireAt) */
+  private bloom = 0;
   private lastShot = -99;
+  /** the weapon in hand at the last update (a shot blooms its class's row) */
+  private def: WeaponDef | undefined;
 
   constructor(private readonly fov: () => number) {
     this.el = h('div', { class: 'hud-xhair', data: { style: 'cross' } },
@@ -156,11 +158,16 @@ export class Crosshair {
     );
   }
 
-  /** A shot of ours left the gun (the 'shot' event): bloom like the sim's burst counter. */
-  shot(now: number): void {
-    if (now - this.lastShot > BURST_RESET) this.burst = 0;
-    this.burst++;
+  /** A shot of ours left the gun (predicted, or the host's 'shot'): bloom by the sim's rule (data/weaponFeel.ts bloomAfterShot). */
+  shot(now: number, weaponId?: string): void {
+    const def = (weaponId !== undefined ? WEAPON_BY_ID[weaponId] : undefined) ?? this.def;
+    if (def) this.bloom = bloomAfterShot(def, this.bloom, now - this.lastShot);
     this.lastShot = now;
+  }
+
+  /** The bloom now (it recovers once the trigger has rested bloomIdle, as in the sim). */
+  bloomNow(now: number): number {
+    return this.def ? decayBloom(this.def, this.bloom, now - this.lastShot) : 0;
   }
 
   /** `blocked`: third person, a wall eats the shot before the crosshair point — the crosshair greys out */
@@ -187,11 +194,13 @@ export class Crosshair {
       this.cls = cls;
       this.el.dataset.cls = cls;
     }
-    const firing = !!(ent.flags & VF_FIRING);
-    if (!firing && f.now - this.lastShot > BURST_RESET) this.burst = 0;
+    if (def?.id !== this.def?.id) {
+      this.def = def;
+      this.bloom = 0;
+    }
     // the sim's own cone (data/weaponFeel.ts spreadDeg): what you see is where the pellets / bullets go
     const spread = def
-      ? spreadDeg(def, { adsT: aim.progress, moving: ent.speed > 1, airborne: !!(ent.flags & VF_AIRBORNE), burst: this.burst })
+      ? spreadDeg(def, { adsT: aim.progress, moving: ent.speed > 1, airborne: !!(ent.flags & VF_AIRBORNE), bloom: this.bloomNow(f.now) })
       : 2;
     const vfov = this.fov() / Math.max(1, aim.zoom);
     const H = viewport().h;

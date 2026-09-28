@@ -46,6 +46,11 @@ export const REPRESENTATIVES = ['pistol', 'smg', 'carbine', 'jiguan', 'huben', '
 /** accepted misses: 青釭 at 50 / 75 m (a rare that ignores all armor) */
 const ALLOWED_OUT = new Set(['qinggang@50', 'qinggang@75']);
 const TRIALS = Number(process.env.TTK_TRIALS ?? 200);
+/**
+ * Trials of a band cell: its median settles to the study's own table (final/rows_final_mid) at
+ * ~1000; at 200 a far cell (青釭 100 m, 烈弓 75 m) wanders ±8 % between runs.
+ */
+const BAND_TRIALS = Number(process.env.TTK_TRIALS ?? 1000);
 const BALANCE = process.env.BALANCE === '1';
 
 /** a band cell looks as far as its tolerance (12 s × 1.05): a 75 m bow at 12.3 s is in its [7, 12] band */
@@ -59,7 +64,7 @@ function bandRows(ids: readonly string[]): { lines: string[]; out: string[]; tab
   const table = new Map<string, number[]>();
   for (const id of ids) {
     const band = bandOf(id);
-    const row = RANGES.map((d) => bestTtk(id, d, 'mid', TRIALS, { cap: BAND_CAP }).t);
+    const row = RANGES.map((d) => bestTtk(id, d, 'mid', BAND_TRIALS, { cap: BAND_CAP }).t);
     table.set(id, row);
     const cells = row.map((v, i) => {
       const ok = inBand(v, band[i]) || ALLOWED_OUT.has(`${id}@${RANGES[i]}`);
@@ -109,7 +114,7 @@ describe('human-model TTK bands (D3)', () => {
 const GEN = join(__dirname, '../../../src/data/weaponTtk.gen.ts');
 export function weaponTtkSource(): string {
   const rows = MODEL_WEAPONS.map((id) => {
-    const v = [5, 20, 50].map((d) => bestTtk(id, d, 'mid', 300).t);
+    const v = [5, 20, 50].map((d) => bestTtk(id, d, 'mid', 1000).t);
     const n = (x: number): string => (Number.isFinite(x) ? String(Math.round(x * 100) / 100) : 'Infinity');
     return `  ${id}: { m5: ${n(v[0])}, m20: ${n(v[1])}, m50: ${n(v[2])} },`;
   });

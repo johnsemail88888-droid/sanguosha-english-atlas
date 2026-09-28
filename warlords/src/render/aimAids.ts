@@ -10,7 +10,7 @@ import type { Vec3 } from '../core/math';
 import type { EntityId, ViewEntity } from '../core/types';
 import { VF_DEAD, VF_DOWNED, VF_EXPOSED, VF_MOUNTED, VF_STEALTH } from '../core/types';
 import type { WeaponDef } from '../data/types';
-import { adsEase } from '../data/weaponFeel';
+import { drawSpeedMul } from '../data/weaponFeel';
 
 /** What the HUD reads (GameRenderer.aimAids; screen points in CSS px of the game container). */
 export interface AimAidsView {
@@ -26,13 +26,10 @@ export interface AimAidsView {
 
 /**
  * Arrow speed at a draw (weapons spec R5: 0.55 undrawn → 1 at full draw; other
- * classes 1) — the sim's drawSpeedMul (data/weaponFeel.ts), mirrored for the
- * impact diamond and the bow ladders.
+ * classes 1): the sim's own drawSpeedMul (data/weaponFeel.ts), for the impact
+ * diamond and the bow ladders.
  */
-export function arrowSpeedMul(def: Pick<WeaponDef, 'class'>, adsT: number): number {
-  if (def.class !== 'bow') return 1;
-  return 0.55 + 0.45 * adsEase(adsT);
-}
+export const arrowSpeedMul = (def: Pick<WeaponDef, 'class'>, adsT: number): number => drawSpeedMul(def, adsT);
 
 export type CastFn = (origin: Vec3, dir: Vec3, maxDist: number) => { point: Vec3; dist: number } | null;
 
