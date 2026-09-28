@@ -27,3 +27,6 @@ data/game-card-output-*.json
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code workflow worktrees (local only)
+.claude/worktrees/
