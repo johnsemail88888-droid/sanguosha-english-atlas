@@ -37,8 +37,8 @@ export function immobile(sim: SimApi, self: Entity): boolean {
   return sim.hasStatus(self.id, 'root') || sim.hasStatus(self.id, 'freeze') || sim.hasStatus(self.id, 'stun');
 }
 
-/** A weapon bullet (the hits armor / 八卦 / 鬼才 / 倾国 care about): see combat.isBulletDamage. */
-export const isBullet = (req: DamageRequest): boolean => req.weaponId !== undefined && (req.type === 'normal' || req.type === 'pierce');
+/** A weapon bullet (the hits armor / 八卦 / 鬼才 / 倾国 care about): sim/damageKinds.ts. */
+export { isBulletDamage as isBullet } from '../../damageKinds';
 
 /**
  * Reflected damage (鬼才, the engine's reflect / thorns — 刚烈): it is dealt with the reflecting

@@ -539,7 +539,7 @@ describe('马超', () => {
     expect(cast(press(w, 1, 'q'), q.id)).toBe(true);
     expect(w.hasStatus(mc.id, 'undodgeable')).toBe(true);
     expect(w.hasStatus(mc.id, 'pierce')).toBe(true);
-    foe.hero!.armor = 'baiyin'; // caps hits at 60 — unless armor is ignored
+    foe.hero!.armor = 'baiyin'; // caps hits at 80 — unless armor is ignored
     foe.hero!.dodgingUntil = w.time + 1; // mid-roll — unless the hit is undodgeable
     const r = w.dealDamage({ targetId: foe.id, sourceId: mc.id, amount: 100, type: 'normal', weaponId: 'hutou' });
     expect(r.blocked).toBeUndefined();
@@ -549,7 +549,7 @@ describe('马超', () => {
     foe.hero!.dodgingUntil = 0;
     w.removeStatus(foe.id, 'silence');
     const r2 = w.dealDamage({ targetId: foe.id, sourceId: mc.id, amount: 100, type: 'normal', weaponId: 'hutou' });
-    expect(r2.dealt).toBeLessThanOrEqual(60 + 1e-6);
+    expect(r2.dealt).toBeLessThanOrEqual(80 + 1e-6);
     expect(w.hasStatus(foe.id, 'silence')).toBe(false);
   });
 
@@ -711,7 +711,7 @@ describe('黄忠', () => {
     place(w, hz, 0, 50);
     line.forEach((t, i) => place(w, t, 0, 40 - i * 5));
     place(w, hero(w, 4), 20, 50);
-    line[1].hero!.armor = 'baiyin'; // would cap a normal hit at 60
+    line[1].hero!.armor = 'baiyin'; // would cap a normal hit at 80
     w.step();
     const q = def('q');
     expect(cast(press(w, 1, 'q', aim(w, hz, { x: 0, y: 0.2, z: 0 })), q.id)).toBe(true);

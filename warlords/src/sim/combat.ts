@@ -21,6 +21,7 @@ import type { WeaponDef } from '../data/types';
 import type { DamageRequest, DamageResult, ProjectileSpec, RayHit, SimApi } from './api';
 import { BULLET_EVASION_CAP } from '../data';
 import { drawDamageMul, spreadDeg } from '../data/weaponFeel';
+import { isBulletDamage } from './damageKinds';
 import { armorDef, heroDef, mountDef, usesAmmo, warnOnce, weaponDef } from './defs';
 import type { HitscanOptions } from './ext';
 import { flingGear } from './items/util';
@@ -109,8 +110,7 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 /** stealth without params.keep breaks when its owner fires */
 const breaksOnFire = (s: { params?: Record<string, number> }): boolean => !(s.params?.keep ?? 0);
 
-export const isBulletDamage = (req: DamageRequest): boolean =>
-  req.weaponId !== undefined && (req.type === 'normal' || req.type === 'pierce');
+export { isBulletDamage } from './damageKinds';
 
 // ── Lag compensation history ────────────────────────────────────────────────
 const HIST = LAG_COMP_MAX_TICKS + 2;
@@ -677,7 +677,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
 export function bulletEvadeChance(w: World, target: Entity, src: Entity | undefined, req: DamageRequest): number {
   let keep = 1;
   const armor = req.ignoreArmor ? undefined : armorDef(target.hero?.armor);
-  if (armor?.special === 'bagua') keep *= 1 - clamp01(armor.params.chance ?? 0.35);
+  if (armor?.special === 'bagua') keep *= 1 - clamp01(armor.params.chance ?? 0.3);
   if (target.statuses.length > 0) keep *= 1 - statusValue(target, 'dodgeChance', w.time, 0);
   if (target.hero) {
     keep *= 1 - clamp01(w.modifiers(target.id).evadeChance);
@@ -742,12 +742,12 @@ function applyArmor(w: World, target: Entity, armorId: string, req: DamageReques
   const def = armorDef(armorId);
   if (!def) return amount;
   const p = def.params;
-  // bulletReduction applies to damage type 'normal' only (data/items.ts)
-  const normalBullet = bullet && req.type === 'normal';
-  if (normalBullet) amount *= 1 - Math.min(1, Math.max(0, def.bulletReduction));
+  // bulletReduction applies to every weapon bullet (sim/damageKinds.ts) except fire: a burning
+  // bullet meets 藤甲's fire × alone (data/items.ts)
+  if (bullet && req.type !== 'fire') amount *= 1 - Math.min(1, Math.max(0, def.bulletReduction));
   switch (def.special) {
     case 'renwang': {
-      if (!normalBullet) break;
+      if (!bullet) break;
       const from = src && src !== target ? src.pos : req.pos;
       if (!from) break;
       const dx = from.x - target.pos.x;
@@ -758,16 +758,16 @@ function applyArmor(w: World, target: Entity, armorId: string, req: DamageReques
       const fz = -Math.cos(target.yaw);
       const cos = (dx * fx + dz * fz) / dl;
       const half = ((p.frontArc ?? 90) / 2) * (Math.PI / 180);
-      if (cos >= Math.cos(half)) amount *= Math.min(1, Math.max(0, p.mul ?? 0.3));
+      if (cos >= Math.cos(half)) amount *= Math.min(1, Math.max(0, p.mul ?? 0.6));
       break;
     }
     case 'tengjia': {
       if (bullet && (p.troopImmune ?? 1) > 0 && src && (src.kind === 'troop' || src.kind === 'npc' || src.kind === 'turret')) return 0;
-      if (req.type === 'fire') amount *= p.fireMul ?? 2;
+      if (req.type === 'fire') amount *= p.fireMul ?? 1.75;
       break;
     }
     case 'baiyin':
-      if (req.type !== 'zone') amount = Math.min(amount, p.cap ?? 60);
+      if (req.type !== 'zone') amount = Math.min(amount, p.cap ?? 80);
       break;
     default:
       break;
@@ -848,6 +848,7 @@ export function explodeAt(
         canDodge: opts.canDodge ?? true,
         weaponId: opts.weaponId,
         abilityId: opts.abilityId,
+        splash: true,
       });
       // dodged / immune / nullified: the blast's status and shove miss too
       if (r.blocked === 'dodge' || r.blocked === 'invuln' || r.blocked === 'nullify') continue;

@@ -27,6 +27,8 @@ export interface DamageRequest {
   amount: number;
   type: DamageType;
   weaponId?: string;
+  /** an explosion's area damage (not the projectile's direct hit): never a bullet for armor (sim/damageKinds.ts) */
+  splash?: boolean;
   abilityId?: string;
   /** impact point (for hit markers / knockback direction) */
   pos?: Vec3;

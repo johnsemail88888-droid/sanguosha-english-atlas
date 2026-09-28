@@ -25,7 +25,7 @@
 //    仁王盾, 藤甲 troop immunity, 鬼才 reflect, 流离, 倾国, weapon specials/lifesteal, 酒) don't
 //    apply to it. Exception: params.weaponHit = 1 means the shots are fired with the held weapon
 //    (pass its weaponId; falloff and weapon specials apply). Type-based rules still apply: 藤甲
-//    fire ×2, 白银狮子 cap (except dtype 'pierce', which skips armor entirely), 武圣, 赤胆, 鬼道.
+//    fire ×1.75, 白银狮子 cap (except dtype 'pierce', which skips armor entirely), 武圣, 赤胆, 鬼道.
 //  - Burst: no single cast deals ≥ 300 to one target, including the owner's passive multipliers
 //    (enforced by tests/unit/data). 酒 only doubles WEAPON hits (ITEM_BY_ID.jiu.params.weaponOnly).
 //  - Private reveal: params.privateReveal = 1 ⇒ apply 'reveal' with params { viewerId: self.id }.

@@ -1,13 +1,14 @@
 // 大乔 Da Qiao — 流离 (bullet redirect), 国色 (乐不思蜀 dance), 安娴 (group heal).
 import type { Entity } from '../../../core/types';
-import type { DamageHookCtx, DamageRequest, SimApi } from '../../api';
+import type { DamageHookCtx, SimApi } from '../../api';
 import { ext } from '../../ext';
 import { UNIT_KINDS, deny, param } from '../common';
+import { isBulletDamage } from '../../damageKinds';
 import { registerAbility } from '../registry';
 import { applyDebuff, centerOf, crosshairFoe, emitTrigger, isUp, knownAlly, publiclyVisible, setCast } from './util';
 
-/** A weapon bullet (combat.isBulletDamage): only these can be displaced. */
-const isBullet = (req: DamageRequest): boolean => req.weaponId !== undefined && (req.type === 'normal' || req.type === 'pierce');
+/** A weapon bullet (sim/damageKinds.ts): only these can be displaced. */
+const isBullet = isBulletDamage;
 
 /** Clear line between two units: chest to chest, or eye to eye over low cover. */
 const inSight = (sim: SimApi, a: Entity, b: Entity): boolean => sim.lineOfSight(centerOf(a), centerOf(b)) || sim.lineOfSight(sim.eyePos(a), sim.eyePos(b));
