@@ -145,7 +145,8 @@ export function measureTtk(def: WeaponDef, dist: number, ads: boolean, seed: num
  * The group cell (weapons spec D2): three rooted dummies `gap` m apart, `dist` m away, aimed at
  * (ADS) — 方天 at the middle one while it still stands, anyone else at the first still under
  * 400: seconds from the first shot until all three took 400. multiTarget weapons fire only
- * locked (fully aimed).
+ * locked (fully aimed). The dummies are held in place: a blast still shoves a rooted unit, and
+ * a static group scattered by its own shoves says nothing about a moving one.
  */
 export function measureGroup(def: WeaponDef, dist: number, seed: number, gap = 2.5): number {
   const w = rangeWorld(seed);
@@ -181,6 +182,7 @@ export function measureGroup(def: WeaponDef, dist: number, seed: number, gap = 2
     pressed = click;
     const mag = h.weapons[0]!.mag;
     frame(BTN_ADS | (click ? BTN_FIRE : 0));
+    ts.forEach((t, k) => placeAt(w, t, (k - 1) * gap, dist / 2, 0));
     w.step();
     if (first < 0 && h.weapons[0]!.mag < mag) first = w.time - SIM_DT;
     if (first >= 0 && taken().every((v) => v >= 400)) return w.time - first;
