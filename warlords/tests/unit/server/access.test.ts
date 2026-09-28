@@ -141,6 +141,15 @@ describe('RELAY_KEY set', () => {
     const badHeader = await request(srv, 'POST', '/api/rooms', body, { 'Content-Type': 'application/json', 'X-SGWL-Key': 'wrong' });
     expect(badHeader).toMatchObject({ status: 401, json: { error: 'bad-key' } });
 
+    // the key is checked before the method: a GET tells a page whether its key is right without
+    // creating anything (src/net/relayKey.ts relayKeyAccepted) — 401 wrong, 405 right, CORS readable
+    const getBad = await request(srv, 'GET', '/api/rooms?k=wrong');
+    expect(getBad).toMatchObject({ status: 401, json: { error: 'bad-key' } });
+    const getRight = await request(srv, 'GET', `/api/rooms?k=${encodeURIComponent(KEY)}`);
+    expect(getRight).toMatchObject({ status: 405, json: { error: 'method-not-allowed' } });
+    expect(getRight.headers['access-control-allow-origin']).toBe('*');
+    expect(srv.rooms.list()).toHaveLength(0);
+
     const pre = await request(srv, 'OPTIONS', '/api/rooms', undefined, { Origin: 'https://example.github.io', 'Access-Control-Request-Method': 'POST' });
     expect(pre.status).toBe(204);
     expect(String(pre.headers['access-control-allow-headers'])).toContain('X-SGWL-Key');

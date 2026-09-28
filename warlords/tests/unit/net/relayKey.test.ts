@@ -11,6 +11,7 @@ import {
   cleanKey,
   cleanKeys,
   diagnoseRelayFailure,
+  relayKeyAccepted,
   keyedRelayUrl,
   keyFor,
   MAX_KEYS,
@@ -206,6 +207,33 @@ describe('error mapping', () => {
     // the same key worked a minute ago: this failure is the network, not the key (rejoin keeps trying)
     expect(await diagnoseRelayFailure(url, { fetchImpl: needs })).toBeNull();
     expect(await diagnoseRelayFailure(`wss://mini.example/ws?k=${B64_KEY}`, { fetchImpl: needs })).toBe('keyRequired');
+  });
+
+  it('diagnoseRelayFailure asks the server about the key itself (GET /api/rooms?k=: 401 = refused): a right key refused for another reason is not "needs the invite link"', async () => {
+    const asked: string[] = [];
+    // a keyed server: /sgwl.json says so, /api/rooms checks the key before the method (405 = right key)
+    const server = (right: string) => async (u: string) => {
+      asked.push(u);
+      if (u.endsWith('/sgwl.json')) return { ok: true, status: 200, json: async () => ({ app: 'sanguo-warlords', keyRequired: true }) };
+      const k = new URL(u).searchParams.get('k');
+      return k === right ? { ok: false, status: 405, json: async () => ({ error: 'method-not-allowed' }) } : { ok: false, status: 401, json: async () => ({ error: 'bad-key' }) };
+    };
+    // the right key, the relay refused anyway (429: too many sockets from one address)
+    expect(await diagnoseRelayFailure(`wss://mini.example/ws?k=${KEY}`, { fetchImpl: server(KEY) })).toBeNull();
+    expect(asked).toEqual(['https://mini.example/sgwl.json', `https://mini.example/api/rooms?k=${encodeURIComponent(KEY)}`]);
+    expect(await relayKeyAccepted(`wss://mini.example/ws?k=${B64_KEY}`, B64_KEY, { fetchImpl: server(B64_KEY) })).toBe(true); // (+ / = survive)
+    // a wrong / outdated key, and none at all (no second question then)
+    expect(await diagnoseRelayFailure(`wss://mini.example/ws?k=${B64_KEY}`, { fetchImpl: server(KEY) })).toBe('keyRequired');
+    asked.length = 0;
+    expect(await diagnoseRelayFailure('wss://mini.example/ws', { fetchImpl: server(KEY) })).toBe('keyRequired');
+    expect(asked).toEqual(['https://mini.example/sgwl.json']);
+    // the key question unanswered (network / timeout): as before, the key is the likely cause
+    const noRooms = async (u: string) => {
+      if (u.endsWith('/sgwl.json')) return { ok: true, status: 200, json: async () => ({ app: 'sanguo-warlords', keyRequired: true }) };
+      throw new TypeError('Failed to fetch');
+    };
+    expect(await diagnoseRelayFailure(`wss://mini.example/ws?k=${KEY}`, { fetchImpl: noRooms })).toBe('keyRequired');
+    expect(await relayKeyAccepted(`wss://mini.example/ws?k=${KEY}`, KEY, { fetchImpl: () => new Promise(() => undefined), timeoutMs: 50 })).toBeNull();
   });
 });
 

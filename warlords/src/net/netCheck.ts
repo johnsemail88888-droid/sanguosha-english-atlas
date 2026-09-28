@@ -7,7 +7,7 @@
 // Loaded lazily (the button), never by single player. Rows: src/ui/netHelp.ts formatProbe().
 import type { NetServerConfig } from '../game/settings';
 import { iceServersFor, peerOptionsFor } from './peerTransport';
-import { hasKeyParam, keyedRelayUrl, relayKeyRequired } from './relayKey';
+import { diagnoseRelayFailure, hasKeyParam, keyedRelayUrl } from './relayKey';
 
 export type ProbeId = 'signal' | 'ice' | 'relay';
 
@@ -116,13 +116,14 @@ export const KEY_REFUSED = 'key refused';
 
 /**
  * Probe the relay; a refused socket (not a timeout) is explained when the server says it
- * requires a key (`needsKey`: its /sgwl.json, see relayKeyRequired).
+ * requires a key and the page's key (if any) is not it (`needsKey`: diagnoseRelayFailure —
+ * /sgwl.json, then the key itself; a right key refused for another reason stays unexplained).
  */
 export async function probeRelay(
   url: string | null,
   timeoutMs = 6000,
   Ws: WsCtor | undefined = (globalThis as { WebSocket?: WsCtor }).WebSocket,
-  needsKey: (url: string) => Promise<boolean | null> = (u) => relayKeyRequired(u),
+  needsKey: (url: string) => Promise<boolean | null> = async (u) => (await diagnoseRelayFailure(u)) === 'keyRequired',
 ): Promise<ProbeResult> {
   const r = await probeSocket(url, timeoutMs, Ws);
   if (!url || r.ok !== false || (r.detail !== 'error' && r.detail !== 'closed')) return r;

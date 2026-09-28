@@ -165,7 +165,7 @@ export function serverHttpBase(wsUrl: string): string | null {
   return `${u.protocol === 'wss:' ? 'https:' : 'http:'}//${u.host}${base}`;
 }
 
-type InfoFetch = (url: string, init: { cache: RequestCache; signal?: AbortSignal }) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
+type InfoFetch = (url: string, init: { cache: RequestCache; signal?: AbortSignal }) => Promise<{ ok: boolean; status?: number; json(): Promise<unknown> }>;
 
 /**
  * Does the server behind relay `wsUrl` require a key? Its /sgwl.json says (public, CORS *).
@@ -241,7 +241,45 @@ export function resetRelayAcceptedForTests(): void {
  */
 export async function diagnoseRelayFailure(url: string, opts: { fetchImpl?: InfoFetch; timeoutMs?: number } = {}): Promise<'keyRequired' | null> {
   if (relayAcceptedBefore(url)) return null;
-  return (await relayKeyRequired(url, opts)) === true ? 'keyRequired' : null;
+  if ((await relayKeyRequired(url, opts)) !== true) return null;
+  let key: string | null = null;
+  try {
+    key = new URL(url).searchParams.get(KEY_PARAM);
+  } catch {
+    /* keep null */
+  }
+  // a key the server says is right: the relay refused for another reason (too many sockets
+  // from one address, a full server…) — "ask for the invite link" would send the player astray
+  return key && (await relayKeyAccepted(url, key, opts)) === true ? null : 'keyRequired';
+}
+
+/**
+ * Is `key` the key of the server behind relay `wsUrl`? A keyed server checks the key of
+ * /api/rooms before the method, so a GET creates nothing: 401 = refused, any other answer
+ * (405 method-not-allowed) = right. null: no answer (unreachable, timeout).
+ */
+export async function relayKeyAccepted(wsUrl: string, key: string, opts: { fetchImpl?: InfoFetch; timeoutMs?: number } = {}): Promise<boolean | null> {
+  const base = serverHttpBase(wsUrl);
+  const f = opts.fetchImpl ?? (globalThis as { fetch?: InfoFetch }).fetch;
+  if (!base || !f) return null;
+  const Ctl = (globalThis as { AbortController?: typeof AbortController }).AbortController;
+  const ctl = Ctl ? new Ctl() : null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      ctl?.abort();
+      resolve(null);
+    }, opts.timeoutMs ?? 3000);
+  });
+  const ask = (async (): Promise<boolean | null> => {
+    const r = await f(`${base}api/rooms?${KEY_PARAM}=${encodeURIComponent(key)}`, { cache: 'no-store', signal: ctl?.signal });
+    return typeof r.status === 'number' && r.status > 0 ? r.status !== 401 : null;
+  })().catch(() => null);
+  try {
+    return await Promise.race([ask, timeout]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
 }
 
 /** The key in a relay URL (k=…), for messages: whether there was one. */
