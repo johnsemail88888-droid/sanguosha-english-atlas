@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { mirrorFile, portOrder, readJson, writeJson } = require('./state.cjs');
-const { createUpdater } = require('./updater.cjs');
+const { createUpdater, feedFromAppUpdateYml } = require('./updater.cjs');
 
 const APP_NAME = '三国杀·枪火乱世';
 
@@ -84,6 +84,15 @@ async function fetchText(url, timeoutMs) {
   }
 }
 
+/** The feed electron-builder wrote into resources/app-update.yml (package.json build.publish); null: the built-in one. */
+function appUpdateFeed() {
+  try {
+    return app.isPackaged ? feedFromAppUpdateYml(fs.readFileSync(path.join(process.resourcesPath, 'app-update.yml'), 'utf8')) : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Desktop updates (electron/updater.cjs): the setup build and the AppImage update themselves
  * (background download, installed on quit, 重启并更新 on the title screen); the portable exe and
@@ -102,6 +111,7 @@ function getUpdater() {
     fetchText,
     openExternal: (url) => shell.openExternal(url),
     loadAutoUpdater: () => require('electron-updater').autoUpdater,
+    feedUrl: appUpdateFeed(),
   });
   updater.onChange((st) => {
     const wc = win && win.webContents;
@@ -273,7 +283,8 @@ async function smokeReport() {
       }
       const menu = document.querySelector('.sg-menu-btn.primary');
       const bridge = window.sgwlDesktop;
-      return { title: document.title, menu: menu ? menu.textContent : null, webgl2: !!gl, renderer, desktop: !!bridge, pageWebgl: bridge ? bridge.webgl : null };
+      const chip = document.querySelector('.sg-update-chip:not(.sg-hidden)');
+      return { title: document.title, menu: menu ? menu.textContent : null, webgl2: !!gl, renderer, desktop: !!bridge, pageWebgl: bridge ? bridge.webgl : null, updateChip: chip ? chip.textContent : null };
     })()`);
   } catch (err) {
     r = { error: String(err) };
@@ -281,7 +292,7 @@ async function smokeReport() {
   // the page must know WebGL runs on the GPU (else it drops to 极速 and warns) unless it really is a software renderer
   const software = /swiftshader|llvmpipe|software/i.test((r && r.renderer) || '');
   const ok = !!r && !!r.webgl2 && typeof r.menu === 'string' && /单人练习|Single Player/.test(r.menu) && (software || /^enabled/.test(r.pageWebgl || ''));
-  console.info(`[desktop] smoke ${ok ? 'ok' : 'FAILED'}`, JSON.stringify({ ...r, gpu: app.getGPUFeatureStatus() }));
+  console.info(`[desktop] smoke ${ok ? 'ok' : 'FAILED'}`, JSON.stringify({ ...r, gpu: app.getGPUFeatureStatus(), update: updater ? updater.state() : null }));
   app.exit(ok ? 0 : 1);
 }
 

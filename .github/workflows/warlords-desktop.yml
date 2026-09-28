@@ -1,14 +1,51 @@
 name: Warlords · Desktop builds
 
-# Push a tag like `warlords-v0.1.0` (or run manually) to build Windows / macOS / Linux
-# apps and attach them to a GitHub Release.
+# Every push to main that changes the game app builds the Windows / macOS / Linux apps and
+# publishes them as the newest GitHub release (tag warlords-build-<run>, version 0.1.<run>, with
+# electron-updater's latest*.yml + .blockmap files next to the installers). Installed apps pick it
+# up by themselves (warlords/electron/updater.cjs): the Windows setup build and the Linux AppImage
+# download it in the background and install it on quit; the portable exe and the Mac app offer
+# 「有新版本 build N · 下载」 on the title screen. Docs / tests-only pushes do not release.
+# Manual run (Actions → Run workflow): `publish` off = a dry run of any branch — the apps and the
+# release notes become the run's artifacts, no release.
 on:
   push:
-    tags: ['warlords-v*']
+    branches: [main]
+    paths:
+      - 'warlords/src/**'
+      - 'warlords/electron/**'
+      - 'warlords/public/**'
+      - 'warlords/server/**'
+      - 'warlords/build-res/**'
+      - 'warlords/index.html'
+      - 'warlords/package.json'
+      - 'warlords/package-lock.json'
+      - 'warlords/vite.config.ts'
+      - 'warlords/vite.headless.config.ts'
+      - 'warlords/scripts/compat-id.mjs'
+      - 'warlords/scripts/release-notes.mjs'
+      - '.github/workflows/warlords-desktop.yml'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a GitHub release (off: only build — a dry run, e.g. of a branch)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
+
+# One release build at a time; a newer push cancels an older one still running (a draft it left
+# behind is deleted by the next release). Dry runs queue per branch and never cancel a release.
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish && format('warlords-desktop-dry-{0}', github.ref) || 'warlords-desktop-release' }}
+  cancel-in-progress: true
+
+env:
+  # strictly increasing, so electron-updater sees every build as newer; the tag names its release
+  APP_VERSION: 0.1.${{ github.run_number }}
+  RELEASE_TAG: warlords-build-${{ github.run_number }}
+  PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
 
 jobs:
   build:
@@ -18,14 +55,18 @@ jobs:
         include:
           - os: windows-latest
             target: --win portable nsis --x64
+            feed: latest.yml
           - os: macos-latest
             target: --mac dmg --arm64 --x64
+            feed: latest-mac.yml
           - os: ubuntu-latest
             target: --linux AppImage --x64
+            feed: latest-linux.yml
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: warlords
+        shell: bash
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -34,10 +75,19 @@ jobs:
           cache: npm
           cache-dependency-path: warlords/package-lock.json
       - run: npm ci
+      # the shipped game: online play on the official server (src/net/official.ts) — never
+      # VITE_OFFICIAL_RELAY='' here, that is for tests and CI checks only
       - run: npm run build
-      - run: npx electron-builder ${{ matrix.target }} --publish never
+      - name: Package ${{ env.APP_VERSION }}
+        run: npx electron-builder ${{ matrix.target }} --publish never --config.extraMetadata.version="$APP_VERSION"
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # electron-updater reads <feed>/latest*.yml: it must be there and say this version
+      - name: Update metadata (${{ matrix.feed }})
+        run: |
+          ls -la release
+          cat "release/${{ matrix.feed }}"
+          grep -Eq "^version: '?${APP_VERSION}'?\$" "release/${{ matrix.feed }}"
       # macOS: the apps are ad-hoc signed (package.json build.mac.identity '-'): an unsigned
       # (or broken-signature) arm64 app downloaded from the web is 「已损坏，无法打开」
       - name: macOS signature check
@@ -54,36 +104,65 @@ jobs:
         with:
           name: warlords-${{ matrix.os }}
           if-no-files-found: error
+          compression-level: 0
           path: |
             warlords/release/*.exe
             warlords/release/*.dmg
             warlords/release/*.AppImage
+            warlords/release/latest*.yml
+            warlords/release/*.blockmap
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # all history and tags: the notes list the commits since the previous warlords-build tag
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: out
+          pattern: warlords-*
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - name: Check what electron-updater will download
+        run: |
+          ls -la out
+          for f in latest.yml latest-linux.yml latest-mac.yml; do
+            grep -Eq "^version: '?${APP_VERSION}'?\$" "out/$f" || { echo "::error::out/$f is missing or not version $APP_VERSION"; exit 1; }
+          done
+          # every file the metadata names is part of the release (the feed is releases/latest/download/<url>)
+          for url in $(sed -nE "s/^[[:space:]]*(- )?url:[[:space:]]*'?([^' ]+)'?[[:space:]]*\$/\2/p" out/latest*.yml | sort -u); do
+            [ -f "out/$url" ] || { echo "::error::$url is in the update metadata but was not built"; exit 1; }
+          done
+          ls out/*-Windows-setup.exe.blockmap
+      - name: Release notes
+        run: |
+          node warlords/scripts/release-notes.mjs --build "${{ github.run_number }}" --ref "$GITHUB_SHA" --version "$APP_VERSION" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the notes (dry run)
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('warlords-build-{0}', github.run_number) }}
-          # a manual run tags the commit that was built, not the default branch's head
-          target_commitish: ${{ github.sha }}
-          name: 三国杀·枪火乱世 ${{ github.ref_type == 'tag' && github.ref_name || format('build {0}', github.run_number) }}
-          # every build is the newest game release: the in-game 「下载桌面版」 links open
-          # releases/latest, which skips pre-releases (it showed the old atlas v1.1.1)
-          prerelease: false
-          make_latest: true
-          files: out/*
-          body: |
-            ## 三国杀·枪火乱世 桌面版
-            - **Windows**：下载 `*-Windows-portable.exe` 双击即玩（免安装），或 `*-setup.exe` 安装版。首次运行 Windows 防火墙会询问是否允许访问网络：勾选「专用网络」并点「允许」，否则同一 Wi-Fi 的朋友连不进你的房间。若提示「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」（未签名）。
-            - **macOS**：Apple 芯片（M1/M2/M3/M4…，「关于本机」里芯片写 Apple M…）下载 `*-macOS-arm64.dmg`；Intel 处理器的 Mac 下载 `*-macOS-x64.dmg`。双击 dmg，把「SanguoWarlords」拖进「应用程序」文件夹，再从“应用程序”里打开。
-              应用没有 Apple 开发者签名（只有本地签名），第一次打开会提示「无法验证开发者」/「Apple 无法验证…是否包含恶意软件」：点「完成」，然后打开「系统设置 → 隐私与安全性」，在底部找到 SanguoWarlords 点「仍要打开」并输入密码（macOS 14 及更早也可以在“应用程序”里按住 Control 点击应用 → 打开 → 打开）。之后双击即可。
-              如果仍提示「已损坏，无法打开」：打开“终端”，运行 `xattr -dr com.apple.quarantine "/Applications/SanguoWarlords.app"`，再打开应用。
-              不想装也可以直接用 Safari / Chrome 打开网页版。
-            - **Linux**：下载 `.AppImage`，`chmod +x` 后运行。
-            桌面版内置局域网服务器：菜单「游戏 → 局域网联机地址」把地址发给同一 Wi-Fi 的朋友。
+          name: release-notes
+          path: ${{ runner.temp }}/notes.md
+      # a draft while the files upload (players' apps only see a complete release), then the latest
+      # release — the in-game 「下载桌面版」 links and the update feed both follow releases/latest
+      - name: Publish ${{ env.RELEASE_TAG }}
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # drafts left behind by a cancelled or failed release run
+          gh release list --limit 100 --json tagName,isDraft -q '.[] | select(.isDraft) | .tagName' \
+            | { grep -E '^warlords-build-[0-9]+$' || true; } \
+            | while read -r t; do echo "deleting the stale draft $t"; gh release delete "$t" --yes || true; done
+          if gh release view "$RELEASE_TAG" --json isDraft >/dev/null 2>&1; then
+            echo "$RELEASE_TAG is already published (a re-run): nothing to do"
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" out/* --draft --target "$GITHUB_SHA" \
+            --title "三国杀·枪火乱世 build ${{ github.run_number }}" --notes-file "$RUNNER_TEMP/notes.md"
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,assets -q '"\(.tagName) draft=\(.isDraft) files=\(.assets | length)"'

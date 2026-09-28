@@ -47,6 +47,17 @@ function updateKind({ platform, env = {}, isPackaged }) {
 /** electron-updater downloads and installs by itself. */
 const isAuto = (kind) => kind === 'nsis' || kind === 'appimage';
 
+/**
+ * The feed URL in resources/app-update.yml (electron-builder writes it from package.json
+ * build.publish; electron-updater reads the same file) — so a build with another feed checks
+ * that feed on every path. null when the text has none.
+ */
+function feedFromAppUpdateYml(text) {
+  if (typeof text !== 'string') return null;
+  const m = /^url:[ \t]*['"]?(https?:\/\/[^'"\s#]+)/m.exec(text);
+  return m ? m[1].replace(/\/+$/, '') : null;
+}
+
 /** The metadata file a manual check reads. */
 function feedFile(kind) {
   if (kind === 'mac') return 'latest-mac.yml';
@@ -132,7 +143,8 @@ function downloadTarget({ kind, version, files = [], arch }) {
 /**
  * The updater of one app run.
  * deps: { app ({ isPackaged, getVersion() }), openExternal(url), fetchText(url, timeoutMs) → Promise<string>,
- *   loadAutoUpdater() → electron-updater's autoUpdater, platform, arch, env, log, setTimeout, setInterval, now }
+ *   loadAutoUpdater() → electron-updater's autoUpdater, feedUrl (app-update.yml's; FEED_URL by default),
+ *   platform, arch, env, log, setTimeout, setInterval, now }
  * Returns { state(), onChange(cb), start(), check(), download(which), restart(), setPlaying(on) }.
  */
 function createUpdater(deps) {
@@ -140,6 +152,7 @@ function createUpdater(deps) {
   const timers = { setTimeout: deps.setTimeout || setTimeout, setInterval: deps.setInterval || setInterval };
   const now = deps.now || Date.now;
   const kind = updateKind({ platform: deps.platform, env: deps.env || {}, isPackaged: !!deps.app.isPackaged });
+  const feedUrl = (deps.feedUrl || FEED_URL).replace(/\/+$/, '');
   const current = String(deps.app.getVersion());
   let state = { kind, auto: isAuto(kind), current, build: buildOf(current), status: 'idle' };
   const listeners = new Set();
@@ -211,7 +224,7 @@ function createUpdater(deps) {
   }
 
   async function checkManual() {
-    const text = await deps.fetchText(`${FEED_URL}/${feedFile(kind)}`, FETCH_TIMEOUT_MS);
+    const text = await deps.fetchText(`${feedUrl}/${feedFile(kind)}`, FETCH_TIMEOUT_MS);
     const feed = parseFeed(text);
     if (!feed) throw new Error(`unreadable ${feedFile(kind)}`);
     if (!isNewer(feed.version, current)) {
@@ -308,6 +321,7 @@ module.exports = {
   updateKind,
   isAuto,
   feedFile,
+  feedFromAppUpdateYml,
   parseVersion,
   compareVersions,
   isNewer,
