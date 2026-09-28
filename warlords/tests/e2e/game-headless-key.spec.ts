@@ -97,8 +97,14 @@ test('keyed server: the share link creates a room, the lobby invite link carries
     expect(ownerFacts).toEqual({ headless: true, canManage: true });
     expect(sockets.some((u) => u.startsWith(`${relayOrigin}/ws?`) && new URL(u).searchParams.get('k') === KEY), `keyed relay socket (${sockets.join(' ')})`).toBe(true);
 
-    // ── the invite link the owner's lobby shows ───────────────────────────────────
-    const link = await owner.page.locator('[data-screen="lobby"] .invite-link').inputValue();
+    // ── the invite link the owner's lobby shows: its key masked on screen, whole once the
+    // field is focused (长按 / Ctrl+C) — and 复制 / 分享 take the whole link ─────────────────
+    const field = owner.page.locator('[data-screen="lobby"] .invite-link');
+    const shown = await field.inputValue();
+    expect(shown, 'the key is masked on screen').toContain('k=••••');
+    expect(shown).not.toContain(KEY);
+    await field.focus();
+    const link = await field.inputValue();
     console.log(`[headless key e2e] room ${code}, invite link ${link.replace(encodeURIComponent(KEY), '<key>').replace(KEY, '<key>')}`);
     const q = new URL(link).searchParams;
     expect(q.get('room')).toBe(code);
