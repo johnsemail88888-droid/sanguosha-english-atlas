@@ -9,6 +9,9 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
+// electron-updater's cancellation (main.cjs hands the updater a factory for these)
+const { CancellationToken } = require('builder-util-runtime') as typeof import('builder-util-runtime');
+type CancellationToken = InstanceType<typeof CancellationToken>;
 const ROOT = path.resolve(__dirname, '../../..');
 type Kind = 'nsis' | 'appimage' | 'portable' | 'mac' | 'linux' | 'none';
 interface State {
@@ -229,14 +232,30 @@ class FakeAutoUpdater extends EventEmitter {
     else this.emit('update-available', { version: n });
     return Promise.resolve({ updateInfo: { version: n } });
   }
-  downloadUpdate(): Promise<unknown> {
+  /** hold: a download stays on its way until finish() (or its token is cancelled, like electron-updater's) */
+  hold = false;
+  tokens: CancellationToken[] = [];
+  finish: (() => void) | null = null;
+  downloadUpdate(token?: CancellationToken): Promise<unknown> {
     this.downloads++;
-    return Promise.resolve([]);
+    if (token) this.tokens.push(token);
+    if (!this.hold || !token) return Promise.resolve([]);
+    return token.createPromise<unknown>((resolve) => {
+      this.finish = () => {
+        this.emit('update-downloaded', { version: this.next });
+        resolve([]);
+      };
+    });
   }
   quitAndInstall(silent: boolean, runAfter: boolean): void {
     this.installs.push([silent, runAfter]);
   }
 }
+
+/** let promise callbacks (a cancelled download winding down) run */
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+};
 
 function harness(o: { platform: string; env?: Record<string, string>; version?: string; packaged?: boolean; arch?: string; feed?: Record<string, string | Error> }): Harness {
   const states: State[] = [];
@@ -261,6 +280,7 @@ function harness(o: { platform: string; env?: Record<string, string>; version?: 
       return r;
     },
     loadAutoUpdater: () => au,
+    newCancellationToken: () => new CancellationToken(),
     setTimeout: (fn: () => void, ms: number) => void timers.push({ fn, ms, every: false }),
     setInterval: (fn: () => void, ms: number) => void timers.push({ fn, ms, every: true }),
     now: () => 1_000,
@@ -338,11 +358,17 @@ describe('automatic updates (setup build, AppImage)', () => {
     expect(g.au.installs).toHaveLength(1);
     const k = harness({ platform: 'win32' });
     k.u.setPlaying(false);
-    // the check starts on the title screen, the match starts before the answer
+    // the check starts on the title screen, the match starts before the answer: the download it
+    // started stops, and starts again at the match's end
     const p = k.u.check();
     k.u.setPlaying(true);
     await p;
-    expect(k.au.downloads).toBe(1); // (it started with the check: already on its way)
+    await flush();
+    expect(k.au.downloads).toBe(1);
+    expect(k.au.tokens[0].cancelled).toBe(true);
+    expect(k.u.state().status).toBe('available');
+    k.u.setPlaying(false);
+    expect(k.au.downloads).toBe(2);
     const m = harness({ platform: 'win32' });
     m.au.checkForUpdates = function (this: FakeAutoUpdater) {
       this.checks++;
@@ -355,6 +381,48 @@ describe('automatic updates (setup build, AppImage)', () => {
     expect(m.u.state().status).toBe('available');
     m.u.setPlaying(false);
     expect(m.au.downloads).toBe(1);
+  });
+
+  it('a download on its way stops when a match starts (its bandwidth) and starts again at the end — not an error', async () => {
+    const h = harness({ platform: 'win32' });
+    h.au.hold = true;
+    await h.u.check();
+    h.au.emit('download-progress', { percent: 20 });
+    expect(h.u.state()).toMatchObject({ status: 'downloading', percent: 20 });
+    h.u.setPlaying(true); // hero select
+    expect(h.au.tokens[0].cancelled).toBe(true);
+    expect(h.u.state()).toMatchObject({ status: 'available', version: '0.1.43', percent: 0 });
+    h.au.emit('download-progress', { percent: 21 }); // a late event of the stopped download
+    await flush();
+    expect(h.u.state().status).toBe('available');
+    expect(h.logs.filter((l) => /failed/.test(l))).toEqual([]);
+    // a check during the match waits too
+    await h.u.check();
+    expect(h.au.checks).toBe(1);
+    expect(h.au.downloads).toBe(1);
+    h.u.setPlaying(false); // back on the title screen
+    expect(h.au.downloads).toBe(2);
+    expect(h.u.state().status).toBe('downloading');
+    h.au.finish!();
+    await flush();
+    expect(h.u.state()).toMatchObject({ status: 'ready', version: '0.1.43' });
+    // a match now: nothing to stop (it installs on quit)
+    h.u.setPlaying(true);
+    expect(h.u.state().status).toBe('ready');
+    expect(h.au.tokens[1].cancelled).toBe(false);
+  });
+
+  it('a match that ends before the stopped download has wound down: it starts again once it has', async () => {
+    const h = harness({ platform: 'linux', env: { APPIMAGE: '/a/b.AppImage' } });
+    h.au.hold = true;
+    await h.u.check();
+    h.u.setPlaying(true);
+    h.u.setPlaying(false); // (the cancellation has not settled yet: electron-updater would hand back the dying download)
+    expect(h.au.downloads).toBe(1);
+    await flush();
+    expect(h.au.downloads).toBe(2);
+    expect(h.au.tokens[1].cancelled).toBe(false);
+    expect(h.u.state().status).toBe('downloading');
   });
 
   it('restart does nothing unless an update is downloaded', async () => {
@@ -435,6 +503,16 @@ describe('offered updates (portable exe, Mac, unpacked Linux)', () => {
     await custom.check();
     expect(h.fetched).toEqual(['http://127.0.0.1:8899/feed/latest-linux.yml']);
     expect(custom.state()).toMatchObject({ kind: 'linux', status: 'available', url: U.RELEASES_URL });
+  });
+});
+
+describe('the Mac CI smoke run (warlords-mac.yml: SGWL_DESKTOP_SMOKE)', () => {
+  it('never starts update checks (no GitHub request, no update offered to the CI build)', () => {
+    const main = fs.readFileSync(path.join(ROOT, 'electron/main.cjs'), 'utf8');
+    const starts = main.split('\n').filter((l) => /getUpdater\(\)\.start\(\)/.test(l));
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatch(/if \(!\(Number\(process\.env\.SGWL_DESKTOP_SMOKE\) > 0\)\) getUpdater\(\)\.start\(\);/);
+    expect(fs.readFileSync(path.resolve(ROOT, '../.github/workflows/warlords-mac.yml'), 'utf8')).toMatch(/SGWL_DESKTOP_SMOKE/);
   });
 });
 

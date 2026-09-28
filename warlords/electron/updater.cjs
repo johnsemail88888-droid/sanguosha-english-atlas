@@ -143,8 +143,9 @@ function downloadTarget({ kind, version, files = [], arch }) {
 /**
  * The updater of one app run.
  * deps: { app ({ isPackaged, getVersion() }), openExternal(url), fetchText(url, timeoutMs) → Promise<string>,
- *   loadAutoUpdater() → electron-updater's autoUpdater, feedUrl (app-update.yml's; FEED_URL by default),
- *   platform, arch, env, log, setTimeout, setInterval, now }
+ *   loadAutoUpdater() → electron-updater's autoUpdater, newCancellationToken() → builder-util-runtime's
+ *   CancellationToken (a download stops when a match starts; without it a started download runs on),
+ *   feedUrl (app-update.yml's; FEED_URL by default), platform, arch, env, log, setTimeout, setInterval, now }
  * Returns { state(), onChange(cb), start(), check(), download(which), restart(), setPlaying(on) }.
  */
 function createUpdater(deps) {
@@ -162,6 +163,8 @@ function createUpdater(deps) {
   let due = false;
   let busy = false;
   let au = null;
+  /** electron-updater's download on its way: { token, paused } (paused: cancelled because a match started) */
+  let dl = null;
 
   const set = (patch) => {
     const next = { ...state, ...patch };
@@ -203,6 +206,7 @@ function createUpdater(deps) {
     });
     au.on('update-not-available', () => set({ status: 'latest', checkedAt: now() }));
     au.on('download-progress', (p) => {
+      if (dl && dl.paused) return; // stopping for a match: it says 'available' until it starts again
       const percent = Math.max(0, Math.min(99, Math.floor(Number(p && p.percent) || 0)));
       if (state.status !== 'downloading' || state.percent !== percent) set({ status: 'downloading', percent });
     });
@@ -217,10 +221,53 @@ function createUpdater(deps) {
       due = true;
       return;
     }
+    // one at a time; one still stopping (paused for a match) starts again once it has stopped
+    if (dl) {
+      if (dl.paused) due = true;
+      return;
+    }
     set({ status: 'downloading' });
-    autoUpdater()
-      .downloadUpdate()
-      .catch(failed);
+    const job = { token: newToken(), paused: false };
+    dl = job;
+    let run;
+    try {
+      run = Promise.resolve(autoUpdater().downloadUpdate(job.token));
+    } catch (err) {
+      run = Promise.reject(err);
+    }
+    run
+      // paused for a match (CancellationError): not a failure
+      .catch((err) => (job.paused ? undefined : failed(err)))
+      .finally(() => {
+        if (dl === job) dl = null;
+        // the match ended while it was stopping
+        if (job.paused && !playing && due && state.status === 'available') {
+          due = false;
+          startDownload();
+        }
+      });
+  }
+
+  function newToken() {
+    try {
+      return deps.newCancellationToken ? deps.newCancellationToken() || undefined : undefined;
+    } catch (err) {
+      log.warn('[updater] no cancellation token', err);
+      return undefined;
+    }
+  }
+
+  /** A match started: stop the download on its way (the match's bandwidth); it starts again at the match's end. */
+  function pauseDownload() {
+    if (!dl || dl.paused || !dl.token || typeof dl.token.cancel !== 'function' || state.status === 'ready') return;
+    dl.paused = true;
+    due = true;
+    try {
+      dl.token.cancel();
+    } catch (err) {
+      log.warn('[updater] could not stop the download', err);
+    }
+    set({ status: 'available', percent: 0 });
   }
 
   async function checkManual() {
@@ -299,10 +346,11 @@ function createUpdater(deps) {
         failed(err);
       }
     },
-    /** The page is in a match (hero select … the end of the match): checks and downloads wait. */
+    /** The page is in a match (hero select … the end of the match): checks and downloads wait; a download on its way stops. */
     setPlaying(on) {
       playing = !!on;
-      if (!playing && due) {
+      if (playing) pauseDownload();
+      else if (due) {
         due = false;
         if (isAuto(kind) && state.status === 'available') startDownload();
         else void check();

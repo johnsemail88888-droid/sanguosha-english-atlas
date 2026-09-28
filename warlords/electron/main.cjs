@@ -111,6 +111,11 @@ function getUpdater() {
     fetchText,
     openExternal: (url) => shell.openExternal(url),
     loadAutoUpdater: () => require('electron-updater').autoUpdater,
+    // electron-updater's own copy of builder-util-runtime: a download on its way stops when a match starts
+    newCancellationToken: () => {
+      const runtime = require(require.resolve('builder-util-runtime', { paths: [path.dirname(require.resolve('electron-updater'))] }));
+      return new runtime.CancellationToken();
+    },
     feedUrl: appUpdateFeed(),
   });
   updater.onChange((st) => {
@@ -246,8 +251,9 @@ async function createWindow() {
   });
   win.once('ready-to-show', () => {
     if (win) win.show();
-    // the first update check ~10 s later, then every 4 h (none in a dev run)
-    getUpdater().start();
+    // the first update check ~10 s later, then every 4 h (none in a dev run, none in the CI smoke
+    // test: it would ask GitHub, and offer a release to the CI build)
+    if (!(Number(process.env.SGWL_DESKTOP_SMOKE) > 0)) getUpdater().start();
   });
   win.on('closed', () => {
     win = null;
