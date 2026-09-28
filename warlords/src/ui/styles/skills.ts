@@ -61,9 +61,12 @@ export const SKILLS_CSS = /* css */ `
 .hud-abilities .ab.cooling:not(.recharging) .cd::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(transparent calc(var(--p, 0) * 1turn), #f5dc98 0); -webkit-mask: radial-gradient(closest-side, transparent 83%, #000 87%); mask: radial-gradient(closest-side, transparent 83%, #000 87%); opacity: 0.9; }
 @media (max-height: 520px) {
   .hud-abilities .ab .ab-nm { display: none; }
+  .hud-sktips .tip { max-width: 44vw; }
   .hud-sktips .tip .how { display: none; }
   .hud-sktips .tip:nth-child(n + 3) { display: none; }
 }
+/* a phone-sized landscape screen has no room over the bar: the tooltip (hover) stays, the tips go */
+@media (max-height: 400px) { .hud-sktips { display: none; } }
 
 /* ── HUD: held-skill hint under the crosshair ─────────── */
 .hud-skaim { position: absolute; left: 50%; top: calc(50% + ${u(46)}); transform: translateX(-50%); display: none; align-items: center; gap: ${u(8)}; padding: ${u(4)} ${u(12)}; border-radius: 999px; background: rgba(16, 11, 6, 0.78); border: 1px solid rgba(214, 173, 82, 0.55); white-space: nowrap; font-size: ${fs(13)}; }
