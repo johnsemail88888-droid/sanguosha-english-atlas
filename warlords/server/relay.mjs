@@ -4,13 +4,15 @@
 // Protocol v1 (mirrors src/net/wsTransport.ts):
 //  control = JSON text frames
 //    → {op:'create', v, code?}          ← {op:'created', code, id, hostId, secret}
-//    → {op:'join', v, code}             ← {op:'joined', code, id, hostId}
+//    → {op:'join', v, code}             ← {op:'joined', code, id, hostId, serverHosted?}
 //    → {op:'resume', v, code, secret}   ← {op:'resumed', code, id, hostId, peers}   (host back after a drop)
 //    → {op:'kick', id}   (host only)
 //    → {op:'ping'}                      ← {op:'pong', host?}   (host: is the room's host connected)
 //    ← {op:'peerJoin', id} / {op:'peerLeave', id}   (to the host)
 //    ← {op:'hostLeft'} (to clients, then closed) / {op:'error', code, message}
-//  (additive over the first v1: older clients ignore 'secret' / never send 'resume' / 'ping')
+//  (additive over the first v1: older clients ignore 'secret' / never send 'resume' / 'ping';
+//   'serverHosted': this server's own room worker hosts the room — the page may say "the server
+//   runs this match" only then, not on a host's word in its lobby state)
 //
 //  A host socket that closes cleanly (the host left, the tab closed: codes 1000 / 1001 /
 //  1005) ends its room at once. One that just drops (network blip, heartbeat timeout)
@@ -228,7 +230,7 @@ export function createRelay(opts = {}) {
       client.room = room;
       client.id = id;
       room.clients.set(id, client);
-      sendJson(ws, { op: 'joined', code, id, hostId: HOST_ID });
+      sendJson(ws, room.serverHosted ? { op: 'joined', code, id, hostId: HOST_ID, serverHosted: true } : { op: 'joined', code, id, hostId: HOST_ID });
       // (a host that is away learns its guests from the 'resumed' list)
       if (room.host) sendJson(room.host.ws, { op: 'peerJoin', id });
       return;
@@ -382,6 +384,11 @@ export function createRelay(opts = {}) {
     setRoomLimit(code, max) {
       const room = rooms.get(code);
       if (room && Number.isFinite(max) && max >= 1) room.limit = Math.floor(max);
+    },
+    /** Room `code` is hosted by this server's room worker (rooms.mjs): its guests hear so in 'joined'. */
+    markServerHosted(code) {
+      const room = rooms.get(code);
+      if (room) room.serverHosted = true;
     },
     /** End room `code` now (its guests hear 'hostLeft'): its host is known to be gone for good. */
     endRoom(code) {

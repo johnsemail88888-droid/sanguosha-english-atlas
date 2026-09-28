@@ -94,7 +94,7 @@ function pageLocation(): { protocol: string; host: string } | null {
 
 type Control =
   | { op: 'created'; code: string; id: string; hostId: string; secret?: string }
-  | { op: 'joined'; code: string; id: string; hostId: string }
+  | { op: 'joined'; code: string; id: string; hostId: string; serverHosted?: boolean }
   | { op: 'resumed'; code: string; id: string; hostId: string; peers?: string[] }
   | { op: 'peerJoin'; id: string }
   | { op: 'peerLeave'; id: string }
@@ -157,6 +157,8 @@ export class WsTransport extends BaseTransport {
   selfId: PeerId = '';
   hostId: PeerId = '';
   roomCode = '';
+  /** client: the relay said this server's own room worker hosts the room ('joined'.serverHosted) */
+  serverHosted = false;
   private ws: SocketLike;
   private readonly url: string;
   private readonly Impl: typeof WebSocket;
@@ -259,6 +261,7 @@ export class WsTransport extends BaseTransport {
           t.hostId = msg.hostId;
           t.roomCode = msg.code;
           if (msg.op === 'created' && typeof msg.secret === 'string') t.secret = msg.secret;
+          if (msg.op === 'joined') t.serverHosted = msg.serverHosted === true;
           settle(null);
         } else if (msg.op === 'error') {
           settle(relayErrorToNet(msg.code));
@@ -329,9 +332,12 @@ export class WsTransport extends BaseTransport {
         if (this.isHost && this.peerIds.delete(msg.id)) this.emitLeave(msg.id);
         break;
       case 'hostLeft':
+        // the relay's final word: close with it first — a client told of a mere peer leave
+        // would take it for a blip and try to rejoin a room that is gone
         if (!this.isHost) {
-          this.emitLeave(this.hostId);
+          const hostId = this.hostId;
           this.fail(new NetError('hostLeft'));
+          this.emitLeave(hostId);
         }
         break;
       case 'pong':

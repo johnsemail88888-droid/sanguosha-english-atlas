@@ -3,6 +3,8 @@ import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
+// @ts-expect-error — a plain .mjs helper (no types)
+import { compatId } from './scripts/compat-id.mjs';
 
 /**
  * `--mode single`: the page icon lives in public/ (not processed by Vite), so
@@ -55,6 +57,8 @@ function artIndex(): Plugin {
 // `vite build --mode single` produces one self-contained HTML file (double-click to play).
 export default defineConfig(({ mode }) => ({
   base: './',
+  // the game-compatibility id a server-run room checks (scripts/compat-id.mjs, src/net/compat.ts)
+  define: { __SGWL_COMPAT__: JSON.stringify(compatId()) },
   plugins: mode === 'single' ? [viteSingleFile(), inlineFavicon()] : [artIndex()],
   // the single-file build is exactly one file: nothing from public/ is copied next to it
   publicDir: mode === 'single' ? false : 'public',

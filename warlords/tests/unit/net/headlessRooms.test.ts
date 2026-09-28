@@ -2,6 +2,7 @@
 // answers make the page host the room itself (old server, no bundle, full, unreachable)
 // instead of showing an error — only 429 does.
 import { describe, expect, it } from 'vitest';
+import { COMPAT_ID } from '../../../src/net/compat';
 import { browserHostForced, classifyCreateResponse, createHeadlessRoom, roomsApiUrl } from '../../../src/net/headlessRooms';
 
 const OWNER_KEY = 'a'.repeat(43);
@@ -57,7 +58,7 @@ describe('classifyCreateResponse', () => {
 });
 
 describe('createHeadlessRoom', () => {
-  it('POSTs {name, lang} as text/plain (no CORS preflight) to the endpoint next to the relay', async () => {
+  it('POSTs {name, lang, build} as text/plain (no CORS preflight) to the endpoint next to the relay', async () => {
     const calls: { url: string; init: { method: string; headers: Record<string, string>; body: string } }[] = [];
     const r = await createHeadlessRoom(
       'wss://mini.example.ts.net/ws',
@@ -74,7 +75,12 @@ describe('createHeadlessRoom', () => {
     expect(calls[0].url).toBe('https://mini.example.ts.net/api/rooms');
     expect(calls[0].init.method).toBe('POST');
     expect(calls[0].init.headers['Content-Type']).toMatch(/^text\/plain/);
-    expect(JSON.parse(calls[0].init.body)).toEqual({ name: '甲', lang: 'zh' });
+    expect(JSON.parse(calls[0].init.body)).toEqual({ name: '甲', lang: 'zh', build: COMPAT_ID });
+  });
+
+  it('a server of another build (409 version-mismatch) makes the page host the room itself', async () => {
+    const r = await createHeadlessRoom('ws://127.0.0.1:8787/ws', {}, { fetchImpl: async () => ({ status: 409, json: async () => ({ error: 'version-mismatch' }) }) });
+    expect(r).toEqual({ kind: 'fallback', reason: 'HTTP 409 version-mismatch' });
   });
 
   it('falls back on a network error, a non-JSON 404 and a timeout; 429 is rateLimited', async () => {

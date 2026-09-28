@@ -13,7 +13,8 @@
 //                    exists (`npm run build:headless`); else 503 and the client hosts in its browser
 //
 // Env: PORT (8787), HOST (0.0.0.0), DIST_DIR (../dist), NO_PEER=1 disables /peerjs,
-//      HEADLESS=0 disables server-hosted rooms, HEADLESS_MAX_ROOMS (4) at once.
+//      HEADLESS=0 disables server-hosted rooms, HEADLESS_MAX_ROOMS (4) at once,
+//      HEADLESS_ROOMS_PER_IP (2) of them per client address.
 // Embeddable: `import { startServer } from './server/server.mjs'` (Electron).
 import http from 'node:http';
 import fs from 'node:fs';
@@ -34,6 +35,11 @@ const DEFAULT_WORKER = path.resolve(HERE, '..', 'dist-headless', 'room-worker.mj
 const ROOMS_BODY_LIMIT = 2048;
 /** Players a room seats at most (src/net/hostSession.ts MAX_PLAYERS). */
 const ROOM_SEATS = 8;
+/**
+ * A server-hosted room nobody joined closes after this long (ms). Its creator joins about a
+ * second after the 201; a room only created to hold a slot gives it back soon.
+ */
+const EMPTY_LOBBY_MS = 45_000;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -160,7 +166,9 @@ function readBody(req, limit) {
 }
 
 /**
- * POST /api/rooms {name?, lang?} → 201 {code, ownerKey} | 400 | 413 | 429 | 503 | 500 (see rooms.mjs).
+ * POST /api/rooms {name?, lang?, build?, probe?} → 201 {code, ownerKey} | 400 | 409 | 413 | 429 | 503 | 500
+ * (see rooms.mjs; 409 {error:'version-mismatch'}: the page is another build of the game than the
+ * room worker — the page hosts its room itself).
  * JSON or text/plain bodies (text/plain: a page on another origin — GitHub Pages — posts without a
  * CORS preflight); every answer carries Access-Control-Allow-Origin: *.
  */
@@ -208,7 +216,7 @@ async function handleRoomsApi(req, res, rooms) {
     return;
   }
   try {
-    const room = await rooms.create(clientIp(req), { name: body.name, lang: body.lang });
+    const room = await rooms.create(clientIp(req), { name: body.name, lang: body.lang, build: body.build, probe: body.probe });
     sendJson(res, 201, { code: room.code, ownerKey: room.ownerKey });
   } catch (err) {
     const status = typeof err?.status === 'number' ? err.status : 500;
@@ -371,9 +379,9 @@ function selfRelayUrl(server) {
  * Start the server.
  * @param {{ port?: number, host?: string, distDir?: string, peer?: boolean, quiet?: boolean,
  *           log?: (msg: string) => void, workerPath?: string,
- *           headless?: boolean | { maxRooms?: number, perIpPerMin?: number, readyTimeoutMs?: number,
- *                                  emptyLobbyMs?: number, noHumansMs?: number, pauseAfterFailures?: number,
- *                                  pauseMs?: number } }} [opts]
+ *           headless?: boolean | { maxRooms?: number, perIpPerMin?: number, perIpRooms?: number,
+ *                                  readyTimeoutMs?: number, emptyLobbyMs?: number, noHumansMs?: number,
+ *                                  probeLobbyMs?: number, pauseAfterFailures?: number, pauseMs?: number } }} [opts]
  *   workerPath: the server-hosted room bundle (default ../dist-headless/room-worker.mjs);
  *   headless: false turns server-hosted rooms off (default: on unless HEADLESS=0 — and only
  *   while the bundle exists); an object tunes them.
@@ -393,6 +401,8 @@ export async function startServer(opts = {}) {
   const workerPath = opts.workerPath ?? process.env.HEADLESS_WORKER ?? DEFAULT_WORKER;
   const envMax = Number.parseInt(process.env.HEADLESS_MAX_ROOMS ?? '', 10);
   const maxRooms = headlessOpts.maxRooms ?? (Number.isFinite(envMax) && envMax >= 0 ? envMax : 4);
+  const envPerIp = Number.parseInt(process.env.HEADLESS_ROOMS_PER_IP ?? '', 10);
+  const perIpRooms = headlessOpts.perIpRooms ?? (Number.isFinite(envPerIp) && envPerIp >= 1 ? envPerIp : undefined);
   /** @type {http.Server | undefined} */
   let server;
   const rooms = createHeadlessRooms({
@@ -401,15 +411,21 @@ export async function startServer(opts = {}) {
     enabled: opts.headless === undefined ? process.env.HEADLESS !== '0' : opts.headless !== false,
     maxRooms,
     perIpPerMin: headlessOpts.perIpPerMin,
+    perIpRooms,
     readyTimeoutMs: headlessOpts.readyTimeoutMs,
-    emptyLobbyMs: headlessOpts.emptyLobbyMs,
+    emptyLobbyMs: headlessOpts.emptyLobbyMs ?? EMPTY_LOBBY_MS,
+    probeLobbyMs: headlessOpts.probeLobbyMs,
     noHumansMs: headlessOpts.noHumansMs,
     pauseAfterFailures: headlessOpts.pauseAfterFailures,
     pauseMs: headlessOpts.pauseMs,
     workerLog: !opts.quiet,
     log,
+    errorLog: opts.quiet ? () => {} : (m) => console.error(m),
     // the room's host is this server, not a player: one more socket so it seats ROOM_SEATS humans
-    onReady: (code) => relay.setRoomLimit(code, ROOM_SEATS + 1),
+    onReady: (code) => {
+      relay.setRoomLimit(code, ROOM_SEATS + 1);
+      relay.markServerHosted(code);
+    },
     // a worker gone for good: its guests hear so now, not after the relay's host grace
     onExit: (code) => {
       if (code) relay.endRoom(code);

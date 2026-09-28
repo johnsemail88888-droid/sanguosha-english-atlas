@@ -48,6 +48,7 @@ import type { ViewSource } from '../render/view';
 import type { ClientView } from './clientView';
 import { BIN_SNAPSHOT, isHostMsg, MAX_HERO_ID_LEN, MAX_OWNER_KEY_LEN, MAX_TOKEN_LEN, sanitizeChat, sanitizeName, type ClientMsg, type HostMsg, type OwnerMsg } from './protocol';
 import { binaryTag, decodeJson, encodeInputMsg, encodeJson, SnapshotReceiver, StringTable } from './codec';
+import { COMPAT_ID } from './compat';
 import { Emitter } from './emitter';
 import { NetError, type NetErrorCode } from './errors';
 import { isPageHidden, watchPageFocus } from './focus';
@@ -423,7 +424,8 @@ export class ClientSession implements GameSession {
           reject(e);
         },
       };
-      const hello: ClientMsg = { t: 'hello', v: PROTOCOL_VERSION, name: this.name };
+      // (canOwn: this client knows a server-run room's owner powers; build: which game it is)
+      const hello: ClientMsg = { t: 'hello', v: PROTOCOL_VERSION, name: this.name, canOwn: true, build: COMPAT_ID };
       if (this.token) hello.token = this.token;
       if (this.ownerKey) hello.owner = this.ownerKey;
       this.send(hello);
@@ -488,13 +490,15 @@ export class ClientSession implements GameSession {
 
   /** The match runs on the server (a server-run room): the room survives any player leaving. */
   get headless(): boolean {
-    return this.lobbyValue?.headless === true;
+    // (the relay's word, not only the host's: a player's page claiming it would show the
+    // "fair for everyone" note while it sees every role)
+    return this.lobbyValue?.headless === true && this.transport.serverHosted !== false;
   }
 
   /** This player owns the server-run room: the lobby powers are theirs (see canManage). */
   get isOwner(): boolean {
     const o = this.lobbyValue?.ownerSeat;
-    return this.lobbyValue?.headless === true && typeof o === 'number' && this.seat >= 0 && o === this.seat;
+    return this.headless && typeof o === 'number' && this.seat >= 0 && o === this.seat;
   }
 
   /** The UI shows the host controls: only to the owner of a server-run room. */
@@ -772,7 +776,7 @@ export class ClientSession implements GameSession {
         break;
       case 'leave':
         // a server-run room is closed by the server (restart / update), not by a player leaving
-        this.fatal(new NetError(this.lobbyValue?.headless === true ? 'serverClosed' : 'hostLeft'));
+        this.fatal(new NetError(this.headless ? 'serverClosed' : 'hostLeft'));
         break;
       default:
         break;
@@ -1057,6 +1061,12 @@ export class ClientSession implements GameSession {
           }
         }
         err ??= new NetError('connectionLost');
+        // a server-run room the relay no longer knows is gone for good (its worker ended — the
+        // server restarted or the room crashed): nobody re-creates it, unlike a player's page
+        if (err.code === 'roomNotFound' && this.headless) {
+          final = new NetError('serverClosed');
+          break;
+        }
         if (!TRANSIENT_REJOIN.has(err.code)) {
           final = err;
           break;
@@ -1113,6 +1123,8 @@ export class ClientSession implements GameSession {
   /** Report a terminal error and close the session. */
   private fatal(err: NetError): void {
     if (this.closed) return;
+    // (a server-run room has no host player who could leave: the server closed it)
+    if (err.code === 'hostLeft' && this.headless) err = new NetError('serverClosed');
     this.emitter.emit('error', err.toPayload());
     this.dispose();
   }

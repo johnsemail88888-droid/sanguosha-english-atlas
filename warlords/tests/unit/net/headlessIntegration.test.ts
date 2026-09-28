@@ -15,14 +15,14 @@ import { WsTransport } from '../../../src/net/wsTransport';
 import { startServer } from '../../../server/server.mjs';
 import { waitFor } from './fixtures';
 
-let srv: { port: number; close(): Promise<void> } | null = null;
+let srv: { port: number; close(): Promise<void>; relay: { markServerHosted(code: string): void; endRoom(code: string): void } } | null = null;
 let relayUrl = '';
 const rooms: HeadlessRoom[] = [];
 const sessions: GameSession[] = [];
 const netBefore = { ...settings.get().net };
 
 beforeAll(async () => {
-  srv = (await startServer({ port: 0, host: '127.0.0.1', distDir: '/nonexistent-sgwl-dist', peer: false, quiet: true })) as { port: number; close(): Promise<void> };
+  srv = (await startServer({ port: 0, host: '127.0.0.1', distDir: '/nonexistent-sgwl-dist', peer: false, quiet: true })) as NonNullable<typeof srv>;
   relayUrl = `ws://127.0.0.1:${srv.port}/ws`;
   settings.update({ net: { ...settings.get().net, wsUrl: relayUrl } });
 });
@@ -38,8 +38,12 @@ afterAll(async () => {
   await srv?.close();
 });
 
-/** A stand-in for the server's POST /api/rooms: answers `status`, or 201 after starting a room. */
-function stubCreateRooms(status: number | 'run'): { calls: { url: string; body: unknown }[] } {
+/**
+ * A stand-in for the server's POST /api/rooms: answers `status`, or 201 after starting a room
+ * (marked server-hosted on the relay, as server.mjs does — `attest: false` leaves that out:
+ * a player's page merely claiming to be a server-run room).
+ */
+function stubCreateRooms(status: number | 'run', attest = true): { calls: { url: string; body: unknown }[] } {
   const calls: { url: string; body: unknown }[] = [];
   vi.stubGlobal('fetch', async (url: string, init: { body: string }) => {
     calls.push({ url, body: JSON.parse(init.body) });
@@ -47,6 +51,7 @@ function stubCreateRooms(status: number | 'run'): { calls: { url: string; body: 
     const ownerKey = `k${Math.random().toString(36).slice(2)}${'x'.repeat(40)}`;
     const transport = await WsTransport.host(relayUrl);
     const room = runHeadlessRoom({ transport, roomCode: transport.roomCode, ownerKey, post: () => undefined, exit: () => undefined });
+    if (attest) srv!.relay.markServerHosted(room.code);
     rooms.push(room);
     return { status: 201, json: async () => ({ code: room.code, ownerKey }) };
   });
@@ -79,6 +84,30 @@ describe('hostOnlineSession (WebSocket mode) with server-run rooms', () => {
     sessions.splice(sessions.indexOf(owner), 1);
     await waitFor(() => guest.canManage === true, 3000, 'guest owns the room');
     expect(rooms[0].closed).toBe(false);
+  }, 30_000);
+
+  it('a room the relay does not vouch for is not shown as server-run (a page merely claiming it in its lobby state)', async () => {
+    stubCreateRooms('run', false);
+    const s = await hostOnlineSession({ name: '甲', mode: 'ws' });
+    sessions.push(s);
+    await waitFor(() => s.lobby?.headless === true, 3000, 'lobby says headless');
+    expect(s.headless).toBe(false); // no "the server runs this match — fair for everyone" note
+    expect(s.canManage).toBe(false);
+  }, 30_000);
+
+  it('a server-run room that dies (its worker crashed: the relay ends it) is reported as closed at once — no rejoin loop', async () => {
+    stubCreateRooms('run');
+    const s = await hostOnlineSession({ name: '甲', mode: 'ws' });
+    sessions.push(s);
+    await waitFor(() => s.canManage === true, 3000, 'owner');
+    const errors: string[] = [];
+    const statuses: string[] = [];
+    s.on('error', (e) => errors.push(e.code));
+    s.on('status', (st) => statuses.push(st.en));
+    srv!.relay.endRoom(s.lobby!.roomCode);
+    await waitFor(() => errors.length > 0, 3000, 'error');
+    expect(errors).toEqual(['serverClosed']);
+    expect(statuses.filter((x) => /reconnecting|cannot reach/i.test(x))).toEqual([]);
   }, 30_000);
 
   it('a server that cannot run rooms (503, old server) leaves the page hosting the room', async () => {

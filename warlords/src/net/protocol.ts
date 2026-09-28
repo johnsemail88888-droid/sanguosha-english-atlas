@@ -45,9 +45,12 @@ export interface SeatInfo {
 export type ClientMsg =
   /**
    * join / rejoin; `token` (from a previous welcome) reclaims that seat; `owner`: the secret
-   * a server-run room was created with (POST /api/rooms) — its seat becomes the room owner
+   * a server-run room was created with (POST /api/rooms) — its seat becomes the room owner;
+   * `canOwn`: this client can use a server-run room's owner powers (an older one cannot — the
+   * room is never handed to it); `build`: the client's game-compatibility id (a server-run room
+   * refuses a different one: versionMismatch). Additive.
    */
-  | { t: 'hello'; v: number; name: string; token?: string; owner?: string }
+  | { t: 'hello'; v: number; name: string; token?: string; owner?: string; canOwn?: boolean; build?: string }
   | { t: 'setName'; name: string }
   | { t: 'ready'; ready: boolean }
   | { t: 'pick'; heroId: string }

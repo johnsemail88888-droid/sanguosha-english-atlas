@@ -161,7 +161,7 @@ export function runHeadlessRoom(opts: HeadlessRoomOptions): HeadlessRoom {
       if (statusTimer !== null) clearTimeout(statusTimer);
       statusTimer = null;
       for (const u of unsubs) u();
-      log(`closing (${reason}${detail ? `: ${detail}` : ''})`);
+      // (the server logs the reason with its "room … ended" line)
       post(detail ? { type: 'closing', reason, detail } : { type: 'closing', reason });
       try {
         session.leave(); // tells every player ('leave'), closes the transport shortly after

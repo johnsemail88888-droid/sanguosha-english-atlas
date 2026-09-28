@@ -39,6 +39,7 @@ import {
   type OwnerMsg,
   type SeatInfo,
 } from './protocol';
+import { COMPAT_ID } from './compat';
 import { binaryTag, buildMatchStrings, decodeInputMsg, decodeJson, encodeJson, encodeSnapshotMsg, heroKingdom, StringTable } from './codec';
 import { Emitter } from './emitter';
 import { NetError, netErrorText } from './errors';
@@ -259,6 +260,8 @@ interface SeatRec {
   token: string | null;
   /** the (sanitized) name the player joined with, before de-duplication */
   joinName?: string;
+  /** headless: the player's client can use owner powers (hello.canOwn — an older client cannot) */
+  canOwn?: boolean;
 }
 
 interface PeerRec {
@@ -355,6 +358,11 @@ function cleanSettingsPatch(raw: unknown): Partial<MatchSettings> | null {
 }
 
 /** Unguessable seat reclaim token (crypto RNG when available). */
+/** A client-sent number (ping id / timestamp), or 0 for anything else. */
+function finiteOr0(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
 function randomToken(): string {
   const bytes = new Uint8Array(20);
   const c = (globalThis as { crypto?: { getRandomValues?: (a: Uint8Array) => Uint8Array } }).crypto;
@@ -929,15 +937,21 @@ export class HostSession implements GameSession {
   /**
    * Headless: keep the room owned. The owner's seat keeps ownership through a reload / drop
    * grace (the player comes back with the seat token); after a real leave, or once the grace
-   * ran out, it passes to the lowest connected human seat (「X 成为房主」). Nobody connected:
+   * ran out, it passes to the lowest connected human seat whose client can use it (hello.canOwn;
+   * an older client only when nobody else is there) (「X 成为房主」). Nobody connected:
    * nobody owns it until the next human takes a seat. Returns the news (「X 成为房主」), sent
    * right away when `announce` (else by the caller, after the welcome of whoever joined).
    */
   private checkOwner(announce = true): { zh: string; en: string } | null {
     if (!this.headless) return null;
     const o = this.owner;
-    if (o && this.seats.get(o.seat) === o && o.human && o.connected) return null;
-    const next = [...this.seats.values()].filter((r) => r.human && r.connected && r.peer !== null).sort((a, b) => a.seat - b.seat)[0] ?? null;
+    // (a client that can use the powers first: an older one would leave the room unmanageable —
+    // it holds the crown only while nobody who can use it is there)
+    const live = [...this.seats.values()].filter((r) => r.human && r.connected && r.peer !== null).sort((a, b) => a.seat - b.seat);
+    const capable = live.find((r) => r.canOwn === true);
+    if (o && this.seats.get(o.seat) === o && o.human && o.connected && (o.canOwn === true || !capable)) return null;
+    const next = capable ?? live[0] ?? null;
+    if (next === o) return null;
     this.owner = next;
     // (the first player of a room nobody owned yet is no news)
     const news = next && o ? { zh: `${next.name} 成为房主`, en: `${next.name} is now the room owner` } : null;
@@ -1296,12 +1310,13 @@ export class HostSession implements GameSession {
       this.onHello(peer, msg);
       return;
     }
+    // (numbers only: anything else — {"toString":1} — must not throw here, before any seat check)
     if (msg.t === 'ping') {
-      this.sendTo(from, { t: 'pong', id: Number(msg.id) || 0, ts: Number(msg.ts) || 0 });
+      this.sendTo(from, { t: 'pong', id: finiteOr0(msg.id), ts: finiteOr0(msg.ts) });
       return;
     }
     if (msg.t === 'pong') {
-      const rtt = now() - Number(msg.ts);
+      const rtt = typeof msg.ts === 'number' ? now() - msg.ts : NaN;
       if (Number.isFinite(rtt) && rtt >= 0 && rtt < 60_000) peer.rtt = peer.rtt === null ? rtt : peer.rtt * 0.7 + rtt * 0.3;
       return;
     }
@@ -1367,9 +1382,17 @@ export class HostSession implements GameSession {
       this.reject(peer.id, 'versionMismatch');
       return;
     }
+    // server-run room: the match runs this build's sim and data — a client of another build
+    // (a stale tab, an older desktop release) would desync silently; an older client sends none
+    if (this.headless && typeof msg.build === 'string' && msg.build !== COMPAT_ID) {
+      this.reject(peer.id, 'versionMismatch');
+      return;
+    }
     const name = sanitizeName(typeof msg.name === 'string' ? msg.name : '');
     // server-run room: the secret the room was created with makes this seat the owner's
     const ownerClaim = this.isOwnerKey(msg.owner);
+    // (a client that knows the owner powers; the room is never handed to one that does not)
+    const canOwn = msg.canOwn === true || ownerClaim;
     // a returning player (auto-rejoin after a blip, page reload) presents the
     // seat's secret token: reclaim that seat in any phase, even if the host has
     // not noticed the old connection dying yet
@@ -1381,6 +1404,7 @@ export class HostSession implements GameSession {
       }
       const owned = [...this.seats.values()].find((r) => r.human && !r.isHost && r.token === token);
       if (owned) {
+        owned.canOwn = canOwn;
         this.reclaim(peer, owned, ownerClaim);
         return;
       }
@@ -1419,6 +1443,7 @@ export class HostSession implements GameSession {
         peer: peer.id,
         token: randomToken(),
         joinName: name,
+        canOwn,
       };
       this.seats.set(seat, rec);
       peer.seat = seat;
@@ -1439,29 +1464,22 @@ export class HostSession implements GameSession {
       this.lobbyChanged();
       return;
     }
-    // mid-flow without a token (new tab / device): a human seat with the same
-    // name may be reclaimed if it is disconnected — or if its connection has
-    // gone silent (the host has not detected the drop yet)
-    const humans = [...this.seats.values()].filter((r) => r.human && !r.isHost && r.name === name);
-    const rec = humans.find((r) => !r.connected || r.peer === null) ?? humans.find((r) => this.connectionStale(r));
+    // mid-flow without a token: a server-run room hands a seat — and its hidden role, hero
+    // options, token and (the owner's) lobby powers — only to that seat's token. Names are
+    // public in the lobby; anyone with the room code could otherwise take a seat by name.
+    if (this.headless) {
+      this.reject(peer.id, 'inProgress');
+      return;
+    }
+    // a browser-hosted room (new tab / device): a human seat with the same name may be
+    // reclaimed once it is disconnected — never a live one, however quiet (a phone busy
+    // building the scene): that player would be thrown out (replacedElsewhere is final)
+    const rec = [...this.seats.values()].find((r) => r.human && !r.isHost && r.name === name && (!r.connected || r.peer === null));
     if (!rec) {
       this.reject(peer.id, 'inProgress');
       return;
     }
     this.reclaim(peer, rec, ownerClaim);
-  }
-
-  /** The seat's connection has been silent for several ping intervals. */
-  private connectionStale(rec: SeatRec): boolean {
-    if (!rec.connected || !rec.peer) return false;
-    const old = this.peers.get(rec.peer);
-    if (!old) return true;
-    return now() - old.lastSeen > this.staleMs();
-  }
-
-  /** Silence after which a connection counts as dead for name-based reclaim (3.5 s with default timings). */
-  private staleMs(): number {
-    return Math.max(1, this.timings.pingInterval * 1.5 + 0.5) * 1000;
   }
 
   /** `ownerClaim`: the hello presented the owner key of this server-run room. */

@@ -6,13 +6,15 @@
 // bundle, rooms full, down) makes the page host the room itself, as before; only
 // "too many rooms from you right now" (429) is an error worth showing.
 //
-//   POST /api/rooms  {name?, lang?}  → 201 {code, ownerKey}
+//   POST /api/rooms  {name?, lang?, build?}  → 201 {code, ownerKey}
 //                                    | 429 {error:'rate-limited'}
+//                                    | 409 {error:'version-mismatch'}  (the server runs another build of the game)
 //                                    | 503 {error:'headless-unavailable' | 'rooms-full'}
 //                                    | 500 {error:'worker-failed'}
 //
 // The body goes as text/plain: a "simple" CORS request, no preflight (the page may
 // be served from GitHub Pages, the server is someone's Mac mini).
+import { COMPAT_ID } from './compat';
 import { isValidRoomCode, normalizeRoomCode } from './roomCode';
 
 /** How long the create request may take before the page hosts the room itself (ms). */
@@ -68,7 +70,8 @@ export function classifyCreateResponse(status: number, body: unknown): CreateRoo
     return { kind: 'fallback', reason: 'malformed answer' };
   }
   const err = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : '';
-  // 404 / 405: an older server without the endpoint; 503: no headless bundle / rooms full; 5xx: the worker failed
+  // 404 / 405: an older server without the endpoint; 409: another build of the game (its room would
+  // desync with this page); 503: no headless bundle / rooms full; 5xx: the worker failed
   return { kind: 'fallback', reason: `HTTP ${status}${err ? ` ${err}` : ''}` };
 }
 
@@ -107,7 +110,8 @@ export async function createHeadlessRoom(
     const res = await f(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-      body: JSON.stringify(body),
+      // (build: the server runs a room only for a page of its own build — src/net/compat.ts)
+      body: JSON.stringify({ ...body, build: COMPAT_ID }),
       signal: ctl?.signal,
     });
     let json: unknown = null;

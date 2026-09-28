@@ -235,7 +235,7 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
           : null,
       ),
       list,
-      lobby.headless ? h('p', { class: 'sg-mute lobby-headless' }, t('lobby.headlessNote')) : null,
+      session.headless === true ? h('p', { class: 'sg-mute lobby-headless' }, t('lobby.headlessNote')) : null,
     );
   };
 

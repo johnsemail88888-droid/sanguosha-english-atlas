@@ -8,7 +8,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { PROTOCOL_VERSION } from '../../../src/core/types';
 // @ts-expect-error plain .mjs without type declarations
@@ -22,7 +22,7 @@ const REAL = path.resolve(HERE, '../../../dist-headless/room-worker.mjs');
 
 interface Rooms {
   available(): boolean;
-  stats(): { headless: boolean; headlessRooms: number; headlessHumans: number };
+  stats(): { headless: boolean; headlessRooms: number; headlessHumans: number; headlessPlaying: number };
   list(): { code: string | null; phase: string; humans: number; ready: boolean }[];
 }
 interface Server {
@@ -81,6 +81,8 @@ const createRoom = (srv: Server, body: Record<string, unknown> = {}, ip = '203.0
   request(srv, 'POST', '/api/rooms', JSON.stringify(body), { 'Content-Type': type, 'X-Forwarded-For': `${ip}, 10.0.0.1` });
 
 const info = async (srv: Server): Promise<Record<string, unknown>> => (await request(srv, 'GET', '/sgwl.json')).body;
+
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function waitFor(cond: () => boolean | Promise<boolean>, timeoutMs = 4000, what = 'condition'): Promise<void> {
   const start = Date.now();
@@ -152,7 +154,8 @@ describe('POST /api/rooms (stub worker)', () => {
     expect(ownerKey).toMatch(/^[A-Za-z0-9_-]+$/);
 
     const g = await guest(srv, code);
-    expect(g.ctrl[0]).toMatchObject({ op: 'joined', code, hostId: 'host' });
+    // (the relay vouches for it: only then does a page say "the server runs this match")
+    expect(g.ctrl[0]).toMatchObject({ op: 'joined', code, hostId: 'host', serverHosted: true });
     await waitFor(async () => (await info(srv)).headlessHumans === 1, 3000, 'headlessHumans 1');
     expect(await info(srv)).toMatchObject({ headless: true, headlessRooms: 1, headlessHumans: 1, rooms: 1 });
     expect(srv.rooms.list()).toMatchObject([{ code, phase: 'lobby', humans: 1, ready: true }]);
@@ -290,6 +293,100 @@ describe('POST /api/rooms (stub worker)', () => {
     await waitFor(() => ga.closed() && gb.closed(), 3000, 'guests closed');
     expect(srv.rooms.list()).toEqual([]);
     expect(srv.rooms.available()).toBe(false);
+  });
+});
+
+describe('POST /api/rooms: abuse limits, builds, health checks (stub worker)', () => {
+  it('one client address holds at most 2 rooms at once (HEADLESS_ROOMS_PER_IP): the next → 503 rooms-full, others still get one', async () => {
+    const srv = await serve({ headless: { maxRooms: 4 } });
+    expect((await createRoom(srv, {}, '198.51.100.20')).status).toBe(201);
+    expect((await createRoom(srv, {}, '198.51.100.20')).status).toBe(201);
+    const third = await createRoom(srv, {}, '198.51.100.20');
+    expect(third).toMatchObject({ status: 503, body: { error: 'rooms-full' } }); // (the page hosts its room itself)
+    expect(third.headers['access-control-allow-origin']).toBe('*');
+    expect((await createRoom(srv, {}, '198.51.100.21')).status).toBe(201);
+    const one = await serve({ headless: { perIpRooms: 1 } });
+    expect((await createRoom(one, {}, '198.51.100.22')).status).toBe(201);
+    expect((await createRoom(one, {}, '198.51.100.22')).status).toBe(503);
+  });
+
+  it('a room nobody joins gives its slot back after 45 s; a health check\'s ({probe:true}) after 10 s', async () => {
+    const lines: string[] = [];
+    const srv = await serve({ quiet: false, log: (m: string) => lines.push(m) });
+    expect((await createRoom(srv, { name: 'a' }, '198.51.100.30')).status).toBe(201);
+    expect((await createRoom(srv, { name: 'b', probe: true }, '198.51.100.31')).status).toBe(201);
+    await waitFor(() => lines.filter((l) => l.includes('open (emptyLobbyMs')).length === 2, 3000, 'rooms logged');
+    const opened = lines.filter((l) => l.includes('open (emptyLobbyMs')).join('\n');
+    expect(opened).toContain('emptyLobbyMs 45000');
+    expect(opened).toContain('emptyLobbyMs 10000');
+  });
+
+  it('a page of another build is refused (409 version-mismatch) when the bundle says its build; same / unknown builds are served', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sgwl-build-'));
+    try {
+      const worker = path.join(dir, 'room-worker.mjs');
+      fs.copyFileSync(STUB, worker);
+      const srv = await serve({ workerPath: worker, headless: { maxRooms: 8, perIpPerMin: 20 } });
+      // no build.json (an older bundle): nothing to compare
+      expect((await createRoom(srv, { build: 'aaaaaaaaaaaa' }, '198.51.100.40')).status).toBe(201);
+      fs.writeFileSync(path.join(dir, 'build.json'), JSON.stringify({ compat: 'bbbbbbbbbbbb' }));
+      const other = await createRoom(srv, { build: 'aaaaaaaaaaaa' }, '198.51.100.41');
+      expect(other).toMatchObject({ status: 409, body: { error: 'version-mismatch' } });
+      expect(other.headers['access-control-allow-origin']).toBe('*');
+      expect((await createRoom(srv, { build: 'bbbbbbbbbbbb' }, '198.51.100.42')).status).toBe(201);
+      expect((await createRoom(srv, {}, '198.51.100.43')).status).toBe(201); // (check.mjs, curl: no build given)
+      expect(srv.rooms.list()).toHaveLength(3);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a worker flooding stdout / stderr / log lines reaches the log at a bounded rate', async () => {
+    const lines: string[] = [];
+    const errs: string[] = [];
+    const errSpy = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => void errs.push(a.map(String).join(' ')));
+    try {
+      const srv = await serve({ quiet: false, log: (m: string) => lines.push(m) });
+      expect((await createRoom(srv, { name: 'noisy' }, '198.51.100.50')).status).toBe(201);
+      await pause(600);
+      const noise = lines.filter((l) => /noise \d+/.test(l));
+      expect(noise.length).toBeGreaterThan(0);
+      expect(noise.length).toBeLessThanOrEqual(40); // stdout + log messages share the room's budget (of 1000 lines)
+      const errNoise = errs.filter((l) => /noise \d+/.test(l));
+      expect(errNoise.length).toBeGreaterThan(0);
+      expect(errNoise.length).toBeLessThanOrEqual(40); // of 500 stack traces (1000 lines)
+      await srv.close();
+      servers.splice(servers.indexOf(srv), 1);
+      expect(lines.some((l) => /lines? of output not logged/.test(l))).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it('/sgwl.json counts the rooms past the lobby (headlessPlaying): a restart would end their match', async () => {
+    const srv = await serve();
+    expect(await info(srv)).toMatchObject({ headlessPlaying: 0 });
+    expect((await createRoom(srv, {}, '198.51.100.60')).status).toBe(201);
+    expect((await createRoom(srv, { name: 'playing' }, '198.51.100.61')).status).toBe(201);
+    await waitFor(async () => (await info(srv)).headlessPlaying === 1, 3000, 'headlessPlaying 1');
+    expect(await info(srv)).toMatchObject({ headlessRooms: 2, headlessPlaying: 1, headlessHumans: 0 });
+  });
+
+  it('a room a page creates on the relay is not vouched for (no serverHosted in joined)', async () => {
+    const srv = await serve();
+    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
+    const got: Record<string, unknown>[] = [];
+    ws.on('message', (d, bin) => {
+      if (!bin) got.push(JSON.parse(String(d)) as Record<string, unknown>);
+    });
+    await new Promise((r) => ws.once('open', r));
+    ws.send(JSON.stringify({ op: 'create', v: 1 }));
+    await waitFor(() => got.length > 0, 3000, 'created');
+    const g = await guest(srv, String(got[0].code));
+    expect(g.ctrl[0]).toMatchObject({ op: 'joined' });
+    expect(g.ctrl[0].serverHosted).toBeUndefined();
+    g.ws.close();
+    ws.close();
   });
 });
 

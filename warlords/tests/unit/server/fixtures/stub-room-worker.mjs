@@ -7,6 +7,8 @@
 //   'bail'           says closing{reason:'relay'} and exits(1) before it is ready
 //   'crash-later'    gets ready, then throws 150 ms later
 //   'stubborn'       gets ready but ignores {type:'shutdown'} (terminated after the grace)
+//   'noisy'          gets ready, then floods stderr / stdout / log messages (500 lines each)
+//   'playing'        reports phase 'playing' (a match in progress)
 import { parentPort, workerData } from 'node:worker_threads';
 
 const { relayUrl, name, emptyLobbyMs, noHumansMs } = workerData;
@@ -38,7 +40,7 @@ let emptySince = Date.now();
 let closing = false;
 
 function status() {
-  post({ type: 'status', phase: 'lobby', humans, bots: 0, players: humans });
+  post({ type: 'status', phase: name === 'playing' ? 'playing' : 'lobby', humans, bots: 0, players: humans });
 }
 
 function close(reason, detail) {
@@ -71,8 +73,15 @@ if (name !== 'hang') {
     const msg = JSON.parse(ev.data);
     if (msg.op === 'created') {
       post({ type: 'ready', code: msg.code });
-      post({ type: 'log', msg: `stub room ${msg.code} open` });
+      post({ type: 'log', msg: `stub room ${msg.code} open (emptyLobbyMs ${emptyLobbyMs})` });
       status();
+      if (name === 'noisy') {
+        for (let i = 0; i < 500; i++) {
+          console.error(`[net] message handler threw TypeError: noise ${i}\n    at stub (stub-room-worker.mjs:1:1)`);
+          console.log(`stdout noise ${i}`);
+          post({ type: 'log', msg: `log noise ${i}` });
+        }
+      }
       if (name === 'crash-later') setTimeout(() => {
         throw new Error('stub crash in the match');
       }, 150);

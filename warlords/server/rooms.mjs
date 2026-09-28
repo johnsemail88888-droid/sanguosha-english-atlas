@@ -14,8 +14,14 @@
 // The worker ends itself when it idles (no human for a while); a crash or a stuck start is
 // cleaned up here. Without the bundle (Electron, LAN copies, a failed build) nothing is offered:
 // available() is false and clients host the room in their browser as before.
+//
+// Abuse limits: perIpPerMin creates a minute and perIpRooms live rooms per client address (a
+// room nobody joins holds its slot only emptyLobbyMs); a page of another build of the game
+// is refused (409: dist-headless/build.json, the POST's `build`) — its snapshots would desync;
+// the workers' own output (stdout / stderr, log lines) reaches the log at a bounded rate.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 /** How long a worker gets to exit after {type:'shutdown'} before it is terminated. */
@@ -26,11 +32,20 @@ export const FAILURES_BEFORE_PAUSE = 2;
 export const FAILURE_PAUSE_MS = 10 * 60_000;
 /** Longest room display name kept (characters). */
 export const MAX_ROOM_NAME = 16;
+/** Rooms one client address may have at once (the rest of the slots stay free for others). */
+export const ROOMS_PER_IP = 2;
+/** A health check's room ({probe: true}: check.mjs) closes this soon if nobody joins (ms). */
+export const PROBE_LOBBY_MS = 10_000;
+/** A room's output (worker stdout / stderr, log lines): at most this many lines per LOG_WINDOW_MS. */
+export const LOG_LINES_PER_WINDOW = 40;
+export const LOG_WINDOW_MS = 10_000;
+/** Longest output line kept (characters). */
+const MAX_LOG_LINE = 2000;
 
 /** An error with the HTTP answer it maps to (`status`, `{error: code}`). */
 export class RoomsError extends Error {
   /**
-   * @param {'headless-unavailable'|'rooms-full'|'rate-limited'|'worker-failed'} code
+   * @param {'headless-unavailable'|'rooms-full'|'rate-limited'|'worker-failed'|'version-mismatch'} code
    * @param {number} status
    * @param {string} [detail]
    */
@@ -53,11 +68,77 @@ export function cleanRoomName(name, fallback = '服务器') {
 const count = (v) => (Number.isFinite(v) && v >= 0 ? Math.min(Math.floor(v), 1000) : 0);
 
 /**
+ * A room's output limiter: `line(text)` logs at most `max` lines per `windowMs` (each cut to
+ * MAX_LOG_LINE characters); the lines it drops are counted and reported once it logs again, or
+ * at `flush()` (the room ended). A worker made to throw in a loop must not fill the disk.
+ * @param {(msg: string) => void} out
+ */
+export function createLineLimiter(out, max = LOG_LINES_PER_WINDOW, windowMs = LOG_WINDOW_MS) {
+  let windowStart = -Infinity;
+  let used = 0;
+  let dropped = 0;
+  const report = () => {
+    if (dropped > 0) out(`… ${dropped} line${dropped === 1 ? '' : 's'} of output not logged (too many)`);
+    dropped = 0;
+  };
+  return {
+    /** @param {string} text */
+    line(text) {
+      const now = Date.now();
+      if (now - windowStart >= windowMs) {
+        windowStart = now;
+        used = 0;
+        report();
+      }
+      if (used >= max) {
+        dropped++;
+        return;
+      }
+      used++;
+      out(text.length > MAX_LOG_LINE ? `${text.slice(0, MAX_LOG_LINE)}…` : text);
+    },
+    flush: report,
+  };
+}
+
+/**
+ * Feed a worker's stdout / stderr stream line by line into `line` (a partial line longer
+ * than 64 KB is cut into pieces rather than buffered without end).
+ * @param {import('node:stream').Readable | null | undefined} stream
+ * @param {(text: string) => void} line
+ */
+function pipeLines(stream, line) {
+  if (!stream) return;
+  let buf = '';
+  stream.setEncoding('utf8');
+  stream.on('data', (chunk) => {
+    buf += chunk;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const l = buf.slice(0, i).replace(/\r$/, '');
+      buf = buf.slice(i + 1);
+      if (l.trim()) line(l);
+    }
+    if (buf.length > 65_536) {
+      line(buf);
+      buf = '';
+    }
+  });
+  stream.on('end', () => {
+    if (buf.trim()) line(buf);
+    buf = '';
+  });
+  stream.on('error', () => {});
+}
+
+/**
  * @param {{ workerPath: string, relayUrl: () => string, maxRooms?: number, perIpPerMin?: number,
- *           readyTimeoutMs?: number, emptyLobbyMs?: number, noHumansMs?: number, enabled?: boolean,
- *           workerLog?: boolean, log?: (msg: string) => void, pauseAfterFailures?: number, pauseMs?: number,
+ *           perIpRooms?: number, readyTimeoutMs?: number, emptyLobbyMs?: number, noHumansMs?: number,
+ *           probeLobbyMs?: number, enabled?: boolean, workerLog?: boolean, log?: (msg: string) => void,
+ *           errorLog?: (msg: string) => void, pauseAfterFailures?: number, pauseMs?: number,
  *           onReady?: (code: string) => void, onExit?: (code: string | null) => void }} opts
  *   enabled: false = off (HEADLESS=0); workerLog: ask the workers for their log lines;
+ *   perIpRooms: ROOMS_PER_IP; probeLobbyMs: PROBE_LOBBY_MS; errorLog: the workers' stderr (default console.error);
  *   pauseAfterFailures / pauseMs: FAILURES_BEFORE_PAUSE / FAILURE_PAUSE_MS.
  *   onReady / onExit: the relay room of a worker that just became ready / just exited.
  */
@@ -65,6 +146,8 @@ export function createHeadlessRooms(opts) {
   const workerPath = opts.workerPath;
   const maxRooms = Math.max(0, opts.maxRooms ?? 4);
   const perIpPerMin = Math.max(1, opts.perIpPerMin ?? 6);
+  const perIpRooms = Math.max(1, opts.perIpRooms ?? ROOMS_PER_IP);
+  const probeLobbyMs = Math.max(0, opts.probeLobbyMs ?? PROBE_LOBBY_MS);
   const readyTimeoutMs = opts.readyTimeoutMs ?? 15000;
   const emptyLobbyMs = opts.emptyLobbyMs ?? 180_000;
   const noHumansMs = opts.noHumansMs ?? 120_000;
@@ -72,11 +155,12 @@ export function createHeadlessRooms(opts) {
   const pauseAfterFailures = Math.max(1, opts.pauseAfterFailures ?? FAILURES_BEFORE_PAUSE);
   const pauseMs = Math.max(0, opts.pauseMs ?? FAILURE_PAUSE_MS);
   const log = opts.log ?? (() => {});
+  const errorLog = opts.errorLog ?? ((m) => console.error(m));
 
   /**
    * @typedef {{ worker: Worker, code: string | null, ip: string, createdAt: number, phase: string,
    *             humans: number, bots: number, players: number, ready: boolean,
-   *             closing: string | null, exited: Promise<void> }} Room
+   *             closing: string | null, closingDetail: string, exited: Promise<void> }} Room
    * @type {Set<Room>}
    */
   const rooms = new Set();
@@ -95,6 +179,16 @@ export function createHeadlessRooms(opts) {
   };
 
   const available = () => enabled && !shuttingDown && Date.now() >= pausedUntil && bundlePresent();
+
+  /** The game-compatibility id of the bundle (dist-headless/build.json), null when unknown. */
+  const bundleBuild = () => {
+    try {
+      const info = JSON.parse(fs.readFileSync(path.join(path.dirname(workerPath), 'build.json'), 'utf8'));
+      return typeof info?.compat === 'string' && info.compat ? info.compat : null;
+    } catch {
+      return null;
+    }
+  };
 
   /** Sliding one-minute window per IP: true when `ip` may create another room now. */
   const allowed = (ip, now) => {
@@ -118,15 +212,25 @@ export function createHeadlessRooms(opts) {
   /**
    * Start a room for `ip`. Resolves with its code and the owner key once the worker's relay
    * room exists; rejects with a RoomsError.
+   * `req.build`: the page's game-compatibility id — another than the bundle's is refused (409);
+   * `req.probe`: a health check's room, closed after probeLobbyMs if nobody joins.
    * @param {string} ip
-   * @param {{ name?: unknown, lang?: unknown }} [req]
+   * @param {{ name?: unknown, lang?: unknown, build?: unknown, probe?: unknown }} [req]
    * @returns {Promise<{ code: string, ownerKey: string }>}
    */
   function create(ip, req = {}) {
     if (!available()) return Promise.reject(new RoomsError('headless-unavailable', 503));
+    if (typeof req.build === 'string' && req.build) {
+      const mine = bundleBuild();
+      if (mine && mine !== req.build.slice(0, 64)) return Promise.reject(new RoomsError('version-mismatch', 409, `page ${req.build.slice(0, 64)}, server ${mine}`));
+    }
     const now = Date.now();
     if (!allowed(ip, now)) return Promise.reject(new RoomsError('rate-limited', 429));
     if (rooms.size >= maxRooms) return Promise.reject(new RoomsError('rooms-full', 503));
+    // (503 like a full server: the page hosts the room itself — nobody holds every slot)
+    let mineNow = 0;
+    for (const r of rooms) if (r.ip === ip) mineNow++;
+    if (mineNow >= perIpRooms) return Promise.reject(new RoomsError('rooms-full', 503, `${ip} has ${mineNow} rooms`));
     remember(ip, now);
 
     const ownerKey = crypto.randomBytes(24).toString('base64url');
@@ -135,13 +239,14 @@ export function createHeadlessRooms(opts) {
       ownerKey,
       name: cleanRoomName(req.name),
       lang: req.lang === 'en' ? 'en' : 'zh',
-      emptyLobbyMs,
+      emptyLobbyMs: req.probe === true ? Math.min(emptyLobbyMs, probeLobbyMs) : emptyLobbyMs,
       noHumansMs,
       log: !!opts.workerLog,
     };
     let worker;
     try {
-      worker = new Worker(workerPath, { workerData, name: 'sgwl-room', resourceLimits: { maxOldGenerationSizeMb: 512 } });
+      // (stdout / stderr: piped here through the room's line limiter, not straight to the log file)
+      worker = new Worker(workerPath, { workerData, name: 'sgwl-room', stdout: true, stderr: true, resourceLimits: { maxOldGenerationSizeMb: 512 } });
     } catch (err) {
       failed(`could not start: ${err?.message ?? err}`);
       return Promise.reject(new RoomsError('worker-failed', 500, String(err?.message ?? err)));
@@ -162,9 +267,14 @@ export function createHeadlessRooms(opts) {
         players: 0,
         ready: false,
         closing: null,
+        closingDetail: '',
         exited: new Promise((r) => (markExited = r)),
       };
       rooms.add(room);
+      const out = createLineLimiter((m) => log(m.startsWith(tag(room)) ? m : `${tag(room)} ${m}`));
+      const err = createLineLimiter((m) => errorLog(`${tag(room)} ${m}`));
+      pipeLines(worker.stdout, out.line);
+      pipeLines(worker.stderr, err.line);
       let settled = false;
       const fail = (why) => {
         if (settled) return;
@@ -203,15 +313,13 @@ export function createHeadlessRooms(opts) {
             room.players = count(msg.players);
             break;
           case 'log':
-            if (typeof msg.msg === 'string') {
-              const text = msg.msg.slice(0, 2000);
-              log(text.startsWith(tag(room)) ? text : `${tag(room)} ${text}`);
-            }
+            if (typeof msg.msg === 'string') out.line(msg.msg);
             break;
           case 'closing':
-            room.closing = typeof msg.reason === 'string' ? msg.reason : 'error';
-            log(`${tag(room)} closing: ${room.closing}${typeof msg.detail === 'string' && msg.detail ? ` (${msg.detail.slice(0, 500)})` : ''}`);
-            if (!settled) fail(`closed before it was ready (${room.closing})`);
+            // (logged once, with the 'ended' line below)
+            room.closing = typeof msg.reason === 'string' ? msg.reason.slice(0, 16) : 'error';
+            room.closingDetail = typeof msg.detail === 'string' ? msg.detail.slice(0, 500) : '';
+            if (!settled) fail(`closed before it was ready (${room.closing}${room.closingDetail ? `: ${room.closingDetail}` : ''})`);
             break;
           default:
             break;
@@ -224,8 +332,11 @@ export function createHeadlessRooms(opts) {
       worker.on('exit', (exitCode) => {
         rooms.delete(room);
         if (!settled) fail(`exited (${exitCode}) before it was ready`);
+        out.flush();
+        err.flush();
         if (room.ready) {
-          log(`[rooms] room ${room.code} ended (${room.closing ?? `exit ${exitCode}`}) — ${rooms.size}/${maxRooms} rooms`);
+          const why = room.closing ? `${room.closing}${room.closingDetail ? `: ${room.closingDetail}` : ''}` : `exit ${exitCode}`;
+          log(`[rooms] room ${room.code} ended (${why}) — ${rooms.size}/${maxRooms} rooms`);
         }
         try {
           opts.onExit?.(room.code);
@@ -252,15 +363,21 @@ export function createHeadlessRooms(opts) {
     }
   }
 
+  /**
+   * /sgwl.json: headlessRooms / headlessHumans (connected humans); headlessPlaying: rooms past
+   * the lobby — a match a restart would end even while its only player is briefly away.
+   */
   function stats() {
     let headlessRooms = 0;
     let headlessHumans = 0;
+    let headlessPlaying = 0;
     for (const r of rooms) {
       if (!r.ready) continue;
       headlessRooms++;
       headlessHumans += r.humans;
+      if (r.phase !== 'lobby' && r.phase !== 'starting') headlessPlaying++;
     }
-    return { headless: available(), headlessRooms, headlessHumans };
+    return { headless: available(), headlessRooms, headlessHumans, headlessPlaying };
   }
 
   /** Tell every room to close (their clients hear 'leave'); stragglers are terminated after 3 s. */
