@@ -95,7 +95,7 @@ ls -d /Applications/Tailscale.app 2>/dev/null && "$TS" status | head -5
 
 4. 菜单栏 Tailscale 图标 → Settings：打开 **Launch at login**（登录时启动）。
 5. **自动更新**：Tailscale 更新时会断网几秒，正在进行的对局会全部掉线。
-   - **官网下载的独立版**：Tailscale → Settings 里有 **Automatically install updates**，关掉它。以后每月找个没人玩的时候手动更新。
+   - **官网下载的独立版**：Tailscale → Settings 里有 **Automatically install updates**，关掉它。以后每月找个没人玩的时候手动更新（也可以由你直接运行 `"$TS" set --auto-update=false`，不用主人去点）。
    - **App Store 版**：它自己没有这个开关，更新由「App Store → 设置 → 自动更新」控制。那是全局开关，会影响所有 App Store 应用，关不关由主人决定。
 
 Funnel 的授权第 3 步会处理：需要的时候，安装脚本会打印一个 `login.tailscale.com` 链接。
@@ -136,7 +136,7 @@ tail -n 40 ~/sanguo-warlords/home-host.log | perl -pe 's/\e\[[0-9;]*m//g'
 | 结果 | 含义 | 处理 |
 |---|---|---|
 | `SGWL_EXIT=0`，并且有 `朋友可以访问了 / reachable from the internet` | 成功 | 记下框里的**分享链接**（`分享链接 SHARE LINK:` 那一行，带 `?k=`）和下面两行（游戏网址、中继地址），进入第 4 步。 |
-| `SGWL_EXIT=0`，但有 `[!] 公网暂时还访问不到 https://…` | 服务和 Funnel 已装好，只是公网 DNS 还没生效 | 进入第 4 步；第 5 步的 `status` 会再验证公网。 |
+| `SGWL_EXIT=0`，但有 `[!] 公网暂时还访问不到 https://…` | 服务和 Funnel 已装好，只是公网 DNS 还没生效。**第一次开 Funnel 时，公网 DNS 可能要 10–30 分钟才出现**（期间连 ts.net 的权威服务器也会回 NXDOMAIN，脚本的 2 分钟重试会全部失败），属于正常 | 进入第 4 步；过 15–30 分钟再跑第 5 步的 `status`。超过 1 小时还不行：`"$TS" funnel --https=443 off`，再重跑第 3 步。 |
 | `SGWL_EXIT=2`（最后一段是黄字说明） | 需要主人操作 | 看下表，主人做完后，重跑同一条命令。 |
 | 其他非 0（`[x] …` 或 `[!] 第 N 行出错`） | 出错 | 看下表；表里没有的，把日志的最后 30 行（下面这条命令的输出）原样给主人，请他转给云端的 Claude：`tail -n 30 ~/sanguo-warlords/home-host.log \| perl -pe 's/\e\[[0-9;]*m//g; s/([?&]k=)[A-Za-z0-9_-]+/$1<key>/g'`。日志里的密钥已经遮住了（`?k=<key>`）；**不要转发屏幕输出**，那里的分享链接带着真密钥。 |
 
@@ -253,6 +253,7 @@ launchctl print "gui/$(id -u)/com.sanguo-warlords.server" | grep -E 'state =|pid
 
 | 现象 | 先查 | 处理 |
 |---|---|---|
+| 这台 Mac 上还有别的服务也想用 Funnel | `"$TS" funnel status` | 游戏服务只占 **443 端口的根路径**，安装 / `update` / `stop` 都只动 443，别的端口（例如 `:8443` 上的另一个服务）不会被碰。别的服务请开在 8443 或 10000（Funnel 只允许 443 / 8443 / 10000）。 |
 | 朋友打不开网址 | `status`；`$TS funnel status` | Funnel 没指向 8787：重跑第 3 步。Tailscale 掉线：👤 主人点菜单栏重新连接。机器 key 过期：👤 主人在后台 Disable key expiry 并重新登录。 |
 | 朋友看到「需要房主发的邀请链接（带密钥）」 | `grep '\[auth\]' ~/sanguo-warlords/server.log \| tail -5`（`key-required` = 没带密钥，`bad-key` = 旧密钥） | 把**分享链接**（`status` 或上表「只要分享链接」）发给他，让他用这个链接打开一次（密钥会记在他的浏览器里）。换过密钥（`rotate-key`）以后，所有人都要新链接。 |
 | 网址能打开，但创建房间失败或连不上 | `curl -s http://127.0.0.1:8787/sgwl.json`；`tail -n 50 ~/sanguo-warlords/server.log` | 本机没响应：`launchctl kickstart -k "gui/$(id -u)/com.sanguo-warlords.server"`，30 秒后再查。日志里有 `more than 8 sockets` / `rooms a minute`：同一个公网地址连接太多或开房太频繁（家里 8 个人以上共用一个网络时会碰到），过一分钟再试。 |

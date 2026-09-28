@@ -61,6 +61,39 @@ jobs:
             warlords/test-results-mac/
             warlords/playwright-report-mac/
 
+  deploy:
+    # The home-server scripts (deploy/home-host.sh + install.sh) on the tools a Mac really has:
+    # BSD sed / awk / stat and /bin/bash 3.2 (what `curl … | bash` gets). Linux CI cannot see
+    # GNU-only habits — a `;t;` sed branch broke every install / update on a Mac mini.
+    name: Home-server scripts on macOS (BSD tools, bash 3.2)
+    runs-on: macos-14
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: warlords
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: warlords/package-lock.json
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: /bin/bash 3.2 first on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/macbash"
+          ln -sf /bin/bash "$RUNNER_TEMP/macbash/bash"
+          echo "$RUNNER_TEMP/macbash" >> "$GITHUB_PATH"
+      - name: Tools
+        run: |
+          bash --version | head -n1
+          command -v sed awk stat
+          sed --version 2>&1 | head -n1 || true
+      - name: Deploy script tests
+        run: npx vitest run tests/unit/deploy
+
   desktop:
     name: macOS app · arm64 dmg (ad-hoc signed) opens
     runs-on: macos-14

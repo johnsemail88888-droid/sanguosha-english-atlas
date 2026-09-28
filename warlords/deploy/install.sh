@@ -383,12 +383,15 @@ ensure_swap() {
   grep -q "^$f " /etc/fstab 2>/dev/null || echo "$f none swap sw 0 0" >>/etc/fstab
 }
 
+# node_major → the major version of the node on PATH (0: none / unreadable). Plain bash, no sed:
+# macOS's BSD sed takes everything after a `t` command up to the newline as its label (a one-line
+# `…;t;…` program failed there), so every install / update on a Mac died with "could not install Node.js".
 node_major() {
-  command -v node >/dev/null 2>&1 || {
-    echo 0
-    return
-  }
-  node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/;t;s/.*/0/'
+  local v
+  v=$(node -v 2>/dev/null || true)
+  v=${v#v}
+  v=${v%%.*}
+  if [[ $v =~ ^[0-9]+$ ]]; then echo "$v"; else echo 0; fi
 }
 
 node_arch() {

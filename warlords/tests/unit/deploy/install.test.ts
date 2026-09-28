@@ -48,6 +48,24 @@ describe('deploy/install.sh', () => {
     expect(r.err).toBe('');
   });
 
+  it('node_major: the major version from `node -v`, 0 when there is none or it is unreadable (no sed: BSD sed broke it on macOS)', () => {
+    const bin = path.join(TMP, 'fake-node-bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(path.join(bin, 'node'), '#!/bin/sh\nprintf "%s\\n" "$FAKE_NODE_V"\n');
+    chmodSync(path.join(bin, 'node'), 0o755);
+    const major = (v: string): string => sh('node_major', { PATH: `${bin}:/usr/bin:/bin`, FAKE_NODE_V: v }).out;
+    expect(major('v22.23.3')).toBe('22');
+    expect(major('v8.0.0')).toBe('8');
+    expect(major('v24.1.0-nightly')).toBe('24');
+    expect(major('garbage')).toBe('0');
+    expect(major('')).toBe('0');
+    const none = path.join(TMP, 'no-node-bin');
+    mkdirSync(none, { recursive: true });
+    expect(sh('node_major', { PATH: `${none}:/usr/bin:/bin` }).out).toBe('0');
+    // the sed program that failed on macOS is gone for good
+    expect(readFileSync(SCRIPT, 'utf8')).not.toMatch(/;t;s\//);
+  });
+
   it('turns the public IPv4 into its sslip.io name', () => {
     expect(sh('sslip_host 47.242.10.3').out).toBe('47-242-10-3.sslip.io');
     expect(sh('sslip_host 8.8.8.8').out).toBe('8-8-8-8.sslip.io');
