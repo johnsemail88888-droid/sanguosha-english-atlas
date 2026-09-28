@@ -245,6 +245,17 @@ describe('interaction prompt', () => {
     expect(p).toMatchObject({ kind: 'pickup', itemId: lootWeapon.id, swap: lootWeapon.id !== 'pistol' });
   });
 
+  it('a copy of a gun you hold offers its ammo, not a swap (a second 制式手枪 beside your primary)', () => {
+    const two = (reserve: number): Partial<PrivateHeroView> => ({ weapons: [{ id: 'carbine', mag: 30, reserve: 40 }, { id: 'pistol', mag: 12, reserve }], activeSlot: 0 });
+    expect(deriveInteract(me(two(10)), pos, [ent(3, 'loot', 'pistol', 1, 0)])).toMatchObject({ kind: 'pickup', itemId: 'pistol', swap: false, ammo: 'take' });
+    expect(deriveInteract(me(two(48)), pos, [ent(3, 'loot', 'pistol', 1, 0)])).toMatchObject({ kind: 'pickup', itemId: 'pistol', swap: false, ammo: 'full' });
+    expect(deriveInteract(me(two(10)), pos, [ent(3, 'loot', 'carbine', 1, 0)])).toMatchObject({ kind: 'pickup', itemId: 'carbine', ammo: 'take' });
+    // another pistol replaces the sidearm (slot 2), never the primary
+    const other = deriveInteract(me(two(10)), pos, [ent(3, 'loot', 'cixiong', 1, 0)]);
+    expect(other).toMatchObject({ kind: 'pickup', itemId: 'cixiong', swap: true });
+    expect(other && 'ammo' in other).toBe(false);
+  });
+
   it('warns when item slots are full', () => {
     const full = me({ items: [1, 2, 3, 4].map(() => ({ id: 'zzz', count: 1 })) });
     expect(deriveInteract(full, pos, [ent(3, 'loot', 'tao', 1, 0)])?.kind).toBe('full');

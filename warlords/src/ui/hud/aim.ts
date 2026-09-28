@@ -419,20 +419,24 @@ export class SightOverlay {
       setClass(this.near, 'on', nq > 0);
     }
     if (nearKind === 'bow' && nq > 0) {
-      // the draw fills with the aim (a full draw = aimed spread and full damage); held too long the arm shakes
-      const full = aim.progress >= 0.999;
+      // the draw fills with the aim (a full draw = aimed spread and full damage) and again after each
+      // arrow (nocking the next one takes the bow's shot interval); held too long the arm shakes
+      const nock = aim.shotAge < aim.cycle ? clamp01(aim.shotAge / Math.max(0.05, aim.cycle)) : 1;
+      const drawn = Math.min(aim.progress, nock);
+      const full = drawn >= 0.999;
       const tired = full && aim.drawHeld > prof.fatigueAfter;
-      this.drawArc.style.strokeDashoffset = r3(100 - aim.progress * 100);
+      this.drawArc.style.strokeDashoffset = r3(100 - drawn * 100);
       setClass(this.draw, 'full', full && !tired);
       setClass(this.draw, 'tired', tired);
-      setText(this.drawLbl, tired ? tx('臂力不支', 'Arm shaking') : full ? tx('满弦', 'Full draw') : '');
+      setText(this.drawLbl, tired ? tx('臂力不支', 'Arm shaking') : full ? tx('满弦', 'Full draw') : nock < 1 ? tx('搭箭', 'Nocking') : '');
     }
     return on && o >= 0.6;
   }
 
   /** Scoped slow guns / the scoped bow: after a shot an arc fills until the next round (arrow) is ready. */
   private updateBolt(f: HudFrame, aim: AimView, def: WeaponDef | undefined): void {
-    const busy = !!def && aim.cycle >= BOLT_MIN_CYCLE && aim.shotAge < aim.cycle;
+    // (a bow's own draw ring refills instead: nock, draw, 满弦)
+    const busy = !!def && def.class !== 'bow' && aim.cycle >= BOLT_MIN_CYCLE && aim.shotAge < aim.cycle;
     const k = busy ? clamp01(aim.shotAge / aim.cycle) : 1;
     const key = busy ? `${Math.round(k * 40)}|${f.lang}` : '';
     if (key === this.boltKey) return;
@@ -540,6 +544,18 @@ export function aimLine(def: WeaponDef): string {
   return tx(a.zh, a.en);
 }
 
+/** The aim line as unbreakable parts (a narrow card wraps between "开镜 0.3 秒" and "Shift 屏息", never inside one). */
+function aimLineParts(def: WeaponDef): (HTMLElement | string)[] {
+  const out: (HTMLElement | string)[] = [];
+  aimLine(def)
+    .split(' · ')
+    .forEach((part, i) => {
+      if (i > 0) out.push(' · ');
+      out.push(h('span', null, part));
+    });
+  return out;
+}
+
 /**
  * Stat card of the weapon that just came into your hands (pickup, switch,
  * spawn): class, rarity, the five bars and how it aims — for a few seconds,
@@ -591,7 +607,7 @@ export class WeaponCard {
       ),
       h('div', { class: 'wst-name' }, gearName(def.id), def.sgsCard ? h('span', { class: 'wst-card' }, `〔${def.sgsCard}〕`) : null),
       h('div', { class: 'wst-stats' }, ...statRows(def, undefined)),
-      h('div', { class: 'wst-aim' }, aimLine(def)),
+      h('div', { class: 'wst-aim' }, ...aimLineParts(def)),
     );
   }
 
@@ -639,7 +655,7 @@ export class LootCompare {
         vs ? h('span', { class: 'wst-vs' }, tx(`对比 ${gearName(vs.id)}`, `vs ${gearName(vs.id)}`)) : null,
       ),
       h('div', { class: 'wst-stats' }, ...statRows(def, vs)),
-      h('div', { class: 'wst-aim' }, aimLine(def)),
+      h('div', { class: 'wst-aim' }, ...aimLineParts(def)),
     );
   }
 

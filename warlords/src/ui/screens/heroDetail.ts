@@ -103,14 +103,22 @@ export function weaponBlock(w: WeaponDef): HTMLElement {
       stat(tx('射程', 'Range'), w.melee ? `${w.maxRange}m` : `${w.falloffStart}/${w.maxRange}m`),
     ),
     // how it aims (sight, zoom, aim time, hip cone) — the same line as the in-match stat card
-    h('p', { class: 'wc-aim' }, aimText(w)),
+    h('p', { class: 'wc-aim' }, ...aimParts(w)),
     h('p', { class: 'wc-desc' }, tx(w.descZh, w.descEn)),
   );
 }
 
-function aimText(w: WeaponDef): string {
+/** The aim line in unbreakable parts: a narrow panel wraps between "开镜 0.36 秒" and "腰射 ±1.5°", never inside one. */
+function aimParts(w: WeaponDef): (HTMLElement | string)[] {
   const a = aimSummary(w);
-  return tx(a.zh, a.en);
+  const out: (HTMLElement | string)[] = [];
+  tx(a.zh, a.en)
+    .split(' · ')
+    .forEach((part, i) => {
+      if (i > 0) out.push(' · ');
+      out.push(h('span', null, part));
+    });
+  return out;
 }
 
 function stat(label: string, value: string): HTMLElement {

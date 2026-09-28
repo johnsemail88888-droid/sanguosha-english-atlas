@@ -82,8 +82,8 @@ export const AIM_CSS = /* css */ `
 .hud-sight .tri { fill: #d8ffb0; filter: drop-shadow(0 0 1.2px rgba(170, 255, 120, 0.9)); }
 .hud-draw { position: absolute; left: 0; top: 0; width: ${u(64)}; height: ${u(64)}; transform: translate(-50%, -50%); display: none; }
 .hud-sight[data-kind="bow"] .hud-draw { display: block; }
-/* a scoped bow (烈弓): the draw ring sits in the lower half of the lens, clear of the reticle */
-.hud-sight.in-scope .hud-draw { top: calc(${R_SCOPE} * 0.42); width: ${u(46)}; height: ${u(46)}; }
+/* a scoped bow (烈弓): the draw ring sits in the lens's lower-left quarter, clear of the reticle's lines */
+.hud-sight.in-scope .hud-draw { left: calc(${R_SCOPE} * -0.3); top: calc(${R_SCOPE} * 0.3); width: ${u(46)}; height: ${u(46)}; }
 .hud-draw .dr-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
 .hud-draw .trk { fill: none; stroke: rgba(255, 255, 255, 0.22); stroke-width: 2.2; }
 .hud-draw .arc { fill: none; stroke: #e8b14a; stroke-width: 2.8; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 1px #000); }
@@ -120,6 +120,7 @@ export const AIM_CSS = /* css */ `
 .wst-d.up { color: #7fe09a; }
 .wst-d.dn { color: #ff7a6a; }
 .wst-aim { margin-top: ${u(6)}; font-size: ${fs(12, 10)}; color: #cfe2ff; opacity: 0.92; }
+.wst-aim > span { white-space: nowrap; }
 .sg-hud.dead :is(.hud-wcard, .hud-lootcmp, .hud-sight), .sg-hud.downed :is(.hud-wcard, .hud-lootcmp) { display: none; }
 /* touch: the weapon panel sits top right with the kill feed under it — the card goes top centre, under the zone timer */
 .sg-hud.touch .hud-wcard { bottom: auto; right: auto; left: 50%; top: ${u(78)}; transform: translate(-50%, ${u(-8)}); }
@@ -128,6 +129,7 @@ export const AIM_CSS = /* css */ `
 @media (max-height: 560px) { .hud-wcard .wst-aim { display: none; } .hud-lootcmp { top: calc(50% + ${u(104)}); } }
 /* hero detail / help: how a weapon aims (the in-match stat card's aim line) */
 .sg-weapon-card > .wc-aim { grid-column: 1 / -1; margin: 0 0 0.2em; font-size: 0.84em; font-weight: 600; color: #6a4414; }
+.sg-weapon-card > .wc-aim > span { white-space: nowrap; }
 .sg-table.weapons td.sight { white-space: nowrap; }
 .sg-table.weapons.feel td.desc { min-width: 12em; }
 `;
