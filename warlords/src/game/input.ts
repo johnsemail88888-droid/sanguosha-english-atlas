@@ -47,15 +47,28 @@ export interface SkillAimInfo {
 export function aimSlotsFor(local: { heroId?: string; role?: string; cooldowns?: Record<string, number>; charges?: Record<string, number>; downed?: boolean; dead?: boolean } | null): AbilitySlot[] {
   if (!local?.heroId || local.downed || local.dead) return [];
   const out: AbilitySlot[] = [];
-  for (const slot of ['q', 'e', 'lord'] as const) {
+  for (const { slot, def } of aimedSkillsOf(local.heroId)) {
     // the lord skill works for the real Lord only (anyone else's G is refused on press)
     if (slot === 'lord' && local.role !== 'lord') continue;
-    const def = heroAbility(local.heroId, slot);
-    if (!def || !skillAimed(def)) continue;
     const ready = def.charges ? (local.charges?.[def.id] ?? def.charges) > 0 : !((local.cooldowns?.[def.id] ?? 0) > 0);
     if (ready) out.push(slot);
   }
   return out;
+}
+
+/** A hero's aimed skills by slot (asked every frame: computed once per hero). */
+const aimedCache = new Map<string, { slot: AbilitySlot; def: NonNullable<ReturnType<typeof heroAbility>> }[]>();
+function aimedSkillsOf(heroId: string): { slot: AbilitySlot; def: NonNullable<ReturnType<typeof heroAbility>> }[] {
+  let list = aimedCache.get(heroId);
+  if (!list) {
+    list = [];
+    for (const slot of ['q', 'e', 'lord'] as const) {
+      const def = heroAbility(heroId, slot);
+      if (def && skillAimed(def)) list.push({ slot, def });
+    }
+    aimedCache.set(heroId, list);
+  }
+  return list;
 }
 
 /** Yaw (core/math convention: forward = (−sin yaw, −cos yaw)) that faces from `a` towards `b`. */

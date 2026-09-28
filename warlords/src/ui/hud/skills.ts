@@ -373,6 +373,8 @@ export class SkillReadyTips {
   readonly el: HTMLElement;
   private heroKey = '';
   private readonly seen = new Set<string>();
+  /** this hero's HUD skills (built once per hero / role) */
+  private views: ReturnType<typeof hudAbilities> = [];
   private readonly tips: { el: HTMLElement; until: number }[] = [];
   private counts: Record<string, number> | null = null;
 
@@ -396,8 +398,10 @@ export class SkillReadyTips {
       // a new hero (or the Lord's G unlocked): its skills tip again once
       this.heroKey = hk;
       this.seen.clear();
+      this.views = hudAbilities(HERO_BY_ID[me.heroId], me.role);
     }
-    for (const v of hudAbilities(HERO_BY_ID[me.heroId], me.role)) {
+    if (this.seen.size >= this.views.length) return;
+    for (const v of this.views) {
       const id = v.def.id;
       if (this.seen.has(id)) continue;
       const ready = !v.active || abilityReady(v.def, me.cooldowns[id] ?? 0, me.charges[id]);
