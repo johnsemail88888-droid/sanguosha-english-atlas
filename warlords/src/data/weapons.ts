@@ -38,7 +38,7 @@
 // | zhangba   | shotgun  | epic      | 199 | 1.41 s  | 1.41 s  | 10 pellets, wide spread                |
 // | guanshi   | launcher | epic      | 146 | 1.64 s  | 2.46 s  | splash ignores dodge; arms at 8 m      |
 // | zhuque    | flamer   | epic      | 240 | 1.19 s  | 1.63 s  | + burn 12/s; fire ×1.75 vs 藤甲; 18 m  |
-// | fangtian  | launcher | legendary | 163 | 1.25 s  | 1.25 s  | 3 rockets on one target (theoretical: one homes per target) |
+// | fangtian  | launcher | legendary | 169 | 1.20 s  | 1.20 s  | 3 rockets on one target (theoretical: one homes per target) |
 // | qilin     | sniper   | legendary |  94 | 3.08 s  | 3.08 s  | 3 body shots / 2 headshots vs 400      |
 // | longdan   | rifle    | sig       | 176 | 1.63 s  | 2.25 s  | 赵云                                   |
 // | liegong   | bow      | sig       | 101 | 2.11 s  | 3.16 s  | 黄忠: +25 % beyond 30 m (passive)      |
@@ -462,7 +462,7 @@ export const WEAPONS: WeaponDef[] = [
     rarity: 'legendary',
     damage: 24,
     headshotMul: 1.0,
-    fireRate: 1.0,
+    fireRate: 0.83,
     auto: false,
     magSize: 4,
     reserveMags: 3,
