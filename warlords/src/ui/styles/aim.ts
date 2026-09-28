@@ -58,6 +58,7 @@ export const AIM_CSS = /* css */ `
 .hud-sight[data-kind="holo"] .ns-svg { width: min(30vh, 28vw); height: min(30vh, 28vw); }
 .hud-sight[data-kind="iron"] .ns-svg { width: min(13vh, 12vw); height: min(13vh, 12vw); }
 .hud-sight .glass { fill: rgba(150, 205, 255, 0.07); }
+.hud-sight.tps :is(.glass, .rim) { display: none; }
 .hud-sight .rim { fill: none; stroke: rgba(12, 12, 12, 0.72); stroke-width: 4; }
 .hud-sight[data-kind="holo"] .rim { stroke-width: 3.2; stroke: rgba(12, 12, 12, 0.6); }
 .hud-sight .dotc { fill: #ff3020; filter: drop-shadow(0 0 1.6px #ff2a10) drop-shadow(0 0 3px rgba(255, 40, 20, 0.7)); }

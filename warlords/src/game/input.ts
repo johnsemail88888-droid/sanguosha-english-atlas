@@ -634,6 +634,7 @@ export class InputController implements InputSink {
       hold: this.state.isHeld('sprint') && this.state.enabled,
       moving: (ent?.speed ?? 0) > 1,
       airborne: (flags & VF_AIRBORNE) !== 0,
+      firstPerson: this.view === 'first',
     });
   }
 

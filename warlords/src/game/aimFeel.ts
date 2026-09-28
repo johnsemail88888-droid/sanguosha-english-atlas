@@ -35,6 +35,8 @@ export interface AimSnapshot {
   /** sway added to the look angles (radians) */
   swayYaw: number;
   swayPitch: number;
+  /** the camera is the hero's eye (near sights draw their housing only then) */
+  firstPerson: boolean;
 }
 
 export interface AimInput {
@@ -47,6 +49,8 @@ export interface AimInput {
   hold: boolean;
   moving: boolean;
   airborne: boolean;
+  /** first-person camera (default true) */
+  firstPerson?: boolean;
 }
 
 /** Breath comes back in this many seconds from empty. */
@@ -83,6 +87,7 @@ export class AimFeel {
     drawHeld: 0,
     swayYaw: 0,
     swayPitch: 0,
+    firstPerson: true,
   };
 
   /** Advance one frame (dt in seconds) and return the snapshot (the same object every frame). */
@@ -157,6 +162,7 @@ export class AimFeel {
     s.drawHeld = this.drawHeld;
     s.swayYaw = sw.yaw;
     s.swayPitch = sw.pitch;
+    s.firstPerson = inp.firstPerson ?? true;
     return s;
   }
 

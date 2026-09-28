@@ -63,6 +63,8 @@ export interface AimView {
   holding: boolean;
   winded: boolean;
   drawHeld: number;
+  /** first-person camera (third person: near sights show only their lit reticle, iron sights none) */
+  firstPerson: boolean;
 }
 
 /**
@@ -90,6 +92,7 @@ export function aimViewOf(f: HudFrame, snap: Readonly<AimSnapshot> | null | unde
       holding: snap.holding,
       winded: snap.winded,
       drawHeld: snap.drawHeld,
+      firstPerson: snap.firstPerson,
     };
   }
   const ads = !!(f.myEnt && f.myEnt.flags & VF_ADS) && !!def && !def.melee;
@@ -108,6 +111,7 @@ export function aimViewOf(f: HudFrame, snap: Readonly<AimSnapshot> | null | unde
     holding: false,
     winded: false,
     drawHeld: 0,
+    firstPerson: true,
   };
 }
 
@@ -146,7 +150,8 @@ export class Crosshair {
     const me = f.me;
     const ent = f.myEnt;
     const def = aim.def;
-    const sightUp = aim.blend > 0.55 && OWN_RETICLE.has(aim.sight);
+    // (third person: no iron sights to look along — the crosshair stays)
+    const sightUp = aim.blend > 0.55 && OWN_RETICLE.has(aim.sight) && (aim.firstPerson || aim.sight !== 'iron');
     const hide = !me || me.dead || me.downed || !ent || aim.scoped || sightUp;
     if (hide !== this.hidden) {
       this.hidden = hide;
@@ -336,7 +341,10 @@ export class SightOverlay {
       this.updateLensText(f, aim, prof.holdBreath);
     }
     // ── near sights (red dot / holo / iron) and the bow's draw ring ──
-    const nearKind = alive && !prof.overlay && (aim.sight === 'reddot' || aim.sight === 'holo' || aim.sight === 'iron') ? aim.sight : alive && aim.sight === 'bow' ? 'bow' : '';
+    const nearKind =
+      alive && !prof.overlay && (aim.sight === 'reddot' || aim.sight === 'holo' || (aim.sight === 'iron' && aim.firstPerson)) ? aim.sight : alive && aim.sight === 'bow' ? 'bow' : '';
+    // third person: the reticle floats over the world, without the sight's glass and frame
+    setClass(this.near, 'tps', !aim.firstPerson);
     if (nearKind !== this.nearKind) {
       this.nearKind = nearKind;
       this.near.dataset.kind = nearKind;
