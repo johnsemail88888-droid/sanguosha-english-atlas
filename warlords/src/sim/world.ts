@@ -1869,6 +1869,11 @@ export class World implements SimExt, SimHost {
     return p;
   }
 
+  lockedOn(id: EntityId): boolean {
+    for (const h of this.projHoming.values()) if (h.targetId === id) return true;
+    return false;
+  }
+
   aimTarget(e: Entity, maxDist: number, filter?: QueryFilter): Entity | undefined {
     const input = this.inputOf(e);
     const eye = this.eyePos(e);

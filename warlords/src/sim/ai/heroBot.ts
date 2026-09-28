@@ -146,6 +146,9 @@ export class HeroBot implements BotBrain, BotView {
   private nextScan = 0;
   private nextLosAt = 0;
   private targetSince = 0;
+  /** the downed hero this bot last looked at and since when it saw it down (LORD_RESTRAINT.finishDelay) */
+  private downSeenId: EntityId = -1;
+  private downSeenAt = 0;
   private readonly seen = new Map<EntityId, Seen>();
   private nextDecide = 0;
   private goal: Vec3 | null = null;
@@ -1218,6 +1221,15 @@ export class HeroBot implements BotBrain, BotView {
     return false;
   }
 
+  /** When this bot first saw `t` down (濒死) — `now` the first time it looks. */
+  private downSeen(t: Entity, now: number): number {
+    if (this.downSeenId !== t.id) {
+      this.downSeenId = t.id;
+      this.downSeenAt = now;
+    }
+    return this.downSeenAt;
+  }
+
   /** Returns true when the view is driven by combat aiming this tick. */
   private aimAndFire(f: InputFrame, dt: number, aimedElsewhere: boolean): boolean {
     const { sim, self, now, prof } = this;
@@ -1246,9 +1258,12 @@ export class HeroBot implements BotBrain, BotView {
     w = this.x.activeWeapon(self.id);
     const def = w?.def;
     const d = this.targetDist;
-    const ads = wantsAds(def, d, prof, t.hero?.downed === true);
+    // the bot 主公's opening seconds on a hero: his gun opens the fight, it does not end it —
+    // short, restrained bursts at any range, a slower trigger finger, the hip inside 22 m (LORD_RESTRAINT.gunOpening)
+    const opening = this.role === 'lord' && t.kind === 'hero' && now - this.targetSince < LORD_RESTRAINT.gunOpening;
+    const ads = wantsAds(def, d, prof, t.hero?.downed === true, opening);
     const o = this.aimer.track(sim, self, t, def, dt, ads);
-    const adsT = this.adsTrack.update(def, ads && !(h.reloadUntil > now), dt);
+    const adsT = this.adsTrack.update(def, ads && !(h.reloadUntil > now), dt, now, h.sprinting);
     this.lastAim = { errAngle: o.errAngle, targetAngle: o.targetAngle, point: o.point };
     f.yaw = o.yaw;
     f.pitch = o.pitch;
@@ -1264,6 +1279,9 @@ export class HeroBot implements BotBrain, BotView {
     if (!inRange) return true;
     if (t.hero?.downed && this.hostility(t) < 0.7) return true;
     if (this.mercy(t)) return true;
+    // the bot 主公 lets a hero he just knocked down lie a moment before finishing it (LORD_RESTRAINT.finishDelay)
+    if (!t.hero?.downed && this.downSeenId === t.id) this.downSeenId = -1;
+    if (t.hero?.downed && this.role === 'lord' && t.kind === 'hero' && now - this.downSeen(t, now) < LORD_RESTRAINT.finishDelay) return true;
     // never a launcher into its own blast (the sidearm comes out instead: weaponSwitch)
     if (launcherTooClose(def, d)) return true;
     // on target for this weapon (a projectile: on its lead point), the sights up if it wants them
@@ -1271,19 +1289,18 @@ export class HeroBot implements BotBrain, BotView {
     if (ads && !sightsReady(def, adsT, d)) return true;
     if (this.friendlyInLine(t, o.point)) return true;
     const loaded = !!w && (w.inst.mag > 0 || def.magSize <= 0) && !(h.reloadUntil > now);
-    // the bot 主公's opening seconds on a hero: his gun opens the fight, it does not end it —
-    // short, restrained bursts at any range, a slower trigger finger (LORD_RESTRAINT.gunOpening)
-    const opening = this.role === 'lord' && t.kind === 'hero' && now - this.targetSince < LORD_RESTRAINT.gunOpening;
     if (def.auto) {
       // burst control on autos at range (and the lord's opening)
       if (!this.burst.allow(now, this.rng, def, d, prof, opening)) return true;
       f.buttons |= BTN_FIRE;
+      this.adsTrack.fired(def, now, h.sprinting);
       this.stats.shotsFired++;
       if (loaded) this.aimer.kick(def, kickBlend(adsT), RECOIL_COMP[prof.name], now, def.fireRate * dt);
     } else if (now >= this.nextClick) {
       const rate = Math.min(def.fireRate, prof.clickRate) * (opening ? LORD_RESTRAINT.openingClick : 1);
       this.nextClick = now + 1 / Math.max(0.3, rate) + this.rng.next() * 0.05;
       f.buttons |= BTN_FIRE;
+      this.adsTrack.fired(def, now, h.sprinting);
       this.stats.shotsFired++;
       if (loaded && now + 1e-9 >= h.nextFireAt - 0.12) this.aimer.kick(def, kickBlend(adsT), RECOIL_COMP[prof.name], now);
     }

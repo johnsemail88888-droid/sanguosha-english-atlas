@@ -21,6 +21,8 @@ import { aimPointOf } from './perception';
 const DEG = Math.PI / 180;
 /** seconds between fresh lead / holdover misjudgements */
 const LEAD_REDRAW = 0.6;
+/** A 4× or stronger scope steadies a bot's aim only from this far out (C10-4). */
+export const SCOPE_STEADY_FROM = 40;
 /** max turn speed (rad/s) — a fast mouse flick, capped per difficulty below */
 const TURN_SPEED: Record<string, number> = { easy: 260 * DEG, normal: 480 * DEG, hard: 760 * DEG };
 
@@ -143,11 +145,13 @@ export class Aimer {
     // own motion: a ramp from 0.5 to 2.5 m/s (a hard 1.5 m/s step let slow, heavy guns skip it) (C10-3)
     sigmaDeg *= 1 + (p.motionErr - 1) * Math.min(1, Math.max(0, (selfSpeed - 0.5) / 2));
     if (targetSpeed > 3) sigmaDeg *= 1 + (p.motionErr - 1) * Math.min(1.5, targetSpeed / 6);
-    // a magnified scope steadies the hand; ordinary sights a little (C10-4: zoom-scaled only from 4×)
+    // a magnified scope steadies the hand at range; ordinary sights a little (C10-4: zoom-scaled
+    // only from 4×, and only from SCOPE_STEADY_FROM m — closer in a 4× / 5× picture is harder to
+    // track a strafer with, not easier)
     if (ads) {
       const zs = adsZooms(weapon);
       const z = dist >= 75 && zs.length > 1 ? zs[1] : zs[0];
-      sigmaDeg *= z >= 4 ? 0.55 + 0.45 / z : 0.8;
+      sigmaDeg *= z >= 4 && dist >= SCOPE_STEADY_FROM ? 0.55 + 0.45 / z : 0.8;
     }
     this.wander(now, dt, sigmaDeg, base, eye, dist);
     desired.x += this.err.x;
@@ -204,11 +208,17 @@ export class Aimer {
     this.kickAt = now;
   }
 
-  /** The kick settles back (the class's recover time) once the trigger rests past the settle delay. */
+  /**
+   * The unpulled kick comes back down: the bot sees its crosshair climb off the target and
+   * re-centres it at its tracking pace (trackTau) even mid-burst — as a player does, and as the
+   * human model the classes are balanced on does (tests/unit/balance/ttkModel.ts: tc) — and the
+   * gun settles too (the class's recover time) once the trigger rests past the settle delay.
+   * (Settling only on a rest let a held carbine burst climb off a 30 m body: 38 % hits, not 46 %.)
+   */
   private settleKick(def: WeaponDef, now: number, dt: number): void {
     if (this.kickP === 0 && this.kickY === 0) return;
-    if (now - this.kickAt < recoilSettleDelay(def)) return;
-    const k = Math.exp(-dt / Math.max(0.03, aimProfile(def).recover));
+    let k = Math.exp(-dt / Math.max(0.05, this.prof.trackTau));
+    if (now - this.kickAt >= recoilSettleDelay(def)) k *= Math.exp(-dt / Math.max(0.03, aimProfile(def).recover));
     this.kickP *= k;
     this.kickY *= k;
     if (Math.abs(this.kickP) < 1e-3 && Math.abs(this.kickY) < 1e-3) this.kickP = this.kickY = 0;

@@ -141,7 +141,7 @@ export class DuelBrain implements BotBrain {
     const def: WeaponDef | undefined = inst ? weaponDef(inst.id) : undefined;
     const ads = wantsAds(def, d, prof);
     const o = this.aimer.track(sim, self, t, def, dt, ads);
-    const adsT = this.adsTrack.update(def, ads && !(h.reloadUntil > now), dt);
+    const adsT = this.adsTrack.update(def, ads && !(h.reloadUntil > now), dt, now, h.sprinting);
     f.yaw = o.yaw;
     f.pitch = o.pitch;
     f.aimPoint = o.point;

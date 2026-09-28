@@ -29,9 +29,11 @@ const SLOTS: AbilitySlot[] = ['q', 'e', 'lord'];
  * `gunOpening` s on a hero: automatics in short bursts with long rests at any range, semi-autos
  * clicked at `openingClick` of his usual pace (sim/ai/heroBot.ts aimAndFire — with the bots'
  * burst control fixed and scopes always up, his opening volley was the 「一下就死了」 again).
+ * A hero he has just knocked down (濒死) gets `finishDelay` s before his gun finishes it (weapons
+ * spec D1b: a DMR headshot on the crawling body plus a loyalist's burst ended a rebel in 0.83 s).
  * Tunables (tests/unit/ai/bal.test.ts BAL_NEUTRAL switches them off).
  */
-export const LORD_RESTRAINT = { openingDelay: 2.5, pileOn: 0.3, pileWindow: 2, desperate: 0.35, gunOpening: 3, openingClick: 0.6 };
+export const LORD_RESTRAINT = { openingDelay: 2.5, pileOn: 0.3, pileWindow: 2, desperate: 0.35, gunOpening: 3, openingClick: 0.6, finishDelay: 1 };
 const FAIL_BACKOFF = 5;
 /** could not get the crosshair onto the target in time: try again a little later */
 const AIM_BACKOFF = 1.5;
