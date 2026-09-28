@@ -9,7 +9,11 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, st
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+
+// Every test here runs real bash (some a dozen times in a row): 3–4 s alone, well past vitest's
+// 5 s default when the full suite loads every core.
+vi.setConfig({ testTimeout: 60_000 });
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../deploy/home-host.sh');
 const INSTALL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../deploy/install.sh');
