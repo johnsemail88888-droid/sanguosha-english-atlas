@@ -9,7 +9,10 @@
 //     multiplier (fireRateUp status, passive modifiers) is inferred from the
 //     cadence of the host's own shots
 //   - sprint-to-fire: fire / ADS pressed while sprinting raises the gun for the
-//     class's sprintOut first (sim/handling.ts raiseFromSprint)
+//     class's sprintOut first (sim/handling.ts raiseFromSprint) — judged once, on
+//     the press: the sprint flag the client sees is a snapshot, RTT + the
+//     interpolation delay old, and re-applying it every frame the button is
+//     held pushed the predicted shot past the host's own (drawn twice)
 //   - the magazine gate uses host mag minus predictions not yet confirmed by a
 //     host 'shot' event, and is skipped under noReload / infinite ammo
 // Every host 'shot' of the local hero is offered to confirmHostShot(): when it
@@ -75,6 +78,9 @@ export class LocalFirePredictor {
   private queuedAt = -1;
   /** the gun is coming up out of a sprint until then */
   private raiseUntil = 0;
+  private prevAds = false;
+  /** a raise was already predicted for this sprint (the host has ended it): the stale flag is ignored until it clears */
+  private sprintSpent = false;
 
   /** Outstanding (unconfirmed) predictions for a weapon. */
   outstanding(weaponId: string): number {
@@ -110,7 +116,15 @@ export class LocalFirePredictor {
       this.freeShots = 0;
     }
     const hd = def.id !== undefined && def.class !== undefined ? { id: def.id, class: def.class } : undefined;
-    this.raiseUntil = raiseFromSprint(time, this.raiseUntil, !!gate.sprinting, held, !!gate.ads, !!gate.sprintAds, hd);
+    // the host's rule (raiseFromSprint) on the press only — fire or ADS going down while sprinting;
+    // the host ends the sprint right there, so the same (stale) sprint never raises the gun twice
+    const adsPressed = !!gate.ads && !this.prevAds;
+    this.prevAds = !!gate.ads;
+    if (!gate.sprinting) this.sprintSpent = false;
+    else if ((pressed || adsPressed) && !this.sprintSpent && !gate.sprintAds) {
+      this.raiseUntil = raiseFromSprint(time, this.raiseUntil, true, pressed, adsPressed, false, hd);
+      this.sprintSpent = true;
+    }
     if (!gate.canShoot || gate.reloading) {
       this.queuedAt = -1;
       return 0;
@@ -171,6 +185,8 @@ export class LocalFirePredictor {
     this.lastMag = -1;
     this.queuedAt = -1;
     this.raiseUntil = 0;
+    this.prevAds = false;
+    this.sprintSpent = false;
   }
 
   private expire(time: number): void {

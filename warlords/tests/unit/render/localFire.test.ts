@@ -194,4 +194,23 @@ describe('LocalFirePredictor', () => {
     const q = new LocalFirePredictor();
     expect(q.update(1, dt, true, wpn, carbine, { ...sprinting, sprintAds: true })).toBe(1);
   });
+
+  it('a stale sprint flag (the snapshot still shows the sprint for RTT + interpolation) raises the gun once, from the press', () => {
+    for (const [id, cls, out] of [['carbine', 'rifle', 0.18], ['qinggang', 'dmr', 0.22]] as const) {
+      for (const stale of [0.15, 0.2, 0.25]) {
+        const p = new LocalFirePredictor();
+        const def = rifle(id === 'carbine' ? 7.5 : 2, 30, { id, class: cls, auto: false });
+        const wpn = { id, slot: 0, mag: 30 };
+        const dt = 1 / 60;
+        let first = -1;
+        for (let t = 0; t < 1.5 && first < 0; t += dt) {
+          const gate: LocalFireGate = { ...open, sprinting: t < 1 + stale, ads: t >= 1 };
+          if (p.update(t, dt, t >= 1, wpn, def, gate) > 0) first = t;
+        }
+        // the host's rule: sprintOut after the press (not after the flag clears)
+        expect(first - 1, `${id} stale ${stale}`).toBeGreaterThanOrEqual(out - 1e-9);
+        expect(first - 1, `${id} stale ${stale}`).toBeLessThan(out + 2 * dt);
+      }
+    }
+  });
 });
