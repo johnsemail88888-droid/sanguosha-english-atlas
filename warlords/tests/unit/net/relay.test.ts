@@ -150,17 +150,19 @@ describe('ws relay (raw sockets)', () => {
     await waitFor(() => host.ctrl.length > 0);
     const code = (host.ctrl[0] as { code: string }).code;
     const clients: Awaited<ReturnType<typeof rawSocket>>[] = [];
-    for (let i = 0; i < 7; i++) {
+    // 7 guests + the host fill the 8 seats; 4 more sockets fit (a dropped guest rejoins on a
+    // new socket while the relay still holds its old one — the host enforces the seats)
+    for (let i = 0; i < 7 + 4; i++) {
       const c = await rawSocket();
       c.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
       clients.push(c);
     }
     await waitFor(() => clients.every((c) => c.ctrl.length > 0));
     expect(clients.every((c) => c.ctrl[0].op === 'joined')).toBe(true);
-    const eighth = await rawSocket();
-    eighth.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
-    await waitFor(() => eighth.closed());
-    expect(eighth.ctrl[0]).toMatchObject({ op: 'error', code: 'roomFull' });
+    const extra = await rawSocket();
+    extra.ws.send(JSON.stringify({ op: 'join', v: 1, code }));
+    await waitFor(() => extra.closed());
+    expect(extra.ctrl[0]).toMatchObject({ op: 'error', code: 'roomFull' });
     host.ws.close();
     await waitFor(() => clients.every((c) => c.closed()));
   });

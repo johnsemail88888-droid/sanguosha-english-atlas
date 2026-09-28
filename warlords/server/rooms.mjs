@@ -401,10 +401,19 @@ export function createHeadlessRooms(opts) {
     return shuttingDown;
   }
 
+  /** The bundle's game-compatibility id for /sgwl.json (read at most every 10 s), null when unknown. */
+  let buildCache = { at: -Infinity, compat: /** @type {string | null} */ (null) };
+  function build() {
+    const now = Date.now();
+    if (now - buildCache.at >= 10_000) buildCache = { at: now, compat: bundlePresent() ? bundleBuild() : null };
+    return buildCache.compat;
+  }
+
   return {
     available,
     create,
     stats,
+    build,
     shutdown,
     /** the live rooms (tests, diagnostics) */
     list: () => [...rooms].map((r) => ({ code: r.code, ip: r.ip, createdAt: r.createdAt, phase: r.phase, humans: r.humans, bots: r.bots, players: r.players, ready: r.ready })),

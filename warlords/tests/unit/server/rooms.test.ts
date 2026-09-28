@@ -239,15 +239,17 @@ describe('POST /api/rooms (stub worker)', () => {
     expect((await createRoom(srv, {}, '192.0.2.8')).status).toBe(201);
   });
 
-  it('a server-hosted room seats 8 humans (its host is the server): the 9th guest is refused by the relay', async () => {
+  it('a server-hosted room takes 8 humans (its host is the server) + the relay slack for rejoins; then roomFull', async () => {
     const srv = await serve();
     const res = await createRoom(srv);
     const code = (res.body as { code: string }).code;
     const guests: Guest[] = [];
-    for (let i = 0; i < 8; i++) guests.push(await guest(srv, code));
+    // (the seats themselves are the room's to enforce: the relay only keeps room for guests
+    // rejoining on a new socket while their old one is not gone yet)
+    for (let i = 0; i < 8 + 4; i++) guests.push(await guest(srv, code));
     expect(guests.every((g) => g.ctrl[0]?.op === 'joined')).toBe(true);
-    const ninth = await guest(srv, code);
-    expect(ninth.ctrl[0]).toMatchObject({ op: 'error', code: 'roomFull' });
+    const extra = await guest(srv, code);
+    expect(extra.ctrl[0]).toMatchObject({ op: 'error', code: 'roomFull' });
     for (const g of guests) g.ws.close();
   });
 
