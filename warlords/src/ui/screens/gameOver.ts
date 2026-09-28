@@ -168,6 +168,13 @@ export function createGameOverScreen(ctx: UiCtx, session: GameSession, view: Vie
   };
 
   bag.add(session.on('gameOver', () => render()));
+  // a server-run room whose owner left meanwhile: the new owner gets 返回大厅
+  let managing = canManageRoom(session);
+  bag.add(session.on('lobby', () => {
+    if (session.phase !== 'gameOver' || canManageRoom(session) === managing) return;
+    managing = canManageRoom(session);
+    render();
+  }));
   render();
   // painted faces once the art listing is known (only matters when this is the first screen shown)
   if (!ctx.portraits.known()) void ctx.portraits.whenKnown().then(() => !bag.isDisposed && render());
