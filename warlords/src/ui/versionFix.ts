@@ -301,6 +301,8 @@ export interface CreateIntent {
   /** how the room is reached (mode=, ws=: '' is the page's own server); null: the page's default */
   mode: 'peer' | 'ws' | null;
   wsUrl: string | null;
+  /** own=1 without ws= (the desktop app's 自建服务器 handoff): this page's own saved relay address (src/ui/invite.ts InviteInfo.own) */
+  own?: true;
 }
 
 /** The page's address bar: read, and rewritten without the parameters a page start consumes. */
@@ -330,13 +332,14 @@ function takeParams(env: PageUrlEnv, names: string[], when: (u: URL) => boolean)
 }
 
 /**
- * Page start: ?create=1 (a version fix carried 创建房间 over) — its intent, once; the parameters
- * (create, mode, ws) are taken out of the address bar so a reload does not create another room.
+ * Page start: ?create=1 (a version fix — or the desktop app's 自建服务器 handoff — carried 创建房间
+ * over) — its intent, once; the parameters (create, mode, ws, own) are taken out of the address bar
+ * so a reload does not create another room.
  */
 export function takeCreateIntent(
   env: PageUrlEnv & { desktop?: unknown; store?: Pick<Storage, 'getItem'> | null; now?: number } = globalThis as never,
 ): CreateIntent | null {
-  const u = takeParams(env, ['create', 'mode', 'ws'], (x) => x.searchParams.get('create') === '1');
+  const u = takeParams(env, ['create', 'mode', 'ws', 'own'], (x) => x.searchParams.get('create') === '1');
   if (!u) return null;
   const m = u.searchParams.get('mode');
   const mode = m === 'ws' || m === 'peer' ? m : null;
@@ -346,7 +349,7 @@ export function takeCreateIntent(
   const store = 'store' in env ? (env.store ?? null) : tabStore();
   // (a tab of this origin that switched a minute ago: its own fix — unknown storage is no proof of that)
   const auto = desktop || (!!store && versionFixRecent(store, env.now ?? Date.now()));
-  return { auto, mode, wsUrl };
+  return mode === 'ws' && !wsUrl && u.searchParams.get('own') === '1' ? { auto, mode, wsUrl, own: true } : { auto, mode, wsUrl };
 }
 
 /**

@@ -100,7 +100,8 @@ export function desktopPage(): 'bundled' | 'official' | null {
 
 /**
  * 切换到本机版本: the app reloads its window with its own build (LAN play) — with `req`, that room
- * joined / a room created there, on the app's own LAN server. false when it cannot.
+ * joined / a room created there, on that page's 自建服务器 (the address saved there; none: the app's
+ * own LAN server). false when it cannot.
  */
 export function useBundledPage(req?: BundledRequest): boolean {
   const d = bridge();
@@ -117,9 +118,10 @@ export function useBundledPage(req?: BundledRequest): boolean {
 }
 
 /**
- * The official server's page in the desktop app, 自建服务器 without an address of its own: that
- * is the app's LAN server — the bundled page's, where the attempt goes (useBundledPage carries the
- * room / 创建房间 there). This page's own server is the official one: never silently that.
+ * The official server's page in the desktop app, 自建服务器 without an address of its own (the app
+ * gives remote content none of the player's): the attempt goes to the bundled page's 自建服务器 —
+ * the address saved there, none: the app's LAN server (useBundledPage carries the room / 创建房间
+ * there). This page's own server is the official one: never silently that.
  */
 export function lanViaBundledPage(choice: string, ownWsUrl: string): boolean {
   return desktopPage() === 'official' && choice === 'ws' && !ownWsUrl.trim();

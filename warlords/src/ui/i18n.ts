@@ -117,8 +117,8 @@ const DICT = {
   ],
   'online.lanOfficialSame': ['局域网联机在本机版本里进行（局域网地址在那里显示）。', "LAN play runs in this app's own version (it lists the LAN addresses)."],
   'online.lanSwitch': [
-    '自建服务器（未填地址）就是本机的局域网服务器：创建或加入房间时会切换到本机版本继续。',
-    "Your own server with no address is this computer's LAN server: creating or joining a room switches to this app's version and carries on there.",
+    '自建服务器（这里未填地址）在本机版本里进行：用那里保存的服务器地址，没有地址就是本机的局域网服务器。创建或加入房间时会切换到本机版本继续。',
+    "Your own server (no address here) runs in this app's version: with the server address saved there, or this computer's LAN server if there is none. Creating or joining a room switches to this app's version and carries on there.",
   ],
   'online.createPrompt': ['已切换到服务器的版本：点「创建房间」继续。', "Switched to the server's version — click Create room to carry on."],
   'online.useBundled': ['切换到本机版本', "Use this app's version"],

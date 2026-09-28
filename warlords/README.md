@@ -184,7 +184,7 @@ English section below → [English](#english).*
 ### 2. 局域网 / 自建服务器（服务器模式）
 一个端口同时提供：游戏网页、WebSocket 中继（`/ws`）和 PeerJS 信令（`/peerjs`）。
 
-- **桌面版**：已内置服务器。菜单「游戏 → 局域网联机地址…」或联机界面会列出本机局域网地址（带复制按钮），默认使用「服务器」模式。若窗口正显示官方服务器的版本（与本机版本不同时），这两处会提示并提供「切换到本机版本」——局域网朋友拿到的是本机版本；在官方页面上用「自建服务器」（未填地址）创建或加入房间，也会自动切回本机版本继续。（`SGWL_DESKTOP_REMOTE=0` 启动则始终只用本机版本。）
+- **桌面版**：已内置服务器。菜单「游戏 → 局域网联机地址…」或联机界面会列出本机局域网地址（带复制按钮），默认使用「服务器」模式。若窗口正显示官方服务器的版本（与本机版本不同时），这两处会提示并提供「切换到本机版本」——局域网朋友拿到的是本机版本；在官方页面上用「自建服务器」（未填地址）创建或加入房间，也会自动切回本机版本继续（用本机版本里保存的服务器地址，没有则用本机的局域网服务器）。（`SGWL_DESKTOP_REMOTE=0` 启动则始终只用本机版本。）
 - **命令行**：
   ```bash
   cd warlords
@@ -424,7 +424,7 @@ domain: `curl … | sudo DOMAIN=your.domain bash`). Update later with `curl … 
   the server built in: its online screen lists your LAN addresses with copy buttons (also under the menu 游戏 → 局域网联机地址…);
   when its window shows the official server's build (it differs from the app's), both say so and offer 切换到本机版本 — LAN friends
   get the app's build; creating or joining with 自建服务器 (no address) on the official page switches back by itself
-  (`SGWL_DESKTOP_REMOTE=0` keeps the app on its own page).
+  (and uses the server address saved there — none: the LAN server; `SGWL_DESKTOP_REMOTE=0` keeps the app on its own page).
   On the open internet set `RELAY_KEY=<24+ random characters>`: online play (`/ws`, `/api/rooms`) then needs `?k=<key>` —
   players open `http://…/?k=<key>`. Also `MAX_ROOMS` (relay rooms, default 1000), `MAX_ROOMS_PER_IP` (rooms one address
   holds at once, default 2) and `HOST_GRACE_MS` (how long a dropped host's room waits, default 120000). Game files are served compressed (`node scripts/precompress.mjs dist` precompresses).

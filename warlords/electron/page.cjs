@@ -21,7 +21,8 @@
 // room code in the URL — at most one such switch a minute; a mismatch that persists shows the message.
 //
 // The window may thus show remote content, so it shows exactly two origins — the embedded server's
-// and the official server's: navigation anywhere else is refused, IPC answers only the top frame of
+// and the official server's — and only the app switches between them (a page's own navigation stays
+// on its origin): navigation anywhere else is refused, IPC answers only the top frame of
 // the window on one of them, permissions go to them only, and links open in the system browser
 // (https only, rationed). The official origin is remote content: it gets no LAN addresses and only
 // the player's preferences (state.cjs), and it cannot hold updates back for good (updater.cjs).
@@ -270,22 +271,32 @@ function createGuard(origins) {
 }
 
 /**
- * Keep `wc` on the allowed origins: page-initiated navigation, server redirects and sub-frame
- * navigation to anywhere else are refused (links go through setWindowOpenHandler: the system
- * browser), and no <webview> ever attaches. `onRefused(url, isMainFrame, what)` hears each refusal.
+ * Keep `wc` on the origin it shows: a navigation a page starts (will-navigate, will-frame-navigate —
+ * the main frame or a sub-frame) and a server redirect (will-redirect) stay on it — never anywhere
+ * else, nor on the other allowed origin: only the main process switches origins (pages: loadURL,
+ * which fires neither will-navigate nor will-frame-navigate), so the official page (remote content)
+ * cannot open the app's own page with a room / relay / 创建房间 of its choosing (the online screen
+ * would save that relay and act on it). The origin shown: that of `loaded()` (the URL the main process
+ * loaded last: the window shows it or is on its way there — a redirect of that load stays on it),
+ * else of the page's (wc.getURL()); what a page starts must stay on its own origin too. Links go
+ * through setWindowOpenHandler (the system browser), and no <webview> ever attaches.
+ * `onRefused(url, isMainFrame, what)` hears each refusal.
  */
-function guardNavigation(wc, guard, { log = console, onRefused } = {}) {
-  const refuse = (what) => (e, legacyUrl, _inPlace, legacyMain) => {
+function guardNavigation(wc, guard, { log = console, onRefused, loaded } = {}) {
+  const pageOrigin = () => originOf(typeof wc.getURL === 'function' ? wc.getURL() : null);
+  const shownOrigin = () => originOf(typeof loaded === 'function' ? loaded() : null) || pageOrigin();
+  const check = (what, byPage) => (e, legacyUrl, _inPlace, legacyMain) => {
     const url = e && typeof e.url === 'string' && e.url ? e.url : legacyUrl;
-    if (guard.allowsUrl(url)) return;
+    const to = originOf(url);
+    if (guard.allowsUrl(url) && to === shownOrigin() && (!byPage || to === pageOrigin())) return;
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     const main = e && typeof e.isMainFrame === 'boolean' ? e.isMainFrame : !!legacyMain;
     log.warn(`[desktop] ${what} refused: ${String(url).slice(0, 200)}`);
     if (typeof onRefused === 'function') onRefused(url, main, what);
   };
-  wc.on('will-navigate', refuse('navigation'));
-  wc.on('will-frame-navigate', refuse('frame navigation'));
-  wc.on('will-redirect', refuse('redirect'));
+  wc.on('will-navigate', check('navigation', true));
+  wc.on('will-frame-navigate', check('frame navigation', true));
+  wc.on('will-redirect', check('redirect', false));
   wc.on('will-attach-webview', (e) => e.preventDefault());
 }
 
@@ -302,13 +313,14 @@ const cleanCompat = (v) => (typeof v === 'string' && COMPAT_RE.test(v) ? v : nul
 /**
  * The window's page, for one app run.
  * deps: { port (the embedded server's), build (readBuildInfo), env, fetch (net.fetch),
- *   load(url) → Promise (the window's loadURL), online() → bool, booted() → Promise<bool> (the game
- *   is on screen: main.cjs runs BOOTED_JS in the page), loading() → bool (the page is still
- *   loading), log, now, defer(fn), setTimer(fn, ms), clearTimer(t), timeoutMs (the start-up
- *   probe's), fixTimeoutMs (a version fix's) }
+ *   load(url) → Promise (the window's loadURL), online() → bool, booted() → Promise<bool | null>
+ *   (the game is on screen: main.cjs runs BOOTED_JS in the page; null: the page did not answer),
+ *   loading() → bool (the page is still loading), playing() → bool (the page says a match is on),
+ *   log, now, defer(fn), setTimer(fn, ms), clearTimer(t), timeoutMs (the start-up probe's),
+ *   fixTimeoutMs (a version fix's) }
  * Returns { origins(), bundledOrigin(), bundledCompat(), current(), pick(), open(decision),
  *   onFailLoad(code, desc, url, isMainFrame), onNavigate(url, httpCode), onDomReady(), fallback(why),
- *   fixVersion(req), cancelFix(), useBundled(why, req), notePageBuild(compat) }.
+ *   fixVersion(req), cancelFix(), useBundled(why, req), notePageBuild(compat, origin) }.
  */
 function createPages(deps) {
   const log = deps.log || console;
@@ -341,6 +353,8 @@ function createPages(deps) {
   let loadSeq = 0;
   /** the official server answered the page's load (its navigation committed) */
   let answered = false;
+  /** the page of the current load said it started (its build report: its scripts run) — nothing left to watch */
+  let started = false;
   let watch = [];
   /** version fixes asked, and the last one the page cancelled (取消 while the server was asked) */
   let fixSeq = 0;
@@ -348,16 +362,19 @@ function createPages(deps) {
 
   /**
    * <page>?desktop=1 — with the room (joined there by itself) or 创建房间 carried over, and how that
-   * room is reached: mode=ws + the official relay; `lan`: mode=ws alone (the page's own server — the
-   * bundled page's is the app's LAN server).
+   * room is reached: mode=ws + the official relay; `lan`: mode=ws&own=1 — 自建服务器 of that page,
+   * with the address saved there (none: its own server, the app's LAN server). The official page has
+   * none of the player's addresses: own=1 names none, and the page writes none (src/ui/invite.ts).
    */
   function urlFor(page, req) {
     const q = new URLSearchParams({ desktop: '1' });
     if (req && req.room) q.set('room', req.room);
     else if (req && req.create) q.set('create', '1');
     if (req && (req.room || req.create)) {
-      if (req.lan) q.set('mode', 'ws');
-      else if (build.officialRelay) {
+      if (req.lan) {
+        q.set('mode', 'ws');
+        q.set('own', '1');
+      } else if (build.officialRelay) {
         q.set('mode', 'ws');
         q.set('ws', build.officialRelay);
       }
@@ -370,15 +387,28 @@ function createPages(deps) {
     watch = [];
   }
 
-  /** The game is on screen (deps.booted; none: it counts as started — never a fallback on a guess). */
+  /**
+   * The game is on screen: true / false — null when the page did not answer (busy compiling shaders,
+   * parsing models: unknown, never a failure). No deps.booted: it counts as started — never a
+   * fallback on a guess.
+   */
   function isBooted() {
     if (typeof deps.booted !== 'function') return Promise.resolve(true);
     return Promise.resolve()
       .then(() => deps.booted())
       .then(
-        (v) => v !== false,
-        () => false,
+        (v) => (typeof v === 'boolean' ? v : null),
+        () => null,
       );
+  }
+
+  /** The page says a match is on (deps.playing): it is up — the watchdog never reloads it. */
+  function playing() {
+    try {
+      return typeof deps.playing === 'function' && deps.playing() === true;
+    } catch {
+      return false;
+    }
   }
 
   /** The page is still loading (deps.loading: a slow link's bundle on its way); unknown: no. */
@@ -395,17 +425,25 @@ function createPages(deps) {
    * the game (its UI within BOOT_TIMEOUT_MS — longer while it is still loading, BOOT_MAX_MS at most),
    * else the bundled page: a stalled response, or an entry script that never arrived (a Funnel
    * reset, the server restarting between the HTML and its scripts), would leave the window blank or
-   * on 正在加载… with nothing to click.
+   * on 正在加载… with nothing to click. The page's build report (notePageBuild: its script runs) or a
+   * match on (deps.playing) ends the watch; a page that does not answer is asked again (up to
+   * BOOT_MAX_MS) — only a plain "not on screen" falls back.
    */
   function arm(seq) {
     answered = false;
     const since = now();
-    const still = () => seq === loadSeq && cur.page === 'official';
+    const still = () => seq === loadSeq && cur.page === 'official' && !started && !playing();
     const bootCheck = () => {
       if (!still()) return;
       void isBooted().then((ok) => {
-        if (ok || !still()) return;
-        if (stillLoading() && now() - since + BOOT_RECHECK_MS <= BOOT_MAX_MS) watch.push(setTimer(bootCheck, BOOT_RECHECK_MS));
+        if (ok === true || !still()) return;
+        const more = now() - since + BOOT_RECHECK_MS <= BOOT_MAX_MS;
+        if (ok === null) {
+          // no answer (a busy page): another look — never a fallback on it
+          if (more) watch.push(setTimer(bootCheck, BOOT_RECHECK_MS));
+          return;
+        }
+        if (stillLoading() && more) watch.push(setTimer(bootCheck, BOOT_RECHECK_MS));
         else fallback(`the game did not start within ${Math.round((now() - since) / 1000)} s`);
       });
     };
@@ -421,6 +459,7 @@ function createPages(deps) {
     const url = urlFor(page, req);
     cur = { page, compat: compat || null, url, req: req || null };
     const seq = ++loadSeq;
+    started = false;
     disarm();
     if (page === 'official') arm(seq);
     return Promise.resolve()
@@ -514,8 +553,9 @@ function createPages(deps) {
     },
     /**
      * The bundled page: 切换到本机版本 (LAN play — friends on the LAN get the bundled build), or the
-     * official page's 自建服务器 without an address of its own (that is the app's LAN server) with
-     * the room / 创建房间 carried over (`req`). false: it shows already.
+     * official page's 自建服务器 without an address of its own (it has none of the player's: the
+     * bundled page's 自建服务器 — the address saved there, none: the app's LAN server) with the
+     * room / 创建房间 carried over (`req`). false: it shows already.
      */
     useBundled(why, raw) {
       if (cur.page === 'bundled') return false;
@@ -525,10 +565,19 @@ function createPages(deps) {
       void load('bundled', req, build.compat);
       return true;
     },
-    /** The page says which build it is (its COMPAT_ID, when it starts): what the LAN dialog compares with the bundled build. */
-    notePageBuild(compat) {
+    /**
+     * The page says which build it is (its COMPAT_ID, when it starts): what the LAN dialog compares
+     * with the bundled build. From the page of the current load (`origin`) it also says the page's
+     * script runs: its load started — the watchdog stops (a page busy compiling shaders is no failed one).
+     */
+    notePageBuild(compat, origin) {
       const c = cleanCompat(compat);
       if (c) cur = { ...cur, compat: c };
+      if (!started && typeof origin === 'string' && origin === originOf(cur.url)) {
+        started = true;
+        answered = true;
+        disarm();
+      }
       return !!c;
     },
   };

@@ -35,8 +35,15 @@ let pages = null;
 let officialKeyOrigin = null;
 /** the page said a match is on (sgwl:update-playing; cleared when the window loads another page) */
 let pagePlaying = false;
-/** links to the system browser, rationed (page.cjs) */
+/** links to the system browser, rationed (page.cjs) — the page's and the updater's 下载 alike */
 const mayOpenExternal = createOpenLimiter();
+/**
+ * The official page (remote content) may ask for an update check or a 下载 once this often (ms)
+ * each: it cannot make the app ask GitHub, or open the browser, over and over.
+ */
+const PAGE_UPDATE_EVERY_MS = 30_000;
+/** when the official page last had a check / a 下载 (Date.now()) */
+const pageUpdateAsked = { check: -Infinity, download: -Infinity };
 /** the session's will-download handler is set (once: createWindow runs again on macOS 'activate') */
 let downloadsRefused = false;
 
@@ -147,7 +154,12 @@ function getUpdater() {
     env: process.env,
     log: console,
     fetchText,
-    openExternal: (url) => shell.openExternal(url),
+    // 下载 opens the new build in the browser: rationed like every link (a page asking again and again gets one tab)
+    openExternal: (url) => {
+      if (mayOpenExternal()) return shell.openExternal(url);
+      console.warn('[desktop] download not opened (too many at once):', String(url).slice(0, 200));
+      return undefined;
+    },
     loadAutoUpdater: () => require('electron-updater').autoUpdater,
     // electron-updater's own copy of builder-util-runtime: a download on its way stops when a match starts
     newCancellationToken: () => {
@@ -271,16 +283,19 @@ const fromBundled = (ev) => !!pages && senderOrigin(ev) === pages.bundledOrigin(
 /** How the settings mirror treats a page (state.cjs): the app's own page all of it, the official server's its preferences only. */
 const mirrorScope = (ev) => (fromBundled(ev) ? null : { keyOrigin: officialKeyOrigin });
 
-/** The game is on screen in the window (page.cjs BOOTED_JS; the page gets 3 s to answer). */
+/**
+ * The game is on screen in the window (page.cjs BOOTED_JS): true / false — null when the page does
+ * not answer within 3 s (busy compiling shaders, parsing models) or cannot: unknown, not a failure.
+ */
 function pageBooted() {
   const wc = win && win.webContents;
   if (!wc || typeof wc.executeJavaScript !== 'function') return Promise.resolve(true);
   let timer = null;
   const late = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(false), 3000);
+    timer = setTimeout(() => resolve(null), 3000);
   });
-  return Promise.race([Promise.resolve(wc.executeJavaScript(BOOTED_JS)).then((v) => v === true), late])
-    .catch(() => false)
+  return Promise.race([Promise.resolve(wc.executeJavaScript(BOOTED_JS)).then((v) => (typeof v === 'boolean' ? v : null)), late])
+    .catch(() => null)
     .finally(() => clearTimeout(timer));
 }
 
@@ -317,12 +332,14 @@ async function createWindow() {
       fetch: netFetch(),
       online: () => (net && typeof net.isOnline === 'function' ? net.isOnline() : true),
       load: (url) => (win ? win.loadURL(url) : Promise.resolve()),
-      // the official page's watchdog: is the game on screen (else the bundled page), is the page still loading (a slow link: wait)
+      // the official page's watchdog: is the game on screen (else the bundled page), is the page still loading (a slow link: wait),
+      // is a match on (then it never reloads the page)
       booted: pageBooted,
       loading: () => {
         const wc = win && win.webContents;
         return !!wc && typeof wc.isLoading === 'function' && wc.isLoading() === true;
       },
+      playing: () => pagePlaying,
       log: console,
     });
   }
@@ -409,6 +426,8 @@ async function createWindow() {
   if (wc && typeof wc.on === 'function') {
     guardNavigation(wc, guard, {
       log: console,
+      // the origin the window shows is the one of the page this process loaded last (only it switches origins)
+      loaded: () => (pages ? pages.current().url : null),
       // the official page redirected off its origin: the bundled page rather than a blank window
       onRefused: (_url, isMainFrame, what) => {
         if (isMainFrame && what === 'redirect') pages.fallback('redirected off its origin');
@@ -548,16 +567,28 @@ onPage('sgwl:storage-save', (ev, msg) => {
   }
 }, { sync: true });
 
+/** A check / 下载 the page asks for: the app's own page's always; the official page's once per PAGE_UPDATE_EVERY_MS each. */
+function pageMayAsk(ev, action) {
+  if (fromBundled(ev)) return true;
+  const t = Date.now();
+  if (t - pageUpdateAsked[action] < PAGE_UPDATE_EVERY_MS) {
+    console.warn(`[desktop] update ${action} refused: the official page asked less than ${PAGE_UPDATE_EVERY_MS / 1000} s ago`);
+    return false;
+  }
+  pageUpdateAsked[action] = t;
+  return true;
+}
+
 // renderer (preload: sgwlDesktop.update): the update state now, the 下载 / 重启并更新 / 检查更新 actions,
 // and whether a match is on (checks, downloads and restarts wait for its end)
 onPage('sgwl:update-get', (ev) => {
   ev.returnValue = getUpdater().state();
 }, { sync: true });
-onPage('sgwl:update-do', (_ev, action, which) => {
+onPage('sgwl:update-do', (ev, action, which) => {
   const u = getUpdater();
   if (action === 'restart') u.restart();
-  else if (action === 'download') u.download(which === 'setup' ? 'setup' : undefined);
-  else if (action === 'check') void u.check();
+  else if (action === 'download' && pageMayAsk(ev, action)) u.download(which === 'setup' ? 'setup' : undefined);
+  else if (action === 'check' && pageMayAsk(ev, action)) void u.check();
 });
 onPage('sgwl:update-playing', (_ev, on) => {
   pagePlaying = !!on;
@@ -572,15 +603,17 @@ onPage('sgwl:fix-cancel', () => {
   if (pages) pages.cancelFix();
 });
 // renderer (preload: sgwlDesktop.useBundled): 切换到本机版本 (LAN play) — or, from the official page,
-// 自建服务器 without an address of its own (the app's LAN server) with the room / 创建房间 carried over
+// 自建服务器 without an address of its own (the app's page's 自建服务器: the address saved there, none: the
+// app's LAN server) with the room / 创建房间 carried over
 onPage('sgwl:use-bundled', (_ev, req) => {
   if (!pages) return;
   const carried = !!req && typeof req === 'object' && (!!req.room || req.create === true);
   pages.useBundled(carried ? 'LAN play: the room goes to this app’s own server' : 'LAN play: switched to this app’s version', req);
 });
-// renderer (preload: sgwlDesktop.reportBuild): the page's build, when it starts (the LAN dialog compares it with the bundled one)
-onPage('sgwl:page-build', (_ev, compat) => {
-  if (pages) pages.notePageBuild(compat);
+// renderer (preload: sgwlDesktop.reportBuild): the page's build, when it starts (the LAN dialog compares it with the bundled one) —
+// and, from the page just loaded, word that its script runs (the watchdog stops)
+onPage('sgwl:page-build', (ev, compat) => {
+  if (pages) pages.notePageBuild(compat, senderOrigin(ev));
 });
 
 // one instance: a second launch (double-clicked again) focuses the running window

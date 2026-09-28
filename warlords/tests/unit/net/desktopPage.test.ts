@@ -11,8 +11,10 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BUILD_INFO_FILE, buildInfo } from '../../../src/net/buildInfo';
 import { OFFICIAL_SERVER, officialFrom } from '../../../src/net/official';
-import { choiceOf, parseInvite, relayNet } from '../../../src/ui/invite';
-import { autoJoinPlan } from '../../../src/ui/screens/online';
+import { settings } from '../../../src/game/settings';
+import { choiceOf, choicePatch, parseInvite, relayNet } from '../../../src/ui/invite';
+import { applyHandedConnection, autoJoinPlan } from '../../../src/ui/screens/online';
+import { takeCreateIntent } from '../../../src/ui/versionFix';
 import { appFolder, callSync, ELECTRON_DIR, launch, memStorage, menuItem, pageEvent, preload, type FetchAnswer, type Launch } from './desktopHarness';
 
 const require = createRequire(import.meta.url);
@@ -49,7 +51,7 @@ interface Pages {
   fixVersion(req: unknown): Promise<{ switched: boolean; page?: string; reason?: string }>;
   cancelFix(): void;
   useBundled(why?: string, req?: unknown): boolean;
-  notePageBuild(compat: unknown): boolean;
+  notePageBuild(compat: unknown, origin?: string): boolean;
 }
 const P = require(path.join(ELECTRON_DIR, 'page.cjs')) as {
   PROBE_TIMEOUT_MS: number;
@@ -72,7 +74,7 @@ const P = require(path.join(ELECTRON_DIR, 'page.cjs')) as {
   externalUrl(url: unknown): string | null;
   createOpenLimiter(now?: () => number): () => boolean;
   createGuard(origins: () => string[]): Guard;
-  guardNavigation(wc: unknown, guard: Guard, o?: { log?: unknown; onRefused?: (url: string, isMainFrame: boolean, what: string) => void }): void;
+  guardNavigation(wc: unknown, guard: Guard, o?: { log?: unknown; onRefused?: (url: string, isMainFrame: boolean, what: string) => void; loaded?: () => string | null }): void;
   cleanFixRequest(req: unknown): { room: string | null; create: boolean; compat: string | null };
   createPages(deps: Record<string, unknown>): Pages;
 };
@@ -337,29 +339,51 @@ describe('a version mismatch while the app is open: the page of the server’s b
     expect(h.pages.useBundled('LAN')).toBe(false);
   });
 
-  it('自建服务器 on the official page (the app’s LAN server): the bundled page joins / creates the room on its own server — never the official one', async () => {
+  it('自建服务器 on the official page (which has none of the player’s addresses): the bundled page joins / creates the room on its own 自建服务器 — never the official one', async () => {
     const h = pagesHarness();
     await h.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
     expect(h.pages.useBundled('LAN', { room: 'KX7QD', compat: SERVER })).toBe(true);
     await h.flush();
     const url = h.loads[1];
-    expect(url).toBe('http://127.0.0.1:8787/?desktop=1&room=KX7QD&mode=ws');
-    // no ws=: the page's own server (the online screen's relayNet) — the LAN relay on the bundled page
+    expect(url).toBe('http://127.0.0.1:8787/?desktop=1&room=KX7QD&mode=ws&own=1');
+    // no relay named (own=1): the page's own 自建服务器
     const inv = parseInvite(new URL(url).search);
-    expect(inv).toEqual({ room: 'KX7QD', mode: 'ws', net: {} });
-    expect(relayNet(inv.mode!, inv.net)).toEqual({ wsUrl: '' });
-    expect(choiceOf('ws', '')).toBe('ws');
+    expect(inv).toEqual({ room: 'KX7QD', mode: 'ws', net: {}, own: true });
+    expect(autoJoinPlan({ invited: inv.room, rejoin: false, inviteTried: false, canJoin: true })).toBe('invite');
     const c = pagesHarness();
     await c.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
     c.pages.useBundled('LAN', { create: true });
     await c.flush();
-    expect(c.loads[1]).toBe('http://127.0.0.1:8787/?desktop=1&create=1&mode=ws');
+    expect(c.loads[1]).toBe('http://127.0.0.1:8787/?desktop=1&create=1&mode=ws&own=1');
+    const create = takeCreateIntent({ location: { href: c.loads[1] }, history: { state: null, replaceState: () => undefined }, desktop: {}, store: null });
+    expect(create).toEqual({ auto: true, mode: 'ws', wsUrl: '', own: true });
     // junk is no request
     const j = pagesHarness();
     await j.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
     j.pages.useBundled('LAN', { room: 'kx7qd&ws=wss://evil.test/ws' });
     await j.flush();
     expect(j.loads[1]).toBe('http://127.0.0.1:8787/?desktop=1');
+
+    // the bundled page opens with it: the server address saved there stays — and is the one used; none saved: its own server (the LAN relay)
+    const net0 = settings.get().net;
+    try {
+      for (const handed of [{ saved: null, link: inv, create: null }, { saved: null, link: null, create }]) {
+        settings.update({ net: { ...net0, mode: 'peer', wsUrl: 'wss://my.server/ws' } });
+        expect(applyHandedConnection(handed)).toBe('ws'); // 自建服务器
+        expect(settings.get().net.wsUrl).toBe('wss://my.server/ws');
+        expect(choicePatch('ws', settings.get().net)).toEqual({ mode: 'ws' }); // … with that address
+        settings.update({ net: { ...net0, mode: 'peer', wsUrl: '' } });
+        expect(applyHandedConnection(handed)).toBe('ws');
+        expect(settings.get().net.wsUrl).toBe('');
+      }
+      // (an invite without ws= and without own=1 — a friend's LAN page — is still that page's own server, whatever is saved)
+      settings.update({ net: { ...net0, mode: 'peer', wsUrl: 'wss://my.server/ws' } });
+      expect(applyHandedConnection({ saved: null, link: parseInvite('?room=KX7QD&mode=ws'), create: null })).toBe('ws');
+      expect(settings.get().net.wsUrl).toBe('');
+      expect(relayNet('ws', {})).toEqual({ wsUrl: '' });
+    } finally {
+      settings.update({ net: net0 });
+    }
   });
 
   it('the page says its build when it starts: what the LAN dialog compares with the bundled build', async () => {
@@ -381,8 +405,11 @@ describe('the official page must answer and start the game — else the bundled 
     ms: number;
     cleared: boolean;
   }
-  /** createPages with timers run by hand, a clock, and a page that says whether the game started (`booted`) and whether it is still loading. */
-  function watched(booted?: () => Promise<boolean>, loading: () => boolean = () => false) {
+  /**
+   * createPages with timers run by hand, a clock, and a page that says whether the game started (`booted`; null: no
+   * answer), whether it is still loading and whether a match is on (`playing`).
+   */
+  function watched(booted?: () => Promise<boolean | null>, loading: () => boolean = () => false, playing: () => boolean = () => false) {
     const loads: string[] = [];
     const timers: Timer[] = [];
     const logs: string[] = [];
@@ -398,6 +425,7 @@ describe('the official page must answer and start the game — else the bundled 
       defer: (fn: () => void) => fn(),
       booted,
       loading,
+      playing,
       setTimer: (fn: () => void, ms: number): Timer => {
         const x = { fn, ms, cleared: false };
         timers.push(x);
@@ -445,13 +473,71 @@ describe('the official page must answer and start the game — else the bundled 
     expect(asked).toBe(1);
     expect(w.loads).toEqual([`${WEB}?desktop=1`, 'http://127.0.0.1:8787/?desktop=1']);
     expect(w.logs.some((l) => /the game did not start within \d+ s/.test(l))).toBe(true);
-    // a page that cannot answer (its renderer stuck) counts as not started
-    const stuck = watched(() => Promise.reject(new Error('no answer')));
-    await stuck.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
-    stuck.pages.onDomReady();
-    await stuck.fire(P.BOOT_TIMEOUT_MS);
-    expect(stuck.pages.current().page).toBe('bundled');
     expect(P.BOOTED_JS).toContain('.sg-root');
+  });
+
+  it('a page that does not answer (busy compiling shaders, parsing models) is no failed one: looked at again up to 2 minutes — only a plain “not on screen” falls back', async () => {
+    for (const silent of [() => Promise.resolve(null), () => Promise.reject(new Error('no answer'))]) {
+      let looks = 0;
+      const busy = watched(() => (looks++, silent()));
+      await busy.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
+      busy.pages.onDomReady();
+      await busy.fire(P.BOOT_TIMEOUT_MS);
+      while (busy.armed().includes(P.BOOT_RECHECK_MS) && looks < 100) await busy.fire(P.BOOT_RECHECK_MS);
+      expect(looks).toBe(1 + (P.BOOT_MAX_MS - P.BOOT_TIMEOUT_MS) / P.BOOT_RECHECK_MS);
+      expect(busy.loads).toHaveLength(1);
+      expect(busy.pages.current().page).toBe('official');
+      expect(busy.armed()).not.toContain(P.BOOT_RECHECK_MS); // (and no more looks after that)
+    }
+    // silent at first, then a plain no (and not loading): the bundled page
+    const answers: (boolean | null)[] = [null, null, false];
+    const late = watched(async () => (answers.length ? answers.shift()! : false));
+    await late.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
+    late.pages.onDomReady();
+    await late.fire(P.BOOT_TIMEOUT_MS);
+    await late.fire(P.BOOT_RECHECK_MS);
+    expect(late.pages.current().page).toBe('official');
+    await late.fire(P.BOOT_RECHECK_MS);
+    expect(late.pages.current().page).toBe('bundled');
+  });
+
+  it('the page’s build report (its script runs) ends the watch: no DOM check, no fallback — from the page just loaded only', async () => {
+    let looks = 0;
+    const w = watched(async () => (looks++, false));
+    await w.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
+    // (a report from the other origin — a page going away — proves nothing about this load)
+    expect(w.pages.notePageBuild(SERVER, 'http://127.0.0.1:8787')).toBe(true);
+    expect(w.armed()).toEqual([P.ANSWER_TIMEOUT_MS, P.BOOT_TIMEOUT_MS]);
+    w.pages.notePageBuild(SERVER, 'https://official.test');
+    expect(w.armed()).toEqual([]);
+    await w.fire(P.ANSWER_TIMEOUT_MS);
+    await w.fire(P.BOOT_TIMEOUT_MS);
+    expect(looks).toBe(0);
+    expect(w.loads).toHaveLength(1);
+    // (junk from the page proves it runs all the same; it just names no build)
+    const j = watched(async () => false);
+    await j.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
+    expect(j.pages.notePageBuild('<b>', 'https://official.test')).toBe(false);
+    await j.fire(P.BOOT_TIMEOUT_MS);
+    expect(j.pages.current()).toMatchObject({ page: 'official', compat: SERVER });
+    // the next load is watched again
+    const again = watched(async () => false);
+    await again.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
+    again.pages.notePageBuild(SERVER, 'https://official.test');
+    expect(await again.pages.fixVersion({ room: 'KX7QD', compat: 'cccccccccccc' })).toEqual({ switched: true, page: 'official' });
+    expect(again.armed()).toEqual([P.ANSWER_TIMEOUT_MS, P.BOOT_TIMEOUT_MS]);
+  });
+
+  it('a match on (the page said so): the watchdog never reloads the page', async () => {
+    let on = true;
+    const w = watched(async () => false, () => false, () => on);
+    await w.pages.open({ page: 'official', reason: 'test', serverCompat: SERVER });
+    await w.fire(P.ANSWER_TIMEOUT_MS); // (no answer seen either: a page that says a match is on answered)
+    await w.fire(P.BOOT_TIMEOUT_MS);
+    expect(w.loads).toHaveLength(1);
+    expect(w.pages.current().page).toBe('official');
+    on = false; // (the watch is over: it does not come back when the match ends)
+    expect(w.armed()).toEqual([]);
   });
 
   it('a slow link (the bundle still on its way): it waits while the page loads — up to 2 minutes in all', async () => {
@@ -609,27 +695,76 @@ describe('the window only ever shows the game’s two origins', () => {
     for (const p of ['notifications', 'media', 'geolocation', 'clipboard-read', 'openExternal', 'hid']) expect(guard.permits(p, 'https://official.test')).toBe(false);
   });
 
-  it('navigation, redirects and sub-frames elsewhere are refused; no <webview> attaches', () => {
+  it('navigation, redirects and sub-frames stay on the origin the window shows — elsewhere, the other allowed origin too, is refused; no <webview> attaches', () => {
     const listeners: Record<string, (...a: unknown[]) => void> = {};
     const refused: [string, boolean, string][] = [];
-    P.guardNavigation({ on: (e: string, cb: (...a: unknown[]) => void) => void (listeners[e] = cb) }, guard, { log: quiet, onRefused: (u, m, w) => void refused.push([u, m, w]) });
+    // the page the window shows (wc.getURL: the last committed one), and the one the app loaded last
+    let committed = 'https://official.test/?desktop=1';
+    let loaded = committed;
+    P.guardNavigation(
+      { on: (e: string, cb: (...a: unknown[]) => void) => void (listeners[e] = cb), getURL: () => committed },
+      guard,
+      { log: quiet, onRefused: (u, m, w) => void refused.push([u, m, w]), loaded: () => loaded },
+    );
     const nav = (event: string, url: string, isMainFrame = true) => {
       let prevented = false;
       listeners[event]({ url, isMainFrame, preventDefault: () => void (prevented = true) }, url);
       return prevented;
     };
+    // the official page, within its own origin: its business
     expect(nav('will-navigate', 'https://official.test/?room=KX7QD')).toBe(false);
-    expect(nav('will-navigate', 'http://127.0.0.1:8787/?desktop=1')).toBe(false);
+    expect(nav('will-frame-navigate', 'https://official.test/?room=KX7QD')).toBe(false);
+    expect(nav('will-frame-navigate', 'https://official.test/frame.html', false)).toBe(false);
+    expect(nav('will-redirect', 'https://official.test/index.html')).toBe(false);
+    expect(refused).toEqual([]);
+    // … never the app's own page with a room / relay / 创建房间 of its choosing (it would save that relay and act on it):
+    // not by location.href, not in a sub-frame, not through a redirect
+    const planted = [
+      `http://127.0.0.1:8787/?room=AB12C&mode=ws&ws=${encodeURIComponent('wss://attacker.test/ws')}`,
+      `http://127.0.0.1:8787/?create=1&mode=ws&ws=${encodeURIComponent('wss://attacker.test/ws')}`,
+      'http://127.0.0.1:8787/?desktop=1',
+    ];
+    for (const url of planted) {
+      expect(nav('will-navigate', url), url).toBe(true);
+      expect(nav('will-frame-navigate', url), url).toBe(true);
+      expect(nav('will-frame-navigate', url, false), url).toBe(true);
+      expect(nav('will-redirect', url), url).toBe(true);
+      expect(nav('will-redirect', url, false), url).toBe(true);
+    }
+    // … nor anywhere else
     expect(nav('will-navigate', 'https://evil.test/')).toBe(true);
     expect(nav('will-navigate', 'file:///C:/Windows/')).toBe(true);
     expect(nav('will-redirect', 'https://evil.test/login')).toBe(true);
     expect(nav('will-frame-navigate', 'https://ads.test/frame', false)).toBe(true);
-    expect(refused).toEqual([
+    expect(refused.slice(-4)).toEqual([
       ['https://evil.test/', true, 'navigation'],
       ['file:///C:/Windows/', true, 'navigation'],
       ['https://evil.test/login', true, 'redirect'],
       ['https://ads.test/frame', false, 'frame navigation'],
     ]);
+    expect(refused.slice(0, 5).map(([, m, w]) => [m, w])).toEqual([[true, 'navigation'], [true, 'frame navigation'], [false, 'frame navigation'], [true, 'redirect'], [false, 'redirect']]);
+
+    // the app switches origins itself (loadURL: none of the page's events): on its way to the bundled page, a redirect of
+    // that load stays on the bundled origin — while the official page, still shown, cannot slip in a navigation of its own
+    loaded = 'http://127.0.0.1:8787/?desktop=1&room=KX7QD&mode=ws&own=1';
+    expect(nav('will-redirect', 'http://127.0.0.1:8787/?desktop=1')).toBe(false);
+    expect(nav('will-redirect', 'https://official.test/?desktop=1')).toBe(true);
+    expect(nav('will-navigate', planted[0])).toBe(true);
+    expect(nav('will-navigate', 'https://official.test/?room=KX7QD')).toBe(true);
+    // the bundled page shows: its own origin, and nothing else
+    committed = loaded;
+    expect(nav('will-navigate', 'http://127.0.0.1:8787/?desktop=1')).toBe(false);
+    expect(nav('will-navigate', 'https://official.test/?desktop=1')).toBe(true);
+    // the app switches to the official page: a redirect within the official server is fine, one back to the app's page is not
+    loaded = `https://official.test/?desktop=1&room=KX7QD&mode=ws&ws=${encodeURIComponent(RELAY)}`;
+    expect(nav('will-redirect', 'https://official.test/index.html?desktop=1&room=KX7QD')).toBe(false);
+    expect(nav('will-redirect', planted[0])).toBe(true);
+    // (no app record: the page's own origin)
+    const bare: Record<string, (...a: unknown[]) => void> = {};
+    P.guardNavigation({ on: (e: string, cb: (...a: unknown[]) => void) => void (bare[e] = cb), getURL: () => 'http://127.0.0.1:8787/?desktop=1' }, guard, { log: quiet });
+    let stopped = 0;
+    for (const url of ['http://127.0.0.1:8787/x', 'https://official.test/']) bare['will-navigate']({ url, isMainFrame: true, preventDefault: () => void stopped++ }, url);
+    expect(stopped).toBe(1);
     let blocked = false;
     listeners['will-attach-webview']({ preventDefault: () => void (blocked = true) });
     expect(blocked).toBe(true);
@@ -984,17 +1119,133 @@ describe('desktop start-up (electron/main.cjs, stubbed Electron)', () => {
     expect(own.dialogs[0]).not.toHaveProperty('buttons');
   });
 
-  it('the official page’s 自建服务器 (no address): the bundled page takes the room over on the app’s own server', async () => {
+  it('the official page cannot send the window to the app’s own page with a relay / room of its choosing: only the app switches pages', async () => {
+    const app = await start(game(SERVER));
+    const bundled = bundledOrigin(app);
+    const MY = 'wss://my.server/ws';
+    // the app's own page: the player's own server
+    const own = memStorage();
+    const leave = preload(own, app, { origin: bundled });
+    own.setItem('sgwl.settings.v1', JSON.stringify({ playerName: '赵云', net: { mode: 'ws', wsUrl: MY } }));
+    leave();
+    const emit = (event: string, url: string, isMainFrame = true): boolean => {
+      let prevented = false;
+      app.wc.emit(event, { url, isMainFrame, preventDefault: () => void (prevented = true) }, url);
+      return prevented;
+    };
+    // the official page (compromised): location.href = the app's page, joining / creating on the attacker's relay — or in a sub-frame
+    const evil = encodeURIComponent('wss://attacker.test/ws');
+    const planted = [`${bundled}/?room=AB12C&mode=ws&ws=${evil}`, `${bundled}/?create=1&mode=ws&ws=${evil}`, `${bundled}/?desktop=1&create=1&mode=ws&ws=${evil}`];
+    for (const url of planted) {
+      expect(emit('will-navigate', url), url).toBe(true);
+      expect(emit('will-frame-navigate', url), url).toBe(true);
+      expect(emit('will-frame-navigate', url, false), url).toBe(true);
+    }
+    expect(emit('will-navigate', `${WEB}?room=KX7QD`)).toBe(false); // (its own origin: its own business)
+    await new Promise((r) => setTimeout(r, 20));
+    expect(app.loads).toEqual([`${WEB}?desktop=1`]);
+    // … or its server redirects there: refused — the app's page opens as the app has it (the official page failed): no room, no relay
+    expect(emit('will-redirect', planted[0])).toBe(true);
+    expect(await app.load(1)).toBe(`${bundled}/?desktop=1`);
+    // the app's page: its connection as it was
+    const after = memStorage();
+    preload(after, app, { origin: bundled })();
+    expect(JSON.parse(after.getItem('sgwl.settings.v1')!).net).toMatchObject({ mode: 'ws', wsUrl: MY });
+    expect(fs.readFileSync(path.join(app.userData, 'web-storage.json'), 'utf8')).not.toContain('attacker');
+    // the app's page shows: within it, fine; to the official page, only through the app —
+    expect(emit('will-navigate', `${bundled}/?desktop=1`)).toBe(false);
+    expect(emit('will-navigate', `${WEB}?desktop=1`)).toBe(true);
+    expect(app.loads).toHaveLength(2);
+    // — a version fix loads it (loadURL: no page event), the room carried; its server's redirect within its origin is fine
+    expect(await app.handle['sgwl:fix-version'](pageEvent(app, bundled), { room: 'KX7QD', compat: BUNDLED })).toEqual({ switched: true, page: 'official' });
+    expect(await app.load(2)).toBe(`${WEB}?desktop=1&room=KX7QD&mode=ws&ws=${encodeURIComponent(RELAY)}`);
+    expect(emit('will-redirect', `${WEB}index.html?desktop=1&room=KX7QD`)).toBe(false);
+    // — and back: 自建服务器 there hands the room to the app's page (its own saved address, own=1: none named)
+    const bridge: Record<string, unknown> = {};
+    preload(memStorage(), app, { origin: 'https://official.test', exposed: bridge })();
+    (bridge.useBundled as (req?: unknown) => void)({ room: 'KX7QD' });
+    expect(await app.load(3)).toBe(`${bundled}/?desktop=1&room=KX7QD&mode=ws&own=1`);
+    expect(emit('will-navigate', `${bundled}/?desktop=1`)).toBe(false);
+  });
+
+  it('the official page asking for update checks / 下载 over and over: one tab, one request to GitHub — the app’s own page is not held back', async () => {
+    const app = await start(game(SERVER));
+    const bridge: Record<string, unknown> = {};
+    preload(memStorage(), app, { origin: 'https://official.test', exposed: bridge })();
+    const update = bridge.update as { download(which?: string): void; check(): void };
+    const kind = (callSync(app, 'sgwl:update-get', pageEvent(app, 'https://official.test')) as { kind: string }).kind;
+    // (a copy that updates by hand opens the new build in the browser: Linux / macOS / the portable exe — this machine's kind)
+    const manual = kind === 'linux' || kind === 'mac' || kind === 'portable';
+    for (let i = 0; i < 10; i++) update.download(i % 2 ? 'setup' : undefined);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(app.opened.length).toBe(manual ? 1 : 0);
+    expect(app.logs.some((l) => l.includes('update download refused: the official page asked less than 30 s ago'))).toBe(true);
+    const feed = (): number => app.fetched.filter((u) => /\/latest(-mac|-linux)?\.yml$/.test(u)).length;
+    const before = feed();
+    for (let i = 0; i < 10; i++) {
+      update.check();
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(feed() - before).toBe(manual ? 1 : 0);
+    expect(app.logs.some((l) => l.includes('update check refused: the official page asked less than 30 s ago'))).toBe(true);
+    // the app's own page: its check goes through
+    app.ipc['sgwl:update-do'](pageEvent(app, bundledOrigin(app)), 'check');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(feed() - before).toBe(manual ? 2 : 0);
+    // (window.open and 下载 share one ration: no page gets more tabs by mixing them)
+    for (let i = 0; i < 10; i++) app.openHandler!({ url: `https://phish.test/${i}` });
+    expect(app.opened.length).toBe(manual ? 1 : 0);
+  });
+
+  it('the watchdog in the app (fake timers): the page’s build report, a busy page that does not answer, a match on — none reloads the window; the game plainly not on screen does', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      /** the official page, answered (its navigation committed); `answer`: what it says to BOOTED_JS */
+      const open = async (answer: () => Promise<unknown>) => {
+        const app = await start(game(SERVER));
+        let looks = 0;
+        Object.assign(app.wc, { executeJavaScript: () => (looks++, answer()) });
+        app.wc.emit('did-navigate', {}, `${WEB}?desktop=1`, 200);
+        return { app, looks: () => looks };
+      };
+      const official = (a: Launch) => pageEvent(a, 'https://official.test');
+      // its script runs (the build report at its start): no DOM check at all
+      const told = await open(async () => false);
+      told.app.ipc['sgwl:page-build'](official(told.app), SERVER);
+      await vi.advanceTimersByTimeAsync(P.BOOT_MAX_MS + 10_000);
+      expect(told.looks()).toBe(0);
+      expect(told.app.loads).toHaveLength(1);
+      // busy (shaders, models): no answer within 3 s, look after look — no reload
+      const busy = await open(() => new Promise(() => undefined));
+      await vi.advanceTimersByTimeAsync(P.BOOT_MAX_MS + 10_000);
+      expect(busy.looks()).toBeGreaterThan(1);
+      expect(busy.app.loads).toHaveLength(1);
+      // a match on (the page said so)
+      const playing = await open(async () => false);
+      playing.app.ipc['sgwl:update-playing'](official(playing.app), true);
+      await vi.advanceTimersByTimeAsync(P.BOOT_MAX_MS + 10_000);
+      expect(playing.app.loads).toHaveLength(1);
+      // the game plainly not on screen, the page not loading: the bundled page at 30 s
+      const blank = await open(async () => false);
+      await vi.advanceTimersByTimeAsync(P.BOOT_TIMEOUT_MS + 100);
+      expect(blank.looks()).toBe(1);
+      expect(blank.app.loads[1]).toBe(`${bundledOrigin(blank.app)}/?desktop=1`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the official page’s 自建服务器 (no address): the bundled page takes the room over on its own 自建服务器', async () => {
     const app = await start(game(SERVER));
     const bridge: Record<string, unknown> = {};
     preload(memStorage(), app, { origin: 'https://official.test', exposed: bridge })();
     (bridge.useBundled as (req?: unknown) => void)({ room: 'KX7QD' });
-    expect(await app.load(1)).toBe(`${bundledOrigin(app)}/?desktop=1&room=KX7QD&mode=ws`);
+    expect(await app.load(1)).toBe(`${bundledOrigin(app)}/?desktop=1&room=KX7QD&mode=ws&own=1`);
     const c = await start(game(SERVER));
     const cb: Record<string, unknown> = {};
     preload(memStorage(), c, { origin: 'https://official.test', exposed: cb })();
     (cb.useBundled as (req?: unknown) => void)({ create: true });
-    expect(await c.load(1)).toBe(`${bundledOrigin(c)}/?desktop=1&create=1&mode=ws`);
+    expect(await c.load(1)).toBe(`${bundledOrigin(c)}/?desktop=1&create=1&mode=ws&own=1`);
     // 取消 through the bridge reaches the app
     expect(typeof cb.cancelFix).toBe('function');
     expect(() => (cb.cancelFix as () => void)()).not.toThrow();

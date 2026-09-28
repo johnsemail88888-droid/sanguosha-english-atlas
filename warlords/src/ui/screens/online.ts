@@ -22,6 +22,7 @@ import {
   parseInvite,
   relayNet,
   type ConnChoice,
+  type InviteInfo,
   type InviteNet,
   type NetMode,
   type RejoinInfo,
@@ -30,7 +31,7 @@ import { isOfficialWeb, officialServer } from '../../net/official';
 import type { ProbeResult } from '../../net/netCheck';
 import { checkVerdict, classifyP2pFailure, formatCheck, formatProbe, p2pFailureText, p2pFix, type P2pFailure } from '../netHelp';
 import { versionMismatchHint } from '../desktopUpdate';
-import { cancelVersionFix, fixVersionMismatch, roomOnOfficial, SWITCH_PENDING_MS, versionFixPending } from '../versionFix';
+import { cancelVersionFix, fixVersionMismatch, roomOnOfficial, SWITCH_PENDING_MS, versionFixPending, type CreateIntent } from '../versionFix';
 
 /** Normalize a typed room code (uppercase alphanumerics, max 12). */
 export function normalizeRoomCode(raw: string): string {
@@ -68,6 +69,31 @@ export function isRoomNotFound(err: unknown): boolean {
 function applyNet(over: InviteNet): void {
   const patch = netPatch(settings.get().net, over);
   if (patch) settings.update({ net: { ...settings.get().net, ...patch } });
+}
+
+/**
+ * The online screen opens with a room handed to it — the saved room (F5, a drop), an invite link, a
+ * carried 创建房间 —: that room's connection goes into the settings (the net layer reads them); → the
+ * choice it amounts to, null when none is handed (the page's default). A relay room without an
+ * address (ws=) is on the page's own server: same origin, not a relay from an earlier room — except
+ * the desktop app's 自建服务器 handoff (`own`: its official page has none of the player's addresses),
+ * which writes nothing: 自建服务器 with this page's own saved address (none: its own server).
+ */
+export function applyHandedConnection(h: { saved: RejoinInfo | null; link: InviteInfo | null; create: CreateIntent | null }): ConnChoice | null {
+  let mode: NetMode | null = null;
+  if (h.saved) {
+    mode = h.saved.mode;
+    applyNet(relayNet(mode, h.saved.net));
+  } else if (h.link?.mode) {
+    if (h.link.own) return 'ws';
+    mode = h.link.mode;
+    applyNet(relayNet(mode, h.link.net));
+  } else if (h.create?.mode) {
+    if (h.create.own) return 'ws';
+    mode = h.create.mode;
+    applyNet(relayNet(mode, h.create.wsUrl !== null ? { wsUrl: h.create.wsUrl } : {}));
+  }
+  return mode ? choiceOf(mode, settings.get().net.wsUrl) : null;
 }
 
 /** One automatic rejoin per page load (a failed one leaves the screen to the player). */
@@ -132,12 +158,9 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   const saved: RejoinInfo | null = rj && (!invited || normalizeRoomCode(invited) === rj.code) ? rj : null;
   // F5 / 重新加入 after a drop: rejoin the same room the same way (once per page load, or when asked)
   const rejoin = saved && !rejoinTried ? saved : null;
-  // a relay room without an address (ws=) is on the page's own server: same origin, not a relay from an earlier room
-  if (saved) {
-    code = saved.code;
-    applyNet(relayNet(saved.mode, saved.net));
-  } else if (link && urlMode) applyNet(relayNet(urlMode, link.net));
-  else if (createReq?.mode) applyNet(relayNet(createReq.mode, createReq.wsUrl !== null ? { wsUrl: createReq.wsUrl } : {}));
+  if (saved) code = saved.code;
+  // the connection that room is on (the saved room's, the invite's, the carried create's) → the settings
+  const handed = applyHandedConnection({ saved, link, create: createReq });
   if (rejoin) rejoinTried = true;
   const official = officialServer();
   const chosen = official ? choiceChosen() : modeChosen();
@@ -146,7 +169,7 @@ export function createOnlineScreen(ctx: UiCtx): Screen {
   // (public P2P unless the player picked the server); an invite / the saved room / a carried create says how its room is reached
   const net0 = settings.get().net;
   const givenMode: NetMode | null = saved?.mode ?? urlMode ?? createReq?.mode ?? null;
-  let choice: ConnChoice = givenMode ? choiceOf(givenMode, net0.wsUrl) : defaultChoice({ mode: net0.mode, wsUrl: net0.wsUrl, chosen });
+  let choice: ConnChoice = handed ?? defaultChoice({ mode: net0.mode, wsUrl: net0.wsUrl, chosen });
   let mode: NetMode = modeOfChoice(choice);
   const pick = (c: ConnChoice): void => {
     choice = c;

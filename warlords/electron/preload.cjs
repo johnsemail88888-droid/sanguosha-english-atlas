@@ -255,7 +255,7 @@ if (ours) {
     cancelFix: () => ipcRenderer.send('sgwl:fix-cancel'),
     /**
      * 切换到本机版本: the bundled page (LAN friends get that build) — with { room } / { create: true }:
-     * that attempt carried over, on the app's own (LAN) server.
+     * that attempt carried over, on its 自建服务器 (the address saved there; none: the app's LAN server).
      */
     useBundled: (req) => {
       flush();

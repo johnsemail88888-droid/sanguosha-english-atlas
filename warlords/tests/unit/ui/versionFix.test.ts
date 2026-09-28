@@ -17,8 +17,8 @@ import {
   shareBase,
   useBundledPage,
 } from '../../../src/ui/desktop';
-import { choiceOf, parseInvite, relayNet } from '../../../src/ui/invite';
-import { autoJoinPlan, switchGaveUp } from '../../../src/ui/screens/online';
+import { choiceOf, choicePatch, parseInvite, relayNet } from '../../../src/ui/invite';
+import { applyHandedConnection, autoJoinPlan, switchGaveUp } from '../../../src/ui/screens/online';
 import {
   cancelVersionFix,
   claimVersionFix,
@@ -260,6 +260,47 @@ describe('?create=1 on the page the fix opened', () => {
     expect(takeCreateIntent({ location: { href: url }, history: hist([]), desktop: null, store: s, now: 1_000_000 + VERSION_FIX_EVERY_MS + 1 })?.auto).toBe(false);
     // junk relays are no relay
     expect(takeCreateIntent({ location: { href: 'https://official.test/?create=1&mode=ws&ws=javascript:x' }, history: hist([]), desktop: {}, store: null })).toEqual({ auto: true, mode: 'ws', wsUrl: '' });
+  });
+});
+
+describe('the desktop app’s 自建服务器 handoff (own=1): this page’s own saved address', () => {
+  const hist = (replaced: string[]) => ({ state: null, replaceState: (_s: unknown, _t: string, url?: string | URL | null) => void replaced.push(String(url)) });
+  const relay = encodeURIComponent(OFFICIAL.relay);
+
+  it('own=1 names no relay: read only in relay mode without ws=, and taken out of the address bar with 创建房间', () => {
+    const replaced: string[] = [];
+    expect(takeCreateIntent({ location: { href: 'http://127.0.0.1:8787/?desktop=1&create=1&mode=ws&own=1' }, history: hist(replaced), desktop: {}, store: null })).toEqual({ auto: true, mode: 'ws', wsUrl: '', own: true });
+    expect(replaced).toEqual(['http://127.0.0.1:8787/?desktop=1']);
+    // a relay named wins; outside relay mode it means nothing
+    expect(takeCreateIntent({ location: { href: `http://127.0.0.1:8787/?create=1&mode=ws&own=1&ws=${relay}` }, history: hist([]), desktop: {}, store: null })).toEqual({ auto: true, mode: 'ws', wsUrl: OFFICIAL.relay });
+    expect(takeCreateIntent({ location: { href: 'http://127.0.0.1:8787/?create=1&mode=peer&own=1' }, history: hist([]), desktop: {}, store: null })).toEqual({ auto: true, mode: 'peer', wsUrl: null });
+    expect(parseInvite('?desktop=1&room=KX7QD&mode=ws&own=1')).toEqual({ room: 'KX7QD', mode: 'ws', net: {}, own: true });
+    expect(parseInvite(`?room=KX7QD&mode=ws&own=1&ws=${relay}`)).toEqual({ room: 'KX7QD', mode: 'ws', net: { wsUrl: OFFICIAL.relay } });
+    expect(parseInvite('?room=KX7QD&mode=peer&own=1')).toEqual({ room: 'KX7QD', mode: 'peer', net: {} });
+    expect(parseInvite('?room=KX7QD&mode=ws&own=0')).toEqual({ room: 'KX7QD', mode: 'ws', net: {} });
+  });
+
+  it('the page writes no address and starts on 自建服务器 — even when the relay saved here is the official one (the player last used 官方服务器): its own address comes back', () => {
+    setOfficialServerForTests(OFFICIAL);
+    const net0 = settings.get().net;
+    try {
+      settings.update({ net: { ...net0, mode: 'ws', wsUrl: OFFICIAL.relay } });
+      for (const handed of [
+        { saved: null, link: parseInvite('?desktop=1&room=KX7QD&mode=ws&own=1'), create: null },
+        { saved: null, link: null, create: { auto: true, mode: 'ws' as const, wsUrl: '', own: true as const } },
+      ]) {
+        expect(applyHandedConnection(handed)).toBe('ws'); // 自建服务器, not 官方服务器 (whose build this page may not be)
+        expect(settings.get().net.wsUrl).toBe(OFFICIAL.relay); // nothing written
+      }
+      const s = store();
+      s.setItem('sgwl.ui.customWsUrl', 'wss://my.server/ws');
+      expect(choicePatch('ws', settings.get().net, OFFICIAL, s)).toEqual({ mode: 'ws', wsUrl: 'wss://my.server/ws' });
+      // (a room on the official relay named in the URL: 官方服务器, as before; nothing handed: the page's default)
+      expect(applyHandedConnection({ saved: null, link: parseInvite(`?room=KX7QD&mode=ws&ws=${relay}`), create: null })).toBe('official');
+      expect(applyHandedConnection({ saved: null, link: parseInvite('?room=KX7QD'), create: null })).toBeNull();
+    } finally {
+      settings.update({ net: net0 });
+    }
   });
 });
 
