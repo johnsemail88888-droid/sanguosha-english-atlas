@@ -467,8 +467,8 @@ describe('auto-update: a run every 5 minutes', () => {
     expect(text).toContain('SGWL_TARGET_SHA=$FETCHED_SHA SGWL_REEXEC=1 exec bash');
     const dir = home();
     mkdirSync(path.join(dir, '.update.lock'));
-    writeFileSync(path.join(dir, '.update.lock', 'pid'), 'SELF');
-    expect(sh(`sed -i "s/SELF/$$/" ${q(path.join(dir, '.update.lock', 'pid'))}; acquire_lock 0 && echo mine`, { SGWL_DIR: dir }).out).toBe('mine');
+    // the lock names this very shell (printf, not `sed -i`: BSD sed on macOS needs -i '')
+    expect(sh(`printf '%s' "$$" >${q(path.join(dir, '.update.lock', 'pid'))}; acquire_lock 0 && echo mine`, { SGWL_DIR: dir }).out).toBe('mine');
   });
 });
 
