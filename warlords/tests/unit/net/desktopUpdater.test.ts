@@ -40,6 +40,7 @@ const U = require(path.join(ROOT, 'electron/updater.cjs')) as {
   RELEASES_URL: string;
   FIRST_CHECK_MS: number;
   CHECK_EVERY_MS: number;
+  MAX_HOLD_MS: number;
   updateKind(o: { platform: string; env?: Record<string, string>; isPackaged: boolean }): Kind;
   feedFile(kind: Kind): string;
   feedFromAppUpdateYml(text: unknown): string | null;
@@ -257,7 +258,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
 
-function harness(o: { platform: string; env?: Record<string, string>; version?: string; packaged?: boolean; arch?: string; feed?: Record<string, string | Error> }): Harness {
+function harness(o: { platform: string; env?: Record<string, string>; version?: string; packaged?: boolean; arch?: string; feed?: Record<string, string | Error>; now?: () => number }): Harness {
   const states: State[] = [];
   const opened: string[] = [];
   const fetched: string[] = [];
@@ -283,7 +284,7 @@ function harness(o: { platform: string; env?: Record<string, string>; version?: 
     newCancellationToken: () => new CancellationToken(),
     setTimeout: (fn: () => void, ms: number) => void timers.push({ fn, ms, every: false }),
     setInterval: (fn: () => void, ms: number) => void timers.push({ fn, ms, every: true }),
-    now: () => 1_000,
+    now: o.now ?? (() => 1_000),
   });
   u.onChange((s) => states.push(s));
   return { u, states, opened, fetched, timers, au, logs };
@@ -410,6 +411,46 @@ describe('automatic updates (setup build, AppImage)', () => {
     h.u.setPlaying(true);
     expect(h.u.state().status).toBe('ready');
     expect(h.au.tokens[1].cancelled).toBe(false);
+  });
+
+  it('a match holds updates back for 3 h in a row at most — a page that says a match is on for ever (or toggles it) cannot stop them', async () => {
+    let t = 1_000;
+    const h = harness({ platform: 'win32', now: () => t });
+    h.au.hold = true;
+    expect(U.MAX_HOLD_MS).toBe(3 * 60 * 60 * 1000);
+    h.u.setPlaying(true); // the page says so once, at load, and never again
+    await h.u.check(); // the 10 s check
+    expect(h.au.checks).toBe(0);
+    // the hold's end is a wake-up of its own
+    const wake = h.timers.filter((x) => x.ms === U.MAX_HOLD_MS);
+    expect(wake).toHaveLength(1);
+    // toggling does not reset the clock
+    t += U.MAX_HOLD_MS / 2;
+    h.u.setPlaying(false);
+    await flush();
+    expect(h.au.checks).toBe(1); // (the waiting check ran: it found 0.1.43 and started the download)
+    expect(h.au.downloads).toBe(1);
+    h.u.setPlaying(true); // … and stops it at once
+    expect(h.au.tokens[0].cancelled).toBe(true);
+    await flush();
+    expect(h.u.state().status).toBe('available');
+    t += U.MAX_HOLD_MS / 2;
+    // 3 h: the page's word no longer holds anything back
+    wake[0].fn();
+    await flush();
+    expect(h.au.downloads).toBe(2);
+    await h.u.check();
+    expect(h.au.checks).toBe(1); // (downloading: nothing to check)
+    // once the app got through (downloaded), the next hold starts afresh
+    h.au.emit('update-downloaded', { version: '0.1.43' });
+    expect(h.u.state().status).toBe('ready');
+    const g = harness({ platform: 'win32', now: () => t });
+    g.u.setPlaying(true);
+    await g.u.check();
+    expect(g.au.checks).toBe(0);
+    t += U.MAX_HOLD_MS; // a match that never ends: a check goes through
+    await g.u.check();
+    expect(g.au.checks).toBe(1);
   });
 
   it('a match that ends before the stopped download has wound down: it starts again once it has', async () => {

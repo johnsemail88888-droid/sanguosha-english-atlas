@@ -20,6 +20,13 @@ export interface InviteInfo {
   net: InviteNet;
   /** the relay server's access key (k=…, or a k inside ws=); absent when there is none */
   key?: string;
+  /**
+   * own=1 on a relay link without ws= (the desktop app's official page handing 自建服务器 over,
+   * electron/page.cjs): the room is on this page's own relay address — the one saved here (none:
+   * its own server). The official page has none of the player's addresses: it names none, and none
+   * is written. Absent otherwise.
+   */
+  own?: true;
 }
 
 /** The PeerJS server differs from the default public cloud. */
@@ -81,7 +88,7 @@ function relayOf(wsUrl: string, origin: string): string | null {
   return resolveWsUrl(wsUrl, loc);
 }
 
-/** Read an invite (or any page URL) query string: room code, mode, server overrides and key. */
+/** Read an invite (or any page URL) query string: room code, mode, server overrides and key (own=1: InviteInfo.own). */
 export function parseInvite(search: string): InviteInfo {
   let q: URLSearchParams;
   try {
@@ -112,7 +119,10 @@ export function parseInvite(search: string): InviteInfo {
     net.wsUrl = split.url;
     key ??= split.key;
   }
-  return key ? { room, mode, net, key } : { room, mode, net };
+  const info: InviteInfo = { room, mode, net };
+  if (key) info.key = key;
+  if (mode === 'ws' && net.wsUrl === undefined && q.get('own') === '1') info.own = true;
+  return info;
 }
 
 /**

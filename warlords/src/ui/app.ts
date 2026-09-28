@@ -35,6 +35,7 @@ import { clearRejoin, inviteLink, isReconnectable, loadRejoin, netFor, refreshRe
 import { copyWhenReady, pendingLink, type InviteNotice, type PendingLink } from './quickInvite';
 import { desktopGpuSoftware, desktopInfo } from './desktop';
 import { reportScreen } from './desktopUpdate';
+import { takeCarriedName, takeCreateIntent, type CreateIntent } from './versionFix';
 import { AutoQualityController, autoPick, autoTuneNeeded } from './autoQuality';
 import { perfVerdict, qualityName } from './perfcheck';
 
@@ -240,6 +241,8 @@ class App implements UiCtx {
   private readonly inviteSubs = new Set<(n: InviteNotice | null) => void>();
   /** the online screen opened by quickInvite() hosts at once */
   private quickHost = false;
+  /** ?create=1: a version fix carried 创建房间 over (versionFix.ts) — how its room is reached, and whether it is created at once */
+  private createIntent: CreateIntent | null = null;
   /**
    * How this tab joined the current online room as a guest: its rejoin record is saved
    * again from this (with a fresh age) on every (re)connect, a drop and a page unload, so
@@ -318,6 +321,18 @@ class App implements UiCtx {
       }
     }
     this.roomCode = room ? room.trim().toUpperCase() : null;
+    if (opts.roomCode === undefined) {
+      // ?name=: the version fix of a page of another origin carried the player's name (kept only if this page has none)
+      takeCarriedName();
+      // ?create=1: a version fix brought 创建房间 over from a page of another build (versionFix.ts) — on the
+      // online screen, in the connection it names; created at once when this tab's own fix (or the desktop
+      // app) loaded the page, else on the player's click (the parameters leave the address bar: F5 creates none)
+      const intent = takeCreateIntent();
+      if (intent && !this.roomCode && this.webgl.ok) {
+        this.createIntent = intent;
+        if (intent.auto) this.quickHost = true;
+      }
+    }
 
     this.installGlobalListeners();
     this.bag.add(
@@ -331,7 +346,7 @@ class App implements UiCtx {
     // no WebGL: an invite link still lands on the title, which explains why nothing can start.
     // A reload in the middle of an online session (F5) goes back to the online screen, which rejoins.
     const rejoin = opts.initialScreen || opts.initialSession ? null : loadRejoin();
-    this.go(opts.initialScreen ?? ((this.roomCode || rejoin) && this.webgl.ok ? 'online' : 'title'));
+    this.go(opts.initialScreen ?? ((this.roomCode || rejoin || this.quickHost || this.createIntent) && this.webgl.ok ? 'online' : 'title'));
     if (opts.initialSession) {
       const { session, kind } = opts.initialSession;
       this.attachSession(session, kind);
@@ -885,6 +900,12 @@ class App implements UiCtx {
   takeQuickHost(): boolean {
     const v = this.quickHost;
     this.quickHost = false;
+    return v;
+  }
+
+  pendingCreate(): CreateIntent | null {
+    const v = this.createIntent;
+    this.createIntent = null;
     return v;
   }
 

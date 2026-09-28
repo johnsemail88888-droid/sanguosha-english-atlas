@@ -15,9 +15,13 @@ import { assetList } from './game/assets';
 import { captureKeyFromPage } from './ui/invite';
 import { installStaleChunkReload } from './ui/staleChunks';
 import { desktopVersion } from './ui/desktopUpdate';
+import { reportPageBuild } from './ui/desktop';
+import { fixCreateOnServer } from './ui/versionFix';
 
 // a SHARE / invite link's server access key (?k=…): kept for its server, out of the address bar
 captureKeyFromPage();
+// the desktop app: which build this page is (its LAN dialog compares it with the build it bundles)
+reportPageBuild();
 
 // which optional painted art this deploy ships (one small listing fetch, none in the
 // single-file build): start it before anything asks, the title screen needs it first
@@ -105,7 +109,8 @@ let guest: GameSession | null = null;
 const deps: AppDeps = {
   createLocalSession: (name) => track(createLocalSession({ name }), 'local'),
   hostOnline: async (name, mode) => {
-    const s = await hostOnlineSession({ name, mode });
+    // the official server runs another build (409): the page of its build creates the room (src/ui/versionFix.ts)
+    const s = await hostOnlineSession({ name, mode, onBuildMismatch: (relay) => fixCreateOnServer(relay) });
     // a server-run room's owner is a guest of it: a reload must keep its seat too
     if (!s.isHost) guest = s;
     return track(s, s.isHost ? 'host' : 'guest');

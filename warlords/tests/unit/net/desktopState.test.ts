@@ -1,40 +1,41 @@
 // PLATFORM-7: the desktop app serves the game from http://127.0.0.1:<port>/ — localStorage is
 // per origin, so a port fallback (8787 busy) used to start the game with default settings.
 // The last good port is remembered and tried first; the game's localStorage keys are
-// mirrored to the app data folder by the preload and restored on another origin.
-// electron/main.cjs and preload.cjs run here against a stubbed 'electron' module.
+// mirrored to the app data folder by the preload and restored on another origin (another
+// port, or the official server's page: electron/page.cjs).
+// electron/main.cjs and preload.cjs run here against a stubbed 'electron' module (desktopHarness.ts).
 import fs from 'node:fs';
 import http from 'node:http';
-import Module, { createRequire } from 'node:module';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_SETTINGS } from '../../../src/game/settings';
+import { callSync, ELECTRON_DIR, launch, memStorage, pageEvent, preload } from './desktopHarness';
 
 const require = createRequire(import.meta.url);
-const ELECTRON_DIR = path.resolve(__dirname, '../../../electron');
+type Plan = { version: number; set: Record<string, string>; remove: string[] };
+type Remote = { keyOrigin: string | null } | null;
 const state = require(path.join(ELECTRON_DIR, 'state.cjs')) as {
   PORTS: number[];
   MARK_KEY: string;
+  SETTINGS_KEY: string;
+  REMOTE_KEYS: Set<string>;
+  REMOTE_SETTINGS: Record<string, (v: unknown) => boolean>;
+  MAX_REMOTE_VALUE: number;
   portOrder(last: unknown): number[];
   snapshotStorage(store: Storage): Record<string, string>;
+  storageKeys(store: Storage): Record<string, string>;
+  relayKeyOrigin(url: unknown): string | null;
+  syncPlan(items: unknown, mirror: unknown, remote?: Remote): Plan;
+  applyPlan(store: Storage, plan: unknown): boolean;
   restoreStorage(store: Storage, mirror: unknown): boolean;
-  mirrorFile(file: string): { load(): { version: number; items: Record<string, string> } | null; save(items: Record<string, string>, origin?: string): number };
-};
-
-/** An in-memory Storage (one per origin). */
-function memStorage(init: Record<string, string> = {}): Storage {
-  const m = new Map(Object.entries(init));
-  return {
-    get length() {
-      return m.size;
-    },
-    key: (i: number) => [...m.keys()][i] ?? null,
-    getItem: (k: string) => m.get(k) ?? null,
-    setItem: (k: string, v: string) => void m.set(k, String(v)),
-    removeItem: (k: string) => void m.delete(k),
-    clear: () => m.clear(),
+  mirrorFile(file: string): {
+    load(): { version: number; items: Record<string, string> } | null;
+    save(items: Record<string, string>, origin?: string): number;
+    patch(change: { set?: Record<string, string>; del?: string[] }, origin?: string, remote?: Remote): { version: number; items: Record<string, string> };
   };
-}
+};
 
 const tmpDirs: string[] = [];
 const tmp = (): string => {
@@ -86,130 +87,103 @@ describe('localStorage mirror', () => {
     fs.writeFileSync(file, '{broken');
     expect(mirror.load()).toBeNull();
   });
+
+  it('an origin writes only what it changed: stale settings of another origin never overwrite newer ones', () => {
+    const mirror = state.mirrorFile(path.join(tmp(), 'web-storage.json'));
+    // the bundled page (port 8787) holds v1; the official server's page restored it too
+    const v1 = mirror.save({ 'sgwl.settings.v1': 'name=赵云', 'sgwl.keys.v1': 'k1' }, 'http://127.0.0.1:8787');
+    expect(v1).toBe(1);
+    // the official page changes the key binds (v2)…
+    const v2 = mirror.patch({ set: { 'sgwl.keys.v1': 'k2' } }, 'https://official.test');
+    expect(v2).toMatchObject({ version: 2, items: { 'sgwl.settings.v1': 'name=赵云', 'sgwl.keys.v1': 'k2' } });
+    // … while the bundled page, still on v1, changes the name: only the name is written
+    const bundled = { 'sgwl.settings.v1': 'name=张飞', 'sgwl.keys.v1': 'k1', [state.MARK_KEY]: '1' };
+    const v3 = mirror.patch({ set: { 'sgwl.settings.v1': 'name=张飞' } }, 'http://127.0.0.1:8787');
+    expect(v3.items).toEqual({ 'sgwl.settings.v1': 'name=张飞', 'sgwl.keys.v1': 'k2' });
+    // and the bundled page catches up with the newer key binds it did not touch
+    const plan = state.syncPlan(bundled, v3);
+    expect(plan).toEqual({ version: 3, set: { 'sgwl.keys.v1': 'k2', [state.MARK_KEY]: '3' }, remove: [] });
+    // a key removed elsewhere goes; keys that are not the game's are never named
+    const v4 = mirror.patch({ del: ['sgwl.keys.v1'] }, 'https://official.test');
+    expect(state.syncPlan({ ...bundled, other: 'x' }, v4)).toMatchObject({ remove: ['sgwl.keys.v1'] });
+    // holding the version already: nothing to change; no mirror yet: version 0
+    expect(state.syncPlan({ [state.MARK_KEY]: '4' }, v4)).toEqual({ version: 4, set: {}, remove: [] });
+    expect(state.syncPlan({}, null)).toEqual({ version: 0, set: {}, remove: [] });
+    // the mark is the mirror's business, never an item
+    expect(mirror.patch({ set: { [state.MARK_KEY]: '99', other: 'x' } }).items).not.toHaveProperty(state.MARK_KEY);
+  });
 });
 
-// ── main.cjs + preload.cjs with a stubbed Electron ──────────────────────────
-interface Launch {
-  url: string;
-  ipc: Record<string, (ev: { returnValue?: unknown }, ...a: unknown[]) => void>;
-  /** app events the main process listens to (e.g. 'gpu-info-update') */
-  on: Record<string, () => unknown>;
-  /** what app.getGPUFeatureStatus() answers */
-  gpu: Record<string, string>;
-  quit(): Promise<void>;
-}
+describe('the official server’s page is remote content: only the preferences cross', () => {
+  const O = 'wss://official.test';
+  const settingsOf = (plan: Plan): Record<string, unknown> => JSON.parse(plan.set[state.SETTINGS_KEY]) as Record<string, unknown>;
 
-/** Load electron/main.cjs as a fresh app launch with userData in `userData`; resolves once the window loads its URL. */
-async function launch(userData: string): Promise<Launch> {
-  const ipc: Launch['ipc'] = {};
-  const on: Record<string, () => unknown> = {};
-  // before the GPU process has reported, Chromium answers this placeholder for everything
-  const gpu: Record<string, string> = { webgl: 'disabled_off', gpu_compositing: 'disabled_software' };
-  let loaded!: (url: string) => void;
-  const urlP = new Promise<string>((r) => (loaded = r));
-  let ready!: () => void;
-  const readyP = new Promise<void>((r) => (ready = r));
-  class BrowserWindow {
-    static getAllWindows = () => [];
-    webContents = { setWindowOpenHandler: () => undefined, on: () => undefined, getURL: () => '' };
-    once() {}
-    on() {}
-    loadURL(url: string) {
-      loaded(url);
-      return Promise.resolve();
+  it('the shared fields are exactly the preferences of src/game/settings.ts (not `net`), each with a check its default passes', () => {
+    expect(Object.keys(state.REMOTE_SETTINGS).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).filter((k) => k !== 'net').sort());
+    for (const [k, ok] of Object.entries(state.REMOTE_SETTINGS)) expect(ok((DEFAULT_SETTINGS as unknown as Record<string, unknown>)[k]), k).toBe(true);
+    // the connection choice, the custom relay, the QA / debug switches, the update chip, the mark: never
+    for (const k of ['sgwl.ui.netChoice.v2', 'sgwl.ui.netModeChosen', 'sgwl.ui.customWsUrl', 'sgwl.debug', 'sgwl.worldArt', 'sgwl.desktop.updateChip', state.MARK_KEY]) {
+      expect(state.REMOTE_KEYS.has(k), k).toBe(false);
     }
-  }
-  const fake = {
-    app: {
-      isPackaged: false,
-      getAppPath: () => path.resolve(ELECTRON_DIR, '..'),
-      getPath: (name: string) => (name === 'userData' ? userData : os.tmpdir()),
-      requestSingleInstanceLock: () => true,
-      on: (ev: string, cb: () => unknown) => void (on[ev] = cb),
-      setName() {},
-      setAppUserModelId() {},
-      whenReady: () => readyP,
-      getVersion: () => '0.1.0',
-      getGPUFeatureStatus: () => ({ ...gpu }),
-      getGPUInfo: () => Promise.resolve({ gpuDevice: [] }),
-      quit() {},
-    },
-    BrowserWindow,
-    Menu: { buildFromTemplate: (t: unknown) => t, setApplicationMenu() {} },
-    clipboard: { writeText() {} },
-    dialog: { showMessageBox: () => Promise.resolve({}), showErrorBox() {} },
-    ipcMain: { on: (ch: string, cb: Launch['ipc'][string]) => void (ipc[ch] = cb) },
-    session: { defaultSession: { setPermissionRequestHandler() {} } },
-    shell: {},
-  };
-  const M = Module as unknown as { _load: (req: string, ...rest: unknown[]) => unknown };
-  const orig = M._load;
-  M._load = function (req: string, ...rest: unknown[]) {
-    return req === 'electron' ? fake : orig.call(this, req, ...rest);
-  };
-  try {
-    const main = path.join(ELECTRON_DIR, 'main.cjs');
-    delete require.cache[main];
-    require(main);
-  } finally {
-    M._load = orig;
-  }
-  ready();
-  const url = await urlP;
-  return {
-    url,
-    ipc,
-    on,
-    gpu,
-    quit: async () => {
-      on['before-quit']?.();
-      await new Promise((r) => setTimeout(r, 50));
-    },
-  };
-}
+    expect(state.relayKeyOrigin('wss://official.test/ws')).toBe(O);
+    expect(state.relayKeyOrigin('ws://192.168.1.5:8787/ws')).toBe('ws://192.168.1.5:8787');
+    for (const junk of ['', 'https://x/', 'nonsense', null]) expect(state.relayKeyOrigin(junk)).toBeNull();
+  });
 
-/** Run electron/preload.cjs for a page on `store` (its origin's localStorage); returns its pagehide handler. `exposed` receives window.sgwlDesktop. */
-function preload(store: Storage, ipc: Launch['ipc'], exposed: Record<string, unknown> = {}): () => void {
-  const handlers: Record<string, () => void> = {};
-  const fake = {
-    contextBridge: { exposeInMainWorld: (_name: string, api: Record<string, unknown>) => void Object.assign(exposed, api) },
-    ipcRenderer: {
-      sendSync: (ch: string, ...a: unknown[]) => {
-        const ev: { returnValue?: unknown } = {};
-        ipc[ch](ev, ...a);
-        return ev.returnValue;
+  it('into the official page: the mirror’s preferences over its own settings — its connection kept, only the official server’s own key added', () => {
+    const mirror = {
+      version: 5,
+      items: {
+        [state.SETTINGS_KEY]: JSON.stringify({ playerName: '赵云', lang: 'en', fov: 90, net: { mode: 'ws', wsUrl: 'ws://10.0.0.2:8787/ws', keys: { [O]: 'k-official', 'ws://10.0.0.2:8787': 'k-lan' }, turnPass: 'secret' } }),
+        'sgwl.guide.v1': '2',
+        'sgwl.debug': '1',
+        'sgwl.ui.customWsUrl': 'ws://10.0.0.2:8787/ws',
       },
-    },
-  };
-  const g = globalThis as unknown as { window?: unknown };
-  const hadWindow = 'window' in g;
-  const timers: ReturnType<typeof setInterval>[] = [];
-  const realSetInterval = globalThis.setInterval;
-  g.window = { localStorage: store, addEventListener: (ev: string, cb: () => void) => void (handlers[ev] = cb) };
-  (globalThis as { setInterval: unknown }).setInterval = (fn: () => void, ms: number) => {
-    const t = realSetInterval(fn, ms);
-    timers.push(t);
-    return t;
-  };
-  const M = Module as unknown as { _load: (req: string, ...rest: unknown[]) => unknown };
-  const orig = M._load;
-  M._load = function (req: string, ...rest: unknown[]) {
-    return req === 'electron' ? fake : orig.call(this, req, ...rest);
-  };
-  try {
-    const p = path.join(ELECTRON_DIR, 'preload.cjs');
-    delete require.cache[p];
-    require(p);
-  } finally {
-    M._load = orig;
-    (globalThis as { setInterval: unknown }).setInterval = realSetInterval;
-    if (!hadWindow) delete g.window;
-  }
-  return () => {
-    for (const t of timers) clearInterval(t);
-    handlers.pagehide?.();
-  };
-}
+    };
+    const have = { [state.SETTINGS_KEY]: JSON.stringify({ playerName: '主公', net: { mode: 'peer', wsUrl: '' } }), 'sgwl.debug': '0', 'sgwl.gpuWarn.off': '1', 'sgwl.ui.netChoice.v2': '1' };
+    const plan = state.syncPlan(have, mirror, { keyOrigin: O });
+    expect(settingsOf(plan)).toEqual({ playerName: '赵云', lang: 'en', fov: 90, net: { mode: 'peer', wsUrl: '', keys: { [O]: 'k-official' } } });
+    expect(plan.set['sgwl.guide.v1']).toBe('2');
+    expect(plan.set[state.MARK_KEY]).toBe('5');
+    // not shared: neither set nor removed
+    for (const k of ['sgwl.debug', 'sgwl.ui.customWsUrl', 'sgwl.ui.netChoice.v2']) expect(plan.set, k).not.toHaveProperty(k);
+    // a shared key the app's page does not have goes (the page's own switches stay)
+    expect(plan.remove).toEqual(['sgwl.gpuWarn.off']);
+    // a key of its own for the official server is kept
+    const own = state.syncPlan({ [state.SETTINGS_KEY]: JSON.stringify({ net: { keys: { [O]: 'mine' } } }) }, mirror, { keyOrigin: O });
+    expect((settingsOf(own).net as { keys: Record<string, string> }).keys).toEqual({ [O]: 'mine' });
+    // no official relay known: no key at all
+    expect(settingsOf(state.syncPlan({}, mirror, { keyOrigin: null }))).not.toHaveProperty('net');
+    // a mirror without settings never removes the page's own
+    expect(state.syncPlan(have, { version: 6, items: {} }, { keyOrigin: O }).remove).not.toContain(state.SETTINGS_KEY);
+  });
+
+  it('from the official page: its checked preferences only — never a connection, a key, a switch, a junk value; its settings are never deleted', () => {
+    const mirror = state.mirrorFile(path.join(tmp(), 'web-storage.json'));
+    const net = { mode: 'ws', wsUrl: 'ws://10.0.0.2:8787/ws', keys: { 'ws://10.0.0.2:8787': 'k-lan' }, turnPass: 'secret' };
+    mirror.save({ [state.SETTINGS_KEY]: JSON.stringify({ playerName: '赵云', quality: 'high', net }), 'sgwl.guide.v1': '2', 'sgwl.ui.customWsUrl': 'ws://10.0.0.2:8787/ws' }, 'http://127.0.0.1:8787');
+    const planted = JSON.stringify({ playerName: '关羽', quality: 'ultra', fov: 'wide', lang: 'fr', showFps: true, net: { mode: 'ws', wsUrl: 'wss://attacker/ws', keys: {} } });
+    const m = mirror.patch(
+      {
+        set: { [state.SETTINGS_KEY]: planted, 'sgwl.ui.customWsUrl': 'wss://attacker/ws', 'sgwl.ui.netChoice.v2': '1', 'sgwl.debug': '1', 'sgwl.sktips.v1': 'x'.repeat(state.MAX_REMOTE_VALUE + 1), 'sgwl.gpuWarn.off': '1' },
+        del: [state.SETTINGS_KEY, 'sgwl.ui.customWsUrl', 'sgwl.guide.v1'],
+      },
+      'https://official.test',
+      { keyOrigin: O },
+    );
+    expect(JSON.parse(m.items[state.SETTINGS_KEY])).toEqual({ playerName: '关羽', quality: 'ultra', showFps: true, net });
+    expect(m.items['sgwl.ui.customWsUrl']).toBe('ws://10.0.0.2:8787/ws');
+    expect(m.items).not.toHaveProperty('sgwl.ui.netChoice.v2');
+    expect(m.items).not.toHaveProperty('sgwl.debug');
+    expect(m.items).not.toHaveProperty('sgwl.sktips.v1'); // too long
+    expect(m.items['sgwl.gpuWarn.off']).toBe('1');
+    expect(m.items).not.toHaveProperty('sgwl.guide.v1'); // a shared preference the page removed
+    // settings that are not JSON: nothing taken
+    expect(JSON.parse(mirror.patch({ set: { [state.SETTINGS_KEY]: '{broken' } }, 'https://official.test', { keyOrigin: O }).items[state.SETTINGS_KEY]).net).toEqual(net);
+    // the app's own page (no scope): everything, as before
+    expect(mirror.patch({ set: { 'sgwl.debug': '1' } }, 'http://127.0.0.1:8787').items['sgwl.debug']).toBe('1');
+  });
+});
 
 describe('desktop app launches (electron/main.cjs + preload.cjs, stubbed Electron)', () => {
   it('reopens on the last good port; when it is busy the settings follow to the new origin', async () => {
@@ -219,7 +193,7 @@ describe('desktop app launches (electron/main.cjs + preload.cjs, stubbed Electro
     const port1 = Number(new URL(first.url).port);
     expect(JSON.parse(fs.readFileSync(path.join(userData, 'desktop.json'), 'utf8'))).toEqual({ port: port1 });
     const origin1 = memStorage();
-    let unload = preload(origin1, first.ipc);
+    let unload = preload(origin1, first);
     origin1.setItem('sgwl.settings.v1', '{"playerName":"赵云","quality":"medium"}');
     unload();
     await first.quit();
@@ -238,7 +212,7 @@ describe('desktop app launches (electron/main.cjs + preload.cjs, stubbed Electro
       expect(port3).not.toBe(port1);
       expect(JSON.parse(fs.readFileSync(path.join(userData, 'desktop.json'), 'utf8'))).toEqual({ port: port3 });
       const origin3 = memStorage(); // empty: a new origin
-      unload = preload(origin3, third.ipc);
+      unload = preload(origin3, third);
       expect(origin3.getItem('sgwl.settings.v1')).toBe('{"playerName":"赵云","quality":"medium"}'); // restored before the game reads it
       origin3.setItem('sgwl.settings.v1', '{"playerName":"赵云","quality":"low"}');
       unload();
@@ -249,7 +223,7 @@ describe('desktop app launches (electron/main.cjs + preload.cjs, stubbed Electro
 
     // 4th launch: back on the remembered (newest) port… and the first origin, if ever used again, catches up
     const fourth = await launch(userData);
-    unload = preload(origin1, fourth.ipc);
+    unload = preload(origin1, fourth);
     expect(origin1.getItem('sgwl.settings.v1')).toBe('{"playerName":"赵云","quality":"low"}');
     unload();
     await fourth.quit();
@@ -258,22 +232,22 @@ describe('desktop app launches (electron/main.cjs + preload.cjs, stubbed Electro
   it('the page gets the app version and the update bridge; a dev run never checks for updates', async () => {
     const app = await launch(tmp());
     const bridge: Record<string, unknown> = {};
-    const unload = preload(memStorage(), app.ipc, bridge);
+    const unload = preload(memStorage(), app, { exposed: bridge });
     const update = bridge.update as { onState(cb: (st: unknown) => void): () => void; download(): void; restart(): void; check(): void; playing(on: boolean): void };
     expect(typeof update.onState).toBe('function');
     for (const fn of ['download', 'restart', 'check', 'playing'] as const) expect(typeof update[fn]).toBe('function');
+    // the bundled page, and the version fix / LAN switch it can ask for
+    expect(bridge.page).toBe('bundled');
+    expect(typeof bridge.fixVersion).toBe('function');
+    expect(typeof bridge.useBundled).toBe('function');
     // what the page asks for through the bridge (main.cjs answers)
-    const ev: { returnValue?: unknown } = {};
-    app.ipc['sgwl:update-get'](ev);
-    expect(ev.returnValue).toEqual({ kind: 'none', auto: false, current: '0.1.0', build: null, status: 'idle' });
+    expect(callSync(app, 'sgwl:update-get')).toEqual({ kind: 'none', auto: false, current: '0.1.0', build: null, status: 'idle' });
     // actions are harmless in a dev run
-    app.ipc['sgwl:update-do']({}, 'check');
-    app.ipc['sgwl:update-do']({}, 'download');
-    app.ipc['sgwl:update-do']({}, 'restart');
-    app.ipc['sgwl:update-playing']({}, true);
-    const ev2: { returnValue?: unknown } = {};
-    app.ipc['sgwl:update-get'](ev2);
-    expect(ev2.returnValue).toMatchObject({ kind: 'none', status: 'idle' });
+    app.ipc['sgwl:update-do'](pageEvent(app), 'check');
+    app.ipc['sgwl:update-do'](pageEvent(app), 'download');
+    app.ipc['sgwl:update-do'](pageEvent(app), 'restart');
+    app.ipc['sgwl:update-playing'](pageEvent(app), true);
+    expect(callSync(app, 'sgwl:update-get')).toMatchObject({ kind: 'none', status: 'idle' });
     unload();
     await app.quit();
   });
@@ -284,7 +258,7 @@ describe('desktop app launches (electron/main.cjs + preload.cjs, stubbed Electro
     app.gpu.webgl = 'enabled';
     app.on['gpu-info-update']?.();
     const bridge: Record<string, unknown> = {};
-    const unload = preload(memStorage(), app.ipc, bridge);
+    const unload = preload(memStorage(), app, { exposed: bridge });
     expect(bridge.webgl).toBe('enabled');
     unload();
     await app.quit();

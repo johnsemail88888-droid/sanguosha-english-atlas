@@ -27,6 +27,9 @@ settings to fill in — and he wants to hear about it without asking. **Reply to
   `releases/latest/download/latest*.yml`); don't publish other releases as latest. Only `main` publishes — a
   manual run of `warlords-desktop.yml` on another branch is a dry run (its apps are the run's artifacts). Keep the versioned artifact
   names in `package.json` `build.*.artifactName` in step with `electron/updater.cjs` (tests check).
+- The desktop window may show the official server's own page (a build up to a day older or newer than the app,
+  `warlords/electron/page.cjs`) instead of its bundled one: keep `window.sgwlDesktop` (`electron/preload.cjs`)
+  backward compatible — add to it, never rename or remove — and keep the window's origin allowlist to those two origins.
 - Solve problems yourself; ask only for a real decision or permission (accounts, money, sudo / System Settings on
   the Mac, the server's update cadence).
 - The Mac mini (official server): use the `deploy-mac-mini` skill (`.claude/skills/deploy-mac-mini`) and follow

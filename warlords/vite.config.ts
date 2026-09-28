@@ -1,10 +1,12 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 // @ts-expect-error — a plain .mjs helper (no types)
 import { compatId } from './scripts/compat-id.mjs';
+import { BUILD_INFO_FILE, buildInfo } from './src/net/buildInfo.ts';
+import { OFFICIAL_SERVER, officialFrom } from './src/net/official.ts';
 
 /**
  * `--mode single`: the page icon lives in public/ (not processed by Vite), so
@@ -54,12 +56,34 @@ function artIndex(): Plugin {
   };
 }
 
+/**
+ * Multi-file builds: `sgwl-build.json` — this build's game-compatibility id and official server
+ * (src/net/buildInfo.ts), for the desktop app: it shows the page whose build matches the official
+ * server's (electron/page.cjs). The official server comes from the same env the page gets
+ * (VITE_OFFICIAL_* — .env files, then the environment): a build without one names none, and the
+ * app built from it never loads a remote page.
+ */
+function buildInfoFile(mode: string): Plugin {
+  return {
+    name: 'sgwl-build-info',
+    apply: 'build',
+    generateBundle() {
+      // (what import.meta.env holds in the page → the page's own officialServer())
+      const official = officialFrom(OFFICIAL_SERVER, loadEnv(mode, process.cwd(), 'VITE_'));
+      const info = buildInfo(COMPAT, official, process.env.SGWL_GIT_SHA || process.env.GITHUB_SHA);
+      this.emitFile({ type: 'asset', fileName: BUILD_INFO_FILE, source: `${JSON.stringify(info)}\n` });
+    },
+  };
+}
+
+/** The game-compatibility id a server-run room checks (scripts/compat-id.mjs, src/net/compat.ts). */
+const COMPAT: string = compatId();
+
 // `vite build --mode single` produces one self-contained HTML file (double-click to play).
 export default defineConfig(({ mode }) => ({
   base: './',
-  // the game-compatibility id a server-run room checks (scripts/compat-id.mjs, src/net/compat.ts)
-  define: { __SGWL_COMPAT__: JSON.stringify(compatId()) },
-  plugins: mode === 'single' ? [viteSingleFile(), inlineFavicon()] : [artIndex()],
+  define: { __SGWL_COMPAT__: JSON.stringify(COMPAT) },
+  plugins: mode === 'single' ? [viteSingleFile(), inlineFavicon()] : [artIndex(), buildInfoFile(mode)],
   // the single-file build is exactly one file: nothing from public/ is copied next to it
   publicDir: mode === 'single' ? false : 'public',
   build: {
