@@ -1,8 +1,8 @@
 // 玩法说明: roles & win conditions, dying & rewards, zone, squads, controls,
 // and cards / gear / weapons tables generated from the data files.
-import type { RoleId } from '../../core/types';
+import type { Kingdom, RoleId } from '../../core/types';
 import type { ItemKind } from '../../data/types';
-import { ARMORS, ITEMS, ITEM_KIND_INFO, MOUNTS, ROLES, ROLE_DISTRIBUTION, TROOPS, WEAPONS } from '../../data';
+import { ARMORS, HEROES, ITEMS, ITEM_KIND_INFO, MOUNTS, ROLES, ROLE_DISTRIBUTION, TROOPS, WEAPONS } from '../../data';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, type Child } from '../dom';
 import { colon, getLang, kingdomName, t, tx, type I18nKey } from '../i18n';
@@ -11,13 +11,13 @@ import { touchLabel, type TouchKey } from '../short';
 import { shouldUseTouch } from '../touch';
 import { settings, type Lang } from '../../game/settings';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
-import { weaponCardNote, weaponClassName } from './heroDetail';
+import { abilityBlock, sortedAbilities, weaponCardNote, weaponClassName } from './heroDetail';
 import { gearArt, isUnitWeapon } from '../cardArt';
 import { isMac } from '../perfcheck';
 import { artKnown, gearIcon, roleCardBadge, setArt, whenArtKnown } from '../artIcons';
 import { ZONE_PHASES } from '../../sim/zone';
 
-type HelpTab = 'roles' | 'rules' | 'zone' | 'squad' | 'controls' | 'items' | 'gear' | 'weapons';
+type HelpTab = 'roles' | 'rules' | 'zone' | 'squad' | 'skills' | 'controls' | 'items' | 'gear' | 'weapons';
 
 /** Zone schedule (GAME_SPEC §4), generated from the sim's phase table so it never drifts. */
 export const ZONE_TABLE: readonly { phase: number; wait: number; shrink: number; radius: number; dps: number }[] = ZONE_PHASES.map((z, phase) => ({
@@ -42,7 +42,7 @@ export const CONTROLS: readonly ControlRow[] = [
   { keys: ['Shift'], zh: '冲刺', en: 'Sprint' },
   { keys: ['Space'], zh: '跳跃', en: 'Jump' },
   { keys: ['Ctrl', 'Alt'], zh: '闪避翻滚（闪）· 2 次充能，8 秒恢复', en: 'Dodge roll (闪) · 2 charges, 8 s recharge' },
-  { keys: ['Q', 'E'], zh: '武将技能', en: 'Hero abilities' },
+  { keys: ['Q', 'E'], zh: '武将技能：瞄准类技能按住看范围、松开施放（右键取消）', en: 'Hero abilities: aimed ones show their area while held, cast on release (right click cancels)' },
   { keys: ['G'], zh: '主公技（仅主公）', en: 'Lord skill (Lord only)' },
   { keys: ['F'], zh: '拾取 / 打开锦囊 / 按住救援', en: 'Pick up / open chest / hold to revive' },
   { keys: ['1', '2'], zh: '切换主 / 副武器（或滚轮）', en: 'Primary / secondary weapon (or wheel)' },
@@ -421,11 +421,39 @@ function weaponsTab(): HTMLElement {
   );
 }
 
+/** 武将技能: how skills work, then every hero's skills (line + numbers from the ability data). */
+function skillsTab(): HTMLElement {
+  const kingdoms: Kingdom[] = ['shu', 'wei', 'wu', 'qun'];
+  return h('div', null,
+    section(tx('技能怎么用', 'How skills work'),
+      h('div', { class: 'sk-howto' },
+        h('ul', null,
+          h('li', null, tx('每位武将有 Q、E 两个主动技能和被动技能；主公另有 G 主公技。技能冷却时图标变暗，金色圆环走满即就绪。', 'Every hero has two active skills (Q, E) and passives; the Lord also gets a lord skill on G. A skill on cooldown is dimmed; when the gold ring closes it is ready.')),
+          h('li', null, tx('需要瞄准的技能（准星方向 / 准星落点 / 准星敌人 / 自身周围）：按住按键，地上会画出范围——冲锋路线、扇形、落点圆圈或目标光圈，松开才施放；按住时点右键取消。', 'Aimed skills (aimed direction / point / enemy / around you): hold the key and the area is drawn on the ground — the dash path, the cone, the circle or a ring under the target — and the skill fires when you let go; right click while holding cancels.')),
+          h('li', null, tx('「准星敌人 / 友军」技能要把准星对准目标，灰色光圈表示现在没有目标。只作用于自身的技能按下即施放。', '“Aimed enemy / ally” skills need the crosshair on a unit — a grey ring means nothing is targeted. Self-only skills fire as soon as you press the key.')),
+          h('li', null, tx('施放后准星下方会告诉你结果：命中几人、对谁生效、或未命中。', 'After a cast, the line under the crosshair tells you what it did: how many it hit, whom it affected, or that it missed.')),
+        ),
+      ),
+    ),
+    ...kingdoms.map((k) =>
+      section(kingdomName(k),
+        HEROES.filter((hd) => hd.kingdom === k).map((hd) =>
+          h('div', { class: 'sk-hero' },
+            h('h4', null, tx(hd.nameZh, hd.nameEn), h('small', null, tx(hd.titleZh, hd.titleEn)), hd.lordCandidate ? h('small', null, tx('★ 主公候选', '★ Lord candidate')) : null),
+            h('div', { class: 'sk-list' }, sortedAbilities(hd).map((a) => abilityBlock(a))),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 const TAB_BUILDERS: Record<HelpTab, () => HTMLElement> = {
   roles: rolesTab,
   rules: rulesTab,
   zone: zoneTab,
   squad: squadTab,
+  skills: skillsTab,
   controls: controlsTab,
   items: itemsTab,
   gear: gearTab,
@@ -446,7 +474,7 @@ export function createHelpScreen(ctx: UiCtx): Screen {
   };
 
   const build = (): void => {
-    const ids: HelpTab[] = ['roles', 'rules', 'zone', 'squad', 'controls', 'items', 'gear', 'weapons'];
+    const ids: HelpTab[] = ['roles', 'rules', 'zone', 'squad', 'skills', 'controls', 'items', 'gear', 'weapons'];
     el.replaceChildren(
       h('header', { class: 'help-head' },
         button(`‹ ${t('common.back')}`, () => ctx.go('title'), { cls: 'ghost small', sfx: 'back' }),

@@ -3,7 +3,23 @@
 // claim tag, downed icon, quick-chat bubble); troops get a tiny pennant and an
 // HP bar only when damaged. Textures redraw only when their content changes.
 import * as THREE from 'three';
-import type { Kingdom, RoleId } from '../../core/types';
+import type { Kingdom, RoleId, StatusId } from '../../core/types';
+import {
+  VF_BOOSTED,
+  VF_BURNING,
+  VF_CHARMED,
+  VF_DANCING,
+  VF_EXPOSED,
+  VF_FROZEN,
+  VF_HASTE,
+  VF_INVULN,
+  VF_MARKED,
+  VF_ROOTED,
+  VF_SHIELDED,
+  VF_SLOWED,
+  VF_STUNNED,
+} from '../../core/types';
+import { STATUS_HINT_BY_ID } from '../../data/statuses';
 import { KINGDOM_COLORS, ROLE_BADGE } from '../palette';
 import { CALLIGRAPHY_FONT, UI_FONT, makeCanvas, roundRect, hexA } from '../core/textures';
 
@@ -22,6 +38,44 @@ export interface PlateData {
   /** your own hero / squad: green accents */
   friendly: boolean;
   bubble?: string;
+  /** status badges over the plate (plateStatuses), most important first; absent / empty: none */
+  statuses?: readonly StatusId[];
+}
+
+/** Snapshot flags → the status they show (the order is the badges' priority: control first). */
+const FLAG_STATUS: readonly [number, StatusId][] = [
+  [VF_STUNNED, 'stun'],
+  [VF_DANCING, 'dance'],
+  [VF_CHARMED, 'charm'],
+  [VF_FROZEN, 'freeze'],
+  [VF_ROOTED, 'root'],
+  [VF_SLOWED, 'slow'],
+  [VF_BURNING, 'burn'],
+  [VF_MARKED, 'marked'],
+  [VF_EXPOSED, 'reveal'],
+  [VF_INVULN, 'invuln'],
+  [VF_SHIELDED, 'shield'],
+  [VF_BOOSTED, 'dmgBoost'],
+  [VF_HASTE, 'haste'],
+];
+/** statuses without a flag, known from 'status' events (沉默 / 缴械 / 连环 / 易伤): shown right after the hard control */
+const EVENT_STATUS_ORDER: readonly StatusId[] = ['silence', 'disarm', 'chained', 'dmgTakenUp'];
+/** badges over a plate at most */
+export const MAX_PLATE_BADGES = 5;
+
+/**
+ * The status badges over a hero's nameplate: what its flags say (stun, slow, burn …) plus
+ * the event-tracked ones (silence, disarm …), control first, at most MAX_PLATE_BADGES.
+ */
+export function plateStatuses(flags: number, extra: ReadonlySet<StatusId> | null): StatusId[] {
+  const out: StatusId[] = [];
+  const push = (id: StatusId): void => {
+    if (out.length < MAX_PLATE_BADGES && !out.includes(id)) out.push(id);
+  };
+  for (let i = 0; i < 3; i++) if (flags & FLAG_STATUS[i][0]) push(FLAG_STATUS[i][1]);
+  if (extra) for (const id of EVENT_STATUS_ORDER) if (extra.has(id)) push(id);
+  for (let i = 3; i < FLAG_STATUS.length; i++) if (flags & FLAG_STATUS[i][0]) push(FLAG_STATUS[i][1]);
+  return out;
 }
 
 const W = 384;
@@ -49,6 +103,7 @@ export class Nameplate {
     kingdom: undefined as Kingdom | undefined,
     friendly: false,
     bubble: undefined as string | undefined,
+    statuses: '',
   };
   opacity = 1;
 
@@ -80,6 +135,7 @@ export class Nameplate {
     const hpQ = Math.round((d.hp / Math.max(1, d.maxHp)) * 60);
     const shQ = Math.round(d.shield / 5);
     const s = this.shown;
+    const stKey = d.statuses && d.statuses.length ? d.statuses.join(',') : '';
     if (
       s.valid &&
       s.heroName === d.heroName &&
@@ -94,7 +150,8 @@ export class Nameplate {
       s.downed === d.downed &&
       s.kingdom === d.kingdom &&
       s.friendly === d.friendly &&
-      s.bubble === d.bubble
+      s.bubble === d.bubble &&
+      s.statuses === stKey
     )
       return;
     s.valid = true;
@@ -111,6 +168,7 @@ export class Nameplate {
     s.kingdom = d.kingdom;
     s.friendly = d.friendly;
     s.bubble = d.bubble;
+    s.statuses = stKey;
     draw(this.ctx, d);
     this.tex.needsUpdate = true;
   }
@@ -149,7 +207,7 @@ function draw(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, d
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText(d.bubble, W / 2, y + 17, tw - 16);
-  }
+  } else if (d.statuses && d.statuses.length) drawStatusBadges(g, d.statuses, y);
   y = 40;
   // name row
   g.textBaseline = 'middle';
@@ -240,6 +298,33 @@ function draw(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, d
   }
   g.fillStyle = 'rgba(10,8,6,0.9)';
   for (let k = 100; k < total; k += 100) g.fillRect(bx + (bw * k) / total - 1, barY, 2, bh);
+}
+
+/** A row of status badges (glyph on the status colour; debuffs framed red, buffs gold) in the bubble row. */
+function drawStatusBadges(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, ids: readonly StatusId[], y: number): void {
+  const size = 32;
+  const gap = 6;
+  const total = ids.length * size + (ids.length - 1) * gap;
+  let x = (W - total) / 2;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `bold 22px ${CALLIGRAPHY_FONT}`;
+  for (const id of ids) {
+    const hint = STATUS_HINT_BY_ID[id];
+    const col = hint?.color ?? '#b0b0b0';
+    g.fillStyle = 'rgba(10,8,6,0.85)';
+    roundRect(g, x - 2, y - 2, size + 4, size + 4, 7);
+    g.fill();
+    g.fillStyle = col;
+    roundRect(g, x, y, size, size, 6);
+    g.fill();
+    g.strokeStyle = hint?.debuff ? '#ff4a3a' : '#f0c850';
+    g.lineWidth = 2.5;
+    g.stroke();
+    g.fillStyle = '#140c06';
+    g.fillText(hint?.icon ?? '?', x + size / 2, y + size / 2 + 1);
+    x += size + gap;
+  }
 }
 
 function drawCrown(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, cx: number, cy: number, s: number): void {

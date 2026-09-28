@@ -356,6 +356,7 @@ const DICT = {
   'help.tab.rules': ['规则', 'Rules'],
   'help.tab.zone': ['烽火圈', 'Zone'],
   'help.tab.squad': ['带兵', 'Squads'],
+  'help.tab.skills': ['武将技能', 'Hero skills'],
   'help.tab.controls': ['操作', 'Controls'],
   'help.tab.items': ['锦囊', 'Cards & items'],
   'help.tab.gear': ['装备', 'Gear'],

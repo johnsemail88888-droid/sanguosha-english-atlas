@@ -74,7 +74,8 @@ export interface PreviewInput {
   target: PreviewUnit | null;
 }
 
-const RANGE_BAND = 0.22;
+/** width of the range ring: thicker for long ranges (it is seen from far away, at a grazing angle) */
+const rangeBand = (range: number): number => Math.min(0.7, Math.max(0.3, range * 0.014));
 const UNIT_KINDS = new Set(['hero', 'troop', 'npc', 'turret']);
 
 const fwd = (yaw: number): XZ => ({ x: -Math.sin(yaw), z: -Math.cos(yaw) });
@@ -101,7 +102,7 @@ export function clampToRange(caster: XZ, p: XZ, range: number): XZ {
 }
 
 const full = (x: number, z: number, rIn: number, rOut: number): PolarShape => ({ x, z, rIn, rOut, yaw: 0, halfArc: Math.PI });
-const rangeRing = (c: XZ, range: number): PolarShape => full(c.x, c.z, Math.max(0, range - RANGE_BAND), range);
+const rangeRing = (c: XZ, range: number): PolarShape => full(c.x, c.z, Math.max(0, range - rangeBand(range)), range);
 
 /**
  * Is `t` a unit this targeted skill can pick? Enemy skills take anything not on your
@@ -210,13 +211,14 @@ void main() {
   gl_FragColor = vec4(uColor, min(a, 1.0));
 }`;
 
+// (saturated: the picture is tone-mapped and bloomed after this, which washes colours out)
 const TONES: Record<PreviewTone, THREE.Color> = {
-  harm: new THREE.Color(1.0, 0.36, 0.22),
-  help: new THREE.Color(0.38, 1.0, 0.5),
-  self: new THREE.Color(1.0, 0.82, 0.36),
-  invalid: new THREE.Color(0.62, 0.62, 0.62),
+  harm: new THREE.Color(1.0, 0.16, 0.06),
+  help: new THREE.Color(0.12, 0.95, 0.3),
+  self: new THREE.Color(1.0, 0.72, 0.1),
+  invalid: new THREE.Color(0.55, 0.55, 0.55),
 };
-const RANGE_COLOR = new THREE.Color(1.0, 0.93, 0.75);
+const RANGE_COLOR = new THREE.Color(1.0, 0.9, 0.6);
 const LIFT = 0.08;
 const BIG = 1e3;
 
@@ -368,9 +370,9 @@ export class SkillPreview {
 
   constructor() {
     this.group.name = 'skillPreview';
-    this.rangeM = new GroundMesh(96, 1, makeMaterial(0.0, 0.3, 0), 41);
-    this.areaM = new GroundMesh(72, 6, makeMaterial(0.2, 0.35, 1), 42);
-    this.stripM = new GroundMesh(4, 40, makeMaterial(0.18, 0.3, 1), 42);
+    this.rangeM = new GroundMesh(128, 1, makeMaterial(0.35, 0.3, 0), 41);
+    this.areaM = new GroundMesh(72, 6, makeMaterial(0.26, 0.5, 1), 42);
+    this.stripM = new GroundMesh(4, 40, makeMaterial(0.24, 0.4, 1), 42);
     this.markerM = new GroundMesh(48, 1, makeMaterial(0.9, 0.2, 0), 43);
     for (const m of [this.rangeM, this.areaM, this.stripM, this.markerM]) this.group.add(m.mesh);
   }
@@ -422,7 +424,7 @@ export class SkillPreview {
     }
     const tone = TONES[plan.tone];
     const flashing = alpha < 1 || !f.def;
-    show(this.rangeM, flashing ? null : plan.range, plan.valid ? RANGE_COLOR : TONES.invalid, 0.55 * alpha);
+    show(this.rangeM, flashing ? null : plan.range, plan.valid ? RANGE_COLOR : TONES.invalid, 0.7 * alpha);
     show(this.areaM, plan.area, tone, alpha);
     show(this.stripM, plan.strip, tone, alpha, true);
     show(this.markerM, plan.marker, tone, 0.9 * alpha);

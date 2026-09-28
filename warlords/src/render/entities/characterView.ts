@@ -7,7 +7,7 @@
 // hidden beyond the preset's characterDistance.
 import * as THREE from 'three';
 import { lerpAngle } from '../../core/math';
-import type { RoleId, ViewEntity } from '../../core/types';
+import type { RoleId, StatusId, ViewEntity } from '../../core/types';
 import {
   VF_BOOSTED,
   VF_BURNING,
@@ -30,7 +30,7 @@ import { qualityPreset, type CharacterArt } from '../quality';
 import { settings } from '../../game/settings';
 import { kingdomColor } from '../palette';
 import { AuraSet } from './auras';
-import { Nameplate, type PlateData } from './nameplate';
+import { Nameplate, plateStatuses, type PlateData } from './nameplate';
 import type { EntityCtx } from './context';
 import { CAM_FADE_HIDDEN, cameraFadeTarget, type CamFadeOptions } from './camFade';
 import { LOS_MAX_AGE_HERO, LosCache, needsLos, overheadTarget, stepOcclusion, type OverheadVisibility } from './occlusion';
@@ -126,6 +126,8 @@ export class CharacterView {
   };
   private claimKey = '';
   private claimLabel: string | undefined;
+  /** statuses the snapshot flags do not carry (沉默 / 缴械 / 连环 / 易伤), from 'status' events: shown on the plate */
+  readonly eventStatuses = new Set<StatusId>();
   /** true while this view is a corpse kept after the entity left the view */
   corpse = false;
   corpseTime = 0;
@@ -349,6 +351,7 @@ export class CharacterView {
         d.kingdom = e.kingdom;
         d.friendly = inSquad;
         d.bubble = this.bubble && this.bubble.until > ctx.time ? this.bubble.text : undefined;
+        d.statuses = e.flags & VF_DEAD ? undefined : plateStatuses(e.flags, this.eventStatuses);
         this.plate.set(d);
         const fadeDead = e.flags & VF_DEAD ? Math.max(0, 1 - (this.deadFor - 4) / 2) : 1;
         const distFade = Math.max(0, Math.min(1, (PLATE_MAX_DIST - dist) / 20));
