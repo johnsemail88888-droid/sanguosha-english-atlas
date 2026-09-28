@@ -37,6 +37,7 @@ export interface GameViewHandle {
   onEvents(cb: (evs: readonly GameEvent[]) => void): () => void;
   onLocalFire(cb: (weaponId: string) => void): () => void;
   setSpectateTarget(id: EntityId | null): void;
+  setSpectateView(firstPerson: boolean): void;
   worldToScreen(p: Vec3): { x: number; y: number } | null;
   dispose(): void;
 }
@@ -78,6 +79,7 @@ export function mountGameView(container: HTMLElement, viewSource: ViewSource, op
   const eventSubs = new Set<(evs: readonly GameEvent[]) => void>();
   const fireSubs = new Set<(weaponId: string) => void>();
   let spectate: EntityId | null = null;
+  let spectateFp = false;
   let disposed = false;
   let raf = 0;
   let last = performance.now();
@@ -142,6 +144,7 @@ export function mountGameView(container: HTMLElement, viewSource: ViewSource, op
         for (const cb of fireSubs) cb(id);
       });
       r.setSpectateTarget(spectate);
+      r.setSpectateView(spectateFp);
       resize();
       return true;
     } catch (err) {
@@ -222,6 +225,11 @@ export function mountGameView(container: HTMLElement, viewSource: ViewSource, op
       if (disposed) return;
       spectate = id;
       renderer?.setSpectateTarget(id);
+    },
+    setSpectateView(firstPerson) {
+      if (disposed) return;
+      spectateFp = firstPerson;
+      renderer?.setSpectateView(firstPerson);
     },
     worldToScreen: (p) => (disposed ? null : renderer?.worldToScreen(p) ?? null),
     dispose(): void {

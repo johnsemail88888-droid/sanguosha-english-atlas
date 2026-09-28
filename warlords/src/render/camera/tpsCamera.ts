@@ -68,13 +68,14 @@ export function resolveCameraCollision(
   pitch: number,
   downed = false,
   pad = 0.3,
+  rightMax = CAM_RIGHT,
 ): CollisionResult {
   const pivot = { x: pos.x, y: pos.y + pivotHeight(downed), z: pos.z };
   const r = rightFromYaw(yaw);
   const d = dirFromYawPitch(yaw, pitch);
-  let right = CAM_RIGHT;
+  let right = rightMax;
   // camera-only occluders (roof shells, under dock decks) count as well as colliders + terrain
-  const sideDist = world.cameraDistance(pivot, r, CAM_RIGHT + pad);
+  const sideDist = rightMax > 0 ? world.cameraDistance(pivot, r, rightMax + pad) : Infinity;
   if (Number.isFinite(sideDist)) right = Math.max(0, sideDist - pad);
   const shoulder = { x: pivot.x + r.x * right, y: pivot.y, z: pivot.z + r.z * right };
   const back = { x: -d.x, y: -d.y, z: -d.z };
@@ -88,8 +89,13 @@ export function resolveCameraCollision(
   };
 }
 
-/** 'first': the local hero's eye (./firstPerson.ts). */
-export type CameraMode = 'follow' | 'first' | 'spectate' | 'orbit' | 'free';
+/** 'first': the local hero's eye (./firstPerson.ts); 'spectateFirst': the spectated hero's eye (V). */
+export type CameraMode = 'follow' | 'first' | 'spectate' | 'spectateFirst' | 'orbit' | 'free';
+
+/** Spectating: the boom is pulled in this short (m) → a tight spot, go over the top instead. */
+export const SPECTATE_TIGHT = 1.4;
+/** Spectating: the over-the-top pitch used in tight spots (looking down). */
+export const SPECTATE_OVERHEAD_PITCH = -0.55;
 
 /** Trauma-based screen shake + recoil kick, shared by every mode. */
 export class CameraShake {
@@ -220,6 +226,56 @@ export class TpsCameraRig {
   }
 
   /**
+   * Spectating another hero: over his shoulder, a little from above. The pose is smoothed, but
+   * never through geometry: when the boom is cut short (a wall behind him, a gate, a corner) it
+   * swings over the top, centred (no shoulder offset); and after smoothing, a wall between him
+   * and the camera pulls the camera in front of it.
+   */
+  spectate(world: PickWorld | null, target: Vec3, yaw: number, pitch: number, dt: number, downed = false): void {
+    let p = clamp(pitch * 0.5 - 0.15, -0.95, 0.6);
+    let right = CAM_RIGHT;
+    let back = CAM_BACK;
+    if (world) {
+      let res = resolveCameraCollision(world, target, yaw, p, downed);
+      if (res.back < SPECTATE_TIGHT || res.right < CAM_RIGHT * 0.5) {
+        const over = resolveCameraCollision(world, target, yaw, SPECTATE_OVERHEAD_PITCH, downed, 0.3, 0);
+        if (over.back > res.back) {
+          res = over;
+          p = SPECTATE_OVERHEAD_PITCH;
+        }
+      }
+      right = res.right;
+      back = res.back;
+    }
+    const d = dirFromYawPitch(yaw, p);
+    const r = rightFromYaw(yaw);
+    const py = target.y + pivotHeight(downed);
+    const camPos = { x: target.x + r.x * right - d.x * back, y: py - d.y * back, z: target.z + r.z * right - d.z * back };
+    this.approach(camPos, yaw, p, dt, 8);
+    // the smoothed pose lags: never leave it behind a wall
+    if (world) {
+      const px = this.pos.x - target.x;
+      const pyy = this.pos.y - py;
+      const pz = this.pos.z - target.z;
+      const len = Math.hypot(px, pyy, pz);
+      if (len > 1e-3) {
+        const dir = { x: px / len, y: pyy / len, z: pz / len };
+        const hit = world.cameraDistance({ x: target.x, y: py, z: target.z }, dir, len + 0.3);
+        if (Number.isFinite(hit) && hit - 0.3 < len) {
+          const k = Math.max(0.35, hit - 0.3);
+          this.pos.set(target.x + dir.x * k, py + dir.y * k, target.z + dir.z * k);
+        }
+      }
+    }
+    this.collisionDist = Math.min(this.collisionDist, back);
+  }
+
+  /** Put the next orbit() behind the current view (the camera pulls straight back from where it looked). */
+  orbitFromBehind(): void {
+    this.orbitAngle = Math.atan2(Math.cos(this.yaw), Math.sin(this.yaw));
+  }
+
+  /**
    * First person: the camera at the hero's eye (`eyeHeight` above the feet),
    * looking (yaw, pitch) — exactly the sim's first-person crosshair ray.
    */
@@ -236,16 +292,19 @@ export class TpsCameraRig {
     return clamp((CAM_BACK - this.adsBack) / (CAM_BACK - ADS_BACK_MIN), 0, 1);
   }
 
-  /** Slow cinematic orbit around a point (before spawn / dead without a spectate target). */
-  orbit(center: Vec3, radius: number, height: number, dt: number): void {
+  /**
+   * Slow cinematic orbit around a point (before spawn / dead without a spectate target), looking at
+   * `lookUp` m above it; `rate` = how fast the pose eases in (the death pull-back is slow).
+   */
+  orbit(center: Vec3, radius: number, height: number, dt: number, lookUp = 2, rate = 2): void {
     this.orbitAngle += dt * 0.06;
     const px = center.x + Math.cos(this.orbitAngle) * radius;
     const pz = center.z + Math.sin(this.orbitAngle) * radius;
     const py = center.y + height;
-    _dir.set(center.x - px, center.y + 2 - py, center.z - pz).normalize();
+    _dir.set(center.x - px, center.y + lookUp - py, center.z - pz).normalize();
     const yaw = Math.atan2(-_dir.x, -_dir.z);
     const pitch = Math.asin(clamp(_dir.y, -1, 1));
-    this.approach({ x: px, y: py, z: pz }, yaw, pitch, dt, 2);
+    this.approach({ x: px, y: py, z: pz }, yaw, pitch, dt, rate);
   }
 
   setZoom(target: number, dt: number): void {

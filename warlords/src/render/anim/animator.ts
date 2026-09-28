@@ -151,6 +151,8 @@ export class CharacterAnimator {
   private legYaw = 0;
   private legDir = 1;
   private deathTwist = 0;
+  /** died while downed (finished off / bled out): the corpse stays prone — no stagger, no standing up */
+  private deathProne = false;
   private lastInput: AnimInput | null = null;
   private readonly euler = new Float32Array(BONE_COUNT * 3);
   private readonly rootPos = new THREE.Vector3();
@@ -189,10 +191,17 @@ export class CharacterAnimator {
       if (this.deadTime < 0) {
         this.deadTime = 0;
         this.deathTwist = (Math.random() - 0.5) * 0.8;
+        // finished off while prone: blend the crawl straight into a face-down corpse (a blend from
+        // prone to the on-the-back fall would swing the body upright on the way)
+        this.deathProne = w.downed > 0.5;
       } else this.deadTime += dt;
-    } else this.deadTime = -1;
-    w.dead = dead ? ease(clamp01(this.deadTime / 0.7)) : approach(w.dead, 0, 10, dt);
-    w.downed = approach(w.downed, downed, 7, dt);
+    } else {
+      this.deadTime = -1;
+      this.deathProne = false;
+    }
+    w.dead = dead ? ease(clamp01(this.deadTime / (this.deathProne ? 0.45 : 0.7))) : approach(w.dead, 0, 10, dt);
+    // (the crawl weight holds under a prone corpse: its root offset keeps the body where it lay)
+    w.downed = approach(w.downed, this.deathProne ? 1 : downed, 7, dt);
     const mounted = inp.mountHip > 0 && !dead && !downed ? 1 : 0;
     w.mounted = approach(w.mounted, mounted, 8, dt);
     const speed = mounted ? 0 : inp.speed;
@@ -473,8 +482,24 @@ export class CharacterAnimator {
       root.y = root.y * (1 - d) + 0.16 * d;
       root.z = root.z * (1 - d) + 0.85 * d;
     }
+    // dead while prone: go limp face down where he crawled
+    if (w.dead > 0.001 && this.deathProne) {
+      const d = w.dead;
+      this.blendBone(d, B.root, -1.52, this.deathTwist * 0.3, 0);
+      this.blendBone(d, B.spine, -0.05, 0, 0);
+      this.blendBone(d, B.head, 0.2, 0.9 * Math.sign(this.deathTwist || 1), 0);
+      this.blendBone(d, B.armUL, 2.2, 0, -0.55);
+      this.blendBone(d, B.armUR, 0.35, 0, 0.5);
+      this.blendBone(d, B.armLL, 0.25, 0, 0);
+      this.blendBone(d, B.armLR, 0.6, 0, 0);
+      this.blendBone(d, B.legUL, 0.08, 0, -0.14);
+      this.blendBone(d, B.legUR, 0.02, 0, 0.12);
+      this.blendBone(d, B.legLL, -0.15, 0, 0);
+      this.blendBone(d, B.legLR, -0.35, 0, 0);
+      root.y = root.y * (1 - d) + 0.12 * d;
+    }
     // dead: fall onto the back and stay down
-    if (w.dead > 0.001) {
+    if (w.dead > 0.001 && !this.deathProne) {
       const d = w.dead;
       const stagger = clamp01(1 - this.deadTime / 0.35);
       this.blendBone(d, B.root, 1.5, this.deathTwist, 0);

@@ -1,9 +1,16 @@
 // Pooled CPU-simulated particles drawn as ONE instanced quad mesh per blend
 // mode. Fixed capacity (no allocations after construction); oldest particles
 // are recycled when the pool is full. Quads can billboard (with rotation) or
-// stretch along their velocity (sparks, tracer debris, rain).
+// stretch along their velocity (sparks, tracer debris, rain). Alpha-blended puffs
+// (smoke, dust) fade out within a couple of metres of the camera: a downed hero's
+// eye sits 0.5 m off the ground, and musket smoke there must not wall off the fight.
 import * as THREE from 'three';
 import { particleAtlas, type ParticleTex } from '../core/textures';
+
+/** Alpha-blended particles are invisible nearer than this to the camera (m)… */
+export const NEAR_FADE0 = 0.8;
+/** …and fully opaque from this distance (m). */
+export const NEAR_FADE1 = 2.5;
 
 const VERT = /* glsl */ `
 attribute vec4 iPos;    // xyz, size
@@ -12,6 +19,7 @@ attribute vec4 iVel;    // xyz velocity, stretch factor
 attribute vec2 iMisc;   // atlas cell, rotation
 varying vec2 vUv;
 varying vec4 vColor;
+varying float vDepth;
 #include <fog_pars_vertex>
 void main() {
   vColor = iColor;
@@ -34,6 +42,7 @@ void main() {
     off = vec2(corner.x * c - corner.y * s, corner.x * s + corner.y * c) * size;
   }
   mv.xy += off;
+  vDepth = -mv.z;
   vec4 mvPosition = mv;
   gl_Position = projectionMatrix * mv;
   #include <fog_vertex>
@@ -44,10 +53,13 @@ uniform sampler2D uAtlas;
 uniform float uAdditive;
 varying vec2 vUv;
 varying vec4 vColor;
+varying float vDepth;
 #include <fog_pars_fragment>
 void main() {
   vec4 t = texture2D(uAtlas, vUv);
   float a = t.a * vColor.a;
+  // smoke / dust right in front of the lens fades away (alpha-blended puffs only)
+  if (uAdditive < 0.5) a *= smoothstep(${NEAR_FADE0.toFixed(2)}, ${NEAR_FADE1.toFixed(2)}, vDepth);
   if (a < 0.004) discard;
   vec3 c = vColor.rgb * t.rgb;
   #ifdef USE_FOG

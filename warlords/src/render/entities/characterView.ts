@@ -282,7 +282,8 @@ export class CharacterView {
     // standing between the camera and the followed hero turn translucent / hide
     if (!isLocal) {
       let target = 1;
-      if (dist < 12) {
+      // (the downed ally you revive stays solid however close you kneel)
+      if (dist < 12 && e.id !== ctx.keepVisibleId) {
         const fo = this.fadeOpts;
         fo.squad = inSquad;
         fo.camDir = ctx.camDir ?? null;

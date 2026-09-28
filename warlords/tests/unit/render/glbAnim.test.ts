@@ -408,6 +408,27 @@ describe('glbBlend (state → layer weights)', () => {
     expect(b.lower[L.death]).toBe(1);
   });
 
+  it('finished off while downed: the death clip (a fall from standing) never restarts — the corpse stays prone', () => {
+    const m = newGlbMemory();
+    const b = newGlbBlend();
+    glbBlend(input({ flags: VF_DOWNED, speed: 1.2, moveZ: 1 }), m, b);
+    expect(b.lower[L.crawl]).toBe(1);
+    glbBlend(input({ flags: VF_DEAD }), m, b);
+    expect(b.start & (1 << L.death)).toBe(0);
+    expect(b.lower[L.crawl]).toBe(1);
+    expect(b.lower[L.death]).toBe(0);
+    // lying still after a knockdown (no crawl): the knockdown's last frame holds
+    const k = newGlbMemory();
+    glbBlend(input({ flags: VF_DOWNED }), k, b);
+    glbBlend(input({ flags: VF_DEAD }), k, b);
+    expect(b.start & (1 << L.death)).toBe(0);
+    expect(b.lower[L.knockdown]).toBe(1);
+    // a new life: a later death from standing falls again
+    glbBlend(input({ flags: 0 }), k, b);
+    glbBlend(input({ flags: VF_DEAD }), k, b);
+    expect(b.start & (1 << L.death)).not.toBe(0);
+  });
+
   it('dodge: roll starts on the rising edge and finishes after the flag drops', () => {
     const m = newGlbMemory();
     const b = newGlbBlend();

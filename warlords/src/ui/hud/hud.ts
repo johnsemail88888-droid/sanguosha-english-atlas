@@ -148,6 +148,8 @@ export class Hud {
   private gameOver = false;
   private settingsOpen = false;
   private spectateId: EntityId | null = null;
+  /** spectating from the watched hero's eye (V) */
+  private spectateFp = false;
   private myDeathHandled = false;
   private raf = 0;
   private lastT = 0;
@@ -961,6 +963,17 @@ export class Hud {
       if (this.overlay === 'wheel' && /^(Digit|Numpad)[1-9]$/.test(ev.code)) {
         consume();
         this.wheel.pickIndex(Number(ev.code.slice(-1)) - 1);
+        return;
+      }
+      // V while dead: watch from his eye / over his shoulder
+      if (this.dead() && ev.code === 'KeyV' && this.overlay === 'none') {
+        consume();
+        this.spectateFp = !this.spectateFp;
+        try {
+          this.handle.setSpectateView?.(this.spectateFp);
+        } catch (err) {
+          console.warn('[hud] setSpectateView failed', err);
+        }
         return;
       }
       if (this.dead() && (ev.code === 'ArrowLeft' || ev.code === 'ArrowRight')) {

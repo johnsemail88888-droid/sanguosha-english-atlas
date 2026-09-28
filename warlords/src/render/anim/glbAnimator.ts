@@ -158,6 +158,9 @@ export interface GlbAnimMemory {
   prevDodge: boolean;
   /** downed and has started crawling (stays prone until revived) */
   crawled: boolean;
+  /** died while downed (finished off / bled out): the corpse keeps the prone pose — the death clip
+   *  (a fall from standing) is not restarted, or the body would stand up first */
+  deadFromDown: boolean;
   crawlYaw: number;
   castT: number;
   meleeT: number;
@@ -177,6 +180,7 @@ export const newGlbMemory = (): GlbAnimMemory => ({
   rollRev: false,
   prevDodge: false,
   crawled: false,
+  deadFromDown: false,
   crawlYaw: 0,
   castT: 0,
   meleeT: 0,
@@ -306,9 +310,13 @@ export function glbBlend(inp: GlbAnimInput, mem: GlbAnimMemory, out: GlbBlend): 
   if (dead) {
     if (mem.deadT < 0) {
       mem.deadT = 0;
-      out.start |= 1 << L.death;
+      mem.deadFromDown = mem.downT >= 0;
+      if (!mem.deadFromDown) out.start |= 1 << L.death;
     } else mem.deadT += dt;
-  } else mem.deadT = -1;
+  } else {
+    mem.deadT = -1;
+    mem.deadFromDown = false;
+  }
   if (downed) {
     if (mem.downT < 0) {
       mem.downT = 0;
@@ -316,7 +324,8 @@ export function glbBlend(inp: GlbAnimInput, mem: GlbAnimMemory, out: GlbBlend): 
     } else mem.downT += dt;
   } else {
     mem.downT = -1;
-    mem.crawled = false;
+    // (a prone corpse keeps its crawl pose)
+    if (!dead) mem.crawled = false;
   }
   // dodge roll: rising edge of VF_DODGING, then the roll plays to its end
   if (dodge && !mem.prevDodge && inp.has('roll')) {
@@ -347,7 +356,15 @@ export function glbBlend(inp: GlbAnimInput, mem: GlbAnimMemory, out: GlbBlend): 
   let full = false; // full-body state: the lower clip also drives the upper body
   if (dead) {
     full = true;
-    if (inp.has('death')) lo[L.death] = 1;
+    if (mem.deadFromDown) {
+      // finished off / bled out: stay as he lay (the crawl frame held, else the knockdown's end)
+      if (mem.crawled && inp.has('crawl')) {
+        lo[L.crawl] = 1;
+        out.bodyYaw = mem.crawlYaw;
+      } else if (inp.has('knockdown')) lo[L.knockdown] = 1;
+      else if (inp.has('death')) lo[L.death] = 1;
+      else lo[L.idle] = 1;
+    } else if (inp.has('death')) lo[L.death] = 1;
     else if (inp.has('knockdown')) lo[L.knockdown] = 1;
     else lo[L.idle] = 1;
   } else if (downed) {
