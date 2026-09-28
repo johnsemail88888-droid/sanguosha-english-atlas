@@ -140,6 +140,18 @@ jobs:
             [ -f "out/$url" ] || { echo "::error::$url is in the update metadata but was not built"; exit 1; }
           done
           ls out/*-Windows-setup.exe.blockmap
+      # the same installers again under names without the version: a link like
+      # releases/latest/download/SanguoWarlords-Windows-setup.exe always gives the newest build
+      # (the updater keeps using the versioned names from latest*.yml: differential downloads need them)
+      - name: Stable download names
+        run: |
+          set -euo pipefail
+          cd out
+          for f in SanguoWarlords-"$APP_VERSION"-*; do
+            case "$f" in *.blockmap) continue ;; esac
+            cp "$f" "SanguoWarlords-${f#SanguoWarlords-"$APP_VERSION"-}"
+          done
+          ls -la
       - name: Release notes
         run: |
           node warlords/scripts/release-notes.mjs --build "${{ github.run_number }}" --ref "$GITHUB_SHA" --version "$APP_VERSION" > "$RUNNER_TEMP/notes.md"

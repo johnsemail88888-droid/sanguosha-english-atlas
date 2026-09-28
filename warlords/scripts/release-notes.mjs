@@ -59,6 +59,9 @@ export function changeLines(commits, max = MAX_LINES) {
   return shown;
 }
 
+/** permanent links (the release workflow also uploads each installer under a name without the version) */
+export const STABLE_SETUP_URL = 'https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest/download/SanguoWarlords-Windows-setup.exe';
+
 /** package.json build.*.artifactName, filled in */
 export const assetNames = (version) => ({
   setup: `SanguoWarlords-${version}-Windows-setup.exe`,
@@ -74,6 +77,9 @@ export function renderNotes({ build, version = `0.1.${build}`, lines = [], prevT
   const since = prevTag ? `（自 build ${prevTag.slice(TAG_PREFIX.length)} 起 / since build ${prevTag.slice(TAG_PREFIX.length)}）` : '';
   const changes = lines.length ? lines.join('\n') : '- （无记录 / nothing recorded）';
   return `## 三国杀·枪火乱世 桌面版 build ${build}（v${version}）
+
+**Windows 一键安装（永远是最新版）/ Windows one-click install (always the newest):** ${STABLE_SETUP_URL}
+下载后双击，不用点任何「下一步」，装完自动打开，以后自动更新。/ Double-click it: no pages to click through, the game opens when done and updates itself from then on.
 
 ### 这次更新 / What changed${since}
 ${changes}
