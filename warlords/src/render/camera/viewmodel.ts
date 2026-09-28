@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { clamp, lerpAngle, wrapAngle } from '../../core/math';
 import { HERO_BY_ID, WEAPON_BY_ID } from '../../data';
 import { aimProfile } from '../../data/weaponFeel';
+import { sprintOutTime } from '../../sim/handling';
 import { GeoBuilder, PRIM, mixCol, shade, trs, type ColorLike } from '../core/geo';
 import { SUN_DIR } from '../scene/lights';
 import { buildWeapon, isAkimbo, weaponArtEpoch, type HoldStyle, type WeaponModel, type WeaponModelInfo } from '../models/weapons';
@@ -377,7 +378,10 @@ export class ViewModel {
     const k = (rate: number): number => 1 - Math.exp(-dt * rate);
     if (inp.adsBlend !== undefined) this.adsBlend = clamp(inp.adsBlend, 0, 1);
     else this.adsBlend += ((inp.ads && !inp.sprinting && !inp.reloading && !inp.lowered ? 1 : 0) - this.adsBlend) * k(14);
-    this.sprintBlend += ((inp.sprinting && !inp.ads ? 1 : 0) - this.sprintBlend) * k(9);
+    // into a run it swings down quickly; out of one the gun comes up over the class's sprint-to-fire
+    // time (sim/handling.ts sprintOutTime: the host holds the first shot that long)
+    if (inp.sprinting && !inp.ads) this.sprintBlend += (1 - this.sprintBlend) * k(9);
+    else this.sprintBlend = Math.max(0, this.sprintBlend - dt / Math.max(0.06, sprintOutTime(WEAPON_BY_ID[held.id])));
     this.reloadBlend += ((inp.reloading ? 1 : 0) - this.reloadBlend) * k(10);
     this.lowerBlend += ((inp.lowered ? 1 : 0) - this.lowerBlend) * k(8);
     this.airBlend += ((inp.airborne ? 1 : 0) - this.airBlend) * k(8);
