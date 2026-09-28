@@ -15,7 +15,8 @@
 #   … | SGWL_HEADLESS=0 bash no server-hosted matches (rooms run in the host player's browser, as
 #                            before); SGWL_HEADLESS=1 turns them back on (remembered in host.env)
 #   … | SGWL_RELAY_KEY=on bash   an access key (only SHARE LINK holders play); =off turns it off (remembered)
-#   … | SGWL_UPDATE_INTERVAL=86400 bash  auto-update once a day instead of every 5 minutes (remembered)
+#   … | SGWL_UPDATE_AT=05:07 bash      auto-update once a day at 05:07 local time instead of every 5 minutes
+#                            (remembered; SGWL_UPDATE_AT=off goes back to SGWL_UPDATE_INTERVAL seconds)
 #   (auto-update: what the job every SGWL_UPDATE_INTERVAL seconds runs — it updates only to a commit
 #    GitHub's CI passed, only while nobody plays; logs rotate at 5 MB)
 #
@@ -103,6 +104,12 @@ UPDATE_PLIST="$HOME/Library/LaunchAgents/${UPDATE_LABEL}.plist"
 UPDATE_LOG="$INSTALL_DIR/update.log"
 # seconds between auto-update checks: SGWL_UPDATE_INTERVAL (≥ 60), else what an earlier run saved, else 300
 UPDATE_INTERVAL=300
+# or once a day at a fixed local time HH:MM (SGWL_UPDATE_AT; an interval of a day or more means 05:07)
+UPDATE_AT=
+# a one-shot LaunchAgent that reloads the auto-update's own LaunchAgent after its schedule changed
+# (a job cannot reload itself: launchd would kill it half way)
+RELOAD_LABEL=com.sanguo-warlords.update-reload
+RELOAD_PLIST="$HOME/Library/LaunchAgents/${RELOAD_LABEL}.plist"
 # its memory: one line per skip reason (logged at most once an hour), the last failed build, …
 AU_STATE="$INSTALL_DIR/auto-update.state"
 # a build under way (its commit): still there on the next run = that build failed
@@ -421,12 +428,25 @@ pmset_ok() {
 
 PMSET_CMD='sudo pmset -a sleep 0 autorestart 1 womp 1'
 
-# update_plist LABEL SCRIPT INTERVAL_S PATH LOG → the LaunchAgent that runs `SCRIPT auto-update` every
-# INTERVAL_S seconds (launchd never starts it twice at once; a run missed while the Mac slept comes
-# when it wakes). The job itself decides whether there is anything to do (cmd_auto_update).
+# update_plist LABEL SCRIPT INTERVAL_S PATH LOG [HH:MM] → the LaunchAgent that runs `SCRIPT auto-update`
+# every INTERVAL_S seconds, or once a day at HH:MM local time when given (launchd never starts it twice
+# at once; a run missed while the Mac slept comes when it wakes). The job itself decides whether there
+# is anything to do (cmd_auto_update).
 update_plist() {
-  local label script path log
+  local label script path log when
   label=$(xml_escape "$1")
+  if [[ -n ${6:-} ]]; then
+    when="	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>$((10#${6%%:*}))</integer>
+		<key>Minute</key>
+		<integer>$((10#${6##*:}))</integer>
+	</dict>"
+  else
+    when="	<key>StartInterval</key>
+	<integer>$3</integer>"
+  fi
   script=$(xml_escape "$2")
   path=$(xml_escape "$4")
   log=$(xml_escape "$5")
@@ -449,8 +469,7 @@ update_plist() {
 		<key>PATH</key>
 		<string>${path}</string>
 	</dict>
-	<key>StartInterval</key>
-	<integer>$3</integer>
+${when}
 	<key>ProcessType</key>
 	<string>Background</string>
 	<key>StandardOutPath</key>
@@ -462,9 +481,20 @@ update_plist() {
 EOF
 }
 
-# update_units SCRIPT USER INTERVAL_S PATH → sgwl-home-update.service, a line "---", sgwl-home-update.timer
-# (2 minutes after boot, then INTERVAL_S after each run ended: never two at once)
+# update_units SCRIPT USER INTERVAL_S PATH [HH:MM] → sgwl-home-update.service, a line "---",
+# sgwl-home-update.timer (2 minutes after boot, then INTERVAL_S after each run ended: never two at
+# once; or daily at HH:MM, catching up after the machine was off)
 update_units() {
+  local when desc
+  if [[ -n ${5:-} ]]; then
+    when="OnCalendar=*-*-* $5:00
+Persistent=true"
+    desc="daily at $5"
+  else
+    when="OnBootSec=2min
+OnUnitInactiveSec=$3s"
+    desc="every $(($3 / 60)) minutes"
+  fi
   cat <<EOF
 # 三国杀·枪火乱世 auto-update — written by warlords/deploy/home-host.sh
 [Unit]
@@ -480,11 +510,10 @@ ExecStart=/bin/bash $1 auto-update
 ---
 # 三国杀·枪火乱世 auto-update — written by warlords/deploy/home-host.sh
 [Unit]
-Description=Sanguo Warlords auto-update every $(($3 / 60)) minutes
+Description=Sanguo Warlords auto-update ${desc}
 
 [Timer]
-OnBootSec=2min
-OnUnitInactiveSec=$3s
+${when}
 AccuracySec=30s
 
 [Install]
@@ -877,6 +906,7 @@ SGWL_BRANCH=$BRANCH
 SGWL_HEADLESS=$HEADLESS_SETTING
 RELAY_KEY=$RELAY_KEY
 SGWL_UPDATE_INTERVAL=$UPDATE_INTERVAL
+SGWL_UPDATE_AT=$UPDATE_AT
 NODE_BIN_DIR=$(dirname "$(command -v node)")
 EOF
   )
@@ -901,11 +931,41 @@ load_key_setting() {
   fi
 }
 
-# load_update_interval: SGWL_UPDATE_INTERVAL (seconds, ≥ 60), else host.env's, else 300
+# load_update_interval: when the auto-update runs —
+#   UPDATE_INTERVAL: SGWL_UPDATE_INTERVAL (seconds, ≥ 60), else host.env's, else 300
+#   UPDATE_AT: SGWL_UPDATE_AT (HH:MM local time, once a day; 'off' = back to the interval), else
+#   host.env's, else 05:07 when the interval is a day or more (a daily update belongs in the small
+#   hours, not wherever the job happened to be loaded — the evening, when people play)
 load_update_interval() {
-  local v=${SGWL_UPDATE_INTERVAL:-}
+  local v=${SGWL_UPDATE_INTERVAL:-} at=${SGWL_UPDATE_AT:-}
   [[ -n $v ]] || v=$(sed -n 's/^SGWL_UPDATE_INTERVAL=//p' "$STATE_FILE" 2>/dev/null | head -n1 || true)
   if [[ $v =~ ^[0-9]+$ ]] && ((v >= 60)); then UPDATE_INTERVAL=$v; fi
+  if [[ $at == off ]]; then
+    UPDATE_AT=
+    return 0
+  fi
+  [[ -n $at ]] || at=$(sed -n 's/^SGWL_UPDATE_AT=//p' "$STATE_FILE" 2>/dev/null | head -n1 || true)
+  if [[ -z $at ]] && ((UPDATE_INTERVAL >= 86400)); then at=05:07; fi
+  UPDATE_AT=$(normalize_hhmm "$at") || UPDATE_AT=
+  if [[ -n $at && -z $UPDATE_AT ]]; then warn "SGWL_UPDATE_AT=$at 不是 HH:MM，忽略 / not HH:MM — ignored"; fi
+  return 0
+}
+
+# normalize_hhmm TEXT → HH:MM (two digits each) for a valid 24-hour time; status 1 otherwise
+normalize_hhmm() {
+  [[ $1 =~ ^([0-9]{1,2}):([0-9]{2})$ ]] || return 1
+  local h=$((10#${BASH_REMATCH[1]})) m=$((10#${BASH_REMATCH[2]}))
+  ((h <= 23 && m <= 59)) || return 1
+  printf '%02d:%02d\n' "$h" "$m"
+}
+
+# update_schedule_text → when the auto-update looks, for the log (zh / en)
+update_schedule_text() {
+  if [[ -n $UPDATE_AT ]]; then
+    echo "每天 $UPDATE_AT 检查一次更新 / checks for updates daily at $UPDATE_AT"
+  else
+    echo "每 $((UPDATE_INTERVAL / 60)) 分钟检查一次更新 / checks for updates every $((UPDATE_INTERVAL / 60)) minutes"
+  fi
 }
 
 # SGWL_HEADLESS from the environment, else what an earlier run saved
@@ -951,16 +1011,16 @@ install_updater() {
     return 0
   fi
   refresh_bin
-  path="$(dirname "$(command -v node)"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  path=$(updater_path)
   if [[ $HOST_OS == macos ]]; then
-    update_plist "$UPDATE_LABEL" "$BIN_DIR/home-host.sh" "$UPDATE_INTERVAL" "$path" "$UPDATE_LOG" >"$UPDATE_PLIST.tmp"
+    update_plist "$UPDATE_LABEL" "$BIN_DIR/home-host.sh" "$UPDATE_INTERVAL" "$path" "$UPDATE_LOG" "$UPDATE_AT" >"$UPDATE_PLIST.tmp"
     mv "$UPDATE_PLIST.tmp" "$UPDATE_PLIST"
     launchctl bootout "gui/$UID/$UPDATE_LABEL" >/dev/null 2>&1 || true
     launchctl bootstrap "gui/$UID" "$UPDATE_PLIST" 2>/dev/null || launchctl load -w "$UPDATE_PLIST" 2>/dev/null || warn "自动更新没有启用 / could not schedule the auto-update"
   else
     local tmp
     tmp=$(mktemp)
-    update_units "$BIN_DIR/home-host.sh" "$(id -un)" "$UPDATE_INTERVAL" "$path" >"$tmp"
+    update_units "$BIN_DIR/home-host.sh" "$(id -un)" "$UPDATE_INTERVAL" "$path" "$UPDATE_AT" >"$tmp"
     sed '/^---$/,$d' "$tmp" | $SUDO tee "/etc/systemd/system/${UNIT}-update.service" >/dev/null
     sed '1,/^---$/d' "$tmp" | $SUDO tee "/etc/systemd/system/${UNIT}-update.timer" >/dev/null
     rm -f "$tmp"
@@ -968,7 +1028,66 @@ install_updater() {
     $SUDO systemctl enable -q "${UNIT}-update.timer"
     $SUDO systemctl restart "${UNIT}-update.timer"
   fi
-  log "每 $((UPDATE_INTERVAL / 60)) 分钟检查一次更新：只更新到 GitHub CI 通过的版本，有人在玩时不更新 / checks for updates every $((UPDATE_INTERVAL / 60)) minutes: only to a version GitHub's CI passed, never while anyone plays"
+  log "$(update_schedule_text)：只更新到 GitHub CI 通过的版本，有人在玩时不更新 / only to a version GitHub's CI passed, never while anyone plays"
+}
+
+# updater_path → the PATH the auto-update job runs with
+updater_path() {
+  echo "$(dirname "$(command -v node)"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+}
+
+# resync_updater: the auto-update's LaunchAgent as host.env says it should be (the schedule changed —
+# SGWL_UPDATE_AT / _INTERVAL — or an older version wrote it): rewritten, and reloaded by a one-shot
+# LaunchAgent a few seconds after this run ended (a job cannot reload itself). Runs last.
+resync_updater() {
+  [[ $HOST_OS == macos && -f $UPDATE_PLIST ]] || return 0
+  local want
+  want=$(update_plist "$UPDATE_LABEL" "$BIN_DIR/home-host.sh" "$UPDATE_INTERVAL" "$(updater_path)" "$UPDATE_LOG" "$UPDATE_AT")
+  if [[ $(cat "$UPDATE_PLIST" 2>/dev/null) == "$want" ]]; then return 0; fi
+  printf '%s\n' "$want" >"$UPDATE_PLIST.tmp" && mv "$UPDATE_PLIST.tmp" "$UPDATE_PLIST"
+  reload_plist "$UPDATE_LABEL" "$UPDATE_PLIST" >"$RELOAD_PLIST.tmp" && mv "$RELOAD_PLIST.tmp" "$RELOAD_PLIST"
+  launchctl bootout "gui/$UID/$RELOAD_LABEL" >/dev/null 2>&1 || true
+  if launchctl bootstrap "gui/$UID" "$RELOAD_PLIST" 2>/dev/null; then
+    log "自动更新改为：$(update_schedule_text)（几秒后生效）/ the auto-update schedule changed (in a few seconds)"
+  else
+    warn "自动更新的时间表没能重新加载，下次登录后生效 / could not reload the auto-update schedule — it applies after the next login"
+  fi
+}
+
+# reload_plist LABEL PLIST → a one-shot LaunchAgent: 5 s later it reloads LABEL from PLIST, then
+# removes itself (arguments go to bash -c as $1…$4: no quoting games)
+reload_plist() {
+  local label plist self me
+  label=$(xml_escape "$1")
+  plist=$(xml_escape "$2")
+  self=$(xml_escape "$RELOAD_PLIST")
+  me=$(xml_escape "$RELOAD_LABEL")
+  cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 三国杀·枪火乱世 auto-update schedule reload (one-shot) — written by warlords/deploy/home-host.sh -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>${me}</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>-c</string>
+		<string>sleep 5; launchctl bootout "gui/\$(id -u)/\$1" 2&gt;/dev/null; launchctl bootstrap "gui/\$(id -u)" "\$2"; rm -f "\$3"; launchctl bootout "gui/\$(id -u)/\$4"</string>
+		<string>sgwl-reload</string>
+		<string>${label}</string>
+		<string>${plist}</string>
+		<string>${self}</string>
+		<string>${me}</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>AbandonProcessGroup</key>
+	<true/>
+</dict>
+</plist>
+PLIST
 }
 
 # restart the game server without sudo (the auto-update): launchd / systemd (Restart=always) start it again
@@ -1081,7 +1200,7 @@ cmd_status() {
       warn "访问密钥 access key: 关 off — 谁拿到网址都能玩 / anyone with the address can play"
     fi
     sha=$(stat_sha "$stats")
-    log "版本 version: ${sha:0:12}${sha:+ · }每 $((UPDATE_INTERVAL / 60)) 分钟自动更新到 GitHub CI 通过的版本 / auto-updates every $((UPDATE_INTERVAL / 60)) min to what GitHub's CI passed"
+    log "版本 version: ${sha:0:12}${sha:+ · }$(update_schedule_text)（只更新到 GitHub CI 通过的版本 / only to what GitHub's CI passed）"
   else
     warn "本机 127.0.0.1:${APP_PORT} 无响应 / no answer"
     ok=0
@@ -1295,7 +1414,10 @@ main() {
     status) cmd_status || exit 1 ;;
     rotate-key) cmd_rotate_key ;;
     stop) cmd_stop ;;
-    auto-update) cmd_auto_update ;;
+    auto-update)
+      cmd_auto_update
+      resync_updater
+      ;;
     *) die "用法 / usage: home-host.sh [install|update|status|rotate-key|stop|auto-update]" ;;
   esac
 }
