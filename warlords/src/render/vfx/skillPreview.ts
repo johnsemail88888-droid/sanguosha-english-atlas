@@ -217,16 +217,27 @@ export function planSkillPreview(inp: PreviewInput): PreviewPlan | null {
 
 // ── drawing ─────────────────────────────────────────────────────────────────
 
+// Drawn twice: depth-tested and pulled uBias m towards the camera (it lies on the terrain it
+// hugs but units standing in it — your own hero in third person — stay in front of it), and a
+// faint copy that ignores depth (the parts a raised floor or a wall hides still show).
 const VERT = /* glsl */ `
 attribute float aEdge;
 attribute float aAlong;
+uniform float uBias;
 varying float vEdge;
 varying float vAlong;
 void main() {
   vEdge = aEdge;
   vAlong = aAlong;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  float d = length(mv.xyz);
+  mv.xyz *= max(0.0, d - uBias) / max(d, 1e-4);
+  gl_Position = projectionMatrix * mv;
 }`;
+/** metres the depth-tested pass is pulled towards the camera */
+const DEPTH_BIAS = 0.35;
+/** alpha of the pass that ignores depth (seen through what hides the area) */
+const GHOST_ALPHA = 0.22;
 
 const FRAG = /* glsl */ `
 uniform vec3 uColor;
@@ -257,7 +268,7 @@ const RANGE_COLOR = new THREE.Color(1.0, 0.9, 0.6);
 const LIFT = 0.08;
 const BIG = 1e3;
 
-function makeMaterial(fill: number, edgeW: number, flow: number): THREE.ShaderMaterial {
+function makeMaterial(fill: number, edgeW: number, flow: number, depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: VERT,
     fragmentShader: FRAG,
@@ -268,9 +279,10 @@ function makeMaterial(fill: number, edgeW: number, flow: number): THREE.ShaderMa
       uEdgeW: { value: edgeW },
       uTime: { value: 0 },
       uFlow: { value: flow },
+      uBias: { value: depthTest ? DEPTH_BIAS : 0 },
     },
     transparent: true,
-    depthTest: false,
+    depthTest,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
@@ -280,6 +292,9 @@ function makeMaterial(fill: number, edgeW: number, flow: number): THREE.ShaderMa
 class GroundMesh {
   readonly mesh: THREE.Mesh;
   readonly mat: THREE.ShaderMaterial;
+  /** the faint copy drawn over whatever hides the area (a child of `mesh`: shown with it) */
+  readonly ghost: THREE.Mesh;
+  readonly ghostMat: THREE.ShaderMaterial;
   private readonly pos: THREE.BufferAttribute;
   private readonly edge: THREE.BufferAttribute;
   private readonly along: THREE.BufferAttribute;
@@ -315,6 +330,22 @@ class GroundMesh {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = order;
     this.mesh.visible = false;
+    this.ghostMat = makeMaterial(mat.uniforms.uFill.value as number, mat.uniforms.uEdgeW.value as number, mat.uniforms.uFlow.value as number, false);
+    this.ghost = new THREE.Mesh(g, this.ghostMat);
+    this.ghost.frustumCulled = false;
+    this.ghost.renderOrder = order - 10;
+    this.mesh.add(this.ghost);
+  }
+
+  /** Colour / alpha / time / rim width for both passes. */
+  style(color: THREE.Color, alpha: number, time: number, edgeW?: number): void {
+    for (const [m, a] of [[this.mat, alpha], [this.ghostMat, alpha * GHOST_ALPHA]] as const) {
+      const u = m.uniforms;
+      (u.uColor.value as THREE.Color).copy(color);
+      u.uAlpha.value = a;
+      u.uTime.value = time;
+      if (edgeW !== undefined) u.uEdgeW.value = edgeW;
+    }
   }
 
   set(k: number, x: number, y: number, z: number, edge: number, along: number): void {
@@ -332,6 +363,7 @@ class GroundMesh {
   dispose(): void {
     this.mesh.geometry.dispose();
     this.mat.dispose();
+    this.ghostMat.dispose();
   }
 }
 
@@ -448,12 +480,9 @@ export class SkillPreview {
       }
       if (strip) drawStrip(m, shape as StripShape, this.groundY);
       else drawPolar(m, shape as PolarShape, this.groundY);
-      const u = m.mat.uniforms;
       // a crisp rim that stays visible on big areas seen at a grazing angle
-      if (m === this.areaM) u.uEdgeW.value = Math.min(0.9, Math.max(0.35, (shape as PolarShape).rOut * 0.08));
-      (u.uColor.value as THREE.Color).copy(color);
-      u.uAlpha.value = a;
-      u.uTime.value = this.time;
+      const edgeW = m === this.areaM ? Math.min(0.9, Math.max(0.35, (shape as PolarShape).rOut * 0.08)) : undefined;
+      m.style(color, a, this.time, edgeW);
       m.mesh.visible = a > 0.01;
     };
     if (!plan) {
