@@ -82,3 +82,34 @@ describe('deploy/check.mjs (live server)', () => {
     expect(r).toMatchObject({ ok: true, headless: 'busy' });
   });
 });
+
+describe('deploy/check.mjs --key (a server with RELAY_KEY)', () => {
+  const KEY = 'c2VjcmV0LWtleS1mb3ItY2hlY2stMTIzNA';
+
+  it('with the key: relay ✓, the server-hosted room ✓ — and the relay refuses a socket without it', async () => {
+    const srv = await serve({ workerPath: STUB, relayKey: KEY });
+    const r = await check(srv, { key: KEY });
+    expect(r.ok).toBe(true);
+    expect(r.headless).toBe('ok');
+    expect(r.lines.some((l) => l.includes('(WebSocket, 带密钥 / with the key)'))).toBe(true);
+    expect(r.lines.some((l) => l.includes('connections without the key are refused (401)'))).toBe(true);
+    expect(r.lines.join('\n')).not.toContain(KEY);
+  });
+
+  it('without the key / with a wrong one: ✗ with what to do', async () => {
+    const srv = await serve({ workerPath: STUB, relayKey: KEY });
+    const none = await check(srv);
+    expect(none.ok).toBe(false);
+    expect(none.lines.join('\n')).toMatch(/--key=<key>/);
+    const wrong = await check(srv, { key: 'not-the-key' });
+    expect(wrong.ok).toBe(false);
+    expect(wrong.lines.join('\n')).toMatch(/wrong access key \(HTTP 401\)/);
+  });
+
+  it('a key given to a server without one: fine, with a ⚠ that anyone can play', async () => {
+    const srv = await serve({ workerPath: STUB });
+    const r = await check(srv, { key: KEY, headless: false });
+    expect(r.ok).toBe(true);
+    expect(r.lines.some((l) => l.startsWith('⚠ ') && l.includes('no access key set'))).toBe(true);
+  });
+});

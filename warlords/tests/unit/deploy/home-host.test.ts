@@ -142,7 +142,8 @@ describe('deploy/home-host.sh', () => {
     const p = readPlist(xml);
     expect(p.Label).toBe('com.sanguo-warlords.server');
     expect(p.ProgramArguments).toEqual(['/usr/bin/caffeinate', '-is', '/opt/homebrew/opt/node@22/bin/node', '/Users/a&b/sanguo-warlords/src/warlords/server/server.mjs']);
-    expect(p.EnvironmentVariables).toEqual({ NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '8787' });
+    // a home server: no PeerJS, ≤ 4 relay rooms, a dropped host keeps its room 2 minutes; no key given here
+    expect(p.EnvironmentVariables).toEqual({ NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '8787', NO_PEER: '1', MAX_ROOMS: '4', HOST_GRACE_MS: '120000' });
     expect(p.WorkingDirectory).toBe('/Users/a&b/sanguo-warlords/src/warlords');
     expect(p.KeepAlive).toBe(true);
     expect(p.StandardErrorPath).toBe('/Users/x/server.log');
@@ -150,9 +151,9 @@ describe('deploy/home-host.sh', () => {
 
   it('SGWL_HEADLESS=0 puts HEADLESS=0 into the service (no server-hosted matches)', () => {
     const xml = sh('launchd_plist com.sanguo-warlords.server /usr/local/bin/node /Users/x/w 8787 /Users/x/server.log 0').out;
-    expect(xml).toMatch(/<key>PORT<\/key>\n\t\t<string>8787<\/string>\n\t\t<key>HEADLESS<\/key>\n\t\t<string>0<\/string>\n\t<\/dict>/);
+    expect(xml).toMatch(/<key>HOST_GRACE_MS<\/key>\n\t\t<string>120000<\/string>\n\t\t<key>HEADLESS<\/key>\n\t\t<string>0<\/string>\n\t<\/dict>/);
     expect(sh('launchd_plist com.sanguo-warlords.server /usr/local/bin/node /Users/x/w 8787 /Users/x/server.log 1').out).not.toContain('HEADLESS');
-    if (python) expect(readPlist(xml).EnvironmentVariables).toEqual({ NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '8787', HEADLESS: '0' });
+    if (python) expect(readPlist(xml).EnvironmentVariables).toMatchObject({ NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '8787', HEADLESS: '0' });
     expect(sh('systemd_unit /usr/bin/node /home/me/w 8787 me home-host.sh 0').out).toContain('Environment=HEADLESS=0');
     // remembered for the next update (the environment wins over what was saved)
     const dir = path.join(TMP, 'state-home');
@@ -161,25 +162,35 @@ describe('deploy/home-host.sh', () => {
     expect(sh('load_headless_setting; echo "$HEADLESS_SETTING"', { ...env, SGWL_HEADLESS: '1' }).out).toBe('1');
   });
 
-  it('writes the daily-update LaunchAgent (05:07) and the Linux timer', () => {
-    const xml = sh('update_plist com.sanguo-warlords.update /Users/x/sanguo-warlords/bin/home-host.sh 5 7 /opt/homebrew/bin:/usr/bin:/bin /Users/x/update.log').out;
+  it('writes the auto-update LaunchAgent and the Linux timer: every 5 minutes', () => {
+    expect(sh('echo "$UPDATE_INTERVAL"').out).toBe('300');
+    const xml = sh('update_plist com.sanguo-warlords.update /Users/x/sanguo-warlords/bin/home-host.sh "$UPDATE_INTERVAL" /opt/homebrew/bin:/usr/bin:/bin /Users/x/update.log').out;
+    expect(xml).not.toContain('StartCalendarInterval');
     if (python) {
       const p = readPlist(xml);
       expect(p.ProgramArguments).toEqual(['/bin/bash', '/Users/x/sanguo-warlords/bin/home-host.sh', 'auto-update']);
-      expect(p.StartCalendarInterval).toEqual({ Hour: 5, Minute: 7 });
+      expect(p.StartInterval).toBe(300);
       expect(p.EnvironmentVariables).toEqual({ PATH: '/opt/homebrew/bin:/usr/bin:/bin' });
-    } else expect(xml).toContain('<integer>7</integer>');
-    const units = sh('update_units /home/me/sanguo-warlords/bin/home-host.sh me 5 7 /usr/bin:/bin').out.split('\n---\n');
+      expect(p.StandardOutPath).toBe('/Users/x/update.log');
+    } else expect(xml).toMatch(/<key>StartInterval<\/key>\s*<integer>300<\/integer>/);
+    const units = sh('update_units /home/me/sanguo-warlords/bin/home-host.sh me "$UPDATE_INTERVAL" /usr/bin:/bin').out.split('\n---\n');
     expect(units).toHaveLength(2);
     expect(units[0]).toContain('ExecStart=/bin/bash /home/me/sanguo-warlords/bin/home-host.sh auto-update');
     expect(units[0]).toContain('User=me');
     expect(units[0]).toContain('Type=oneshot');
-    expect(units[1]).toContain('OnCalendar=*-*-* 05:07:00');
-    expect(units[1]).toContain('Persistent=true');
+    expect(units[0]).toContain('Environment=PATH=/usr/bin:/bin');
+    // 2 minutes after boot, then 5 minutes after each run ended (never two at once)
+    expect(units[1]).toContain('OnBootSec=2min');
+    expect(units[1]).toContain('OnUnitInactiveSec=300s');
+    expect(units[1]).not.toContain('OnCalendar');
   });
 
   it('writes the Linux game service with install.sh’s unit, as the user', () => {
     const unit = sh('systemd_unit /usr/bin/node /home/me/sanguo-warlords/src/warlords 8787 me home-host.sh').out;
+    // (install_service: the key in its own EnvironmentFile, the home environment as Environment= lines)
+    const home = sh('systemd_unit /usr/bin/node /home/me/w 8787 me home-host.sh "" "$SERVER_ENV" "${HOME_ENV[@]}"').out;
+    expect(home).toMatch(/Environment=PORT=8787\nEnvironment=NO_PEER=1\nEnvironment=MAX_ROOMS=4\nEnvironment=HOST_GRACE_MS=120000\nEnvironmentFile=-.*\/sanguo-warlords\/server.env\nExecStart=/);
+    expect(home).not.toContain('RELAY_KEY');
     expect(unit).toContain('written by warlords/deploy/home-host.sh');
     expect(unit).toContain('ExecStart=/usr/bin/node /home/me/sanguo-warlords/src/warlords/server/server.mjs');
     expect(unit).toContain('User=me');
@@ -240,7 +251,7 @@ describe('deploy/home-host.sh', () => {
     expect(ok(`APP_DIR=${q(app)}; scripts_changed`)).toBe(true);
     // the daily job checks again after the (long) build before it restarts anything
     const text = readFileSync(SCRIPT, 'utf8');
-    const auto = text.slice(text.indexOf('cmd_auto_update() {'), text.indexOf('cmd_stop() {'));
+    const auto = text.slice(text.indexOf('cmd_auto_update() {'), text.indexOf('cmd_rotate_key() {'));
     expect(auto.indexOf('build_game')).toBeLessThan(auto.lastIndexOf('game_busy'));
     expect(auto.lastIndexOf('game_busy')).toBeLessThan(auto.indexOf('service_kick'));
   });
