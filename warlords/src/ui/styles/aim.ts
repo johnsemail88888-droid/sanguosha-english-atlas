@@ -59,7 +59,7 @@ export const AIM_CSS = /* css */ `
 .hud-scope .bl-svg .trk { fill: none; stroke: rgba(255, 255, 255, 0.25); stroke-width: 4; }
 .hud-scope .bl-svg .arc { fill: none; stroke: #ffcf6a; stroke-width: 5; stroke-dasharray: 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 1px #000); }
 /* touch: switch the scope's zoom step (the wheel on desktop) — above the touch controls' look area */
-.hud-zoombtn { display: none; position: absolute; z-index: 6; left: calc(50% + min(44vh, 42vw) * 0.6); top: calc(50% + min(44vh, 42vw) * 0.52); transform: translate(-50%, -50%); min-width: 58px; min-height: 40px; padding: 0 12px; border-radius: 999px; border: 2px solid rgba(255, 207, 106, 0.8); background: rgba(12, 9, 6, 0.8); color: #ffcf6a; font-family: var(--font-display); font-weight: 900; font-size: 16px; pointer-events: auto; touch-action: none; }
+.hud-zoombtn { display: none; position: absolute; z-index: 6; left: calc(50% + min(44vh, 42vw) * 0.7); top: calc(50% + min(44vh, 42vw) * 0.3); transform: translate(-50%, -50%); min-width: 58px; min-height: 40px; padding: 0 12px; border-radius: 999px; border: 2px solid rgba(255, 207, 106, 0.8); background: rgba(12, 9, 6, 0.8); color: #ffcf6a; font-family: var(--font-display); font-weight: 900; font-size: 16px; pointer-events: auto; touch-action: none; }
 .sg-hud.touch .hud-zoombtn.on { display: grid; place-items: center; }
 .sg-hud.touch .hud-scope .sc-zoom { display: none; }
 
