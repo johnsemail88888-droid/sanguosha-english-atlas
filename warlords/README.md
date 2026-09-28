@@ -236,7 +236,7 @@ P2P 模式需要双方能打洞。对称型 NAT、手机 4G/5G（运营商级 NA
 | `npm run electron` | 以桌面应用运行 |
 | `npm run dist:win` / `dist:mac` / `dist:linux` | 打包桌面版到 `release/` |
 
-- 发布：合并到 `main` 的改动（游戏代码、美术、服务器、依赖）会自动发布——网页版由 `warlords-pages.yml` 部署，桌面版由 `warlords-desktop.yml` 构建 Windows / macOS / Linux 并发布成最新的 GitHub Release（版本 `0.1.<运行号>`，标签 `warlords-build-<运行号>`，附带 electron-updater 需要的 `latest*.yml` 和 `.blockmap`）。已安装的桌面版自己更新（`electron/updater.cjs`：安装版和 AppImage 后台下载、退出时安装；便携版和 Mac 版在标题页提示下载）。只改文档 / 测试不发布。手动运行该工作流时取消勾选 `publish` 可以试跑任意分支（只产出构建文件，不发布）。
+- 发布：合并到 `main` 的改动（游戏代码、美术、服务器、依赖）会自动发布——网页版由 `warlords-pages.yml` 部署，桌面版由 `warlords-desktop.yml` 构建 Windows / macOS / Linux 并发布成最新的 GitHub Release（版本 `0.1.<运行号>`，标签 `warlords-build-<运行号>`，附带 electron-updater 需要的 `latest*.yml` 和 `.blockmap`）。已安装的桌面版自己更新（`electron/updater.cjs`：安装版和 AppImage 后台下载、退出时安装；便携版和 Mac 版在标题页提示下载）。只改文档 / 测试不发布。只有 `main` 会发布：手动运行该工作流时选其他分支（或取消勾选 `publish`）只是试跑（只产出构建文件，不发布）。
 
 - 调试：在网址后加 `?debug=1` 会暴露 `window.__sgwl`（当前会话、视图、本地英雄、事件统计、加载耗时，以及仅限本地单人练习的作弊：`cheats.timeScale(4)`、`cheats.god()`、`cheats.give('tao')`、`cheats.teleport(x, z)` 等；联机房主与客人均不可用），供自动化测试与试玩使用。
 - e2e 默认使用 `/opt/pw-browsers/chromium`，可用 `CHROMIUM_PATH` 覆盖；`SGWL_E2E_SKIP_BUILD=1` 复用上次的测试构建。
@@ -443,7 +443,7 @@ browsers joining over the WebSocket relay, the `file://` single-file build, phon
 `npm run electron`, `npm run dist:win|mac|linux`. Releases are automatic: a push to `main` that changes the game deploys the web
 version (`warlords-pages.yml`) and publishes the desktop apps as the latest GitHub release (`warlords-desktop.yml`: version
 `0.1.<run>`, tag `warlords-build-<run>`, with electron-updater's `latest*.yml` / `.blockmap`); installed apps update from it
-(`electron/updater.cjs`). A manual run with `publish` off dry-runs any branch. Append `?debug=1` to the URL to get `window.__sgwl` (session,
+(`electron/updater.cjs`). Only `main` publishes: a manual run of any other branch (or with `publish` off) is a dry run. Append `?debug=1` to the URL to get `window.__sgwl` (session,
 view, local hero, event counters, load timings and — in local single-player matches only, never online — cheats such as `cheats.timeScale(4)`,
 `cheats.god()`, `cheats.give('tao')`) for automated play-testing. Layout: `src/core` contracts · `src/data` content · `src/sim`
 headless authoritative simulation + AI + map generator · `src/net` sessions & transports · `src/render` three.js ·

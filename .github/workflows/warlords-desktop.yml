@@ -6,8 +6,8 @@ name: Warlords · Desktop builds
 # up by themselves (warlords/electron/updater.cjs): the Windows setup build and the Linux AppImage
 # download it in the background and install it on quit; the portable exe and the Mac app offer
 # 「有新版本 build N · 下载」 on the title screen. Docs / tests-only pushes do not release.
-# Manual run (Actions → Run workflow): `publish` off = a dry run of any branch — the apps and the
-# release notes become the run's artifacts, no release.
+# Only main publishes. A manual run of another branch (or with `publish` off) is a dry run: the
+# apps and the release notes become the run's artifacts, no release — installed apps never see it.
 on:
   push:
     branches: [main]
@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish a GitHub release (off: only build — a dry run, e.g. of a branch)'
+        description: 'Publish a GitHub release (main only — another branch is always a dry run; off: only build)'
         type: boolean
         default: true
 
@@ -37,15 +37,19 @@ permissions:
 
 # One release build at a time; a newer push cancels an older one still running (a draft it left
 # behind is deleted by the next release). Dry runs queue per branch and never cancel a release.
+# A re-run (attempt 2+) of an older run never cancels a newer release: it waits, then its publish
+# step sees the newer build and stands down.
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish && format('warlords-desktop-dry-{0}', github.ref) || 'warlords-desktop-release' }}
-  cancel-in-progress: true
+  group: ${{ (github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish)) && 'warlords-desktop-release' || format('warlords-desktop-dry-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.run_attempt == '1' }}
 
 env:
   # strictly increasing, so electron-updater sees every build as newer; the tag names its release
   APP_VERSION: 0.1.${{ github.run_number }}
   RELEASE_TAG: warlords-build-${{ github.run_number }}
-  PUBLISH: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+  # main only: a manual run of any other branch is a dry run even with `publish` on (every setup
+  # build / AppImage would otherwise install unmerged code)
+  PUBLISH: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
 
 jobs:
   build:
@@ -140,6 +144,7 @@ jobs:
         run: |
           node warlords/scripts/release-notes.mjs --build "${{ github.run_number }}" --ref "$GITHUB_SHA" --version "$APP_VERSION" > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$PUBLISH" != true ]; then echo "::notice::dry run of ${GITHUB_REF}: nothing is published (only main publishes; the apps are this run's artifacts)"; fi
       - name: Keep the notes (dry run)
         if: env.PUBLISH != 'true'
         uses: actions/upload-artifact@v4
@@ -154,12 +159,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # (belt and braces: PUBLISH is false off main)
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::only main publishes ($GITHUB_REF)"; exit 1; }
           # drafts left behind by a cancelled or failed release run
           gh release list --limit 100 --json tagName,isDraft -q '.[] | select(.isDraft) | .tagName' \
             | { grep -E '^warlords-build-[0-9]+$' || true; } \
             | while read -r t; do echo "deleting the stale draft $t"; gh release delete "$t" --yes || true; done
           if gh release view "$RELEASE_TAG" --json isDraft >/dev/null 2>&1; then
             echo "$RELEASE_TAG is already published (a re-run): nothing to do"
+            exit 0
+          fi
+          # a re-run of an older (cancelled / failed) run keeps its old run number and commit: never
+          # publish it over a newer build (it would become "latest" — players would get old code)
+          NEWEST=$(gh release list --limit 100 --json tagName,isDraft -q '.[] | select(.isDraft | not) | .tagName' \
+            | sed -nE 's/^warlords-build-([0-9]+)$/\1/p' | sort -n | tail -n 1)
+          if [ -n "$NEWEST" ] && [ "$NEWEST" -gt "$GITHUB_RUN_NUMBER" ]; then
+            echo "::warning::warlords-build-$NEWEST is newer: not publishing build $GITHUB_RUN_NUMBER (an old run re-run)"
             exit 0
           fi
           gh release create "$RELEASE_TAG" out/* --draft --target "$GITHUB_SHA" \
