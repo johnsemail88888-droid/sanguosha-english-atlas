@@ -480,7 +480,9 @@ export function areaClear(
     const rx = e.p.x - self.pos.x;
     const rz = e.p.z - self.pos.z;
     const along = rx * ux + rz * uz;
-    if (along < -1 || along > len) continue;
+    // (on a camp the berth goes behind the caster too: a napalm's first blast and its fire start
+    // at his feet — a hero standing just behind him was left out of the corridor)
+    if (along < -(onCamp ? radius : 1) || along > len) continue;
     if (Math.abs(rx * uz - rz * ux) <= width) return false;
   }
   return true;
