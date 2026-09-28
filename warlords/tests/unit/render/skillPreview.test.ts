@@ -83,6 +83,7 @@ describe('planSkillPreview', () => {
     const other: PreviewUnit = { id: 4, x: 8, y: 0, z: -12, kind: 'hero', own: false };
     const p = planSkillPreview({ def: ABILITY_BY_ID.diaochan_lijian, caster: at, yaw: 0, aimPoint: { x: 4, y: 1, z: -10 }, target: foe, units: [foe, other] })!;
     expect(p.area).toMatchObject({ x: 4, z: -10, rOut: 15 });
+    expect(p.caughtUnits.map((u) => u.id)).toEqual([4]);
   });
 
   it('an enemy under the crosshair but out of range is "far" (with its distance), not "no target"', () => {
@@ -114,6 +115,9 @@ describe('planSkillPreview', () => {
     const fj = planSkillPreview({ def: ABILITY_BY_ID.zhouyu_fanjian, caster: at, yaw: 0, aimPoint: { x: 0, y: 1, z: -10 }, target: foe, units: [foe, other, downed] })!;
     expect(fj).toMatchObject({ valid: true, targetId: 3, linkId: 4 });
     expect(fj.link).toMatchObject({ x: 0, z: -10 });
+    // the partner gets the ring; nobody is "caught"
+    expect(fj.caughtUnits.map((u) => u.id)).toEqual([4]);
+    expect(fj.caught).toBeUndefined();
     const alone = planSkillPreview({ def: ABILITY_BY_ID.zhouyu_fanjian, caster: at, yaw: 0, aimPoint: { x: 0, y: 1, z: -10 }, target: foe, units: [foe] })!;
     expect(alone).toMatchObject({ valid: true, fallback: 'disarm', link: null });
     const lj = planSkillPreview({ def: ABILITY_BY_ID.diaochan_lijian, caster: at, yaw: 0, aimPoint: { x: 0, y: 1, z: -10 }, target: foe, units: [foe] })!;

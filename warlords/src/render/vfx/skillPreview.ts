@@ -396,7 +396,9 @@ export function planSkillPreview(inp: PreviewInput): PreviewPlan | null {
           if (other) {
             plan.linkId = other.id;
             const len = Math.hypot(other.x - t.x, other.z - t.z);
-            plan.link = { x: t.x, z: t.z, yaw: Math.atan2(-(other.x - t.x), -(other.z - t.z)), start: 1.15, end: Math.max(1.15, len - 0.9), width: 0.14 };
+            plan.link = { x: t.x, z: t.z, yaw: Math.atan2(-(other.x - t.x), -(other.z - t.z)), start: 1.15, end: Math.max(1.15, len - 0.9), width: 0.24 };
+            // (a ring under the one it is turned on, drawn with the caught rings)
+            plan.caughtUnits = [other];
           } else if (area.link.fallback === 'disarm') plan.fallback = 'disarm';
           else {
             plan.valid = false;
@@ -419,7 +421,9 @@ export function planSkillPreview(inp: PreviewInput): PreviewPlan | null {
     }
   }
   // who the area catches (harm: anyone not yours; heals: heroes and your own units)
-  if (countable && plan.valid && plan.tone !== 'self' && plan.tone !== 'invalid' && area.kind !== 'blinkPoint') {
+  // (反间 / 离间 act on the target and its partner only: their ring is the partner's, set above)
+  const linked = area.kind === 'target' && area.link !== undefined;
+  if (countable && !linked && plan.valid && plan.tone !== 'self' && plan.tone !== 'invalid' && area.kind !== 'blinkPoint') {
     const harm = plan.tone === 'harm';
     for (const u of units) {
       if (plan.caughtUnits.length >= MAX_CAUGHT) break;
@@ -427,9 +431,8 @@ export function planSkillPreview(inp: PreviewInput): PreviewPlan | null {
       const inside = (plan.area !== null && inPolar(plan.area, u)) || (countStrip && plan.strip !== null && inStrip(plan.strip, u));
       if (inside) plan.caughtUnits.push(u);
     }
-    // a target skill without a secondary area catches its target only (the marker says so);
-    // 离间's radius is where its partner is searched, not an area it hits
-    if (area.kind !== 'target' || (area.radius && !area.link)) plan.caught = plan.caughtUnits.length;
+    // a target skill without a secondary area catches its target only (the marker says so)
+    if (area.kind !== 'target' || area.radius) plan.caught = plan.caughtUnits.length;
     else plan.caughtUnits = [];
   }
   return plan;
@@ -711,7 +714,7 @@ export class SkillPreview {
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-    const g = new THREE.CylinderGeometry(0.1, 0.16, PIN_HEIGHT, 8, 1, true);
+    const g = new THREE.CylinderGeometry(0.07, 0.12, PIN_HEIGHT, 8, 1, true);
     g.translate(0, PIN_HEIGHT / 2, 0);
     this.pin = new THREE.Mesh(g, this.pinMat);
     this.pin.renderOrder = 45;
@@ -794,8 +797,11 @@ export class SkillPreview {
     this.pin.visible = !!pin;
     if (pin) {
       this.pin.position.set(pin.x, this.groundY(pin.x, pin.z), pin.z);
+      // about as wide on screen near or far (a thread at 30 m otherwise)
+      const w = f.caster ? Math.max(1, Math.hypot(pin.x - f.caster.x, pin.z - f.caster.z) / 15) : 1;
+      this.pin.scale.set(w, 1, w);
       (this.pinMat.uniforms.uColor.value as THREE.Color).copy(plan.clamped !== undefined ? CLAMPED_COLOR : tone);
-      this.pinMat.uniforms.uAlpha.value = 0.85;
+      this.pinMat.uniforms.uAlpha.value = 0.7;
     }
   }
 
