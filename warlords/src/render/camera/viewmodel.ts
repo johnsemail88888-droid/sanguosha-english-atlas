@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { clamp, lerpAngle, wrapAngle } from '../../core/math';
 import { HERO_BY_ID, WEAPON_BY_ID } from '../../data';
 import { aimProfile } from '../../data/weaponFeel';
+import { sprintOutTime } from '../../sim/handling';
 import { GeoBuilder, PRIM, mixCol, shade, trs, type ColorLike } from '../core/geo';
 import { SUN_DIR } from '../scene/lights';
 import { buildWeapon, isAkimbo, weaponArtEpoch, type HoldStyle, type WeaponModel, type WeaponModelInfo } from '../models/weapons';
@@ -55,6 +56,9 @@ export const HIP_POSE: Readonly<Record<HoldStyle, VmPose>> = {
  */
 export const HOLD_SCALE: Partial<Record<HoldStyle, number>> = { bow: 0.72 };
 
+/** How far a DMR sinks under its marksman near sight once aimed (m, view space). */
+export const MARKSMAN_DROP = 0.085;
+
 /**
  * Aim-down-sights pose: the weapon centred under the crosshair with its sight
  * line (the top of the receiver / scope, `sightY` above the wrist) just below
@@ -76,6 +80,10 @@ export function adsPose(hold: HoldStyle, sightY: number, scoped = false): VmPose
     case 'hip':
       // LMG / flamer: a bulky receiver — held lower and further out, so the box does not fill the lower view
       return pose(0.012, -sightY - 0.05, -0.47);
+    case 'launcher':
+      // a launcher is aimed with its ladder / lock brackets, not over the tube: held right and low,
+      // or the axe head / tube tip (beyond the sight line sightHeight measures) covers the target
+      return pose(0.07, -sightY - 0.08, -0.46);
     default:
       // a scope comes right up to the eye (the lens overlay takes over once it is there)
       if (scoped) return pose(0, -sightY + 0.004, -0.2);
@@ -136,6 +144,8 @@ interface Held {
   art: boolean;
   /** looked through a scope (a lens overlay once aimed: data/weaponFeel.ts) */
   scoped: boolean;
+  /** a marksman near sight (DMRs): the HUD draws the sight's window, the gun sits below it */
+  near: boolean;
 }
 
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -372,7 +382,10 @@ export class ViewModel {
     const k = (rate: number): number => 1 - Math.exp(-dt * rate);
     if (inp.adsBlend !== undefined) this.adsBlend = clamp(inp.adsBlend, 0, 1);
     else this.adsBlend += ((inp.ads && !inp.sprinting && !inp.reloading && !inp.lowered ? 1 : 0) - this.adsBlend) * k(14);
-    this.sprintBlend += ((inp.sprinting && !inp.ads ? 1 : 0) - this.sprintBlend) * k(9);
+    // into a run it swings down quickly; out of one the gun comes up over the class's sprint-to-fire
+    // time (sim/handling.ts sprintOutTime: the host holds the first shot that long)
+    if (inp.sprinting && !inp.ads) this.sprintBlend += (1 - this.sprintBlend) * k(9);
+    else this.sprintBlend = Math.max(0, this.sprintBlend - dt / Math.max(0.06, sprintOutTime(WEAPON_BY_ID[held.id])));
     this.reloadBlend += ((inp.reloading ? 1 : 0) - this.reloadBlend) * k(10);
     this.lowerBlend += ((inp.lowered ? 1 : 0) - this.lowerBlend) * k(8);
     this.airBlend += ((inp.airborne ? 1 : 0) - this.airBlend) * k(8);
@@ -423,8 +436,15 @@ export class ViewModel {
     p.roll += 0.45 * r + Math.sin(t * 9) * 0.02 * r;
     // a scope: the weapon comes up and then drops out of the frame as the eye meets the lens
     // (the lens overlay takes over from game/aimFeel.ts SCOPE_AT — no gun model filling the view)
+    // a marksman near sight: the HUD draws the sight's round window at the screen centre — the gun
+    // itself settles low under it (the stock at the cheek, the scope body out of the window)
+    if (held.near) {
+      p.y -= MARKSMAN_DROP * a;
+      p.pitch -= 0.03 * a;
+    }
     if (held.scoped) {
-      const out = clamp((a - 0.3) / 0.15, 0, 1);
+      // (it is fully down by blend 0.75 ≈ progress 0.68, just before SCOPE_AT 0.70 hides it)
+      const out = clamp((a - 0.55) / 0.2, 0, 1);
       p.y -= 0.15 * out;
       p.pitch -= 0.25 * out;
     }
@@ -529,8 +549,9 @@ export class ViewModel {
       this.left.add(second.mesh);
     }
     this.left.visible = akimbo;
-    const scoped = aimProfile(WEAPON_BY_ID[id]).overlay;
-    this.held = { id, model, second, info: model.info, hold, sightY: sightHeight(model.mesh.geometry), epoch: weaponArtEpoch(), art: art || !waiting, scoped };
+    const prof = aimProfile(WEAPON_BY_ID[id]);
+    const scoped = prof.overlay;
+    this.held = { id, model, second, info: model.info, hold, sightY: sightHeight(model.mesh.geometry), epoch: weaponArtEpoch(), art: art || !waiting, scoped, near: prof.sight === 'marksman' };
     this.setHands(this.held, heroId);
     if (changed) this.raise = 0;
   }

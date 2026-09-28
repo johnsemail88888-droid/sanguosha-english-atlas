@@ -27,6 +27,8 @@ export interface DamageRequest {
   amount: number;
   type: DamageType;
   weaponId?: string;
+  /** an explosion's area damage (not the projectile's direct hit): never a bullet for armor (sim/damageKinds.ts) */
+  splash?: boolean;
   abilityId?: string;
   /** impact point (for hit markers / knockback direction) */
   pos?: Vec3;
@@ -226,6 +228,8 @@ export interface SimApi {
   aimPoint(e: Entity, maxDist: number): Vec3;
   /** entity under crosshair within maxDist (uses input.aimTargetId, validated) */
   aimTarget(e: Entity, maxDist: number, filter?: QueryFilter): Entity | undefined;
+  /** a homing (方天) rocket is locked on this unit — what its HUD's lock warning shows (a public 'lock' event) */
+  lockedOn(id: EntityId): boolean;
 
   /** true if `a` commands `b`, or b is a's own deployable/summon, or a === b */
   isOwnSide(a: Entity, b: Entity): boolean;

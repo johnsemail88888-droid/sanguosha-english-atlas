@@ -23,7 +23,7 @@ import { ext } from '../ext';
 import type { SimExt } from '../ext';
 import { OPENING_CALM } from '../hostility';
 import { RECALL_TIME } from '../rules';
-import { AbilityUser, groundPointOf } from './abilityUse';
+import { AbilityUser, LORD_RESTRAINT, groundPointOf } from './abilityUse';
 import { Aimer } from './aimer';
 import type { AimOut } from './aimer';
 import { Beliefs } from './beliefs';
@@ -42,6 +42,7 @@ import { Sight } from './sight';
 import { UNIT_KINDS, aimPointOf, dist2d, hasLineOfSight, hazardEscape, isTargetable } from './perception';
 import { RoleStrategy, clampIntoZone, pressure } from './strategy';
 import { Witness } from './witness';
+import { AdsTracker, BurstControl, LOCK_DODGE, RECOIL_COMP, kickBlend, launcherTooClose, lockedRocketAt, onTarget, plantsFeet, sidearmInside, sightsReady, wantsAds } from './weaponUse';
 
 const DECIDE_EVERY = 0.25;
 const LOS_EVERY = 0.12;
@@ -145,6 +146,9 @@ export class HeroBot implements BotBrain, BotView {
   private nextScan = 0;
   private nextLosAt = 0;
   private targetSince = 0;
+  /** the downed hero this bot last looked at and since when it saw it down (LORD_RESTRAINT.finishDelay) */
+  private downSeenId: EntityId = -1;
+  private downSeenAt = 0;
   private readonly seen = new Map<EntityId, Seen>();
   private nextDecide = 0;
   private goal: Vec3 | null = null;
@@ -159,8 +163,10 @@ export class HeroBot implements BotBrain, BotView {
   private strafeSign = 1;
   private strafeUntil = 0;
   private nextDodgeAt = 0;
-  private burstUntil = 0;
-  private pauseUntil = 0;
+  /** automatic-fire burst rhythm at range (sim/ai/weaponUse.ts, C10-1) */
+  private readonly burst = new BurstControl();
+  /** the aim progress the sim has, mirrored from the ADS button pressed (C10-7) */
+  private readonly adsTrack = new AdsTracker();
   private nextClick = 0;
   private coverSpot: Vec3 | null = null;
   private coverAt = -99;
@@ -1156,8 +1162,9 @@ export class HeroBot implements BotBrain, BotView {
         mz = -dz;
       }
     }
-    // strafe
-    if (prof.strafe > 0 || now < this.ffBlockedUntil) {
+    // strafe — not with a scope / DMR / bow up at range: moving opens the aimed cone (C10-6)
+    const planted = plantsFeet(this.weapon, d, h.ads) && now >= this.ffBlockedUntil;
+    if (!planted && (prof.strafe > 0 || now < this.ffBlockedUntil)) {
       if (now >= this.strafeUntil) {
         this.strafeSign = this.rng.next() < 0.5 ? -1 : 1;
         this.strafeUntil = now + 0.45 + this.rng.next() * (1.3 - prof.strafe * 0.5);
@@ -1174,11 +1181,14 @@ export class HeroBot implements BotBrain, BotView {
       mx += -dz * this.strafeSign * amp;
       mz += dx * this.strafeSign * amp;
     }
-    // dodge roll when bursted / something big is flying at us
+    // dodge roll when bursted / something big is flying at us / a 方天 rocket is locked on us (C10-9)
     if (h.dodgeCharges > 0 && now >= this.nextDodgeAt) {
       const burst = this.underFire > 0.1 && now - this.lastHurtAt < 0.25;
       const incoming = prof.dodgeProjectiles && this.incomingProjectile();
-      if ((burst || incoming) && this.rng.next() < prof.dodgeChance) {
+      if (LOCK_DODGE[prof.name] > 0 && lockedRocketAt(sim, self)) {
+        this.nextDodgeAt = now + 1.2;
+        if (this.rng.next() < LOCK_DODGE[prof.name]) this.dodgeQueued = true;
+      } else if ((burst || incoming) && this.rng.next() < prof.dodgeChance) {
         this.nextDodgeAt = now + 1.6;
         this.dodgeQueued = true;
       } else if (burst || incoming) {
@@ -1211,6 +1221,15 @@ export class HeroBot implements BotBrain, BotView {
     return false;
   }
 
+  /** When this bot first saw `t` down (濒死) — `now` the first time it looks. */
+  private downSeen(t: Entity, now: number): number {
+    if (this.downSeenId !== t.id) {
+      this.downSeenId = t.id;
+      this.downSeenAt = now;
+    }
+    return this.downSeenAt;
+  }
+
   /** Returns true when the view is driven by combat aiming this tick. */
   private aimAndFire(f: InputFrame, dt: number, aimedElsewhere: boolean): boolean {
     const { sim, self, now, prof } = this;
@@ -1239,8 +1258,12 @@ export class HeroBot implements BotBrain, BotView {
     w = this.x.activeWeapon(self.id);
     const def = w?.def;
     const d = this.targetDist;
-    const ads = this.wantsAds(def, d);
+    // the bot 主公's opening seconds on a hero: his gun opens the fight, it does not end it —
+    // short, restrained bursts at any range, a slower trigger finger, the hip inside 22 m (LORD_RESTRAINT.gunOpening)
+    const opening = this.role === 'lord' && t.kind === 'hero' && now - this.targetSince < LORD_RESTRAINT.gunOpening;
+    const ads = wantsAds(def, d, prof, t.hero?.downed === true, opening);
     const o = this.aimer.track(sim, self, t, def, dt, ads);
+    const adsT = this.adsTrack.update(def, ads && !(h.reloadUntil > now), dt, now, h.sprinting);
     this.lastAim = { errAngle: o.errAngle, targetAngle: o.targetAngle, point: o.point };
     f.yaw = o.yaw;
     f.pitch = o.pitch;
@@ -1256,26 +1279,30 @@ export class HeroBot implements BotBrain, BotView {
     if (!inRange) return true;
     if (t.hero?.downed && this.hostility(t) < 0.7) return true;
     if (this.mercy(t)) return true;
-    const spread = ((ads ? def.spreadAds : def.spreadHip) * DEG) / 2;
-    const tol = (o.targetAngle * 1.25 + spread * (def.pellets > 1 ? 1.2 : 0.4)) * (prof.name === 'easy' ? 1.6 : 1);
-    if (o.errAngle > tol) return true;
+    // the bot 主公 lets a hero he just knocked down lie a moment before finishing it (LORD_RESTRAINT.finishDelay)
+    if (!t.hero?.downed && this.downSeenId === t.id) this.downSeenId = -1;
+    if (t.hero?.downed && this.role === 'lord' && t.kind === 'hero' && now - this.downSeen(t, now) < LORD_RESTRAINT.finishDelay) return true;
+    // never a launcher into its own blast (the sidearm comes out instead: weaponSwitch)
+    if (launcherTooClose(def, d)) return true;
+    // on target for this weapon (a projectile: on its lead point), the sights up if it wants them
+    if (!onTarget(def, o, ads, prof)) return true;
+    if (ads && !sightsReady(def, adsT, d)) return true;
     if (this.friendlyInLine(t, o.point)) return true;
-    // burst control on autos at range
+    const loaded = !!w && (w.inst.mag > 0 || def.magSize <= 0) && !(h.reloadUntil > now);
     if (def.auto) {
-      if (prof.burstControl && d > def.falloffStart * 1.1 && def.class !== 'lmg') {
-        if (now < this.pauseUntil) return true;
-        if (now >= this.burstUntil) {
-          this.burstUntil = now + 0.25 + this.rng.next() * 0.35;
-          this.pauseUntil = this.burstUntil + 0.15 + this.rng.next() * 0.25;
-        }
-      }
+      // burst control on autos at range (and the lord's opening)
+      if (!this.burst.allow(now, this.rng, def, d, prof, opening)) return true;
       f.buttons |= BTN_FIRE;
+      this.adsTrack.fired(def, now, h.sprinting);
       this.stats.shotsFired++;
+      if (loaded) this.aimer.kick(def, kickBlend(adsT), RECOIL_COMP[prof.name], now, def.fireRate * dt);
     } else if (now >= this.nextClick) {
-      const rate = Math.min(def.fireRate, prof.clickRate);
+      const rate = Math.min(def.fireRate, prof.clickRate) * (opening ? LORD_RESTRAINT.openingClick : 1);
       this.nextClick = now + 1 / Math.max(0.3, rate) + this.rng.next() * 0.05;
       f.buttons |= BTN_FIRE;
+      this.adsTrack.fired(def, now, h.sprinting);
       this.stats.shotsFired++;
+      if (loaded && now + 1e-9 >= h.nextFireAt - 0.12) this.aimer.kick(def, kickBlend(adsT), RECOIL_COMP[prof.name], now);
     }
     return true;
   }
@@ -1404,15 +1431,6 @@ export class HeroBot implements BotBrain, BotView {
     return hostile < 0.85;
   }
 
-  private wantsAds(def: WeaponDef | undefined, d: number): boolean {
-    if (!def || def.melee) return false;
-    const scoped = def.class === 'sniper' || def.class === 'bow' || def.class === 'dmr';
-    if (this.prof.name === 'easy') return scoped && d > 25;
-    if (scoped) return d > 12;
-    if (def.class === 'shotgun' || def.class === 'flamer') return false;
-    return d > (this.prof.name === 'hard' ? 16 : 22);
-  }
-
   private weaponSwitch(f: InputFrame, def: WeaponDef | undefined, h: NonNullable<Entity['hero']>): void {
     const other = h.activeSlot === 0 ? 1 : 0;
     const ow = h.weapons[other];
@@ -1433,8 +1451,17 @@ export class HeroBot implements BotBrain, BotView {
         return;
       }
     }
-    // out of the primary's range: pull the sidearm; switch back when close again
+    // inside a scope's / launcher's minimum range: the sidearm (C10-11); back once far enough again
     const d = this.targetDist;
+    if (h.activeSlot === 0 && def && this.target && d < sidearmInside(def) && otherHasAmmo) {
+      const sdef = weaponDefOf(ow.id);
+      if (sdef && sidearmInside(sdef) === 0 && splashRadius(sdef) === 0) {
+        this.swappedForRange = true;
+        f.actions.push({ a: 'weapon', slot: 1 });
+      }
+      return;
+    }
+    // out of the primary's range: pull the sidearm; switch back when close again
     if (h.activeSlot === 0 && def && d > def.maxRange * 0.95 && otherHasAmmo) {
       const sdef = weaponDefOf(ow.id);
       if (sdef && d < sdef.maxRange * 0.9) {
@@ -1446,7 +1473,8 @@ export class HeroBot implements BotBrain, BotView {
     if (h.activeSlot === 1 && h.weapons[0] && (h.weapons[0].mag > 0 || h.weapons[0].reserve > 0)) {
       const pdef = weaponDefOf(h.weapons[0].id);
       const splashOk = !pdef || splashRadius(pdef) === 0 || this.now >= this.splashBlockedUntil;
-      if (!this.swappedForRange || !pdef || (d < pdef.maxRange * 0.75 && splashOk) || (cur && cur.mag <= 0 && cur.reserve <= 0)) {
+      const farEnough = !pdef || !this.target || d >= sidearmInside(pdef) + 3;
+      if (!this.swappedForRange || !pdef || (d < pdef.maxRange * 0.75 && splashOk && farEnough) || (cur && cur.mag <= 0 && cur.reserve <= 0)) {
         this.swappedForRange = false;
         f.actions.push({ a: 'weapon', slot: 0 });
       }
@@ -1461,6 +1489,12 @@ export class HeroBot implements BotBrain, BotView {
    */
   private friendlyInLine(t: Entity, aim: Vec3): boolean {
     const { sim, self, now } = this;
+    // your own splash counts too: a blast weapon at a target inside its radius is blocked (C10-11)
+    const own = this.weapon ? splashRadius(this.weapon) : 0;
+    if (own > 0 && this.weapon?.projectile && this.targetDist <= own) {
+      this.splashBlockedUntil = now + 2;
+      return true;
+    }
     if (!this.prof.friendlyFireCheck) return false;
     if (now < this.ffBlockedUntil) return true;
     // splash weapons re-check every trigger pull (a grenade is one big decision), others on a cadence
@@ -1886,7 +1920,6 @@ function centroidOfPoints(list: readonly Vec3[]): Vec3 {
 /** Radius around the target that a weapon's special / explosion also hits. */
 export function splashRadius(def: WeaponDef): number {
   if (def.special === 'chainLightning') return (def.specialParams.radius ?? 7) * Math.max(1, def.specialParams.chains ?? 2);
-  if (def.special === 'multiTarget') return def.specialParams.lockRadius ?? 10;
   if (def.projectile && def.projectile.explodeRadius > 0) return def.projectile.explodeRadius + 1;
   return 0;
 }

@@ -25,10 +25,15 @@ const SLOTS: AbilitySlot[] = ['q', 'e', 'lord'];
  * `openingDelay` s after he turns on that hero (his gun and guards open the fight; the hero
  * sees it coming and can react), and are held while the hero is already dropping fast (lost
  * `pileOn` of its max HP in the last `pileWindow` s) — no 雷击 on top of a squad's volley.
- * Not when he is in trouble himself (HP under `desperate`). Tunables (tests/unit/ai/bal.test.ts
- * BAL_NEUTRAL switches them off).
+ * Not when he is in trouble himself (HP under `desperate`). His gun holds back too for the first
+ * `gunOpening` s on a hero: automatics in short bursts with long rests at any range, semi-autos
+ * clicked at `openingClick` of his usual pace (sim/ai/heroBot.ts aimAndFire — with the bots'
+ * burst control fixed and scopes always up, his opening volley was the 「一下就死了」 again).
+ * A hero he has just knocked down (濒死) gets `finishDelay` s before his gun finishes it (weapons
+ * spec D1b: a DMR headshot on the crawling body plus a loyalist's burst ended a rebel in 0.83 s).
+ * Tunables (tests/unit/ai/bal.test.ts BAL_NEUTRAL switches them off).
  */
-export const LORD_RESTRAINT = { openingDelay: 2.5, pileOn: 0.3, pileWindow: 2, desperate: 0.5 };
+export const LORD_RESTRAINT = { openingDelay: 2.5, pileOn: 0.3, pileWindow: 2, desperate: 0.35, gunOpening: 3, openingClick: 0.6, finishDelay: 1 };
 const FAIL_BACKOFF = 5;
 /** could not get the crosshair onto the target in time: try again a little later */
 const AIM_BACKOFF = 1.5;
@@ -475,7 +480,9 @@ export function areaClear(
     const rx = e.p.x - self.pos.x;
     const rz = e.p.z - self.pos.z;
     const along = rx * ux + rz * uz;
-    if (along < -1 || along > len) continue;
+    // (on a camp the berth goes behind the caster too: a napalm's first blast and its fire start
+    // at his feet — a hero standing just behind him was left out of the corridor)
+    if (along < -(onCamp ? radius : 1) || along > len) continue;
     if (Math.abs(rx * uz - rz * ux) <= width) return false;
   }
   return true;

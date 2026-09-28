@@ -6,6 +6,10 @@
 // screen, 邀请朋友一起玩 / 创建房间, the desktop app — and public P2P stays selectable;
 // invites from the GitHub Pages site / the desktop app open `web` (github.io is slow or
 // blocked in parts of China). Empty = no official server: public P2P by default, as before.
+// The desktop app learns `web` from dist/sgwl-build.json (src/net/buildInfo.ts, written by the
+// vite build): when the server runs another build than the app's own, the app's window shows
+// `web` instead of its bundled page (electron/page.cjs), and a version mismatch met on this
+// server opens / reloads the page of its build (src/ui/versionFix.ts).
 //
 // Build-time override (tests, a fork's own server) without a code edit:
 //   VITE_OFFICIAL_RELAY=wss://x.example/ws VITE_OFFICIAL_WEB=https://x.example/ npm run build

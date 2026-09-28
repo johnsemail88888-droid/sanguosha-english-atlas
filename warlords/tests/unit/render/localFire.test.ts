@@ -150,4 +150,67 @@ describe('LocalFirePredictor', () => {
     p.update(2, 1 / 60, false, { id: 'w', slot: 0, mag: 30 }, rifle(), open);
     expect(p.outstanding('w')).toBe(0);
   });
+
+  it('a semi-auto click up to 0.12 s early fires when the gun is ready (the host fire buffer)', () => {
+    const p = new LocalFirePredictor();
+    const pistol = rifle(4.5, 16, { auto: false });
+    const wpn = { id: 'w', slot: 0, mag: 16 };
+    const dt = 1 / 60;
+    expect(p.update(1, dt, true, wpn, pistol, open)).toBe(1);
+    // released, then clicked for one frame 0.1 s before the gun cycles (1 / 4.5 = 0.222 s)
+    let t = 1 + dt;
+    expect(p.update(t, dt, false, wpn, pistol, open)).toBe(0);
+    t = 1 + 1 / 4.5 - 0.1;
+    expect(p.update(t, dt, true, wpn, pistol, open)).toBe(0);
+    let fired = -1;
+    for (let i = 0; i < 20 && fired < 0; i++) {
+      t += dt;
+      if (p.update(t, dt, false, wpn, pistol, open) > 0) fired = t;
+    }
+    expect(fired).toBeGreaterThanOrEqual(1 + 1 / 4.5 - 1e-9);
+    expect(fired).toBeLessThan(1 + 1 / 4.5 + dt + 1e-9);
+    // a click far too early (0.2 s before) is lost, as on the host
+    const q = new LocalFirePredictor();
+    expect(q.update(1, dt, true, wpn, pistol, open)).toBe(1);
+    q.update(1 + dt, dt, false, wpn, pistol, open);
+    q.update(1 + 1 / 4.5 - 0.2, dt, true, wpn, pistol, open);
+    let late = 0;
+    for (let i = 1; i <= 20; i++) late += q.update(1 + 1 / 4.5 - 0.2 + i * dt, dt, false, wpn, pistol, open);
+    expect(late).toBe(0);
+  });
+
+  it('fire pressed mid-sprint: no shot until the gun is up (sprintOut), then it fires', () => {
+    const p = new LocalFirePredictor();
+    const carbine = rifle(7.5, 30, { id: 'carbine', class: 'rifle' });
+    const wpn = { id: 'carbine', slot: 0, mag: 30 };
+    const dt = 1 / 60;
+    const sprinting: LocalFireGate = { ...open, sprinting: true };
+    expect(p.update(1, dt, true, wpn, carbine, sprinting)).toBe(0);
+    let first = -1;
+    for (let i = 1; i <= 30 && first < 0; i++) if (p.update(1 + i * dt, dt, true, wpn, carbine, open) > 0) first = 1 + i * dt;
+    expect(first - 1).toBeGreaterThanOrEqual(0.18 - 1e-9); // rifle sprintOut
+    expect(first - 1).toBeLessThan(0.18 + 2 * dt);
+    // 神速: no raise
+    const q = new LocalFirePredictor();
+    expect(q.update(1, dt, true, wpn, carbine, { ...sprinting, sprintAds: true })).toBe(1);
+  });
+
+  it('a stale sprint flag (the snapshot still shows the sprint for RTT + interpolation) raises the gun once, from the press', () => {
+    for (const [id, cls, out] of [['carbine', 'rifle', 0.18], ['qinggang', 'dmr', 0.22]] as const) {
+      for (const stale of [0.15, 0.2, 0.25]) {
+        const p = new LocalFirePredictor();
+        const def = rifle(id === 'carbine' ? 7.5 : 2, 30, { id, class: cls, auto: false });
+        const wpn = { id, slot: 0, mag: 30 };
+        const dt = 1 / 60;
+        let first = -1;
+        for (let t = 0; t < 1.5 && first < 0; t += dt) {
+          const gate: LocalFireGate = { ...open, sprinting: t < 1 + stale, ads: t >= 1 };
+          if (p.update(t, dt, t >= 1, wpn, def, gate) > 0) first = t;
+        }
+        // the host's rule: sprintOut after the press (not after the flag clears)
+        expect(first - 1, `${id} stale ${stale}`).toBeGreaterThanOrEqual(out - 1e-9);
+        expect(first - 1, `${id} stale ${stale}`).toBeLessThan(out + 2 * dt);
+      }
+    }
+  });
 });

@@ -23,7 +23,7 @@ const MODE = (process.env.BAL_MODE ?? 'standard') as 'standard' | 'chaos';
 // 「一下就死了」, for before / after samples on the same seeds)
 if (process.env.BAL_NEUTRAL === '1') {
   Object.assign(TROOP_VS_HERO, { mul: 1, focusDps: 1e9, over: 1, downedMul: 1 });
-  Object.assign(LORD_RESTRAINT, { openingDelay: 0, pileOn: 1e9 });
+  Object.assign(LORD_RESTRAINT, { openingDelay: 0, pileOn: 1e9, finishDelay: 0 });
 }
 // tuning: BAL_TROOP='{"downedMul":0.6}' / BAL_LORD='{"openingDelay":2}' override single tunables
 if (process.env.BAL_TROOP) Object.assign(TROOP_VS_HERO, JSON.parse(process.env.BAL_TROOP));

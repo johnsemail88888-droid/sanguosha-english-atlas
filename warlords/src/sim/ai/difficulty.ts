@@ -31,6 +31,8 @@ export interface DifficultyProfile {
   motionErr: number;
   /** 0..1 how well moving targets and projectile flight are led */
   leadSkill: number;
+  /** σ of the lead / holdover misjudgement, as a share of the target's travel (drop) during a projectile's flight (human parity, C10-5) */
+  leadNoise?: number;
   /** 0..1 fraction of aim points raised toward the head */
   headBias: number;
   /** clicks per second cap for semi-auto weapons */
@@ -82,6 +84,7 @@ export const DIFFICULTY_PROFILES: Record<BotDifficulty, DifficultyProfile> = {
     settleTime: 2.2,
     motionErr: 1.6,
     leadSkill: 0.15,
+    leadNoise: 0.5,
     headBias: 0,
     clickRate: 2.5,
     dodgeChance: 0.08,
@@ -112,6 +115,7 @@ export const DIFFICULTY_PROFILES: Record<BotDifficulty, DifficultyProfile> = {
     settleTime: 1.4,
     motionErr: 1.3,
     leadSkill: 0.55,
+    leadNoise: 0.4,
     headBias: 0.1,
     clickRate: 4,
     dodgeChance: 0.3,
@@ -142,6 +146,7 @@ export const DIFFICULTY_PROFILES: Record<BotDifficulty, DifficultyProfile> = {
     settleTime: 0.9,
     motionErr: 1.15,
     leadSkill: 0.9,
+    leadNoise: 0.3,
     headBias: 0.25,
     clickRate: 6,
     dodgeChance: 0.55,

@@ -2,18 +2,20 @@
 // per match view. The touch overlay (src/ui/touch*.ts) drives it through the
 // InputSink methods. UI-only keys (Tab/M/Enter/Esc/T) are reported through
 // onUiKey() instead of InputActions.
-import type { AbilitySlot, EntityId, InputAction, InputFrame } from '../core/types';
+import type { AbilitySlot, EntityId, InputAction, InputFrame, RoleId, ViewEntity } from '../core/types';
 import type { Vec3 } from '../core/math';
 import { clamp, wrapAngle } from '../core/math';
-import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, BTN_INTERACT, BTN_JUMP, BTN_SPRINT, VF_AIRBORNE, VF_DANCING, VF_DOWNED, VF_STUNNED, emptyInput } from '../core/types';
-import type { InputSink } from './input-types';
+import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, BTN_INTERACT, BTN_JUMP, BTN_SPRINT, BTN_ZOOM2, VF_AIRBORNE, VF_DANCING, VF_DOWNED, VF_STUNNED, emptyInput } from '../core/types';
+import type { HeldButton, InputSink } from './input-types';
 import { settings } from './settings';
 import { CAMERA_TOGGLE_KEY, resolveCameraView, toggledCameraView, type CameraView } from '../render/camera/viewMode';
-import { adsSensitivityMul } from '../data/weaponFeel';
+import { WEAPON_BY_ID } from '../data';
+import { adsSensitivityMul, aimProfile } from '../data/weaponFeel';
 import { AimFeel, type AimSnapshot } from './aimFeel';
 import { heroAbility } from '../data/heroes';
 import { skillAimed } from '../data/skillInfo';
 import type { PreviewStatus } from '../render/vfx/skillPreview';
+import { AimAssist, NO_ASSIST, type AssistResult } from './aimAssist';
 
 /** Radians of yaw/pitch per pixel of mouse movement at sensitivity 1. */
 export const LOOK_RAD_PER_PX = 0.0022;
@@ -31,6 +33,10 @@ export interface InputRendererLike {
   readonly baseFov?: number;
   /** the skill whose key is held (its targeting preview), null for none; returns what releasing now would do */
   setSkillAim?(slot: AbilitySlot | null): PreviewStatus;
+  /** the crosshair ray the host rebuilds (third person: from behind the shoulder; first: the eye) — aim assist */
+  aimRay?(): { origin: Vec3; dir: Vec3 } | null;
+  /** static geometry between two points (aim assist ignores targets behind walls) */
+  lineBlocked?(a: Vec3, b: Vec3): boolean;
   readonly view?: {
     viewTick(): number;
     local(): {
@@ -38,15 +44,18 @@ export interface InputRendererLike {
       weapons: ({ id: string } | null)[];
       reloading?: number;
       heroId?: string;
-      role?: string;
+      role?: RoleId;
       cooldowns?: Record<string, number>;
       charges?: Record<string, number>;
       downed?: boolean;
       dead?: boolean;
       statuses?: readonly { id: string; remaining: number }[];
+      squad?: readonly { id: EntityId }[];
+      knownAllies?: readonly EntityId[];
     } | null;
     localId(): EntityId | null;
     get(id: EntityId): { yaw: number; pitch: number; x?: number; z?: number; flags?: number; speed?: number } | undefined;
+    entities?(): readonly ViewEntity[];
   };
 }
 
@@ -219,8 +228,8 @@ export class InputState {
   private lookDx = 0;
   private lookDy = 0;
   private readonly keys = new Set<string>();
-  private readonly held = { fire: false, ads: false, sprint: false, interact: false, jump: false };
-  private readonly touchHeld = { fire: false, ads: false, sprint: false, interact: false };
+  private readonly held = { fire: false, ads: false, sprint: false, interact: false, jump: false, breath: false };
+  private readonly touchHeld = { fire: false, ads: false, sprint: false, interact: false, breath: false };
   /**
    * A fire press seen since the last frame(): a click (or touch tap) that starts
    * and ends between two frames still fires once instead of vanishing.
@@ -247,6 +256,10 @@ export class InputState {
   enabled = true;
   /** the camera is first person: frames carry BTN_FIRST_PERSON (the host's crosshair / shots start at the eye) */
   firstPerson = false;
+  /** aiming a weapon whose breath Shift holds: Shift must not sprint (frames drop BTN_SPRINT) */
+  suppressSprint = false;
+  /** a scope's second zoom step is up: frames carry BTN_ZOOM2 (other players' glint) */
+  zoom2 = false;
 
   addLook(dx: number, dy: number): void {
     if (!this.enabled) return;
@@ -258,7 +271,8 @@ export class InputState {
     if (!this.enabled) return;
     if (this.keys.has(code)) return; // auto-repeat
     this.keys.add(code);
-    if (code === 'ShiftLeft' || code === 'ShiftRight') this.held.sprint = true;
+    // Shift: sprint — or, aimed through a scope, hold the breath (never both: suppressSprint)
+    if (code === 'ShiftLeft' || code === 'ShiftRight') this.held.sprint = this.held.breath = true;
     if (code === 'KeyF') this.held.interact = true;
     if (code === 'Space') this.held.jump = true;
     // X waits for its release (it may become the discard modifier); X + slot key drops that card
@@ -296,7 +310,7 @@ export class InputState {
     }
     if (code === DISCARD_KEY) this.discardChord = false;
     this.keys.delete(code);
-    if (code === 'ShiftLeft' || code === 'ShiftRight') this.held.sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    if (code === 'ShiftLeft' || code === 'ShiftRight') this.held.sprint = this.held.breath = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
     if (code === 'KeyF') this.held.interact = false;
     if (code === 'Space') this.held.jump = false;
   }
@@ -327,7 +341,7 @@ export class InputState {
     this.aim = null;
   }
 
-  setTouchHeld(btn: 'fire' | 'ads' | 'sprint' | 'interact', down: boolean): void {
+  setTouchHeld(btn: HeldButton, down: boolean): void {
     if (!this.enabled && down) return;
     if (btn === 'fire' && down) this.fireLatch = true;
     this.touchHeld[btn] = down;
@@ -351,15 +365,20 @@ export class InputState {
     this.discardChord = false;
     // focus lost / menu opened mid-preview: the skill is not cast
     this.aim = null;
-    this.held.fire = this.held.ads = this.held.sprint = this.held.interact = this.held.jump = false;
-    this.touchHeld.fire = this.touchHeld.ads = this.touchHeld.sprint = this.touchHeld.interact = false;
+    this.held.fire = this.held.ads = this.held.sprint = this.held.interact = this.held.jump = this.held.breath = false;
+    this.touchHeld.fire = this.touchHeld.ads = this.touchHeld.sprint = this.touchHeld.interact = this.touchHeld.breath = false;
     this.fireLatch = false;
     this.touchMove = { x: 0, z: 0 };
     this.lookDx = this.lookDy = 0;
   }
 
-  isHeld(btn: 'fire' | 'ads' | 'sprint'): boolean {
+  isHeld(btn: 'fire' | 'ads' | 'sprint' | 'breath'): boolean {
     return this.held[btn] || this.touchHeld[btn];
+  }
+
+  /** Look input is waiting this frame (a mouse / finger moved): the aim assist's follow only helps an active aim. */
+  hasLook(): boolean {
+    return this.lookDx !== 0 || this.lookDy !== 0;
   }
 
   /** Movement intent from keys (normalised) or the touch stick. */
@@ -397,10 +416,13 @@ export class InputState {
    * (already including the ADS factor), invertY flips vertical look.
    * Convention (core/math): yaw increases turning left; pitch > 0 looks up.
    */
-  applyLook(sens: number, invertY: boolean): void {
+  applyLook(sens: number, invertY: boolean, pitchFilter?: (dPitch: number) => number): void {
     const k = LOOK_RAD_PER_PX * sens;
     this.yaw = wrapAngle(this.yaw - this.lookDx * k);
-    this.pitch = clamp(this.pitch - this.lookDy * k * (invertY ? -1 : 1), -PITCH_CLAMP, PITCH_CLAMP);
+    // (a pull down first eats the recoil climb still outstanding: game/aimFeel.ts absorbPitch)
+    let dp = -this.lookDy * k * (invertY ? -1 : 1);
+    if (pitchFilter && dp !== 0) dp = pitchFilter(dp);
+    this.pitch = clamp(this.pitch + dp, -PITCH_CLAMP, PITCH_CLAMP);
     this.lookDx = 0;
     this.lookDy = 0;
   }
@@ -417,9 +439,10 @@ export class InputState {
     if (this.held.fire || this.touchHeld.fire || this.fireLatch) b |= BTN_FIRE;
     this.fireLatch = false;
     if (this.held.ads || this.touchHeld.ads) b |= BTN_ADS;
-    if (this.held.sprint || this.touchHeld.sprint) b |= BTN_SPRINT;
+    if ((this.held.sprint || this.touchHeld.sprint) && !this.suppressSprint) b |= BTN_SPRINT;
     if (this.held.jump) b |= BTN_JUMP;
     if (this.held.interact || this.touchHeld.interact) b |= BTN_INTERACT;
+    if (this.zoom2 && b & BTN_ADS) b |= BTN_ZOOM2;
     f.buttons = (this.enabled ? b : 0) | (this.firstPerson ? BTN_FIRST_PERSON : 0);
     f.actions = this.actions;
     this.actions = [];
@@ -489,11 +512,17 @@ export class InputController implements InputSink {
   private readonly wheel = new WheelGesture();
   /** the local aim: ADS progress, zoom steps, scope sway / hold breath (game/aimFeel.ts) */
   readonly aim = new AimFeel();
+  /** touch aim assist (game/aimAssist.ts; never with a mouse) */
+  readonly assist = new AimAssist();
   private lastSample = -1;
   /** last frame's held skill preview (HUD: tooltip + 「松开施放」 hint) */
   private skillAim: SkillAimInfo | null = null;
   /** the last held preview (what a refused release was missing) */
   private lastSkillAim: SkillAimInfo | null = null;
+  private lastDt = 0;
+  /** gyro look waiting to be applied (radians; ui/touch.ts feeds it while the setting allows) */
+  private gyroYaw = 0;
+  private gyroPitch = 0;
 
   constructor(target: HTMLElement, opts: InputControllerOptions = {}) {
     this.target = target;
@@ -618,8 +647,17 @@ export class InputController implements InputSink {
   addLook(dx: number, dy: number): void {
     this.state.addLook(dx, dy);
   }
-  setHeld(btn: 'fire' | 'ads' | 'sprint' | 'interact', down: boolean): void {
+  setHeld(btn: HeldButton, down: boolean): void {
     this.state.setTouchHeld(btn, down);
+  }
+  addGyro(dYaw: number, dPitch: number): void {
+    if (!this.state.enabled) return;
+    this.gyroYaw += dYaw;
+    this.gyroPitch += dPitch;
+  }
+  /** touch controls are active (the touch sensitivities, gentler recoil and aim assist apply) */
+  get isTouch(): boolean {
+    return this.touchMode;
   }
   pushAction(a: InputAction): void {
     this.state.pushAction(a);
@@ -710,11 +748,31 @@ export class InputController implements InputSink {
     const s = settings.get();
     const ads = this.state.isHeld('ads');
     const aim = this.updateAim(view);
-    // aiming: slower look, scaled with the zoom actually on screen (a 4× / 8× scope turns as far across the picture as a red dot)
-    const adsMul = adsSensitivityMul(aim.stepZoom, renderer.baseFov ?? s.fov, s.adsSensitivity);
-    const sens = s.mouseSensitivity * (1 + (adsMul - 1) * aim.blend);
-    this.state.applyLook(sens, s.invertY);
+    // the climb a burst leaves behind (an auto settles back only 80–90 %): now part of the base look
+    const res = this.aim.takeResidual();
+    if (res.yaw !== 0 || res.pitch !== 0) {
+      this.state.yaw = wrapAngle(this.state.yaw + res.yaw);
+      this.state.pitch = clamp(this.state.pitch + res.pitch, -PITCH_CLAMP, PITCH_CLAMP);
+    }
+    // aiming: the look slows with the zoom actually on screen (every sight turns across the picture
+    // as fast as the hip view; the relative ADS setting on top) — the touch sliders on touch
+    const touch = this.touchMode;
+    const baseSens = touch ? s.touchLook : s.mouseSensitivity;
+    const rel = touch ? s.touchAds : s.adsSensitivity;
+    const fov = renderer.baseFov ?? s.fov;
+    const sens = baseSens * adsSensitivityMul(aim.zoom, fov, 1 + (rel - 1) * aim.blend, s.adsCoef);
+    const assist = this.updateAssist(renderer, aim, touch, s.aimAssist);
+    this.state.applyLook(sens * assist.slow, s.invertY, (dp) => this.aim.absorbPitch(dp));
+    if (assist.yaw !== 0 || assist.pitch !== 0) {
+      this.state.yaw = wrapAngle(this.state.yaw + assist.yaw);
+      this.state.pitch = clamp(this.state.pitch + assist.pitch, -PITCH_CLAMP, PITCH_CLAMP);
+    }
+    this.applyGyro(aim, fov, s);
     this.state.firstPerson = this.view === 'first';
+    // aimed with a weapon whose breath Shift holds: Shift never sprints then
+    const def = aim.weaponId ? WEAPON_BY_ID[aim.weaponId] : undefined;
+    this.state.suppressSprint = ads && aimProfile(def).holdBreath;
+    this.state.zoom2 = aim.zoomIndex > 0 && aim.progress > 0;
     // the scope's breathing sway rides on the look angles the host gets: shots follow the reticle
     const yaw = wrapAngle(this.state.yaw + aim.swayYaw);
     const pitch = clamp(this.state.pitch + aim.swayPitch, -PITCH_CLAMP, PITCH_CLAMP);
@@ -733,6 +791,47 @@ export class InputController implements InputSink {
     return f;
   }
 
+  /** The aim assist this frame (touch only, and only with the setting on): slowdown + follow. */
+  private updateAssist(renderer: InputRendererLike, aim: Readonly<AimSnapshot>, touch: boolean, level: 'off' | 'low' | 'standard'): AssistResult {
+    const view = renderer.view;
+    const ray = touch && level !== 'off' ? renderer.aimRay?.() : null;
+    const id = view?.localId();
+    if (!ray || !view?.entities || id === null || id === undefined || !this.state.enabled) {
+      this.assist.reset();
+      return NO_ASSIST;
+    }
+    const local = view.local();
+    const def = aim.weaponId ? WEAPON_BY_ID[aim.weaponId] : undefined;
+    const prof = aimProfile(def);
+    const dir = ray.dir;
+    return this.assist.update({
+      device: 'touch',
+      level,
+      origin: ray.origin,
+      yaw: Math.atan2(-dir.x, -dir.z),
+      pitch: Math.asin(Math.max(-1, Math.min(1, dir.y))),
+      blend: aim.blend,
+      scoped: (prof.overlay || prof.sight === 'marksman') && aim.blend > 0.5,
+      active: this.state.hasLook() || this.state.movement().x !== 0 || this.state.movement().z !== 0,
+      dt: this.lastDt,
+      viewer: { id, role: local?.role, squad: local?.squad?.map((u) => u.id), knownAllies: local?.knownAllies },
+      entities: view.entities(),
+      blocked: renderer.lineBlocked ? (a, b) => renderer.lineBlocked!(a, b) : undefined,
+    });
+  }
+
+  /** Gyro look (touch): only while aimed through a scope / sight unless set to always; scaled like the ADS look. */
+  private applyGyro(aim: Readonly<AimSnapshot>, fov: number, s: ReturnType<typeof settings.get>): void {
+    const gy = this.gyroYaw;
+    const gp = this.gyroPitch;
+    this.gyroYaw = this.gyroPitch = 0;
+    if (!this.touchMode || s.gyro === 'off' || (gy === 0 && gp === 0)) return;
+    if (s.gyro === 'scoped' && aim.blend < 0.5) return;
+    const k = s.gyroGain * adsSensitivityMul(aim.zoom, fov, 1, s.adsCoef);
+    this.state.yaw = wrapAngle(this.state.yaw + gy * k);
+    this.state.pitch = clamp(this.state.pitch + gp * k, -PITCH_CLAMP, PITCH_CLAMP);
+  }
+
   /** The local aim this frame (see game/aimFeel.ts). */
   aimSnapshot(): Readonly<AimSnapshot> {
     return this.aim.snapshot;
@@ -742,6 +841,7 @@ export class InputController implements InputSink {
     const t = now();
     const dt = this.lastSample < 0 ? 0 : Math.min(0.1, Math.max(0, (t - this.lastSample) / 1000));
     this.lastSample = t;
+    this.lastDt = dt;
     const local = view?.local() ?? null;
     const id = view?.localId();
     const ent = id !== null && id !== undefined ? view?.get(id) : undefined;
@@ -752,10 +852,13 @@ export class InputController implements InputSink {
       weaponId: local?.weapons[local.activeSlot]?.id ?? null,
       ads: this.state.isHeld('ads') && this.state.enabled,
       blocked: lowered,
-      hold: this.state.isHeld('sprint') && this.state.enabled,
+      // the breath key: Shift on a keyboard, the 屏息 button on touch (never the stick's sprint edge)
+      hold: this.state.isHeld('breath') && this.state.enabled,
       moving: (ent?.speed ?? 0) > 1,
+      speed: ent?.speed ?? 0,
       airborne: (flags & VF_AIRBORNE) !== 0,
       firstPerson: this.view === 'first',
+      touch: this.touchMode,
     });
   }
 

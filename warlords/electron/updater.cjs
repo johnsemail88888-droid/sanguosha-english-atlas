@@ -34,6 +34,12 @@ const TAG_PREFIX = 'warlords-build-';
 const FIRST_CHECK_MS = 10_000;
 const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 15_000;
+/**
+ * A match holds checks and downloads back at most this long in a row (ms) — longer than any match.
+ * The window may show the official server's page (electron/page.cjs): a page that never says the
+ * match ended, or says one is on for ever, cannot keep the app from updating.
+ */
+const MAX_HOLD_MS = 3 * 60 * 60 * 1000;
 
 /** How this copy of the app updates (see the table above). */
 function updateKind({ platform, env = {}, isPackaged }) {
@@ -165,11 +171,36 @@ function createUpdater(deps) {
   let au = null;
   /** electron-updater's download on its way: { token, paused } (paused: cancelled because a match started) */
   let dl = null;
+  /** when a match first held an update step back (null: nothing held since the app last got through: 'latest' / 'ready') */
+  let heldSince = null;
+
+  /** A match is on and may still hold updates back (at most MAX_HOLD_MS in a row, however often it starts again). */
+  const holding = () => playing && !(heldSince !== null && now() - heldSince >= MAX_HOLD_MS);
+
+  /** An update step waits for the match's end: the first one starts the hold's clock, and the end of it goes on regardless. */
+  function hold() {
+    due = true;
+    if (heldSince !== null) return;
+    heldSince = now();
+    const t = timers.setTimeout(() => {
+      if (!holding()) resumeDue();
+    }, MAX_HOLD_MS);
+    if (t && typeof t.unref === 'function') t.unref();
+  }
+
+  /** The step that waited: the download (electron-updater, found already) or a check. */
+  function resumeDue() {
+    if (!due) return;
+    due = false;
+    if (isAuto(kind) && state.status === 'available') startDownload();
+    else void check();
+  }
 
   const set = (patch) => {
     const next = { ...state, ...patch };
     if (JSON.stringify(next) === JSON.stringify(state)) return;
     state = next;
+    if (state.status === 'latest' || state.status === 'ready') heldSince = null;
     for (const cb of [...listeners]) {
       try {
         cb(state);
@@ -217,8 +248,8 @@ function createUpdater(deps) {
   }
 
   function startDownload() {
-    if (playing) {
-      due = true;
+    if (holding()) {
+      hold();
       return;
     }
     // one at a time; one still stopping (paused for a match) starts again once it has stopped
@@ -241,7 +272,7 @@ function createUpdater(deps) {
       .finally(() => {
         if (dl === job) dl = null;
         // the match ended while it was stopping
-        if (job.paused && !playing && due && state.status === 'available') {
+        if (job.paused && !holding() && due && state.status === 'available') {
           due = false;
           startDownload();
         }
@@ -261,7 +292,7 @@ function createUpdater(deps) {
   function pauseDownload() {
     if (!dl || dl.paused || !dl.token || typeof dl.token.cancel !== 'function' || state.status === 'ready') return;
     dl.paused = true;
-    due = true;
+    hold();
     try {
       dl.token.cancel();
     } catch (err) {
@@ -284,8 +315,8 @@ function createUpdater(deps) {
   /** One check now — or when the match ends. Resolves when it is done (never rejects). */
   async function check() {
     if (kind === 'none' || busy) return;
-    if (playing) {
-      due = true;
+    if (holding()) {
+      hold();
       return;
     }
     // downloaded: it installs on quit; downloading: it is on its way
@@ -346,15 +377,15 @@ function createUpdater(deps) {
         failed(err);
       }
     },
-    /** The page is in a match (hero select … the end of the match): checks and downloads wait; a download on its way stops. */
+    /**
+     * The page is in a match (hero select … the end of the match): checks and downloads wait; a
+     * download on its way stops — for MAX_HOLD_MS in a row at most. main.cjs clears it whenever the
+     * window loads another page (a new page says where it is itself).
+     */
     setPlaying(on) {
       playing = !!on;
-      if (playing) pauseDownload();
-      else if (due) {
-        due = false;
-        if (isAuto(kind) && state.status === 'available') startDownload();
-        else void check();
-      }
+      if (holding()) pauseDownload();
+      else resumeDue();
     },
   };
 }
@@ -366,6 +397,7 @@ module.exports = {
   TAG_PREFIX,
   FIRST_CHECK_MS,
   CHECK_EVERY_MS,
+  MAX_HOLD_MS,
   updateKind,
   isAuto,
   feedFile,

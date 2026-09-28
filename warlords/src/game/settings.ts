@@ -43,7 +43,26 @@ export interface UserSettings {
   playerName: string;
   lang: Lang;
   mouseSensitivity: number; // 0.2 .. 3
-  adsSensitivity: number; // multiplier while aiming
+  /**
+   * Aiming sensitivity relative to the view's zoom (0.5 .. 1.5; 1 = a sight turns
+   * across the picture as fast as the hip view — data/weaponFeel.ts adsSensitivityMul).
+   * Stored as an absolute multiplier (0.6 default) before adsSensRelative.
+   */
+  adsSensitivity: number;
+  /** adsSensitivity is the relative value (a profile saved before is migrated once on load) */
+  adsSensRelative: boolean;
+  /** 0: match the look at the crosshair (tan ratio); 1.33: at the edge of a 4:3 box (monitor distance) */
+  adsCoef: number;
+  /** touch: drag-to-look sensitivity and its aiming factor (relative, like adsSensitivity) */
+  touchLook: number;
+  touchAds: number;
+  /** touch / gamepad aim assist (never a mouse): off / half strength / standard */
+  aimAssist: 'off' | 'low' | 'standard';
+  /** touch, sniper / bows / DMRs: holding fire raises the sights, letting go shoots */
+  touchFireRelease: boolean;
+  /** touch: steer the aim with the phone's gyro — off / while aimed through a scope or sight / always */
+  gyro: 'off' | 'scoped' | 'always';
+  gyroGain: number;
   invertY: boolean;
   fov: number; // 60 .. 100
   quality: Quality;
@@ -76,7 +95,15 @@ export const DEFAULT_SETTINGS: UserSettings = {
   playerName: '',
   lang: 'zh',
   mouseSensitivity: 1,
-  adsSensitivity: 0.6,
+  adsSensitivity: 1,
+  adsSensRelative: true,
+  adsCoef: 0,
+  touchLook: 1,
+  touchAds: 1,
+  aimAssist: 'standard',
+  touchFireRelease: false,
+  gyro: 'off',
+  gyroGain: 1.4,
   invertY: false,
   fov: 75,
   quality: 'medium',
@@ -171,6 +198,22 @@ export function defaultQuality(d: DeviceHints = deviceHints()): Quality {
  */
 export function defaultRenderScale(d: DeviceHints = deviceHints()): number {
   return d.gpu !== undefined && classifyGpu(d.gpu) === 'apple' ? 1.25 : 0;
+}
+
+/**
+ * The ADS sensitivity was an absolute multiplier (0.6 by default) before it became
+ * relative to the zoom: a stored value → the relative one (0.6 → 1.0, v → v / 0.6,
+ * kept within the slider's 0.5 … 1.5).
+ */
+export function migrateAdsSensitivity(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULT_SETTINGS.adsSensitivity;
+  if (Math.abs(v - 0.6) < 1e-6) return 1;
+  return Math.min(1.5, Math.max(0.5, Math.round((v / 0.6) * 100) / 100));
+}
+
+/** First-run vertical FOV: 62 on a finger (a phone's small screen shows targets about 28 % larger), else the default. */
+export function defaultFov(d: DeviceHints = deviceHints()): number {
+  return d.coarse ? 62 : DEFAULT_SETTINGS.fov;
 }
 
 /** Tier a profile saved before 自动 existed started on (its quality differs → the player picked it). */
@@ -328,14 +371,16 @@ function load(): UserSettings {
       const quality: Quality = migrateQuality(parsed.quality) ?? defaultQuality();
       // saved before 自动 existed: a tier other than the old first-run default was the player's pick
       const qualityAuto = typeof parsed.qualityAuto === 'boolean' ? parsed.qualityAuto : parsed.quality === undefined || quality === legacyDefaultQuality(deviceHints());
+      // the ADS sensitivity became relative to the zoom (a stored 0.6, the old default, is 1.0 now)
+      const ads = parsed.adsSensRelative === true ? {} : { adsSensitivity: migrateAdsSensitivity(parsed.adsSensitivity), adsSensRelative: true };
       const net = { ...DEFAULT_SETTINGS.net, ...(parsed.net ?? {}) };
-      return { ...DEFAULT_SETTINGS, ...parsed, quality, qualityAuto, net: { ...net, keys: cleanKeys(net.keys) } };
+      return { ...DEFAULT_SETTINGS, ...parsed, ...ads, quality, qualityAuto, net: { ...net, keys: cleanKeys(net.keys) } };
     }
   } catch {
     /* storage unavailable (private mode / file://) */
   }
   const hints = deviceHints();
-  return { ...structuredClone(DEFAULT_SETTINGS), lang: defaultLang(), quality: defaultQuality(hints), autoRenderScale: defaultRenderScale(hints) };
+  return { ...structuredClone(DEFAULT_SETTINGS), lang: defaultLang(), quality: defaultQuality(hints), autoRenderScale: defaultRenderScale(hints), fov: defaultFov(hints) };
 }
 
 /** Test hook: settings as a fresh load from storage would produce them. */

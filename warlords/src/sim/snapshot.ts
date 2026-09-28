@@ -13,7 +13,7 @@ import type {
   Snapshot,
   ViewEntity,
 } from '../core/types';
-import { SIM_DT } from '../core/types';
+import { BTN_ZOOM2, SIM_DT, VF_ZOOM2 } from '../core/types';
 import {
   VF_ADS,
   VF_AIRBORNE,
@@ -177,6 +177,8 @@ export function viewEntity(w: World, e: Entity): ViewEntity {
     if (h.downed && h.rescue) v.flags |= VF_REVIVING;
     if (h.dead && h.soul) v.flags |= VF_SOUL;
     if (h.ads) v.flags |= VF_ADS;
+    // a scope on its second zoom step (the player's input says so): others see a brighter glint
+    if (h.ads && (w.inputOf(e).buttons & BTN_ZOOM2) !== 0) v.flags |= VF_ZOOM2;
     if (h.sprinting) v.flags |= VF_SPRINTING;
     if (h.reloadUntil > now) v.flags |= VF_RELOADING;
     if (h.dodgingUntil > now) v.flags |= VF_DODGING;
