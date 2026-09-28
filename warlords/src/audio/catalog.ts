@@ -49,7 +49,7 @@ import {
   zoneHorn,
   zoneTick,
 } from './recipes/world';
-import { announce, chat, headshot, hitmarker, ui, UI_SOUNDS } from './recipes/ui';
+import { announce, armorTick, chat, headshot, hitmarker, lockTone, lockWarn, ui, UI_SOUNDS } from './recipes/ui';
 
 export type Bus = 'world' | 'ui';
 
@@ -125,6 +125,9 @@ export const SFX = {
   ui: def({ recipe: ui, bus: 'ui', gain: 1, group: 'ui', groupByVariant: true, priority: 5, pitchJitter: 0.01, variants: UI_SOUNDS }),
   headshot: def({ recipe: headshot, bus: 'ui', gain: 0.9, group: 'headshot', priority: 4, pitchJitter: 0.02 }),
   hitmarker: def({ recipe: hitmarker, bus: 'ui', gain: 0.8, group: 'hitmarker', priority: 4, pitchJitter: 0.05 }),
+  armorTick: def({ recipe: armorTick, bus: 'ui', gain: 0.7, group: 'hitmarker', priority: 4, pitchJitter: 0.05 }),
+  lockWarn: def({ recipe: lockWarn, bus: 'ui', gain: 0.8, group: 'ui', priority: 5, pitchJitter: 0 }),
+  lockTone: def({ recipe: lockTone, bus: 'ui', gain: 0.7, group: 'ui', priority: 4, pitchJitter: 0 }),
   chat: def({ recipe: chat, bus: 'ui', gain: 0.8, group: 'ui', priority: 3, pitchJitter: 0 }),
   announce: def({ recipe: announce, bus: 'ui', gain: 0.45, group: 'big', priority: 4, pitchJitter: 0, variants: ['big', 'warn'] }),
 } satisfies Record<string, SfxDef>;

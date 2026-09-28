@@ -1,11 +1,15 @@
 // Aiming on the HUD: the hip-fire crosshair per weapon class sized from the
 // sim's own spread (bloom, movement, jumping), hit / knock / kill markers, the
-// sight you look through while aiming (iron sights, red dot, holo, a marksman
-// or sniper scope with its lens overlay, a bow's draw ring), and the weapon's
-// identity: a stat card when a weapon comes into your hands and a stat
-// comparison under the pickup prompt (伤害 / 射速 / 射程 / 弹匣 / 精准).
+// sight you look through while aiming (iron sights, red dot, holo, a DMR's
+// marksman near sight with ranging stadia, a sniper scope with its lens
+// overlay, true-scale mil-dots and a rangefinder, a bow's draw ring), and the
+// weapon's identity: a stat card when a weapon comes into your hands and a stat
+// comparison under the pickup prompt (伤害 / 射速 / 射程 / 弹匣 / 精准 / 操控,
+// and a 5 / 20 / 50 m time-to-kill strip). The ladder, impact diamond, blocked
+// shot and 方天 lock marks live in ./aimMarks.ts.
 import type { WeaponClass, WeaponDef } from '../../data/types';
 import { RARITY_INFO, WEAPON_BY_ID, WEAPON_CLASS_INFO } from '../../data';
+import type { DamageType, GameEvent } from '../../core/types';
 import { VF_ADS, VF_AIRBORNE, VF_FIRING, VF_RELOADING } from '../../core/types';
 import {
   STAT_LABEL,
@@ -15,6 +19,8 @@ import {
   aimSummary,
   isScopedBow,
   pickupSlot,
+  pxPerMil,
+  holdPx,
   spreadDeg,
   weaponStats,
   type SightKind,
@@ -23,10 +29,14 @@ import {
 import { SCOPE_AT, SCOPE_FADE, type AimSnapshot } from '../../game/aimFeel';
 import { h, setClass, setText } from '../dom';
 import { gearName, tx } from '../i18n';
+import { settings } from '../../game/settings';
 import { RARITY_COLOR } from '../theme';
 import { spreadToPx, type InteractPrompt } from './logic';
 import type { HudFrame } from './types';
 import { viewport } from './viewport';
+import type { AimAidsView } from '../../render/aimAids';
+import type { DamageKind } from './damageNumbers';
+import { WEAPON_TTK } from '../../data/weaponTtk.gen';
 
 const canAnimate = typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function';
 function play(el: Element, frames: Keyframe[], opts: KeyframeAnimationOptions): void {
@@ -142,7 +152,7 @@ export class Crosshair {
   constructor(private readonly fov: () => number) {
     this.el = h('div', { class: 'hud-xhair', data: { style: 'cross' } },
       h('i', { class: 'l t' }), h('i', { class: 'l b' }), h('i', { class: 'l le' }), h('i', { class: 'l r' }),
-      h('i', { class: 'dot' }), h('i', { class: 'ring' }), h('i', { class: 'chev' }), h('i', { class: 'drop' }),
+      h('i', { class: 'dot' }), h('i', { class: 'ring' }), h('i', { class: 'chev' }),
     );
   }
 
@@ -153,7 +163,9 @@ export class Crosshair {
     this.lastShot = now;
   }
 
-  update(f: HudFrame, aim: AimView): void {
+  /** `blocked`: third person, a wall eats the shot before the crosshair point — the crosshair greys out */
+  update(f: HudFrame, aim: AimView, blocked = false): void {
+    setClass(this.el, 'blocked', blocked);
     const me = f.me;
     const ent = f.myEnt;
     const def = aim.def;
@@ -196,6 +208,25 @@ export class Crosshair {
 
 // ── Hit / knock / kill markers ───────────────────────────────────────────────
 
+/**
+ * The colour of a damage number for a hit of yours / your squad's (spec C8):
+ * a knock / kill red, a headshot gold, a bullet into armor that soaks bullets
+ * pale blue (the target's armor is public: EntityView.armor), else white —
+ * your squad's hits their own smaller colour.
+ */
+export function hitDamageKind(ev: Pick<Extract<GameEvent, { t: 'hit' }>, 'full' | 'head' | 'dtype'>, mine: boolean, targetArmor: string | undefined): DamageKind {
+  if (!mine) return 'squad';
+  if (ev.full !== undefined) return 'kill';
+  if (ev.head) return 'head';
+  if (armorReduces(targetArmor, ev.dtype)) return 'armor';
+  return 'normal';
+}
+
+/** An armor that takes a share off this kind of hit (bullets: damage type 'normal'). */
+export function armorReduces(armor: string | undefined, dtype: DamageType): boolean {
+  return !!armor && dtype === 'normal';
+}
+
 export type HitKind = 'hit' | 'head' | 'down' | 'kill';
 
 /** Always on screen (also through a scope): the X flashes on every hit of yours. */
@@ -210,8 +241,14 @@ export class HitMarker {
     this.el = h('div', { class: 'hud-hitmark' }, this.x, this.ring);
   }
 
+  private lastHead = -99;
+
   hit(kind: HitKind): void {
-    this.x.dataset.kind = kind;
+    const now = typeof performance !== 'undefined' ? performance.now() / 1000 : 0;
+    // a kill right after a headshot: the gold X stays, the kill ring follows it (spec C8)
+    const afterHead = (kind === 'kill' || kind === 'down') && now - this.lastHead < 0.25;
+    if (kind === 'head') this.lastHead = now;
+    this.x.dataset.kind = afterHead ? 'head' : kind;
     const big = kind === 'kill' || kind === 'down';
     play(this.x, [
       { opacity: 1, transform: `translate(-50%, -50%) scale(${big ? 1.6 : 1.35}) rotate(45deg)` },
@@ -224,44 +261,76 @@ export class HitMarker {
       play(this.ring, [
         { opacity: 0.95, transform: 'translate(-50%, -50%) scale(0.35)' },
         { opacity: 0, transform: `translate(-50%, -50%) scale(${kind === 'kill' ? 1.5 : 1.15})` },
-      ], { duration: kind === 'kill' ? 520 : 380, easing: 'ease-out' });
+      ], { duration: kind === 'kill' ? 520 : 380, easing: 'ease-out', delay: afterHead ? 140 : 0, fill: 'backwards' });
     }
   }
 }
 
 // ── Sights (what you look through while aiming) ─────────────────────────────
 
-/** Mil-dot sniper reticle: thick outer posts, fine centre cross, dots every 8 units, a red centre dot. */
-function milDotMarkup(): string {
+/** Mil-dots every this many milliradians (a hero is 18 mil tall at 100 m). */
+export const MIL_DOT_STEP = 5;
+/** The fine cross reaches this far (mil); the thick posts start there. */
+const MIL_CROSS = 35;
+
+/**
+ * Mil-dot sniper reticle to true scale (spec C4): `u` = viewBox units per
+ * milliradian at the zoom on screen (3.27 px / mil at 4×, 6.59 at 8× on 1080p),
+ * dots every MIL_DOT_STEP mil along both lines, a fine cross out to MIL_CROSS
+ * mil, thick outer posts beyond, a red centre dot.
+ */
+export function milDotMarkup(u: number): string {
+  const cross = Math.min(80, Math.max(18, MIL_CROSS * u));
   const dots: string[] = [];
-  for (const d of [-32, -24, -16, -8, 8, 16, 24, 32]) {
-    dots.push(`<circle cx="${d}" cy="0" r="1.15"/>`, `<circle cx="0" cy="${d}" r="1.15"/>`);
+  for (let m = MIL_DOT_STEP; m * u <= cross - 1; m += MIL_DOT_STEP) {
+    const d = Math.round(m * u * 100) / 100;
+    const r = m % 10 === 0 ? 1.25 : 0.95;
+    dots.push(`<circle cx="${d}" cy="0" r="${r}"/>`, `<circle cx="${-d}" cy="0" r="${r}"/>`, `<circle cx="0" cy="${d}" r="${r}"/>`, `<circle cx="0" cy="${-d}" r="${r}"/>`);
   }
+  const c = Math.round(cross * 100) / 100;
   return (
     '<g stroke="#070707" fill="none" stroke-linecap="butt">' +
-    '<line x1="-101" y1="0" x2="-40" y2="0" stroke-width="3.4"/><line x1="40" y1="0" x2="101" y2="0" stroke-width="3.4"/>' +
-    '<line x1="0" y1="40" x2="0" y2="101" stroke-width="3.4"/><line x1="0" y1="-101" x2="0" y2="-40" stroke-width="3.4"/>' +
-    '<line x1="-40" y1="0" x2="40" y2="0" stroke-width="0.45"/><line x1="0" y1="-40" x2="0" y2="40" stroke-width="0.45"/>' +
+    `<line x1="-101" y1="0" x2="${-c}" y2="0" stroke-width="3.4"/><line x1="${c}" y1="0" x2="101" y2="0" stroke-width="3.4"/>` +
+    `<line x1="0" y1="${c}" x2="0" y2="101" stroke-width="3.4"/><line x1="0" y1="-101" x2="0" y2="${-c}" stroke-width="3.4"/>` +
+    `<line x1="${-c}" y1="0" x2="${c}" y2="0" stroke-width="0.45"/><line x1="0" y1="${-c}" x2="0" y2="${c}" stroke-width="0.45"/>` +
     '</g>' +
     `<g fill="#070707">${dots.join('')}</g>` +
     '<circle r="0.85" fill="#ff3a24" class="ctr"/>'
   );
 }
 
-/** Marksman (ACOG-like) reticle: a lit amber chevron over a fine drop line with stadia ticks. */
-function chevronMarkup(): string {
-  const ticks: string[] = [];
-  [14, 22, 30, 38].forEach((y, i) => {
-    const w = 9 - i * 1.8;
-    ticks.push(`<line x1="${-w}" y1="${y}" x2="${w}" y2="${y}"/>`);
+/** Ranging stadia of the marksman sight: a hero's height at these ranges (m). */
+export const STADIA_RANGES = [25, 50, 75, 100] as const;
+/** A hero is this tall (m): the sim's hit capsule. */
+const HERO_TALL = 1.8;
+
+/**
+ * Marksman near sight (DMRs, spec C5): a round window with a dark housing,
+ * the lit amber chevron on the aim point, a thick horizon either side, and
+ * ranging stadia on the right — each bracket as tall as a standing hero at
+ * 25 / 50 / 75 / 100 m at the zoom on screen (`u` = viewBox units per metre
+ * of height at 1 m, i.e. per radian).
+ */
+export function marksmanMarkup(unitsPerRad: number): string {
+  const bars: string[] = [];
+  STADIA_RANGES.forEach((d, i) => {
+    const hh = Math.max(3, Math.min(80, 2 * Math.atan(HERO_TALL / 2 / d) * unitsPerRad));
+    const x = 22 + i * 12;
+    const y0 = Math.round((-hh / 2) * 100) / 100;
+    const y1 = Math.round((hh / 2) * 100) / 100;
+    bars.push(
+      `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}"/>`,
+      `<line x1="${x - 2}" y1="${y0}" x2="${x + 2}" y2="${y0}"/><line x1="${x - 2}" y1="${y1}" x2="${x + 2}" y2="${y1}"/>`,
+      `<text x="${x}" y="${Math.max(y1 + 7.5, 10)}" class="st-lbl">${d}</text>`,
+    );
   });
   return (
-    '<g stroke="#101010" fill="none">' +
-    '<line x1="-101" y1="0" x2="-26" y2="0" stroke-width="1.6"/><line x1="26" y1="0" x2="101" y2="0" stroke-width="1.6"/>' +
-    '<line x1="0" y1="7" x2="0" y2="44" stroke-width="0.6"/>' +
-    `<g stroke-width="0.7">${ticks.join('')}</g>` +
-    '</g>' +
-    '<path d="M-6.5 6 L0 -0.6 L6.5 6" fill="none" stroke="#ffb42a" stroke-width="1.8" stroke-linejoin="miter" class="chev"/>'
+    '<circle r="99" class="glass"/>' +
+    '<g class="mk-lines" stroke-linecap="butt"><line x1="-99" y1="0" x2="-58" y2="0" stroke-width="3.2"/><line x1="72" y1="0" x2="99" y2="0" stroke-width="3.2"/>' +
+    '<line x1="0" y1="10" x2="0" y2="99" stroke-width="0.8"/></g>' +
+    `<g class="mk-stadia" stroke-width="0.9">${bars.join('')}</g>` +
+    '<path d="M-6.5 6 L0 -0.6 L6.5 6" fill="none" stroke-width="1.9" stroke-linejoin="miter" class="mk-chev"/>' +
+    '<circle r="99" class="rim"/>'
   );
 }
 
@@ -291,16 +360,21 @@ const BOLT_MIN_CYCLE = 0.3;
 export class SightOverlay {
   /** the lens overlay (scopes); `.on` while it shows */
   readonly el: HTMLElement;
-  /** reflex / holo / iron sights and the bow's draw ring */
+  /** reflex / holo / iron / marksman sights and the bow's draw ring */
   readonly near: HTMLElement;
   /** touch: a button beside the lens that switches the scope's zoom step (the wheel on desktop) */
   readonly zoomBtn: HTMLElement;
+  /** touch: 屏息 — held, it holds the breath while aimed through a scope / marksman sight (Shift on a keyboard) */
+  readonly breathBtn: HTMLElement;
   /** the zoom button was tapped (the HUD switches the input's zoom step) */
   onZoomTap: (() => void) | null = null;
+  /** the breath button went down / up (the HUD holds the input's breath) */
+  onBreath: ((down: boolean) => void) | null = null;
   private readonly lens: HTMLElement;
   private readonly blink: HTMLElement;
   private readonly reticle: HTMLElement;
   private readonly zoomTag: HTMLElement;
+  private readonly rangeTag: HTMLElement;
   private readonly hint: HTMLElement;
   private readonly breathBar: HTMLElement;
   private readonly breathFill: HTMLElement;
@@ -310,21 +384,32 @@ export class SightOverlay {
   private readonly draw: HTMLElement;
   private readonly drawArc: SVGCircleElement;
   private readonly drawLbl: HTMLElement;
+  /** the marksman sight's breath meter and hint (under its window) */
+  private readonly nearBreath: HTMLElement;
+  private readonly nearBreathFill: HTMLElement;
+  private readonly nearHint: HTMLElement;
   private kind = '';
+  private reticleKey = '';
   private nearKind = '';
+  private nearKey = '';
   private on = false;
   private opacity = -1;
   private lensXf = '';
   private nearOpacity = -1;
   private hintKey = '';
+  private nearHintKey = '';
+  private rangeKey = '';
   private boltKey = '';
   private zoomText = '';
   private zoomBtnOn = false;
+  private breathBtnOn = false;
   private shownAt = -1;
+  private nearShownAt = -1;
 
   constructor() {
     this.reticle = h('div', { class: 'sc-ret' });
     this.zoomTag = h('div', { class: 'sc-zoom' });
+    this.rangeTag = h('div', { class: 'sc-range' });
     this.hint = h('div', { class: 'sc-hint' });
     this.breathFill = h('i');
     this.breathBar = h('div', { class: 'sc-breath' }, this.breathFill);
@@ -332,16 +417,20 @@ export class SightOverlay {
     this.boltArc = boltRing.querySelector('.arc') as SVGCircleElement;
     this.boltLbl = h('span', { class: 'bl-lbl' });
     this.bolt = h('div', { class: 'sc-bolt' }, boltRing, this.boltLbl);
-    this.lens = h('div', { class: 'sc-lens' }, this.reticle, this.zoomTag, this.bolt, this.breathBar, this.hint);
+    this.lens = h('div', { class: 'sc-lens' }, this.reticle, this.zoomTag, this.rangeTag, this.bolt, this.breathBar, this.hint);
     this.blink = h('div', { class: 'sc-blink' });
     this.el = h('div', { class: 'hud-scope' }, this.lens, this.blink);
     const ring = svg('<circle r="18" class="trk"/><circle r="18" class="arc" pathLength="100"/>', '-22 -22 44 44', 'dr-svg');
     this.drawArc = ring.querySelector('.arc') as SVGCircleElement;
     this.drawLbl = h('div', { class: 'dr-lbl' });
     this.draw = h('div', { class: 'hud-draw' }, ring, this.drawLbl);
-    this.near = h('div', { class: 'hud-sight' }, this.draw);
-    this.zoomBtn = h('button', { class: 'hud-zoombtn', type: 'button' });
-    // (a touch on the look area underneath would turn the view: this one only switches the zoom)
+    this.nearBreathFill = h('i');
+    this.nearBreath = h('div', { class: 'ns-breath' }, this.nearBreathFill);
+    this.nearHint = h('div', { class: 'ns-hint' });
+    this.near = h('div', { class: 'hud-sight' }, this.draw, this.nearBreath, this.nearHint);
+    this.zoomBtn = h('button', { class: 'hud-zoombtn hud-scopebtn', type: 'button' });
+    this.breathBtn = h('button', { class: 'hud-breathbtn hud-scopebtn', type: 'button' }, tx('屏息', 'Breath'));
+    // (a touch on the look area underneath would turn the view: these only switch the zoom / hold the breath)
     const tap = (e: Event): void => {
       e.preventDefault();
       e.stopPropagation();
@@ -349,15 +438,39 @@ export class SightOverlay {
     };
     this.zoomBtn.addEventListener('pointerdown', tap);
     this.zoomBtn.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    let breathPid: number | null = null;
+    this.breathBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      breathPid = e.pointerId;
+      try {
+        this.breathBtn.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      this.breathBtn.classList.add('down');
+      this.onBreath?.(true);
+    });
+    const up = (e: PointerEvent): void => {
+      if (e.pointerId !== breathPid) return;
+      breathPid = null;
+      this.breathBtn.classList.remove('down');
+      this.onBreath?.(false);
+    };
+    this.breathBtn.addEventListener('pointerup', up);
+    this.breathBtn.addEventListener('pointercancel', up);
+    this.breathBtn.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
   }
 
   /** Returns whether a lens overlay covers the screen (the crosshair / prompts step aside). */
-  update(f: HudFrame, aim: AimView): boolean {
+  update(f: HudFrame, aim: AimView, aids: Readonly<AimAidsView> | null = null): boolean {
     const me = f.me;
     const alive = !!me && !me.dead && !me.downed && !!f.myEnt;
     const def = aim.def;
     const prof = aimProfile(def);
-    // ── lens overlay (scope / marksman) ──
+    const fov = settings.get().fov;
+    const { w: W, h: H } = viewport();
+    // ── lens overlay (a real scope) ──
     const lensKind = alive && prof.overlay ? aim.sight : '';
     // fades in from SCOPE_AT (the weapon has dropped away, the zoom starts), with a short dark blink
     const o = lensKind ? clamp01((aim.progress - SCOPE_AT) / SCOPE_FADE) : 0;
@@ -371,7 +484,17 @@ export class SightOverlay {
       if (lensKind !== this.kind) {
         this.kind = lensKind;
         this.el.dataset.kind = lensKind;
-        this.reticle.replaceChildren(svg(lensKind === 'scope' ? milDotMarkup() : chevronMarkup(), '-100 -100 200 200', 'sc-svg'));
+        this.reticleKey = '';
+      }
+      // mil-dots to true scale at the zoom step chosen (redrawn on a step / FOV / window change)
+      const zooms = def ? adsZooms(def) : [1];
+      const zStep = zooms[aim.zoomIndex] ?? aim.stepZoom;
+      const lensR = Math.min(0.44 * H, 0.42 * W);
+      const rk = `${zStep}|${fov}|${Math.round(lensR)}|${H}`;
+      if (rk !== this.reticleKey) {
+        this.reticleKey = rk;
+        const u = (pxPerMil(fov, zStep, H) * 100) / Math.max(1, lensR);
+        this.reticle.replaceChildren(svg(milDotMarkup(u), '-100 -100 200 200', 'sc-svg'));
       }
       const q = Math.round(o * 50) / 50;
       if (q !== this.opacity) {
@@ -387,6 +510,7 @@ export class SightOverlay {
         this.lens.style.transform = xf;
       }
       this.updateLensText(f, aim, prof.holdBreath);
+      this.updateRange(aids, def);
       this.updateBolt(f, aim, def);
     }
     const zoomBtnOn = on && f.touch && aim.zoomSteps > 1;
@@ -394,10 +518,22 @@ export class SightOverlay {
       this.zoomBtnOn = zoomBtnOn;
       setClass(this.zoomBtn, 'on', zoomBtnOn);
     }
-    // ── near sights (red dot / holo / wide reflex / iron) and the bow's draw ring (inside the lens on a scoped bow) ──
+    // touch: 屏息 while aimed through a scope or a marksman sight
+    const breathBtnOn = alive && f.touch && prof.holdBreath && aim.blend > 0.6;
+    if (breathBtnOn !== this.breathBtnOn) {
+      this.breathBtnOn = breathBtnOn;
+      setClass(this.breathBtn, 'on', breathBtnOn);
+      if (!breathBtnOn && this.breathBtn.classList.contains('down')) {
+        this.breathBtn.classList.remove('down');
+        this.onBreath?.(false);
+      }
+    }
+    setClass(this.breathBtn, 'holding', breathBtnOn && aim.holding);
+    setClass(this.breathBtn, 'winded', breathBtnOn && aim.winded);
+    // ── near sights (red dot / holo / wide reflex / iron / marksman) and the bow's draw ring (inside the lens on a scoped bow) ──
     const scopedBow = isScopedBow(def);
     const nearKind =
-      alive && !prof.overlay && (aim.sight === 'reddot' || aim.sight === 'holo' || aim.sight === 'reflex' || (aim.sight === 'iron' && aim.firstPerson))
+      alive && !prof.overlay && (aim.sight === 'reddot' || aim.sight === 'holo' || aim.sight === 'reflex' || aim.sight === 'marksman' || (aim.sight === 'iron' && aim.firstPerson))
         ? aim.sight
         : alive && (aim.sight === 'bow' || scopedBow)
           ? 'bow'
@@ -405,11 +541,22 @@ export class SightOverlay {
     // third person: the reticle floats over the world, without the sight's glass and frame
     setClass(this.near, 'tps', !aim.firstPerson);
     setClass(this.near, 'in-scope', scopedBow);
-    if (nearKind !== this.nearKind) {
+    // the marksman window's stadia follow the zoom on screen: redrawn when the zoom / FOV / window changes
+    const nearR = Math.min(0.275 * H, 0.3 * W);
+    const nk = nearKind === 'marksman' ? `mk|${Math.round(aim.zoom * 20)}|${fov}|${Math.round(nearR)}|${H}` : nearKind;
+    if (nk !== this.nearKey) {
+      if (nearKind !== this.nearKind) this.nearShownAt = f.now;
+      this.nearKey = nk;
       this.nearKind = nearKind;
       this.near.dataset.kind = nearKind;
       this.near.querySelector('.ns-svg')?.remove();
-      if (nearKind && nearKind !== 'bow') this.near.prepend(svg(nearKind === 'reddot' ? RED_DOT : nearKind === 'holo' ? HOLO : nearKind === 'reflex' ? REFLEX : IRON, '-50 -50 100 100', 'ns-svg'));
+      if (nearKind === 'marksman') {
+        // viewBox units per radian at this zoom: the window's radius (100 units) is nearR px
+        const pxPerRad = holdPx(0.001, fov, Math.max(1, aim.zoom), H) * 1000;
+        this.near.prepend(svg(marksmanMarkup((pxPerRad * 100) / Math.max(1, nearR)), '-100 -100 200 200', 'ns-svg'));
+      } else if (nearKind && nearKind !== 'bow') {
+        this.near.prepend(svg(nearKind === 'reddot' ? RED_DOT : nearKind === 'holo' ? HOLO : nearKind === 'reflex' ? REFLEX : IRON, '-50 -50 100 100', 'ns-svg'));
+      }
     }
     const no = nearKind === 'bow' ? clamp01(aim.progress * 3) : nearKind ? clamp01((aim.blend - 0.45) / 0.4) : 0;
     const nq = Math.round(no * 50) / 50;
@@ -418,6 +565,8 @@ export class SightOverlay {
       this.near.style.opacity = String(nq);
       setClass(this.near, 'on', nq > 0);
     }
+    if (nearKind === 'marksman' && nq > 0) this.updateNearBreath(f, aim);
+    else setClass(this.nearBreath, 'on', false);
     if (nearKind === 'bow' && nq > 0) {
       // the draw fills with the aim (a full draw = aimed spread and full damage) and again after each
       // arrow (nocking the next one takes the bow's shot interval); held too long the arm shakes
@@ -431,6 +580,33 @@ export class SightOverlay {
       setText(this.drawLbl, tired ? tx('臂力不支', 'Arm shaking') : full ? tx('满弦', 'Full draw') : nock < 1 ? tx('搭箭', 'Nocking') : '');
     }
     return on && o >= 0.6;
+  }
+
+  /** The rangefinder: metres to what the crosshair is on — amber beyond the weapon's full-damage range. */
+  private updateRange(aids: Readonly<AimAidsView> | null, def: WeaponDef | undefined): void {
+    const r = aids?.range ?? null;
+    const far = r !== null && !!def && r > def.falloffStart;
+    const key = r === null ? '—' : `${Math.round(r)}|${far}`;
+    if (key === this.rangeKey) return;
+    this.rangeKey = key;
+    setText(this.rangeTag, r === null ? '— m' : `${Math.round(r)} m`);
+    setClass(this.rangeTag, 'far', far);
+  }
+
+  /** The marksman sight: the breath meter under its window and a first hint. */
+  private updateNearBreath(f: HudFrame, aim: AimView): void {
+    const show = aim.holding || aim.winded || aim.breath < 0.999;
+    setClass(this.nearBreath, 'on', show);
+    if (show) {
+      this.nearBreathFill.style.transform = `scaleX(${r3(clamp01(aim.breath))})`;
+      setClass(this.nearBreath, 'low', aim.breath < 0.3 || aim.winded);
+    }
+    const fresh = f.now - this.nearShownAt < 3.5;
+    const key = aim.winded ? 'w' : aim.holding ? 'h' : fresh && !f.touch ? 't' : '';
+    if (key + f.lang === this.nearHintKey) return;
+    this.nearHintKey = key + f.lang;
+    setText(this.nearHint, key === 'w' ? tx('气息紊乱…', 'Out of breath…') : key === 'h' ? tx('屏息中', 'Holding breath') : key === 't' ? tx('Shift 屏息稳枪 · 刻度＝敌人身高测距', 'Shift: hold breath · stadia = a hero’s height at range') : '');
+    setClass(this.nearHint, 'warn', key === 'w');
   }
 
   /** Scoped slow guns / the scoped bow: after a shot an arc fills until the next round (arrow) is ready. */
@@ -538,6 +714,47 @@ function statRows(def: WeaponDef, vs: WeaponDef | undefined): HTMLElement[] {
   });
 }
 
+/** Ranges of the stat card's time-to-kill strip (data/weaponTtk.gen.ts). */
+export const TTK_RANGES = [
+  { key: 'm5', m: 5 },
+  { key: 'm20', m: 20 },
+  { key: 'm50', m: 50 },
+] as const;
+
+/** Seconds to down a 400 HP hero at `m` metres (the human TTK model, mid skill) — null when it cannot there. */
+export function ttkAt(id: string, key: 'm5' | 'm20' | 'm50'): number | null {
+  const v = WEAPON_TTK[id]?.[key];
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/** Tone of a TTK cell: fast (≤ 2.6 s), fair (≤ 4 s), slow, or none (cannot kill there). */
+export function ttkTone(s: number | null): 'fast' | 'ok' | 'slow' | 'none' {
+  if (s === null) return 'none';
+  return s <= 2.6 ? 'fast' : s <= 4 ? 'ok' : 'slow';
+}
+
+/**
+ * The 5 / 20 / 50 m time-to-kill strip (击倒用时): where this gun wins. With
+ * `vs` (the pickup comparison) a ▲ / ▼ marks each range it is faster / slower.
+ */
+function ttkStrip(def: WeaponDef, vs?: WeaponDef): HTMLElement[] {
+  if (!WEAPON_TTK[def.id]) return [];
+  return [h('div', { class: 'wst-ttk' },
+    h('span', { class: 'wst-lbl' }, tx('击倒', 'TTK')),
+    ...TTK_RANGES.map((r) => {
+      const s = ttkAt(def.id, r.key);
+      const o = vs ? ttkAt(vs.id, r.key) : undefined;
+      let d: HTMLElement | null = null;
+      if (o !== undefined && s !== o) {
+        const better = s !== null && (o === null || s < o - 0.05);
+        const worse = s === null ? o !== null : o !== null && s > o + 0.05;
+        if (better || worse) d = h('b', { class: `wst-d ${better ? 'up' : 'dn'}` }, better ? '▲' : '▼');
+      }
+      return h('span', { class: `tt ${ttkTone(s)}` }, h('i', null, `${r.m}m`), s === null ? '—' : `${(Math.round(s * 10) / 10).toFixed(1)}s`, d);
+    }),
+  )];
+}
+
 /** "狙击镜 4× / 8× · 开镜 0.3 秒 · 腰射 ±6° · Shift 屏息" — how this weapon aims (data/weaponFeel.ts aimSummary). */
 export function aimLine(def: WeaponDef): string {
   const a = aimSummary(def);
@@ -607,6 +824,7 @@ export class WeaponCard {
       ),
       h('div', { class: 'wst-name' }, gearName(def.id), def.sgsCard ? h('span', { class: 'wst-card' }, `〔${def.sgsCard}〕`) : null),
       h('div', { class: 'wst-stats' }, ...statRows(def, undefined)),
+      ...ttkStrip(def),
       h('div', { class: 'wst-aim' }, ...aimLineParts(def)),
     );
   }
@@ -655,6 +873,7 @@ export class LootCompare {
         vs ? h('span', { class: 'wst-vs' }, tx(`对比 ${gearName(vs.id)}`, `vs ${gearName(vs.id)}`)) : null,
       ),
       h('div', { class: 'wst-stats' }, ...statRows(def, vs)),
+      ...ttkStrip(def, vs),
       h('div', { class: 'wst-aim' }, ...aimLineParts(def)),
     );
   }

@@ -4,12 +4,14 @@
 const u = (n: number): string => `calc(var(--u) * ${n})`;
 const fs = (n: number, min = 11): string => `max(${min}px, calc(var(--u) * ${n}))`;
 
-/** Lens radius of the sniper scope / the marksman scope. */
+/** Lens radius of the sniper scope; the marksman near sight's window (55 % of the screen height across). */
 const R_SCOPE = 'min(44vh, 42vw)';
-const R_DMR = 'min(47vh, 45vw)';
+const R_MARKSMAN = 'min(27.5vh, 30vw)';
 
 export const AIM_CSS = /* css */ `
 /* ── crosshair per class (the base look: styles/hud.ts) ─── */
+/* third person, a wall between your eye and the crosshair point: the crosshair greys (the mark: .am-blocked) */
+.hud-xhair.blocked { color: rgba(170, 170, 170, 0.75); }
 .hud-xhair[data-cls="pistol"] { --len: ${u(7)}; }
 .hud-xhair[data-cls="smg"] { --len: ${u(8)}; }
 .hud-xhair[data-cls="lmg"] { --th: 3px; --len: ${u(13)}; }
@@ -21,6 +23,10 @@ export const AIM_CSS = /* css */ `
 .hitmarker[data-kind="down"] { width: ${u(36)}; height: ${u(36)}; }
 .hitmarker[data-kind="down"] i { background: #ffa23a; width: 3px; }
 .hitmarker[data-kind="down"] i:nth-child(3), .hitmarker[data-kind="down"] i:nth-child(4) { height: 3px; width: 32%; }
+/* a headshot: a gold X with longer arms */
+.hitmarker[data-kind="head"] { width: ${u(40)}; height: ${u(40)}; }
+.hitmarker[data-kind="head"] i { height: 40%; }
+.hitmarker[data-kind="head"] i:nth-child(3), .hitmarker[data-kind="head"] i:nth-child(4) { width: 40%; height: 3px; }
 .hitmarker[data-kind="kill"] { width: ${u(46)}; height: ${u(46)}; }
 .hitmarker[data-kind="kill"] i { width: 4px; box-shadow: 0 0 3px #000, 0 0 6px rgba(255, 60, 40, 0.8); }
 .hitmarker[data-kind="kill"] i:nth-child(3), .hitmarker[data-kind="kill"] i:nth-child(4) { height: 4px; width: 34%; }
@@ -38,12 +44,14 @@ export const AIM_CSS = /* css */ `
 .hud-scope .sc-lens { --r: ${R_SCOPE}; position: absolute; left: 50%; top: 50%; width: calc(var(--r) * 2); height: calc(var(--r) * 2); border-radius: 50%; transform: translate(-50%, -50%);
   box-shadow: inset 0 0 calc(var(--r) * 0.18) calc(var(--r) * 0.02) rgba(0, 0, 0, 0.85), inset 0 0 0 2px rgba(120, 170, 200, 0.25), 0 0 0 3px #0b0b0b, 0 0 0 200vmax #000;
   background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.07), transparent 38%), radial-gradient(circle, transparent 72%, rgba(40, 60, 80, 0.18) 100%); }
-.hud-scope[data-kind="marksman"] .sc-lens { --r: ${R_DMR}; box-shadow: inset 0 0 calc(var(--r) * 0.14) rgba(0, 0, 0, 0.8), 0 0 0 ${u(12)} #16130f, 0 0 0 ${u(14)} #2a241a, 0 0 0 200vmax rgba(4, 3, 2, 0.9); }
 .hud-scope .sc-ret { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; }
 .hud-scope .sc-svg { width: 100%; height: 100%; display: block; }
 .hud-scope .sc-svg .ctr { filter: drop-shadow(0 0 1.2px #ff5030); }
-.hud-scope .sc-svg .chev { filter: drop-shadow(0 0 1.6px rgba(255, 170, 40, 0.9)); }
 .hud-scope .sc-zoom { position: absolute; right: 17%; bottom: 15%; font-family: var(--font-display); font-weight: 900; font-size: ${fs(20, 13)}; color: #ffcf6a; text-shadow: 0 0 3px #000, 0 1px 0 #000; }
+/* rangefinder: metres to the crosshair point, amber beyond the gun's full-damage range */
+.hud-scope .sc-range { position: absolute; right: 17%; top: 56%; font-family: var(--font-body); font-weight: 800; font-size: ${fs(15, 11)}; font-variant-numeric: tabular-nums; color: #d8f0d0; text-shadow: 0 0 3px #000, 0 1px 0 #000; }
+.hud-scope .sc-range::before { content: '◁ '; opacity: 0.7; }
+.hud-scope .sc-range.far { color: #ffb42a; }
 .hud-scope .sc-hint { position: absolute; left: 50%; top: 83%; transform: translateX(-50%); padding: ${u(2)} ${u(12)}; font-size: ${fs(13, 11)}; white-space: nowrap; color: #f5ead0; background: rgba(0, 0, 0, 0.55); border-radius: 999px; }
 .hud-scope .sc-hint:empty { display: none; }
 .hud-scope .sc-hint.warn { color: #ffb09a; }
@@ -59,8 +67,13 @@ export const AIM_CSS = /* css */ `
 .hud-scope .bl-svg .trk { fill: none; stroke: rgba(255, 255, 255, 0.25); stroke-width: 4; }
 .hud-scope .bl-svg .arc { fill: none; stroke: #ffcf6a; stroke-width: 5; stroke-dasharray: 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 1px #000); }
 /* touch: switch the scope's zoom step (the wheel on desktop) — above the touch controls' look area */
-.hud-zoombtn { display: none; position: absolute; z-index: 6; left: calc(50% + min(44vh, 42vw) * 0.7); top: calc(50% + min(44vh, 42vw) * 0.3); transform: translate(-50%, -50%); min-width: 58px; min-height: 40px; padding: 0 12px; border-radius: 999px; border: 2px solid rgba(255, 207, 106, 0.8); background: rgba(12, 9, 6, 0.8); color: #ffcf6a; font-family: var(--font-display); font-weight: 900; font-size: 16px; pointer-events: auto; touch-action: none; }
-.sg-hud.touch .hud-zoombtn.on { display: grid; place-items: center; }
+/* touch, scoped: 4×/8× and 屏息 (hold breath) — 56 px, in a column left of the fire button's thumb */
+.hud-scopebtn { --b: clamp(44px, 12vmin, 62px); display: none; position: absolute; z-index: 6; right: calc(var(--b) * 2.25 + 8px); width: 56px; height: 56px; border-radius: 50%; border: 2px solid rgba(255, 207, 106, 0.85); background: rgba(12, 9, 6, 0.82); color: #ffcf6a; font-family: var(--font-display); font-weight: 900; font-size: 15px; line-height: 1; padding: 0; pointer-events: auto; touch-action: none; }
+.hud-zoombtn { bottom: calc(var(--b) * 2.2 + 70px); }
+.hud-breathbtn { bottom: calc(var(--b) * 2.2); color: #cfe6ff; border-color: rgba(150, 200, 255, 0.85); }
+.hud-breathbtn.down, .hud-breathbtn.holding { background: rgba(40, 90, 160, 0.9); color: #fff; }
+.hud-breathbtn.winded { border-color: #ff8a6a; color: #ffb09a; }
+.sg-hud.touch .hud-scopebtn.on { display: grid; place-items: center; }
 .sg-hud.touch .hud-scope .sc-zoom { display: none; }
 
 /* ── near sights: red dot / holo / iron, and the bow's draw ── */
@@ -71,6 +84,22 @@ export const AIM_CSS = /* css */ `
 .hud-sight[data-kind="holo"] .ns-svg { width: min(30vh, 28vw); height: min(30vh, 28vw); }
 .hud-sight[data-kind="iron"] .ns-svg { width: min(13vh, 12vw); height: min(13vh, 12vw); }
 .hud-sight[data-kind="reflex"] .ns-svg { width: min(32vh, 30vw); height: min(32vh, 30vw); }
+/* the marksman near sight (DMRs): a round window 55 % of the screen height across, the gun still in view */
+.hud-sight[data-kind="marksman"] .ns-svg { width: calc(${R_MARKSMAN} * 2); height: calc(${R_MARKSMAN} * 2); }
+.hud-sight[data-kind="marksman"] .glass { fill: rgba(170, 215, 255, 0.05); }
+.hud-sight[data-kind="marksman"] .rim { stroke: rgba(10, 9, 8, 0.9); stroke-width: 7; filter: drop-shadow(0 0 5px rgba(0, 0, 0, 0.7)); }
+.hud-sight .mk-lines { stroke: #0c0c0c; fill: none; }
+.hud-sight .mk-stadia { stroke: #111; fill: none; }
+.hud-sight .st-lbl { fill: #111; stroke: none; font: 700 6.5px var(--font-body); text-anchor: middle; }
+.hud-sight .mk-chev { stroke: #ffb42a; filter: drop-shadow(0 0 1.6px rgba(255, 170, 40, 0.95)); }
+.hud-sight.tps .mk-lines, .hud-sight.tps .mk-stadia { stroke: rgba(255, 244, 220, 0.85); }
+.hud-sight.tps .st-lbl { fill: rgba(255, 244, 220, 0.9); }
+.hud-sight .ns-breath, .hud-sight .ns-hint { display: none; }
+.hud-sight[data-kind="marksman"] .ns-breath.on { display: block; position: absolute; left: 0; top: calc(${R_MARKSMAN} + ${u(14)}); width: ${u(150)}; height: ${u(5)}; transform: translateX(-50%); background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px; overflow: hidden; }
+.hud-sight .ns-breath i { position: absolute; inset: 0; background: linear-gradient(90deg, #7ab8ff, #cfe6ff); transform-origin: left center; }
+.hud-sight .ns-breath.low i { background: linear-gradient(90deg, #ff6a4a, #ffb09a); }
+.hud-sight[data-kind="marksman"] .ns-hint:not(:empty) { display: block; position: absolute; left: 0; top: calc(${R_MARKSMAN} + ${u(26)}); transform: translateX(-50%); padding: ${u(2)} ${u(12)}; font-size: ${fs(13, 11)}; white-space: nowrap; color: #f5ead0; background: rgba(0, 0, 0, 0.55); border-radius: 999px; }
+.hud-sight .ns-hint.warn { color: #ffb09a; }
 .hud-sight .glass { fill: rgba(150, 205, 255, 0.07); }
 .hud-sight.tps :is(.glass, .rim) { display: none; }
 .hud-sight .rim { fill: none; stroke: rgba(12, 12, 12, 0.72); stroke-width: 4; }
@@ -119,6 +148,15 @@ export const AIM_CSS = /* css */ `
 .wst-d { font-size: 0.8em; text-align: center; }
 .wst-d.up { color: #7fe09a; }
 .wst-d.dn { color: #ff7a6a; }
+/* the 5 / 20 / 50 m time-to-kill strip: green where the gun wins, grey where it cannot kill */
+.wst-ttk { display: grid; grid-template-columns: ${u(58)} repeat(3, 1fr); column-gap: ${u(5)}; align-items: center; margin-top: ${u(4)}; font-size: ${fs(12.5, 10)}; }
+.wst-ttk .tt { display: flex; align-items: baseline; justify-content: center; gap: ${u(3)}; padding: ${u(1)} 0; border-radius: ${u(3)}; background: rgba(255, 255, 255, 0.07); font-variant-numeric: tabular-nums; font-weight: 800; white-space: nowrap; }
+.wst-ttk .tt i { font-style: normal; font-weight: 600; font-size: 0.8em; opacity: 0.75; }
+.wst-ttk .tt.fast { color: #8ff0a4; background: rgba(60, 170, 90, 0.2); }
+.wst-ttk .tt.ok { color: #ffe08a; }
+.wst-ttk .tt.slow { color: #ffab8a; }
+.wst-ttk .tt.none { color: rgba(255, 255, 255, 0.4); }
+.wst-ttk .wst-d { margin-left: 1px; }
 .wst-aim { margin-top: ${u(6)}; font-size: ${fs(12, 10)}; color: #cfe2ff; opacity: 0.92; }
 .wst-aim > span { white-space: nowrap; }
 .sg-hud.dead :is(.hud-wcard, .hud-lootcmp, .hud-sight), .sg-hud.downed :is(.hud-wcard, .hud-lootcmp) { display: none; }
@@ -132,4 +170,47 @@ export const AIM_CSS = /* css */ `
 .sg-weapon-card > .wc-aim > span { white-space: nowrap; }
 .sg-table.weapons td.sight { white-space: nowrap; }
 .sg-table.weapons.feel td.desc { min-width: 12em; }
+/* ── aim marks (ui/hud/aimMarks.ts): holdover ladder, impact diamond, blocked shot, 方天 locks ── */
+.hud-aimmarks { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.am-ladder { position: absolute; left: 50%; top: 50%; width: 0; height: 0; display: none; filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000); }
+.am-ladder.on { display: block; }
+.am-ladder .tk { position: absolute; left: 0; width: 0; height: 0; }
+.am-ladder .tk b { position: absolute; left: calc(${u(-14)} * var(--w, 1)); top: -1px; width: calc(${u(28)} * var(--w, 1)); height: 2px; background: rgba(255, 255, 255, 0.92); }
+.am-ladder .tk span { position: absolute; left: calc(${u(16)} * var(--w, 1) + ${u(2)}); top: 0; transform: translateY(-52%); font: 700 ${fs(11.5, 10)} var(--font-body); color: #fff; white-space: nowrap; }
+/* inside 烈弓's lens: dark marks on the bright glass */
+.am-ladder.in-scope { filter: none; }
+.am-ladder.in-scope .tk b { background: #0a0a0a; }
+.am-ladder.in-scope .tk span { color: #0a0a0a; font-weight: 800; text-shadow: 0 0 2px rgba(255, 255, 255, 0.6); }
+.am-impact { position: absolute; left: 0; top: 0; width: 0; height: 0; display: none; }
+.am-impact.on { display: block; }
+.am-impact .dia { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border: 2px solid #ffcf6a; transform: rotate(45deg); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 0 6px rgba(255, 200, 90, 0.7); }
+.am-impact .lbl { position: absolute; left: 12px; top: -8px; font: 800 ${fs(12, 10)} var(--font-body); color: #ffe7b0; white-space: nowrap; text-shadow: 0 0 3px #000, 0 1px 0 #000; }
+.am-impact.air .dia { border-style: dashed; }
+.am-impact.unarmed .dia { border-color: #9a9a9a; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7); }
+.am-impact.unarmed .lbl { color: #c4c4c4; }
+.am-blocked { position: absolute; left: 0; top: 0; width: 0; height: 0; display: none; }
+.am-blocked.on { display: block; }
+.am-blocked i { position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #ff6a4a; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); background: linear-gradient(45deg, transparent 44%, #ff6a4a 44%, #ff6a4a 56%, transparent 56%); }
+.am-lock { position: absolute; left: 0; top: 0; width: 0; height: 0; display: none; }
+.am-lock.on { display: block; animation: sg-lock-pulse 0.5s ease-in-out infinite alternate; }
+.am-lock i { position: absolute; width: 10px; height: 10px; border: 0 solid #ff5a3a; filter: drop-shadow(0 0 2px rgba(255, 60, 30, 0.9)); }
+.am-lock i:nth-child(1) { left: -20px; top: -26px; border-left-width: 2px; border-top-width: 2px; }
+.am-lock i:nth-child(2) { left: 10px; top: -26px; border-right-width: 2px; border-top-width: 2px; }
+.am-lock i:nth-child(3) { left: -20px; top: 16px; border-left-width: 2px; border-bottom-width: 2px; }
+.am-lock i:nth-child(4) { left: 10px; top: 16px; border-right-width: 2px; border-bottom-width: 2px; }
+@keyframes sg-lock-pulse { from { opacity: 0.55; } to { opacity: 1; } }
+/* locked on by 方天 rockets: red edges, a chevron toward the shooter, a warning line */
+.am-lockwarn { position: absolute; inset: 0; display: none; }
+.am-lockwarn.on { display: block; }
+.am-lockwarn .lw-edge { position: absolute; inset: 0; box-shadow: inset 0 0 ${u(70)} ${u(22)} rgba(235, 20, 10, 0.7); animation: sg-focus-pulse 0.32s ease-in-out infinite alternate; }
+.am-lockwarn .lw-arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; display: none; }
+.am-lockwarn .lw-arrow.on { display: block; }
+.am-lockwarn .lw-arrow i { position: absolute; left: ${u(-22)}; top: calc(min(40vh, 40vw) * -1); width: 0; height: 0; border-left: ${u(22)} solid transparent; border-right: ${u(22)} solid transparent; border-bottom: ${u(30)} solid #ff3a24; filter: drop-shadow(0 0 4px rgba(255, 40, 20, 0.95)) drop-shadow(0 0 1px #000); }
+.am-lockwarn .lw-line { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); padding: ${u(5)} ${u(16)}; white-space: nowrap; background: rgba(120, 10, 6, 0.86); border: 1px solid #ff5a3a; border-radius: ${u(5)}; font-weight: 800; font-size: ${fs(15, 12)}; color: #ffe6d8; animation: sg-hud-blink 0.32s ease-in-out infinite alternate; }
+
+/* ── damage numbers (ui/hud/damageNumbers.ts): armor-reduced blue with a shield, dodges grey, knocks / kills red ── */
+.hud-dmg .n.armor { color: #b8dcff; }
+.hud-dmg .n.armor::before { content: '⛨'; font-size: 0.7em; margin-right: 0.12em; color: #8fc3ff; }
+.hud-dmg .n.dodge { color: #b9b9b9; font-size: ${fs(18, 12)}; }
+.hud-dmg .n.kill { color: #ff4a3a; font-size: ${fs(26, 15)}; }
 `;

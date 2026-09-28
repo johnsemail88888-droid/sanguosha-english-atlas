@@ -134,12 +134,12 @@ export const HUD_CSS = /* css */ `
 .hud-xhair .dot { width: 4px; height: 4px; left: -2px; top: -2px; border-radius: 50%; background: currentColor; }
 .hud-xhair .ring { width: calc(var(--gap) * 2); height: calc(var(--gap) * 2); left: calc(var(--gap) * -1); top: calc(var(--gap) * -1); border: 1.5px solid currentColor; border-radius: 50%; }
 .hud-xhair .chev { width: ${u(18)}; height: ${u(18)}; left: ${u(-9)}; top: ${u(4)}; border-left: 2px solid currentColor; border-top: 2px solid currentColor; transform: translateY(calc(var(--gap) * 0.4)) rotate(45deg); }
-.hud-xhair .drop { width: ${u(22)}; height: ${u(34)}; left: ${u(-11)}; top: ${u(8)}; background: linear-gradient(currentColor, currentColor) center top / 2px 100% no-repeat, linear-gradient(currentColor, currentColor) center 33% / 60% 2px no-repeat, linear-gradient(currentColor, currentColor) center 66% / 45% 2px no-repeat, linear-gradient(currentColor, currentColor) center 100% / 30% 2px no-repeat; opacity: 0.85; }
 .hud-xhair[data-style="cross"] .l, .hud-xhair[data-style="cross"] .dot { display: block; }
 .hud-xhair[data-style="circle"] .ring, .hud-xhair[data-style="circle"] .dot { display: block; }
 .hud-xhair[data-style="dot"] .dot { display: block; width: 5px; height: 5px; left: -2.5px; top: -2.5px; }
 .hud-xhair[data-style="dot"] .ring { display: block; opacity: 0.35; }
-.hud-xhair[data-style="launcher"] .dot, .hud-xhair[data-style="launcher"] .drop, .hud-xhair[data-style="launcher"] .l.le, .hud-xhair[data-style="launcher"] .l.r { display: block; }
+/* (the launcher's drop ticks are the live holdover ladder: styles/aim.ts .am-ladder) */
+.hud-xhair[data-style="launcher"] .dot, .hud-xhair[data-style="launcher"] .l.le, .hud-xhair[data-style="launcher"] .l.r { display: block; }
 .hud-xhair[data-style="bow"] .chev, .hud-xhair[data-style="bow"] .dot { display: block; }
 .hud-xhair[data-style="flame"] .ring { display: block; border-style: dashed; border-width: 2px; }
 .hud-xhair[data-style="melee"] .chev { display: block; top: ${u(-9)}; transform: rotate(45deg); border-radius: ${u(4)} 0 0 0; }

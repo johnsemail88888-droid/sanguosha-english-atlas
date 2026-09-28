@@ -1,8 +1,13 @@
 // Touch overlay: virtual joystick (left half), drag-to-look (right half) and
-// on-screen buttons. Talks only to InputSink.
+// on-screen buttons. Talks only to InputSink. The stick's sprint edge only
+// sprints (holding the breath is the HUD's 屏息 button while scoped); with
+// "hold to aim, release to fire" a sniper / bow / DMR raises its sights while
+// fire is held and shoots on release; the gyro (settings) steers the aim.
 import type { AbilitySlot, InputAction, PrivateHeroView, SquadOrderKind } from '../core/types';
 import type { InputSink } from '../game/input-types';
-import { HERO_BY_ID, ITEM_BY_ID, isPassiveAbility } from '../data';
+import { HERO_BY_ID, ITEM_BY_ID, WEAPON_BY_ID, isPassiveAbility } from '../data';
+import type { WeaponDef } from '../data/types';
+import { settings } from '../game/settings';
 import type { AbilityDef } from '../data/types';
 import { h, setClass, setText } from './dom';
 import { getLang, t, tx, type I18nKey } from './i18n';
@@ -20,6 +25,39 @@ export const LONG_PRESS_MS = 450;
 export const TOUCH_LOOK_SCALE = 1.6;
 /** Joystick radius in CSS px. */
 const STICK_R = 56;
+
+/** Classes that "hold to aim, release to fire" applies to (one careful shot at a time). */
+export function fireOnRelease(def: Pick<WeaponDef, 'class'> | undefined, on: boolean): boolean {
+  return on && !!def && (def.class === 'sniper' || def.class === 'bow' || def.class === 'dmr');
+}
+
+/**
+ * The gyro's look (radians of yaw / pitch, game convention: yaw + = left,
+ * pitch + = up) for a DeviceMotionEvent.rotationRate (degrees / s) over `dt`
+ * seconds, with the screen turned `angle` degrees (screen.orientation.angle).
+ */
+export function gyroLook(rate: { alpha?: number | null; beta?: number | null; gamma?: number | null }, angle: number, dt: number): { yaw: number; pitch: number } {
+  const b = ((rate.beta ?? 0) * Math.PI) / 180;
+  const g = ((rate.gamma ?? 0) * Math.PI) / 180;
+  const a = ((Math.round(angle / 90) % 4) + 4) % 4;
+  // portrait: turning about the screen's up axis is gamma, tilting about its right axis beta
+  const [yaw, pitch] = a === 0 ? [g, b] : a === 1 ? [b, -g] : a === 2 ? [-g, -b] : [-b, g];
+  return { yaw: yaw * dt, pitch: pitch * dt };
+}
+
+type MotionPermission = { requestPermission?: () => Promise<'granted' | 'denied'> };
+
+/** iOS asks before the page may read motion: call on a user gesture (the settings' gyro switch). */
+export async function requestGyroPermission(): Promise<boolean> {
+  const D = (globalThis as { DeviceMotionEvent?: MotionPermission }).DeviceMotionEvent;
+  if (!D) return false;
+  if (typeof D.requestPermission !== 'function') return true;
+  try {
+    return (await D.requestPermission()) === 'granted';
+  } catch {
+    return false;
+  }
+}
 
 export function shouldUseTouch(pref: 'auto' | 'on' | 'off', coarse?: boolean): boolean {
   if (pref === 'on') return true;
@@ -96,6 +134,11 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
   let sprintOn = false;
   let orderIdx = 0;
   let activeSlot = 0;
+  /** the weapon in hand (hold-to-aim firing applies to snipers / bows / DMRs) */
+  let weaponDef: WeaponDef | undefined;
+  /** hold to aim, release to fire: the fire button raised the sights (the ADS toggle did not) */
+  let holdAiming = false;
+  let holdAimTimer: ReturnType<typeof setTimeout> | null = null;
 
   const push = (a: InputAction): void => {
     try {
@@ -149,17 +192,41 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
     return b;
   };
 
-  // fire: hold + drag to aim
+  // fire: hold + drag to aim. "Hold to aim, release to fire" (settings, snipers / bows / DMRs):
+  // pressing raises the sights, letting go fires one shot, the sights drop a moment later
   let firePid: number | null = null;
   let fireLast = { x: 0, y: 0 };
   const fire = btn('fire', 'fire', (ev) => {
     firePid = ev.pointerId;
     fireLast = { x: ev.clientX, y: ev.clientY };
+    if (fireOnRelease(weaponDef, settings.get().touchFireRelease)) {
+      if (holdAimTimer !== null) clearTimeout(holdAimTimer);
+      holdAimTimer = null;
+      holdAiming = !adsOn;
+      if (holdAiming) sink.setHeld('ads', true);
+      return;
+    }
     sink.setHeld('fire', true);
   }, () => {
     firePid = null;
+    if (fireOnRelease(weaponDef, settings.get().touchFireRelease)) {
+      // one frame of fire (the input latches a press shorter than a frame), the sights held a moment longer
+      sink.setHeld('fire', true);
+      sink.setHeld('fire', false);
+      if (holdAiming) {
+        holdAimTimer = setTimeout(() => {
+          holdAimTimer = null;
+          holdAiming = false;
+          if (!adsOn) sink.setHeld('ads', false);
+        }, 150);
+      }
+      return;
+    }
     sink.setHeld('fire', false);
   }, tx('开火', 'Fire'), 'fire');
+  cleanup.push(() => {
+    if (holdAimTimer !== null) clearTimeout(holdAimTimer);
+  });
   fire.addEventListener('pointermove', (ev) => {
     if (ev.pointerId !== firePid) return;
     sink.addLook((ev.clientX - fireLast.x) * TOUCH_LOOK_SCALE, (ev.clientY - fireLast.y) * TOUCH_LOOK_SCALE);
@@ -334,6 +401,24 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
   lookZone.addEventListener('pointerup', lookEnd);
   lookZone.addEventListener('pointercancel', lookEnd);
 
+  // ── gyro (settings: off / while aimed / always; the input applies the zoom scaling) ──
+  let lastMotion = -1;
+  const onMotion = (ev: DeviceMotionEvent): void => {
+    const s = settings.get().gyro;
+    const rate = ev.rotationRate;
+    const t = ev.timeStamp / 1000;
+    const dt = lastMotion < 0 ? 0 : Math.min(0.1, Math.max(0, t - lastMotion));
+    lastMotion = t;
+    if (s === 'off' || !rate || dt <= 0 || el.classList.contains('sg-hidden')) return;
+    const angle = (globalThis.screen?.orientation?.angle ?? (globalThis as { orientation?: number }).orientation ?? 0) as number;
+    const g = gyroLook(rate, angle, dt);
+    sink.addGyro?.(g.yaw, g.pitch);
+  };
+  if (typeof window !== 'undefined' && 'DeviceMotionEvent' in window) {
+    window.addEventListener('devicemotion', onMotion);
+    cleanup.push(() => window.removeEventListener('devicemotion', onMotion));
+  }
+
   const noMenu = (ev: Event): void => ev.preventDefault();
   el.addEventListener('contextmenu', noMenu);
   cleanup.push(() => el.removeEventListener('contextmenu', noMenu));
@@ -381,6 +466,8 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
     update(me) {
       if (!me) return;
       activeSlot = me.activeSlot;
+      const wid = me.weapons[me.activeSlot]?.id;
+      weaponDef = wid ? WEAPON_BY_ID[wid] : undefined;
       const def = HERO_BY_ID[me.heroId];
       const ab = (slot: AbilitySlot) => def?.abilities.find((a) => a.slot === slot);
       const q = ab('q');
@@ -437,6 +524,11 @@ export function mountTouchControls(container: HTMLElement, sink: InputSink, opts
         sink.setHeld('fire', false);
         sink.setHeld('sprint', false);
         sink.setHeld('interact', false);
+        sink.setHeld('breath', false);
+        if (holdAiming) {
+          holdAiming = false;
+          sink.setHeld('ads', false);
+        }
         if (adsOn) setAds(false);
         lookers.clear();
         firePid = null;
