@@ -10,6 +10,9 @@
 // DUEL_TIMEOUT: seconds before a duel is a draw / a TTK run counts as ∞ (default 40).
 // DUEL_N: seeds per cell (default 20). DUEL_WEAPONS / DUEL_CORE: comma lists to override the sets.
 // DUEL_EXTRAS=0 skips the extra-weapons-vs-carbine duels. DUEL_TAG names the output files.
+// DUEL_SIDEARM: the sidearm both sides carry in slot 2 (default pistol, as a bot spawns; 'none' =
+// the weapon alone). A bot only draws it inside its primary's minimum range (sidearmInside: a
+// scope or bow inside 12 m, a launcher inside its arming distance) — how a bot plays those guns.
 // DUEL_STRICT=1 asserts the spec's role targets (D4) instead of only printing them.
 // Writes ttk_<tag>.csv, duels_<tag>.csv and summary_<tag>.md to DUEL_OUT (and prints the summary).
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -35,6 +38,7 @@ const N = Number(env.DUEL_N ?? 20);
 const OUT = env.DUEL_OUT ?? join(process.cwd(), 'duel-study');
 const TIMEOUT = Number(env.DUEL_TIMEOUT ?? 40);
 const TAG = env.DUEL_TAG ?? PASS;
+const SIDEARM = env.DUEL_SIDEARM === 'none' ? null : (env.DUEL_SIDEARM ?? 'pistol');
 
 interface PassCfg {
   skill: BotDifficulty;
@@ -101,12 +105,12 @@ describe.runIf(STUDY)(`weapon duel study (${PASS})`, () => {
   it('runs', () => {
     const cfg = PASSES[PASS];
     expect(cfg, `unknown DUEL_PASS ${PASS}`).toBeDefined();
-    const base = { skill: cfg.skill, armor: cfg.armor, timeout: TIMEOUT };
+    const base = { skill: cfg.skill, armor: cfg.armor, timeout: TIMEOUT, sidearm: SIDEARM };
     const all = env.DUEL_WEAPONS ? env.DUEL_WEAPONS.split(',') : PLAYER_WEAPONS.map((w) => w.id);
     const core = env.DUEL_CORE ? env.DUEL_CORE.split(',') : CORE;
     mkdirSync(OUT, { recursive: true });
     const t0 = performance.now();
-    const md: string[] = [`# Duel study — pass \`${PASS}\` (skill ${cfg.skill}, armor ${cfg.armor ?? 'none'}, N=${N}/cell)`, ''];
+    const md: string[] = [`# Duel study — pass \`${PASS}\` (skill ${cfg.skill}, armor ${cfg.armor ?? 'none'}, sidearm ${SIDEARM ?? 'none'}, N=${N}/cell)`, ''];
 
     // ── 1. one-sided TTK vs a strafing, non-shooting 400 HP target ──
     const ttk = new Map<string, number[]>();
