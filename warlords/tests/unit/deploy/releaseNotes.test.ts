@@ -15,7 +15,8 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  // (retries: a git process that outlived its command can still be writing into .git)
+  for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 describe('pieces', () => {
@@ -77,8 +78,10 @@ describe('on a repository (what the release job runs)', () => {
   function repo(): { dir: string; commit(msg: string, file?: string): void; tag(name: string): void; merge(branch: string, msg: string): void; run(args: string[]): void } {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sgwl-notes-'));
     dirs.push(dir);
+    // no auto maintenance / gc: git ≥ 2.46 runs it detached after a commit, still writing into .git
+    // while afterEach deletes the repo (ENOTEMPTY on CI)
     const git = (args: string[]): string =>
-      execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', ...args], { encoding: 'utf8' });
+      execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', ...args], { encoding: 'utf8' });
     git(['init', '-q']);
     git(['checkout', '-q', '-b', 'main']);
     let n = 0;
