@@ -130,10 +130,12 @@ English section below → [English](#english).*
    第一次开 Funnel 时终端会打印一个 login.tailscale.com 链接：用浏览器打开 → Enable，脚本自动继续。
 3. **保持开机**：游戏服务运行时 Mac 不会睡眠；脚本会提示一条 `sudo pmset -a sleep 0 autorestart 1 womp 1`
    （永不睡眠 + 停电恢复后自动开机）。重启后登录一次（或开自动登录），服务和 Tailscale 会自动启动。
-4. **把最后打印的两行发给 Claude**（`https://<机器名>.<tailnet>.ts.net/` 和 `wss://<机器名>.<tailnet>.ts.net/ws`）。
-   朋友直接打开游戏网址就能玩。
+4. **把最后打印的框用起来**：第一行「分享链接」`https://<机器名>.<tailnet>.ts.net/?k=<访问密钥>` 私下发给朋友
+   （机器名是公开的，所以服务器要求访问密钥；不带密钥的网址进不了联机）；下面两行
+   （`https://<机器名>.<tailnet>.ts.net/` 和 `wss://<机器名>.<tailnet>.ts.net/ws`）发给 Claude。
+   链接传出去了：`curl … | bash -s -- rotate-key` 换一个新密钥（旧链接立即失效）。
 
-每天 05:07 自动更新（有人在玩时跳过）；日志在 `~/sanguo-warlords/`。检查状态（房间数、玩家数、网址）：
+每 5 分钟检查一次更新：只更新到 GitHub CI 通过的版本，有人在玩时跳过；日志在 `~/sanguo-warlords/`。检查状态（房间数、玩家数、分享链接）：
 `curl … | bash -s -- status`；停止：`curl … | bash -s -- stop`。不想用 Tailscale 时的备选（无需账号，但网址每次重启都会变）：
 `cloudflared tunnel --url http://localhost:8787`。
 
@@ -192,6 +194,8 @@ English section below → [English](#english).*
   npm run server     # 默认端口 8787，可用 PORT=9000 npm run server 修改
   ```
   同一 Wi-Fi / 路由器下的朋友用浏览器打开终端里显示的 `http://192.168.x.x:8787`，选择「服务器」模式，一人创建房间、其他人输入房间码即可——从这个服务器打开的网页会自动使用同源中继，无需任何设置。
+  服务器放到公网上时设 `RELAY_KEY=<24 位以上的随机串>`：联机（`/ws`、`/api/rooms`）要带 `?k=<密钥>`，玩家打开 `http://…/?k=<密钥>` 即可；
+  其他可选环境变量：`MAX_ROOMS`（中继房间上限，默认 1000）、`HOST_GRACE_MS`（房主掉线后房间保留，默认 120000）。网页文件自动压缩（`node scripts/precompress.mjs dist` 可预压缩）。
 
 ### 3. 在云服务器（VPS）上部署（适合中国大陆玩家）
 公共 PeerJS 云与部分 STUN 在国内可能较慢或无法连接，推荐在国内云服务器上自建：
@@ -357,11 +361,15 @@ gives it a stable public HTTPS address `https://<machine>.<tailnet>.ts.net/` —
 3. **Keep it on**: the Mac does not sleep while the game server runs; the script prints the one command
    `sudo pmset -a sleep 0 autorestart 1 womp 1` (never sleep + start after a power failure). After a restart log in
    once (or turn on automatic login): the server and Tailscale start by themselves.
-4. **Send the two printed lines back to Claude** (`https://<machine>.<tailnet>.ts.net/` and
-   `wss://<machine>.<tailnet>.ts.net/ws`). Friends can play straight from the game URL.
+4. **Use the printed box**: its first line, the SHARE LINK `https://<machine>.<tailnet>.ts.net/?k=<access key>`, goes
+   to your friends privately (the machine name is public, so the server wants an access key; without it the page opens
+   but online play does not); the two lines below it (`https://<machine>.<tailnet>.ts.net/` and
+   `wss://<machine>.<tailnet>.ts.net/ws`) go back to Claude. A link that went too far: `curl … | bash -s -- rotate-key`
+   makes a new key (the old link stops working at once).
 
-It updates itself daily at 05:07 (skipped while anyone plays); logs are in `~/sanguo-warlords/`. Status (rooms, players,
-URL): `curl … | bash -s -- status`; stop: `curl … | bash -s -- stop`. Without Tailscale (no account, but the URL changes
+It checks for updates every 5 minutes and updates only to a commit GitHub's CI passed, never while anyone plays; logs
+are in `~/sanguo-warlords/`. Status (rooms, players, share link): `curl … | bash -s -- status`; stop:
+`curl … | bash -s -- stop`. Without Tailscale (no account, but the URL changes
 on every restart): `cloudflared tunnel --url http://localhost:8787`.
 
 **Server-hosted matches (headless)**: a room opened on this server runs its match on the server itself (one background
@@ -412,6 +420,9 @@ domain: `curl … | sudo DOMAIN=your.domain bash`). Update later with `curl … 
   `http://<your-LAN-IP>:8787`, choose **Server** mode and join by room code — pages served by the server use the
   same-origin relay automatically (`npm run build:headless` too, optionally: server-hosted matches). The desktop app has
   the server built in: its online screen lists your LAN addresses with copy buttons (also under the menu 游戏 → 局域网联机地址…).
+  On the open internet set `RELAY_KEY=<24+ random characters>`: online play (`/ws`, `/api/rooms`) then needs `?k=<key>` —
+  players open `http://…/?k=<key>`. Also `MAX_ROOMS` (relay rooms, default 1000) and `HOST_GRACE_MS` (how long a dropped
+  host's room waits, default 120000). Game files are served compressed (`node scripts/precompress.mjs dist` precompresses).
 - **VPS (recommended for players in mainland China,** where the public PeerJS cloud and some STUN servers are slow or
   blocked): clone the repo on a server, `npm ci && npm run build && PORT=8787 npm run server`, open TCP 8787 in the
   firewall and let players use `http://<server-ip>:8787` in Server mode. For a domain + HTTPS put Nginx/Caddy in front

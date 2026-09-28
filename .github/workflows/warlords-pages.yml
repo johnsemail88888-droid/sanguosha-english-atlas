@@ -39,6 +39,17 @@ jobs:
       - run: npm run build:single
       - name: Add the single-file offline build
         run: cp dist-single/index.html dist/sanguo-warlords-offline.html
+      # keep_files: false replaces /warlords/ on every deploy — also the hashed bundles a page opened
+      # before this deploy still lazy-imports (the match scene…). Carry the previous deploy's bundles
+      # over for a week (scripts/keep-old-assets.mjs; only assets/*, not the art under assets/<dir>/).
+      - name: Keep the previous deploy's bundles for pages still open
+        continue-on-error: true
+        run: |
+          rm -rf ../prev-pages
+          git clone -q --depth 1 --branch gh-pages --filter=blob:none --sparse "https://github.com/${{ github.repository }}.git" ../prev-pages
+          git -C ../prev-pages sparse-checkout set --no-cone '/warlords/assets/*' '!/warlords/assets/*/'
+          node scripts/keep-old-assets.mjs ../prev-pages/warlords dist --days=7
+          rm -rf ../prev-pages
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
