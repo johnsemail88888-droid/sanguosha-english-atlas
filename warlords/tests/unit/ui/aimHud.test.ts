@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { WEAPON_BY_ID } from '../../../src/data';
 import type { WeaponDef } from '../../../src/data/types';
 import { STADIA_RANGES, armorReduces, hitDamageKind, marksmanMarkup, milDotMarkup, ttkAt, ttkTone } from '../../../src/ui/hud/aim';
-import { ladderMarks, ladderTicks } from '../../../src/ui/hud/aimMarks';
+import { LADDER_LABEL_GAP, ladderLabels, ladderMarks, ladderTicks } from '../../../src/ui/hud/aimMarks';
 import { MERGE_WINDOW, mergeKind } from '../../../src/ui/hud/damageNumbers';
 import { fireOnRelease, gyroLook } from '../../../src/ui/touch';
 import { WEAPON_TTK } from '../../../src/data/weaponTtk.gen';
@@ -56,6 +56,23 @@ describe('holdover ladder', () => {
     const drawn = ladderTicks(W('liegong'), 1, 1, 75, 1080).find((x) => x.d === 30)!;
     expect(drawn.px).toBeLessThan(hip.px);
   });
+
+  it('labels: at least LADDER_LABEL_GAP px apart, the farthest mark always keeps its label', () => {
+    const T = (...px: number[]) => px.map((v, i) => ({ d: (i + 1) * 10, px: v }));
+    expect(ladderLabels(T(5, 30, 60))).toEqual([true, true, true]);
+    expect(ladderLabels(T(5, 9, 30))).toEqual([true, false, true]);
+    // the last two crowd each other: the nearer one gives up its label
+    expect(ladderLabels(T(5, 30, 34))).toEqual([true, false, true]);
+    expect(ladderLabels(T(3))).toEqual([true]);
+    expect(ladderLabels([])).toEqual([]);
+    for (const [w, a, z] of [['liegong', 1, 2.5], ['liegong', 1, 5], ['guanshi', 1, 1.3]] as const) {
+      const t = ladderTicks(W(w), a, z, 75, 1080);
+      const on = ladderLabels(t);
+      expect(on[on.length - 1], w).toBe(true);
+      const px = t.filter((_, i) => on[i]).map((x) => x.px);
+      for (let i = 1; i < px.length; i++) expect(px[i]! - px[i - 1]!).toBeGreaterThanOrEqual(LADDER_LABEL_GAP);
+    }
+  });
 });
 
 describe('stat card: 5 / 20 / 50 m time-to-kill strip', () => {
@@ -84,6 +101,18 @@ describe('reticles', () => {
     const d8 = dotsAt(milDotMarkup(u4 * 2));
     expect(d8[0]).toBeCloseTo(10 * u4, 2);
     expect(Math.max(...d8)).toBeLessThan(80);
+  });
+
+  it('mil-dots: 10 mil apart when 5 mil would crowd; a bow scope leaves the ladder side (below) clear', () => {
+    const dotsAt = (svg: string): number[] => [...svg.matchAll(/<circle cx="([\d.]+)" cy="0"/g)].map((m) => Number(m[1])).sort((a, b) => a - b);
+    const u = 0.4; // 2 units per 5 mil
+    const fine = dotsAt(milDotMarkup(u));
+    const coarse = dotsAt(milDotMarkup(u, false, 3));
+    expect(fine[1]! - fine[0]!).toBeCloseTo(5 * u, 2);
+    expect(coarse[1]! - coarse[0]!).toBeCloseTo(10 * u, 2);
+    const below = (svg: string): number => [...svg.matchAll(/<circle cx="0" cy="([\d.]+)"/g)].filter((m) => Number(m[1]) > 0).length;
+    expect(below(milDotMarkup(2))).toBeGreaterThan(0);
+    expect(below(milDotMarkup(2, true))).toBe(0);
   });
 
   it('marksman stadia: one bracket per range, taller for nearer heroes', () => {

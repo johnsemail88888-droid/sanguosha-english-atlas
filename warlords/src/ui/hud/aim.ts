@@ -279,13 +279,17 @@ const MIL_CROSS = 35;
  * dots every MIL_DOT_STEP mil along both lines, a fine cross out to MIL_CROSS
  * mil, thick outer posts beyond, a red centre dot.
  */
-export function milDotMarkup(u: number): string {
+export function milDotMarkup(u: number, bowScope = false, minGap = 0): string {
   const cross = Math.min(80, Math.max(18, MIL_CROSS * u));
   const dots: string[] = [];
-  for (let m = MIL_DOT_STEP; m * u <= cross - 1; m += MIL_DOT_STEP) {
+  // (dots closer than `minGap` units run together: every 10 mil then)
+  const step = MIL_DOT_STEP * u >= minGap ? MIL_DOT_STEP : MIL_DOT_STEP * 2;
+  for (let m = step; m * u <= cross - 1; m += step) {
     const d = Math.round(m * u * 100) / 100;
     const r = m % 10 === 0 ? 1.25 : 0.95;
-    dots.push(`<circle cx="${d}" cy="0" r="${r}"/>`, `<circle cx="${-d}" cy="0" r="${r}"/>`, `<circle cx="0" cy="${d}" r="${r}"/>`, `<circle cx="0" cy="${-d}" r="${r}"/>`);
+    dots.push(`<circle cx="${d}" cy="0" r="${r}"/>`, `<circle cx="${-d}" cy="0" r="${r}"/>`, `<circle cx="0" cy="${-d}" r="${r}"/>`);
+    // a bow's scope: the holdover ladder has the line under the centre
+    if (!bowScope) dots.push(`<circle cx="0" cy="${d}" r="${r}"/>`);
   }
   const c = Math.round(cross * 100) / 100;
   return (
@@ -494,7 +498,8 @@ export class SightOverlay {
       if (rk !== this.reticleKey) {
         this.reticleKey = rk;
         const u = (pxPerMil(fov, zStep, H) * 100) / Math.max(1, lensR);
-        this.reticle.replaceChildren(svg(milDotMarkup(u), '-100 -100 200 200', 'sc-svg'));
+        // dots at least ~9 px apart on screen (the sniper's 4× on a 720p window: every 5 mil ≈ 11 px)
+        this.reticle.replaceChildren(svg(milDotMarkup(u, isScopedBow(def), (9 * 100) / Math.max(1, lensR)), '-100 -100 200 200', 'sc-svg'));
       }
       const q = Math.round(o * 50) / 50;
       if (q !== this.opacity) {

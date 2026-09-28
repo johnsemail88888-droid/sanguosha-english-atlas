@@ -39,6 +39,10 @@ export const AIM_CSS = /* css */ `
 /* looking through a scope: no F prompt inside the lens under the reticle (COMBAT-11), no first-match guide over the lens edge */
 .hud-scope.on ~ .hud-interact { visibility: hidden; }
 .sg-hud:has(.hud-scope.on) .hud-guide { visibility: hidden; }
+/* a holdover ladder on screen (launchers, bows): the F prompt steps under it */
+.sg-hud:has(.am-ladder.on) .hud-interact { top: calc(50% + ${u(118)}); }
+/* a marksman near sight up: the F prompt goes under its (bigger) window */
+.sg-hud:has(.hud-sight.on[data-kind="marksman"]) .hud-interact { top: calc(50% + ${R_MARKSMAN} + ${u(58)}) !important; }
 /* red dot / holo / reflex / iron sights up: the F prompt steps below the sight's window */
 .sg-hud:has(.hud-sight.on:not([data-kind="bow"])) .hud-interact { top: calc(50% + min(17vh, 16vw)); opacity: 0.7; }
 .hud-scope .sc-lens { --r: ${R_SCOPE}; position: absolute; left: 50%; top: 50%; width: calc(var(--r) * 2); height: calc(var(--r) * 2); border-radius: 50%; transform: translate(-50%, -50%);
@@ -66,15 +70,18 @@ export const AIM_CSS = /* css */ `
 .hud-scope .bl-svg { width: ${u(26)}; height: ${u(26)}; transform: rotate(-90deg); overflow: visible; }
 .hud-scope .bl-svg .trk { fill: none; stroke: rgba(255, 255, 255, 0.25); stroke-width: 4; }
 .hud-scope .bl-svg .arc { fill: none; stroke: #ffcf6a; stroke-width: 5; stroke-dasharray: 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 1px #000); }
-/* touch: switch the scope's zoom step (the wheel on desktop) — above the touch controls' look area */
-/* touch, scoped: 4×/8× and 屏息 (hold breath) — 56 px, in a column left of the fire button's thumb */
-.hud-scopebtn { --b: clamp(44px, 12vmin, 62px); display: none; position: absolute; z-index: 6; right: calc(var(--b) * 2.25 + 8px); width: 56px; height: 56px; border-radius: 50%; border: 2px solid rgba(255, 207, 106, 0.85); background: rgba(12, 9, 6, 0.82); color: #ffcf6a; font-family: var(--font-display); font-weight: 900; font-size: 15px; line-height: 1; padding: 0; pointer-events: auto; touch-action: none; }
-.hud-zoombtn { bottom: calc(var(--b) * 2.2 + 70px); }
-.hud-breathbtn { bottom: calc(var(--b) * 2.2); color: #cfe6ff; border-color: rgba(150, 200, 255, 0.85); }
+/* touch, scoped: 4×/8× (the wheel on desktop) and 屏息 (hold breath, Shift on desktop) — 56 px, above the fire thumb's buttons */
+.hud-scopebtn { --b: clamp(44px, 12vmin, 62px); display: none; position: absolute; z-index: 6; width: 56px; height: 56px; border-radius: 50%; border: 2px solid rgba(255, 207, 106, 0.85); background: rgba(12, 9, 6, 0.82); color: #ffcf6a; font-family: var(--font-display); font-weight: 900; font-size: 15px; line-height: 1; padding: 0; pointer-events: auto; touch-action: none; }
+/* (above the 镜 / 跃 buttons, clear of the skill buttons and the minimap) */
+.hud-zoombtn { right: calc(var(--b) * 2.8); bottom: calc(var(--b) * 3.6); }
+.hud-breathbtn { right: calc(var(--b) * 1.4); bottom: calc(var(--b) * 3.4); color: #cfe6ff; border-color: rgba(150, 200, 255, 0.85); }
 .hud-breathbtn.down, .hud-breathbtn.holding { background: rgba(40, 90, 160, 0.9); color: #fff; }
 .hud-breathbtn.winded { border-color: #ff8a6a; color: #ffb09a; }
 .sg-hud.touch .hud-scopebtn.on { display: grid; place-items: center; }
 .sg-hud.touch .hud-scope .sc-zoom { display: none; }
+/* a phone: the lens hint and the breath meter sit above the vitals panel */
+.sg-hud.touch .hud-scope .sc-hint { top: 62%; }
+.sg-hud.touch .hud-scope .sc-breath { top: 58.5%; }
 
 /* ── near sights: red dot / holo / iron, and the bow's draw ── */
 .hud-sight { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; pointer-events: none; }
@@ -113,6 +120,8 @@ export const AIM_CSS = /* css */ `
 .hud-sight[data-kind="bow"] .hud-draw { display: block; }
 /* a scoped bow (烈弓): the draw ring sits in the lens's lower-left quarter, clear of the reticle's lines */
 .hud-sight.in-scope .hud-draw { left: calc(${R_SCOPE} * -0.3); top: calc(${R_SCOPE} * 0.3); width: ${u(46)}; height: ${u(46)}; }
+/* a phone's lens hint rides higher (above the vitals), so the ring steps further left of it */
+.sg-hud.touch .hud-sight.in-scope .hud-draw { left: calc(${R_SCOPE} * -0.58); top: calc(${R_SCOPE} * 0.22); }
 .hud-draw .dr-svg { width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
 .hud-draw .trk { fill: none; stroke: rgba(255, 255, 255, 0.22); stroke-width: 2.2; }
 .hud-draw .arc { fill: none; stroke: #e8b14a; stroke-width: 2.8; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 1px #000); }
@@ -138,7 +147,7 @@ export const AIM_CSS = /* css */ `
 .wst-vs { margin-left: auto; font-size: 0.92em; opacity: 0.85; white-space: nowrap; }
 .wst-name { font-family: var(--font-display); font-size: ${fs(19, 13)}; font-weight: 900; margin: ${u(2)} 0 ${u(6)}; color: #fff2d6; }
 .wst-card { font-size: 0.68em; color: var(--gold-hi); margin-left: ${u(4)}; }
-.wst-row { display: grid; grid-template-columns: ${u(58)} 1fr ${u(56)} ${u(12)}; align-items: center; column-gap: ${u(7)}; font-size: ${fs(12.5, 10)}; line-height: 1.55; }
+.wst-row { display: grid; grid-template-columns: max(${u(58)}, 4.3em) 1fr ${u(56)} ${u(12)}; align-items: center; column-gap: ${u(7)}; font-size: ${fs(12.5, 10)}; line-height: 1.55; }
 .wst-lbl { color: #d9c9a0; }
 .wst-bar { position: relative; height: ${u(7)}; background: rgba(255, 255, 255, 0.1); border-radius: ${u(3)}; overflow: hidden; }
 .wst-bar > i, .wst-bar > u { position: absolute; inset: 0; transform-origin: left center; border-radius: inherit; }
@@ -149,7 +158,7 @@ export const AIM_CSS = /* css */ `
 .wst-d.up { color: #7fe09a; }
 .wst-d.dn { color: #ff7a6a; }
 /* the 5 / 20 / 50 m time-to-kill strip: green where the gun wins, grey where it cannot kill */
-.wst-ttk { display: grid; grid-template-columns: ${u(58)} repeat(3, 1fr); column-gap: ${u(5)}; align-items: center; margin-top: ${u(4)}; font-size: ${fs(12.5, 10)}; }
+.wst-ttk { display: grid; grid-template-columns: max(${u(58)}, 4.3em) repeat(3, 1fr); column-gap: ${u(5)}; align-items: center; margin-top: ${u(4)}; font-size: ${fs(12.5, 10)}; }
 .wst-ttk .tt { display: flex; align-items: baseline; justify-content: center; gap: ${u(3)}; padding: ${u(1)} 0; border-radius: ${u(3)}; background: rgba(255, 255, 255, 0.07); font-variant-numeric: tabular-nums; font-weight: 800; white-space: nowrap; }
 .wst-ttk .tt i { font-style: normal; font-weight: 600; font-size: 0.8em; opacity: 0.75; }
 .wst-ttk .tt.fast { color: #8ff0a4; background: rgba(60, 170, 90, 0.2); }
@@ -175,8 +184,13 @@ export const AIM_CSS = /* css */ `
 .am-ladder { position: absolute; left: 50%; top: 50%; width: 0; height: 0; display: none; filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000); }
 .am-ladder.on { display: block; }
 .am-ladder .tk { position: absolute; left: 0; width: 0; height: 0; }
-.am-ladder .tk b { position: absolute; left: calc(${u(-14)} * var(--w, 1)); top: -1px; width: calc(${u(28)} * var(--w, 1)); height: 2px; background: rgba(255, 255, 255, 0.92); }
-.am-ladder .tk span { position: absolute; left: calc(${u(16)} * var(--w, 1) + ${u(2)}); top: 0; transform: translateY(-52%); font: 700 ${fs(11.5, 10)} var(--font-body); color: #fff; white-space: nowrap; }
+/* short centred ticks; the range on the left (the impact diamond's distance is on the right) — outside a bow's draw ring */
+.am-ladder { --lx: ${u(16)}; }
+.am-ladder[data-kind="bow"] { --lx: ${u(36)}; }
+.am-ladder .tk b { position: absolute; left: calc(${u(-9)} * var(--w, 1)); top: -1px; width: calc(${u(18)} * var(--w, 1)); height: 2px; background: rgba(255, 255, 255, 0.92); }
+.am-ladder .tk span { position: absolute; right: var(--lx); top: 0; transform: translateY(-52%); font: 700 ${fs(11.5, 10)} var(--font-body); color: #fff; white-space: nowrap; }
+.am-ladder .tk span:empty { display: none; }
+.am-ladder[data-kind="bow"] .tk::after { content: ''; position: absolute; right: calc(var(--lx) - ${u(26)}); top: -0.5px; width: ${u(22)}; height: 1px; background: rgba(255, 255, 255, 0.35); }
 /* inside 烈弓's lens: dark marks on the bright glass */
 .am-ladder.in-scope { filter: none; }
 .am-ladder.in-scope .tk b { background: #0a0a0a; }
@@ -193,11 +207,14 @@ export const AIM_CSS = /* css */ `
 .am-blocked i { position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #ff6a4a; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); background: linear-gradient(45deg, transparent 44%, #ff6a4a 44%, #ff6a4a 56%, transparent 56%); }
 .am-lock { position: absolute; left: 0; top: 0; width: 0; height: 0; display: none; }
 .am-lock.on { display: block; animation: sg-lock-pulse 0.5s ease-in-out infinite alternate; }
-.am-lock i { position: absolute; width: 10px; height: 10px; border: 0 solid #ff5a3a; filter: drop-shadow(0 0 2px rgba(255, 60, 30, 0.9)); }
-.am-lock i:nth-child(1) { left: -20px; top: -26px; border-left-width: 2px; border-top-width: 2px; }
-.am-lock i:nth-child(2) { left: 10px; top: -26px; border-right-width: 2px; border-top-width: 2px; }
-.am-lock i:nth-child(3) { left: -20px; top: 16px; border-left-width: 2px; border-bottom-width: 2px; }
-.am-lock i:nth-child(4) { left: 10px; top: 16px; border-right-width: 2px; border-bottom-width: 2px; }
+.am-lock i { position: absolute; width: 12px; height: 12px; border: 0 solid #ff3a24; filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(255, 50, 20, 0.9)); }
+.am-lock i:nth-child(1) { left: -24px; top: -32px; border-left-width: 3px; border-top-width: 3px; }
+.am-lock i:nth-child(2) { left: 12px; top: -32px; border-right-width: 3px; border-top-width: 3px; }
+.am-lock i:nth-child(3) { left: -24px; top: 20px; border-left-width: 3px; border-bottom-width: 3px; }
+.am-lock i:nth-child(4) { left: 12px; top: 20px; border-right-width: 3px; border-bottom-width: 3px; }
+/* 锁 under the bracket: this one is locked */
+.am-lock::after { content: '锁'; position: absolute; left: 0; top: 34px; transform: translateX(-50%); font: 900 11px var(--font-display); color: #ffd0c0; background: rgba(150, 20, 10, 0.85); padding: 0 3px; border-radius: 3px; }
+:lang(en) .am-lock::after { content: 'LOCK'; font-family: var(--font-body); }
 @keyframes sg-lock-pulse { from { opacity: 0.55; } to { opacity: 1; } }
 /* locked on by 方天 rockets: red edges, a chevron toward the shooter, a warning line */
 .am-lockwarn { position: absolute; inset: 0; display: none; }
@@ -205,7 +222,7 @@ export const AIM_CSS = /* css */ `
 .am-lockwarn .lw-edge { position: absolute; inset: 0; box-shadow: inset 0 0 ${u(70)} ${u(22)} rgba(235, 20, 10, 0.7); animation: sg-focus-pulse 0.32s ease-in-out infinite alternate; }
 .am-lockwarn .lw-arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; display: none; }
 .am-lockwarn .lw-arrow.on { display: block; }
-.am-lockwarn .lw-arrow i { position: absolute; left: ${u(-22)}; top: calc(min(40vh, 40vw) * -1); width: 0; height: 0; border-left: ${u(22)} solid transparent; border-right: ${u(22)} solid transparent; border-bottom: ${u(30)} solid #ff3a24; filter: drop-shadow(0 0 4px rgba(255, 40, 20, 0.95)) drop-shadow(0 0 1px #000); }
+.am-lockwarn .lw-arrow i { position: absolute; left: ${u(-30)}; top: calc(min(40vh, 40vw) * -1); width: 0; height: 0; border-left: ${u(30)} solid transparent; border-right: ${u(30)} solid transparent; border-bottom: ${u(42)} solid #ff3a24; filter: drop-shadow(0 0 4px rgba(255, 40, 20, 0.95)) drop-shadow(0 0 1px #000); }
 .am-lockwarn .lw-line { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); padding: ${u(5)} ${u(16)}; white-space: nowrap; background: rgba(120, 10, 6, 0.86); border: 1px solid #ff5a3a; border-radius: ${u(5)}; font-weight: 800; font-size: ${fs(15, 12)}; color: #ffe6d8; animation: sg-hud-blink 0.32s ease-in-out infinite alternate; }
 
 /* ── damage numbers (ui/hud/damageNumbers.ts): armor-reduced blue with a shield, dodges grey, knocks / kills red ── */

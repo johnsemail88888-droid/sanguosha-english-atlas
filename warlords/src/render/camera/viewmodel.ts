@@ -55,6 +55,9 @@ export const HIP_POSE: Readonly<Record<HoldStyle, VmPose>> = {
  */
 export const HOLD_SCALE: Partial<Record<HoldStyle, number>> = { bow: 0.72 };
 
+/** How far a DMR sinks under its marksman near sight once aimed (m, view space). */
+export const MARKSMAN_DROP = 0.085;
+
 /**
  * Aim-down-sights pose: the weapon centred under the crosshair with its sight
  * line (the top of the receiver / scope, `sightY` above the wrist) just below
@@ -136,6 +139,8 @@ interface Held {
   art: boolean;
   /** looked through a scope (a lens overlay once aimed: data/weaponFeel.ts) */
   scoped: boolean;
+  /** a marksman near sight (DMRs): the HUD draws the sight's window, the gun sits below it */
+  near: boolean;
 }
 
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -423,6 +428,12 @@ export class ViewModel {
     p.roll += 0.45 * r + Math.sin(t * 9) * 0.02 * r;
     // a scope: the weapon comes up and then drops out of the frame as the eye meets the lens
     // (the lens overlay takes over from game/aimFeel.ts SCOPE_AT — no gun model filling the view)
+    // a marksman near sight: the HUD draws the sight's round window at the screen centre — the gun
+    // itself settles low under it (the stock at the cheek, the scope body out of the window)
+    if (held.near) {
+      p.y -= MARKSMAN_DROP * a;
+      p.pitch -= 0.03 * a;
+    }
     if (held.scoped) {
       // (it is fully down by blend 0.75 ≈ progress 0.68, just before SCOPE_AT 0.70 hides it)
       const out = clamp((a - 0.55) / 0.2, 0, 1);
@@ -530,8 +541,9 @@ export class ViewModel {
       this.left.add(second.mesh);
     }
     this.left.visible = akimbo;
-    const scoped = aimProfile(WEAPON_BY_ID[id]).overlay;
-    this.held = { id, model, second, info: model.info, hold, sightY: sightHeight(model.mesh.geometry), epoch: weaponArtEpoch(), art: art || !waiting, scoped };
+    const prof = aimProfile(WEAPON_BY_ID[id]);
+    const scoped = prof.overlay;
+    this.held = { id, model, second, info: model.info, hold, sightY: sightHeight(model.mesh.geometry), epoch: weaponArtEpoch(), art: art || !waiting, scoped, near: prof.sight === 'marksman' };
     this.setHands(this.held, heroId);
     if (changed) this.raise = 0;
   }

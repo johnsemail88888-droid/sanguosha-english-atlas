@@ -58,6 +58,35 @@ export function ladderTicks(def: WeaponDef | undefined, progress: number, zoom: 
   return out;
 }
 
+/** Labels closer than this to the previous label (px) are left off (their ticks stay). */
+export const LADDER_LABEL_GAP = 11;
+
+/** Which ladder ticks get a range label: one every LADDER_LABEL_GAP px at least, and always the last (farthest). */
+export function ladderLabels(ticks: readonly LadderTick[]): boolean[] {
+  const out = ticks.map(() => false);
+  let last = -Infinity;
+  for (let i = 0; i < ticks.length; i++) {
+    const room = ticks[i]!.px - last >= LADDER_LABEL_GAP;
+    const final = i === ticks.length - 1;
+    if (final && !room && i > 0) {
+      // the farthest mark wins the space: drop the label before it
+      for (let j = i - 1; j >= 0; j--) {
+        if (out[j]) {
+          out[j] = false;
+          break;
+        }
+      }
+      out[i] = true;
+      break;
+    }
+    if (room || final) {
+      out[i] = true;
+      last = ticks[i]!.px;
+    }
+  }
+  return out;
+}
+
 /** Seconds a lock warning lasts without its end event (no rocket flies longer). */
 const LOCK_MAX = 4;
 
@@ -129,18 +158,22 @@ export class AimMarks {
     const ticks = def ? ladderTicks(def, aim.progress, aim.zoom, fov, viewport().h) : [];
     // (a scoped bow's ladder shows once the lens is up; a plain bow's / a launcher's always)
     const show = ticks.length > 0 && (!isScopedBow(def) || aim.scoped || aim.progress < 0.5);
-    const key = show ? ticks.map((t) => `${t.d}:${Math.round(t.px)}`).join(',') + `|${aim.scoped}` : '';
+    const kind = !def ? '' : aim.scoped ? 'scope' : def.class === 'bow' ? 'bow' : 'launcher';
+    const key = show ? ticks.map((t) => `${t.d}:${Math.round(t.px)}`).join(',') + `|${kind}` : '';
     if (key === this.ladderKey) return;
     this.ladderKey = key;
     setClass(this.ladder, 'on', show);
     setClass(this.ladder, 'in-scope', show && aim.scoped);
+    this.ladder.dataset.kind = kind;
     if (!show) {
       this.ladder.replaceChildren();
       return;
     }
+    // a range label only where it has room (the last mark always): close marks keep just their tick
+    const labelled = ladderLabels(ticks);
     this.ladder.replaceChildren(
       ...ticks.map((t, i) => {
-        const el = h('i', { class: 'tk' }, h('b'), h('span', null, String(t.d)));
+        const el = h('i', { class: 'tk' }, h('b'), h('span', null, labelled[i] ? String(t.d) : ''));
         el.style.top = `${Math.round(t.px)}px`;
         el.style.setProperty('--w', String(1 - i * 0.16));
         return el;
