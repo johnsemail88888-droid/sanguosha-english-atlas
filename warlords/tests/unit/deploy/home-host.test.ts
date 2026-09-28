@@ -148,6 +148,19 @@ describe('deploy/home-host.sh', () => {
     expect(p.StandardErrorPath).toBe('/Users/x/server.log');
   });
 
+  it('SGWL_HEADLESS=0 puts HEADLESS=0 into the service (no server-hosted matches)', () => {
+    const xml = sh('launchd_plist com.sanguo-warlords.server /usr/local/bin/node /Users/x/w 8787 /Users/x/server.log 0').out;
+    expect(xml).toMatch(/<key>PORT<\/key>\n\t\t<string>8787<\/string>\n\t\t<key>HEADLESS<\/key>\n\t\t<string>0<\/string>\n\t<\/dict>/);
+    expect(sh('launchd_plist com.sanguo-warlords.server /usr/local/bin/node /Users/x/w 8787 /Users/x/server.log 1').out).not.toContain('HEADLESS');
+    if (python) expect(readPlist(xml).EnvironmentVariables).toEqual({ NODE_ENV: 'production', HOST: '127.0.0.1', PORT: '8787', HEADLESS: '0' });
+    expect(sh('systemd_unit /usr/bin/node /home/me/w 8787 me home-host.sh 0').out).toContain('Environment=HEADLESS=0');
+    // remembered for the next update (the environment wins over what was saved)
+    const dir = path.join(TMP, 'state-home');
+    const env = { SGWL_DIR: dir };
+    expect(sh(`mkdir -p "${dir}"; printf 'DOMAIN=m.ts.net\nSGWL_HEADLESS=0\n' >"$STATE_FILE"; load_headless_setting; echo "$HEADLESS_SETTING"`, env).out).toBe('0');
+    expect(sh('load_headless_setting; echo "$HEADLESS_SETTING"', { ...env, SGWL_HEADLESS: '1' }).out).toBe('1');
+  });
+
   it('writes the daily-update LaunchAgent (05:07) and the Linux timer', () => {
     const xml = sh('update_plist com.sanguo-warlords.update /Users/x/sanguo-warlords/bin/home-host.sh 5 7 /opt/homebrew/bin:/usr/bin:/bin /Users/x/update.log').out;
     if (python) {
@@ -172,6 +185,7 @@ describe('deploy/home-host.sh', () => {
     expect(unit).toContain('User=me');
     expect(unit).toContain('Environment=HOST=127.0.0.1');
     expect(unit).toContain('Restart=always');
+    expect(unit).not.toContain('HEADLESS');
   });
 
   it('the daily update waits while anyone plays (/sgwl.json)', () => {
@@ -181,6 +195,36 @@ describe('deploy/home-host.sh', () => {
     expect(ok(`game_busy '{"rooms":1,"players":0}'`)).toBe(true);
     expect(ok(`game_busy '{"rooms":0,"players":3}'`)).toBe(true);
     expect(ok(`game_busy '{"rooms":0,"players":0,"droppedUnreliable":12}'`)).toBe(false);
+  });
+
+  it('server-hosted rooms: busy only while players are in one (an empty one ends by itself)', () => {
+    const j = (o: Record<string, unknown>): string => q(JSON.stringify({ app: 'sanguo-warlords', relay: '/ws', peer: '/peerjs', droppedUnreliable: 0, ...o }));
+    // an empty server-hosted room: the server is its relay host (1 room, 1 socket) — nobody plays
+    expect(ok(`game_busy ${j({ rooms: 1, players: 1, headless: true, headlessRooms: 1, headlessHumans: 0 })}`)).toBe(false);
+    expect(ok(`game_busy ${j({ rooms: 0, players: 0, headless: true, headlessRooms: 0, headlessHumans: 0 })}`)).toBe(false);
+    // players in a server-hosted room
+    expect(ok(`game_busy ${j({ rooms: 1, players: 4, headless: true, headlessRooms: 1, headlessHumans: 3 })}`)).toBe(true);
+    // someone just connected to it (the room has not counted them yet)
+    expect(ok(`game_busy ${j({ rooms: 1, players: 2, headless: true, headlessRooms: 1, headlessHumans: 0 })}`)).toBe(true);
+    // a room hosted in a player's browser next to an empty server-hosted one
+    expect(ok(`game_busy ${j({ rooms: 2, players: 2, headless: true, headlessRooms: 1, headlessHumans: 0 })}`)).toBe(true);
+    // an older server (no headless fields): as before
+    expect(ok(`game_busy ${j({ rooms: 1, players: 1 })}`)).toBe(true);
+
+    expect(sh(`human_players ${j({ rooms: 2, players: 6, headlessRooms: 1, headlessHumans: 3 })}`).out).toBe('5');
+    expect(sh(`human_players ${j({ rooms: 1, players: 0, headlessRooms: 1 })}`).out).toBe('0');
+    expect(sh(`human_players ${j({ rooms: 1, players: 3 })}`).out).toBe('3');
+    expect(sh(`stat_flag ${j({ headless: true, headlessRooms: 2 })} headless`).out).toBe('true');
+    expect(sh(`stat_flag ${j({ headless: false })} headless`).out).toBe('false');
+    expect(sh(`stat_flag ${j({ rooms: 0 })} headless`).out).toBe('false');
+    expect(sh(`stat_field ${j({ rooms: 3, players: 7, headlessRooms: 2, headlessHumans: 5 })} rooms`).out).toBe('3');
+    expect(sh(`stat_field ${j({ rooms: 3, players: 7, headlessRooms: 2, headlessHumans: 5 })} headlessHumans`).out).toBe('5');
+  });
+
+  it('status prints the server-hosted match line; the public-DNS retries make no test rooms', () => {
+    const text = readFileSync(SCRIPT, 'utf8');
+    expect(text).toContain('服务器托管对局 headless: 开 on');
+    expect(text).toContain('check.mjs" "$url" --public-dns --no-headless');
   });
 
   it('rotates a log over the size limit (copy + truncate, one old copy kept)', () => {
@@ -221,6 +265,7 @@ describe('deploy/check.mjs', () => {
       host: 'mac-mini.tail1234.ts.net',
       info: 'https://mac-mini.tail1234.ts.net/sgwl.json',
       relay: 'wss://mac-mini.tail1234.ts.net/ws',
+      rooms: 'https://mac-mini.tail1234.ts.net/api/rooms',
     });
     expect(endpoints('http://127.0.0.1:8787')).toMatchObject({ info: 'http://127.0.0.1:8787/sgwl.json', relay: 'ws://127.0.0.1:8787/ws' });
     expect(endpoints('ftp://x')).toBeNull();

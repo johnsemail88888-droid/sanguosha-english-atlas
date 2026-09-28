@@ -4,7 +4,7 @@
 // dir), the systemd unit, the two lines the player sends back. Plus `bash -n` and,
 // when the machine has it, shellcheck.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -119,6 +119,69 @@ describe('deploy/install.sh', () => {
     expect(unit).toContain('User=sgwl');
     expect(unit).toContain('Restart=always');
     expect(unit).toContain('WantedBy=multi-user.target');
+    expect(unit).not.toContain('HEADLESS');
+    // SGWL_HEADLESS=0: no server-hosted matches
+    const off = sh('systemd_unit /usr/bin/node /opt/sgwl/src/warlords 8787 sgwl install.sh 0').out;
+    expect(off).toMatch(/^Environment=PORT=8787\nEnvironment=HEADLESS=0\nExecStart=/m);
+    expect(sh('systemd_unit /usr/bin/node /opt/sgwl/src/warlords 8787 sgwl install.sh 1').out).not.toContain('HEADLESS');
+  });
+
+  it('remembers SGWL_HEADLESS in the state file (the environment wins)', () => {
+    const state = path.join(TMP, 'sgwl.env');
+    writeFileSync(state, '# written by warlords/deploy/install.sh\nDOMAIN=game.example.com\nSGWL_HEADLESS=0\n');
+    expect(sh('load_state; echo "$DOMAIN|$HEADLESS_SETTING"', { SGWL_STATE: state }).out).toBe('game.example.com|0');
+    expect(sh('load_state; echo "$HEADLESS_SETTING"', { SGWL_STATE: state, SGWL_HEADLESS: '1' }).out).toBe('1');
+    const saved = path.join(TMP, 'saved.env');
+    expect(sh('DOMAIN=a.example.com; save_state', { SGWL_STATE: saved, SGWL_HEADLESS: '0' }).status).toBe(0);
+    expect(readFileSync(saved, 'utf8')).toContain('SGWL_HEADLESS=0\n');
+  });
+
+  describe('build_headless (the server-hosted match worker; optional)', () => {
+    // a stand-in `npm`: `npm run -s build:headless` writes dist-headless/room-worker.mjs when STUB_BUILD=ok
+    const bin = path.join(TMP, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      path.join(bin, 'npm'),
+      '#!/bin/sh\n[ "$*" = "run -s build:headless" ] || exit 9\n[ "$STUB_BUILD" = ok ] || exit 1\nmkdir -p dist-headless && echo "export {}" > dist-headless/room-worker.mjs\n',
+    );
+    chmodSync(path.join(bin, 'npm'), 0o755);
+    const app = (scripts: Record<string, string>): string => {
+      const dir = mkdtempSync(path.join(TMP, 'app-'));
+      writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts }, null, 2));
+      mkdirSync(path.join(dir, 'dist-headless'));
+      writeFileSync(path.join(dir, 'dist-headless', 'room-worker.mjs'), '// the previous version');
+      return dir;
+    };
+    const run = (dir: string, env: Record<string, string>) => sh(`cd "${dir}" && build_headless`, { PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`, ...env });
+    const worker = (dir: string): string | null => (existsSync(path.join(dir, 'dist-headless', 'room-worker.mjs')) ? readFileSync(path.join(dir, 'dist-headless', 'room-worker.mjs'), 'utf8').trim() : null);
+
+    it('builds dist-headless/room-worker.mjs', () => {
+      const dir = app({ build: 'x', 'build:headless': 'vite build -c vite.headless.config.ts' });
+      const r = run(dir, { STUB_BUILD: 'ok' });
+      expect(r.status).toBe(0);
+      expect(worker(dir)).toBe('export {}');
+    });
+
+    it('a failed build warns, removes the stale bundle and carries on (relay-only)', () => {
+      const dir = app({ 'build:headless': 'vite build -c vite.headless.config.ts' });
+      const r = run(dir, { STUB_BUILD: 'fail' });
+      expect(r.status).toBe(0);
+      expect(r.err).toContain('server-hosted matches did not build');
+      expect(worker(dir)).toBeNull();
+    });
+
+    it('a version without the script: nothing to build, no stale bundle left', () => {
+      const dir = app({ build: 'x' });
+      const r = run(dir, { STUB_BUILD: 'ok' });
+      expect(r.status).toBe(0);
+      expect(worker(dir)).toBeNull();
+    });
+
+    it('build_game runs it after the page build', () => {
+      const src = readFileSync(SCRIPT, 'utf8');
+      const body = src.slice(src.indexOf('build_game() {'), src.indexOf('\n}\n', src.indexOf('build_game() {')));
+      expect(body.trim().split('\n').pop()?.trim()).toBe('build_headless');
+    });
   });
 
   it('the one-liners in the header point at this file', () => {
