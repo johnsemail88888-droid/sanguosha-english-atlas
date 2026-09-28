@@ -12,6 +12,8 @@ import type { EntityId, GameEvent, ViewEntity } from '../core/types';
 import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
 import { WEAPON_BY_ID } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
+import { SCOPE_AT, SCOPE_FADE, type AimSnapshot } from '../game/aimFeel';
+import { ScopeGlints } from './vfx/scopeGlint';
 import type { ViewSource } from './view';
 import { HERO_VIEW_RANGE, groundVariant, presetPixelRatio, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
 import { AdaptiveResolution, adaptiveFloor } from './adaptiveRes';
@@ -186,6 +188,10 @@ export class GameRenderer {
   private lastLocalHp = -1;
   private squad = new Set<EntityId>();
   private zoomNow = 1;
+  /** other heroes' scopes glinting toward the camera (vfx/scopeGlint.ts) */
+  private readonly glints = new ScopeGlints();
+  /** the local aim (InputController → setAim each frame; null: none yet — the look's ADS button and the data zoom) */
+  private aim: Readonly<AimSnapshot> | null = null;
   /** pixel ratio controller (frame time → canvas resolution) */
   private readonly adaptive = new AdaptiveResolution();
   /** 自动's render-scale cap in use (settings.autoRenderScale; Infinity: none) */
@@ -278,6 +284,7 @@ export class GameRenderer {
     this.fx.shakeAt = (pos, intensity, radius) => this.shakeAt(pos, intensity, radius);
     this.scene.add(this.fx.group);
     this.scene.add(this.entities.group);
+    this.scene.add(this.glints.group);
     this.zone = new ZoneVisual(displayMap(map));
     this.scene.add(this.zone.group);
     this.post = new PostChain(this.renderer, this.sky, this.scene, this.camera, {
@@ -332,6 +339,7 @@ export class GameRenderer {
     const ctx = this.entityCtx(d, localId, local);
     ctx.focusPos = this.cameraFocus(localEnt);
     this.entities.sync(view.entities(), ctx);
+    this.glints.update(view.entities(), localId, this.camera.position, this.time, this.zoomNow, ctx.blocked);
 
     // fade the local hero when the camera is pushed into them (walls behind,
     // tight corners) and while aiming a magnifying weapon (the camera slides in)
@@ -350,7 +358,12 @@ export class GameRenderer {
       }
     }
     // first person: own body hidden from this camera (shadow kept), the weapon viewmodel posed
-    this.fp.sync(d, localEnt, local, localEnt ? this.entities.character(localEnt.id) : undefined, this.look, this.look.ads && this.adsZoom >= 3 && this.zoomNow >= 1.8);
+    const scoped = this.aim ? this.aim.scoped : this.look.ads && this.adsZoom >= 3 && this.zoomNow >= 1.8;
+    this.fp.sync(d, localEnt, local, localEnt ? this.entities.character(localEnt.id) : undefined, { ...this.look, adsBlend: this.aim?.blend }, scoped);
+    // looking through a scope: the haze starts much further out (a target at 70 m on 极速 is not a pale blob)
+    const lens = this.aim && this.aim.scoped ? Math.min(1, Math.max(0, (this.aim.progress - SCOPE_AT) / SCOPE_FADE)) : 0;
+    const fogNear = this.preset.drawDistance * (0.35 + 0.4 * lens);
+    if (Math.abs(this.fog.near - fogNear) > 0.01) this.fog.near = fogNear;
 
     // 3. events → VFX, then re-emit to subscribers
     let evs = view.drainEvents();
@@ -540,6 +553,7 @@ export class GameRenderer {
     g.name = 'warmSamples';
     g.visible = false;
     this.fx.fx.prewarm();
+    this.glints.prewarm();
     const plate = new Nameplate();
     const hazards = hazardWarmSamples();
     const chibi = chibiWarmSample();
@@ -711,13 +725,27 @@ export class GameRenderer {
     return this.fp.active;
   }
 
-  /** ADS zoom of the local hero's active weapon when aiming (1 otherwise). UI draws a scope when ≥ 3. */
+  /**
+   * ADS zoom of the local hero's active weapon when aiming (1 otherwise): the
+   * aim's selected zoom step (a sniper scope's 4× / 8×), else the data zoom.
+   */
   get adsZoom(): number {
     if (this.disposed) return 1;
     const local = this.view.local();
     if (!local || !this.look.ads) return 1;
+    if (this.aim) return this.aim.stepZoom;
     const w = local.weapons[local.activeSlot];
     return (w && WEAPON_BY_ID[w.id]?.adsZoom) || 1;
+  }
+
+  /** The local aim this frame (InputController): zoom on the camera, scope overlay, viewmodel ADS. */
+  setAim(aim: Readonly<AimSnapshot>): void {
+    this.aim = aim;
+  }
+
+  /** The camera's unzoomed vertical FOV (the settings' FOV). */
+  get baseFov(): number {
+    return this.rig.baseFov;
   }
 
   /** Current (smoothed) zoom applied to the camera FOV. */
@@ -796,6 +824,7 @@ export class GameRenderer {
     // the match's character models (textures ~5 MB each) go with it; the next match reloads from the HTTP cache
     evictUnusedTemplates();
     this.fx.dispose();
+    this.glints.dispose();
     this.fp.dispose();
     this.zone.dispose();
     this.fires.dispose();
@@ -1169,7 +1198,9 @@ export class GameRenderer {
     } else if (localEnt && !localDead && !(localEnt.flags & VF_DEAD)) {
       const yaw = this.look.fresh ? this.look.yaw : localEnt.yaw;
       const pitch = this.look.fresh ? this.look.pitch : localEnt.pitch;
-      const zoom = this.adsZoom;
+      // the aim's eased zoom (each class's ADS time, the scope's steps); without one: the data zoom, smoothed
+      const aim = this.aim;
+      const zoom = aim ? aim.zoom : this.adsZoom;
       if (this.look.fp) {
         rig.mode = 'first';
         rig.firstPerson(localEnt, this.fp.eyeHeight(localEnt, dt), yaw, pitch);
@@ -1177,7 +1208,8 @@ export class GameRenderer {
         rig.mode = 'follow';
         rig.follow(this.pickWorld, localEnt, yaw, pitch, dt, false, (localEnt.flags & VF_DOWNED) !== 0, zoom);
       }
-      rig.setZoom(zoom, dt);
+      if (aim) rig.setZoomNow(zoom);
+      else rig.setZoom(zoom, dt);
     } else {
       // dead / not spawned: spectate a target or orbit
       const target = this.spectateId !== null ? this.view.get(this.spectateId) : undefined;
@@ -1291,8 +1323,11 @@ export class GameRenderer {
       }
       view?.onShot();
       if (this.fp.active) this.fp.onShot(w.id);
-      // (first person: the viewmodel carries most of the kick, the view itself barely moves)
-      const kick = Math.min(0.05, ((def?.recoil ?? 1) * Math.PI) / 180) * (this.fp.active ? 0.4 : 1);
+      // the view's climb is the aim's recoil (game/aimFeel.ts onShot — the shots follow it); this is
+      // the camera's short punch on top. First person: the viewmodel carries most of it — unless a
+      // scope hides the weapon: then the whole punch shows (a sniper's scope jumps)
+      const scopedNow = !!this.aim?.scoped;
+      const kick = Math.min(scopedNow ? 0.1 : 0.05, ((def?.recoil ?? 1) * Math.PI) / 180) * (this.fp.active && !scopedNow ? 0.4 : 1);
       this.rig.shake.kick(kick * 0.6, (Math.random() - 0.5) * kick * 0.3);
       for (const cb of this.fireSubs) {
         try {

@@ -725,6 +725,15 @@ export function pickUp(w: World, e: Entity, l: Entity, explicit: boolean): boole
     const def = weaponDef(lo.weaponId);
     const slot = def.class === 'pistol' && h.weapons[0] && h.weapons[0].id !== lo.weaponId ? 1 : 0;
     const old = h.weapons[slot];
+    // the same gun you hold (a second 制式手枪): take its rounds instead of swapping one for the other
+    if (old && old.id === lo.weaponId) {
+      const room = usesAmmo(def) ? maxReserve(def) - old.reserve : 0;
+      if (room <= 0) return false;
+      old.reserve += Math.min(room, (lo.mag ?? def.magSize) + (lo.reserve ?? maxReserve(def)));
+      w.removeEntity(l.id);
+      w.emit({ t: 'pickup', who: e.id, item: lo.weaponId });
+      return true;
+    }
     h.weapons[slot] = {
       id: lo.weaponId,
       mag: lo.mag ?? (usesAmmo(def) ? def.magSize : 0),
