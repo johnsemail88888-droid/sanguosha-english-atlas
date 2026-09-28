@@ -133,11 +133,24 @@ since both crowns carry the lord's bonus), swapping in:
 
 - HP = 三国杀 体力 × 100 (3 → 300, 4 → 400). Lord (and Double) +100 max HP in all counts.
 - No passive regen. Healing comes from 桃 / abilities.
-- **濒死 (downed)** at 0 HP: 12 s bleed-out, crawling at 25 % speed, cannot shoot. Anyone can
-  revive with a 桃 (hold F on them, 1.5 s → 100 HP); the downed hero may drink 酒 to self-revive
-  (50 HP) or play his own 桃 (a 1.5 s channel → 100 HP — 三国杀: a dying player may save himself). Damage while downed shortens bleed-out. Bleed-out or finishing → **death**.
+- **濒死 (downed)** at 0 HP: bleed-out of **30 s** on the first knock in one life, **20 s** on the
+  second, **12 s** from the third on (`sim/rules.ts BLEED_OUT_TIMES`); crawling at 25 % speed, cannot
+  shoot. Anyone can revive with a 桃 (hold F on them, 1.5 s → 100 HP) — the bleed-out pauses while a
+  revive channel runs; the downed hero may drink 酒 to self-revive (50 HP) or play his own 桃 (a 1.5 s
+  channel → 100 HP — 三国杀: a dying player may save himself; this does not pause the bleed-out).
+  Damage while downed shortens bleed-out in proportion: **150 damage finishes any fresh knock**
+  (`DOWNED_FINISH_DAMAGE`). F while downed calls 「需要桃！」 (public SOS marker for 30 s).
+  Bleed-out or finishing → **death**.
+- **战场急救 (squad aid)**: on his first knock in a life, while no hero hostile to him stands within 20 m
+  (and he was not hit in the last second), the downed commander's nearest soldier runs to him and
+  bandages him for 5 s (bleed-out paused; a hit on either breaks it) → up with 60 HP; that soldier is spent.
 - **Death reveals the role** to everyone (kill feed: "张飞(反贼) 被 曹操 击杀"). Dead players spectate
-  (cycle alive heroes). Their squad disbands (troops become neutral NPCs that flee/fight 20 s, then vanish).
+  (cycle alive heroes, V = first / third person). Their squad disbands (troops become neutral NPCs that
+  flee/fight 20 s, then vanish). **Death box**: the dead hero's items, armor, mount and secondary weapon
+  drop at the body (PUBG); the 杀反贼 reward still goes to the killer.
+- **招魂 (recall)**: for 60 s after death the body keeps a 魂幡. Anyone holding F at the body for 5 s
+  (a `revive` channel with `recall`) calls the hero back: 150 HP, no squad, his primary weapon, 2 s
+  invulnerable, role still public. Once per match per hero. Bots recall fallen heroes of their own side.
 - **Rewards/penalties** (official): whoever kills a **Rebel** draws **3 random items**
   (dropped straight into their slots / at their feet). If the **Lord kills a Loyalist or the Double**
   by his own hand (his shots, projectiles, fields, turrets — or he downed him and a soldier finished;

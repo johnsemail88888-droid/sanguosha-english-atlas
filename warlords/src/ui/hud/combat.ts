@@ -1,14 +1,13 @@
-// Combat feedback: crosshair (per weapon class, spread-aware), hit markers,
-// floating damage numbers, damage direction arcs, sniper scope, interaction
-// prompt, channel bar, downed overlay, spectate bar, outside-zone warning.
+// Combat feedback: floating damage numbers, damage direction arcs, interaction
+// prompt, channel bar, outside-zone warning (the crosshair, hit markers and
+// sights: ./aim.ts; downed / death / spectate: ./fallen.ts).
 import type { EntityId, Vec3 } from '../../core/types';
-import { VF_ADS, VF_AIRBORNE, VF_FIRING, VF_RELOADING } from '../../core/types';
-import { HERO_BY_ID, ITEM_BY_ID, WEAPON_BY_ID } from '../../data';
+import { HERO_BY_ID, ITEM_BY_ID } from '../../data';
 import { h, setClass, setText } from '../dom';
 import { gearName, getLang, heroName, t, tx, type I18nKey } from '../i18n';
 import { displayName } from '../../game/names';
 import { CRATE_NAME } from '../theme';
-import { SquadFocusTracker, crosshairStyle, deriveInteract, distanceOutsideZone, relativeBearing, spreadToPx, type InteractPrompt } from './logic';
+import { SquadFocusTracker, deriveInteract, distanceOutsideZone, relativeBearing, type InteractPrompt } from './logic';
 import type { HudFrame } from './types';
 import { viewport } from './viewport';
 import type { PortraitCache } from '../widgets';
@@ -21,70 +20,7 @@ function play(el: Element, frames: Keyframe[], opts: KeyframeAnimationOptions): 
   if (canAnimate) el.animate(frames, opts);
 }
 
-// ── Crosshair + hit marker ───────────────────────────────────────────────────
-
-export class Crosshair {
-  readonly el: HTMLElement;
-  private readonly marker: HTMLElement;
-  private style = '';
-  private gap = -1;
-  private bloom = 0;
-  private hidden = false;
-
-  constructor(private readonly fov: () => number) {
-    this.marker = h('div', { class: 'hitmarker' }, h('i'), h('i'), h('i'), h('i'));
-    this.el = h('div', { class: 'hud-xhair', data: { style: 'cross' } },
-      h('i', { class: 'l t' }), h('i', { class: 'l b' }), h('i', { class: 'l le' }), h('i', { class: 'l r' }),
-      h('i', { class: 'dot' }), h('i', { class: 'ring' }), h('i', { class: 'chev' }), h('i', { class: 'drop' }),
-      this.marker,
-    );
-  }
-
-  update(f: HudFrame, scoped: boolean): void {
-    const me = f.me;
-    const ent = f.myEnt;
-    const hide = !me || me.dead || me.downed || scoped || !ent;
-    if (hide !== this.hidden) {
-      this.hidden = hide;
-      setClass(this.el, 'off', hide);
-    }
-    if (hide || !me || !ent) return;
-    const w = me.weapons[me.activeSlot];
-    const def = w ? WEAPON_BY_ID[w.id] : undefined;
-    const style = crosshairStyle(def?.class);
-    if (style !== this.style) {
-      this.style = style;
-      this.el.dataset.style = style;
-    }
-    const ads = !!(ent.flags & VF_ADS);
-    const firing = !!(ent.flags & VF_FIRING);
-    if (firing) this.bloom = Math.min(1.6, this.bloom + f.dt * (def ? def.recoil * 2.2 : 1.5));
-    else this.bloom = Math.max(0, this.bloom - f.dt * 2.5);
-    let spread = def ? (ads ? def.spreadAds : def.spreadHip) : 2;
-    spread *= 1 + this.bloom * 0.6;
-    if (ent.speed > 0.6) spread *= ads ? 1.15 : 1.35;
-    if (ent.flags & VF_AIRBORNE) spread *= 1.6;
-    const vfov = this.fov() / (ads && def ? def.adsZoom : 1);
-    const H = viewport().h;
-    const px = Math.max(style === 'circle' ? 14 : 4, Math.min(H * 0.22, spreadToPx(spread, vfov, H)));
-    const g = Math.round(px * 2) / 2;
-    if (g !== this.gap) {
-      this.gap = g;
-      this.el.style.setProperty('--gap', `${g}px`);
-    }
-    setClass(this.el, 'ads', ads);
-    setClass(this.el, 'reloading', !!(ent.flags & VF_RELOADING));
-  }
-
-  hit(kind: 'hit' | 'head' | 'kill'): void {
-    this.marker.dataset.kind = kind;
-    play(this.marker, [
-      { opacity: 1, transform: 'translate(-50%, -50%) scale(1.35) rotate(45deg)' },
-      { opacity: 1, transform: 'translate(-50%, -50%) scale(1) rotate(45deg)', offset: 0.25 },
-      { opacity: 0, transform: 'translate(-50%, -50%) scale(1) rotate(45deg)' },
-    ], { duration: kind === 'kill' ? 520 : 260, easing: 'ease-out' });
-  }
-}
+// (the crosshair, hit markers and sights live in ./aim.ts)
 
 // ── Kill stamp (斩) ───────────────────────────────────────────────────────────
 
@@ -276,32 +212,6 @@ export class SquadFocusWarning {
   }
 }
 
-// ── Sniper scope ─────────────────────────────────────────────────────────────
-
-export class Scope {
-  readonly el: HTMLElement;
-  private on = false;
-  constructor() {
-    this.el = h('div', { class: 'hud-scope' }, h('div', { class: 'lens' }, h('i', { class: 'h' }), h('i', { class: 'v' }), h('i', { class: 'ticks' })));
-  }
-  /** returns whether the scope is showing */
-  update(f: HudFrame): boolean {
-    const me = f.me;
-    const ent = f.myEnt;
-    let on = false;
-    if (me && ent && !me.dead && !me.downed && ent.flags & VF_ADS) {
-      const w = me.weapons[me.activeSlot];
-      const def = w ? WEAPON_BY_ID[w.id] : undefined;
-      on = !!def && def.adsZoom >= 3;
-    }
-    if (on !== this.on) {
-      this.on = on;
-      setClass(this.el, 'on', on);
-    }
-    return on;
-  }
-}
-
 // ── Interaction prompt + channel bar ─────────────────────────────────────────
 
 export function interactText(p: InteractPrompt, lang: 'zh' | 'en', touch = false): { key: string; text: string; sub: string } {
@@ -309,6 +219,14 @@ export function interactText(p: InteractPrompt, lang: 'zh' | 'en', touch = false
     case 'revive':
       // touch: no F key — the prompt names the button (which reads 救援 while a revive is in reach)
       return { key: '', text: t(touch ? 'hud.interact.reviveTouch' : 'hud.interact.revive', { name: `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}` }), sub: p.needPeach ? t('hud.interact.needPeach') : '' };
+    case 'recall': {
+      const name = `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}`;
+      return {
+        key: touch ? '' : 'F',
+        text: touch ? tx('按住「招魂」召回 {name}', 'Hold Recall to call {name} back', { name }) : tx('按住 F 招魂 {name}', 'Hold F to call {name} back', { name }),
+        sub: tx('5 秒 · 他将以 150 体力归来', '5 s · back with 150 HP'),
+      };
+    }
     case 'airdrop':
       return { key: 'F', text: t('hud.interact.airdrop'), sub: '' };
     case 'crate': {
@@ -316,6 +234,9 @@ export function interactText(p: InteractPrompt, lang: 'zh' | 'en', touch = false
       return { key: 'F', text: `${tx('打开', 'Open')}${lang === 'en' ? ' ' : ''}${lang === 'en' ? n.en.toLowerCase() : n.zh}`, sub: '' };
     }
     case 'pickup':
+      // the same gun you hold: F takes its rounds (none when your reserve is already full)
+      if (p.ammo === 'full') return { key: '', text: gearName(p.itemId), sub: t('hud.interact.ammoFull') };
+      if (p.ammo === 'take') return { key: 'F', text: t('hud.interact.ammo', { name: gearName(p.itemId) }), sub: '' };
       return { key: 'F', text: p.swap ? t('hud.interact.swap', { name: gearName(p.itemId) }) : t('hud.interact.pickup', { name: gearName(p.itemId) }), sub: '' };
     case 'full': {
       // COMBAT-7: F swaps the card for slot 4–7's (dropped at your feet); the discard binding for any other slot
@@ -399,172 +320,6 @@ export class ChannelBar {
   }
   relabel(): void {
     this.kind = '';
-  }
-}
-
-// ── Downed overlay ───────────────────────────────────────────────────────────
-
-const BLEED_TOTAL = 12;
-
-export class DownedOverlay {
-  readonly el: HTMLElement;
-  private readonly timer: HTMLElement;
-  private readonly ring: SVGCircleElement;
-  private readonly hint: HTMLElement;
-  private readonly title: HTMLElement;
-  private on = false;
-  private secs = -1;
-  private hintKey = '';
-
-  constructor() {
-    this.timer = h('b', { class: 'secs' });
-    const NS = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 60 60');
-    const bg = document.createElementNS(NS, 'circle');
-    bg.setAttribute('class', 'bg');
-    this.ring = document.createElementNS(NS, 'circle');
-    this.ring.setAttribute('class', 'fg');
-    for (const c of [bg, this.ring]) {
-      c.setAttribute('cx', '30');
-      c.setAttribute('cy', '30');
-      c.setAttribute('r', '26');
-      svg.appendChild(c);
-    }
-    this.ring.setAttribute('stroke-dasharray', String(2 * Math.PI * 26));
-    this.hint = h('div', { class: 'hint' });
-    this.title = h('div', { class: 'ttl' }, t('hud.downed'));
-    this.el = h('div', { class: 'hud-downed' }, h('div', { class: 'vignette' }), h('div', { class: 'box' }, this.title, h('div', { class: 'ringwrap' }, svg, this.timer), this.hint));
-  }
-
-  update(f: HudFrame): void {
-    const me = f.me;
-    const on = !!me && me.downed && !me.dead;
-    if (on !== this.on) {
-      this.on = on;
-      setClass(this.el, 'on', on);
-    }
-    if (!on || !me) return;
-    const rem = Math.max(0, me.downedRemaining);
-    const secs = Math.ceil(rem);
-    if (secs !== this.secs) {
-      this.secs = secs;
-      setText(this.timer, String(secs));
-    }
-    this.ring.setAttribute('stroke-dashoffset', ((2 * Math.PI * 26) * (1 - Math.min(1, rem / BLEED_TOTAL))).toFixed(1));
-    const jiu = me.items.findIndex((it) => it?.id === 'jiu');
-    // a dying hero may play his own 桃 too (a short channel, C3-6); 酒 is instant, so it's offered first
-    const tao = me.items.findIndex((it) => it?.id === 'tao');
-    const hk = `${jiu}|${tao}|${f.lang}`;
-    if (hk !== this.hintKey) {
-      this.hintKey = hk;
-      setText(
-        this.hint,
-        jiu >= 0
-          ? t('hud.interact.selfRevive', { key: String(4 + jiu) })
-          : tao >= 0
-            ? t('hud.interact.selfTao', { key: String(4 + tao) })
-            : t('hud.downedHint'),
-      );
-      setText(this.title, t('hud.downed'));
-    }
-  }
-
-  relabel(): void {
-    this.hintKey = '';
-  }
-}
-
-// ── Death / spectate bar ─────────────────────────────────────────────────────
-
-/** Who killed you: an entity (translated when shown, in the current language) or the zone. */
-export type KillerRef = { entityId: EntityId } | { zone: true } | null;
-
-export class SpectateBar {
-  readonly el: HTMLElement;
-  private readonly killerEl: HTMLElement;
-  private readonly killerText: HTMLElement;
-  private readonly killerFace: HTMLElement;
-  private readonly targetEl: HTMLElement;
-  private readonly targetText: HTMLElement;
-  private readonly targetFace: HTMLElement;
-  private readonly titleEl: HTMLElement;
-  private on = false;
-  private dirty = true;
-  private shownKiller: KillerRef = null;
-  private shownKillerHero: string | null = null;
-  private shownTarget = -1;
-  private shownLang = '';
-  /** a new reference per death (hud.ts): the name is rendered (and re-rendered) in the current language */
-  killer: KillerRef = null;
-  /** the killer's hero (for its painted face) */
-  killerHero: string | null = null;
-
-  /**
-   * `label(id)` names an entity as "hero·player" in the current language (null = unknown);
-   * `portraits`: painted faces of the killer and the spectated hero when the art ships
-   */
-  constructor(
-    private readonly cycle: (dir: 1 | -1) => void,
-    private readonly label: (id: EntityId) => string | null = () => null,
-    private readonly portraits: PortraitCache | null = null,
-  ) {
-    this.killerText = h('span');
-    this.killerFace = h('span', { class: 'face' });
-    this.killerEl = h('div', { class: 'killer' }, this.killerFace, this.killerText);
-    this.targetText = h('span');
-    this.targetFace = h('span', { class: 'face' });
-    this.targetEl = h('span', { class: 'target' }, this.targetFace, this.targetText);
-    this.titleEl = h('div', { class: 'dead-title' }, t('hud.dead'));
-    const prev = h('button', { class: 'sg-btn small dark', type: 'button', title: t('hud.prev') }, '◀');
-    const next = h('button', { class: 'sg-btn small dark', type: 'button', title: t('hud.next') }, '▶');
-    prev.addEventListener('click', () => this.cycle(-1));
-    next.addEventListener('click', () => this.cycle(1));
-    this.el = h('div', { class: 'hud-spectate' }, this.titleEl, this.killerEl, h('div', { class: 'spec' }, prev, this.targetEl, next));
-  }
-
-  update(f: HudFrame): void {
-    const on = !!f.me?.dead;
-    if (on !== this.on) {
-      this.on = on;
-      setClass(this.el, 'on', on);
-    }
-    if (!on) return;
-    // per frame while dead: compare fields instead of building a key string
-    let target: HudFrame['players'][number] | undefined;
-    for (const p of f.players) {
-      if (p.entityId === f.spectateId) {
-        target = p;
-        break;
-      }
-    }
-    const targetId = target ? target.entityId : -1;
-    const kr = this.killer;
-    if (!this.dirty && this.shownKiller === kr && this.shownKillerHero === this.killerHero && this.shownTarget === targetId && this.shownLang === f.lang) return;
-    this.dirty = false;
-    this.shownKiller = kr;
-    this.shownKillerHero = this.killerHero;
-    this.shownTarget = targetId;
-    this.shownLang = f.lang;
-    setText(this.titleEl, t('hud.dead'));
-    const killerName = !kr ? '' : 'zone' in kr ? t('hud.zoneDeath') : this.label(kr.entityId) ?? '';
-    setText(this.killerText, killerName ? t('hud.killedBy', { name: killerName }) : '');
-    setClass(this.killerEl, 'sg-hidden', !killerName);
-    this.face(this.killerFace, kr && !('zone' in kr) ? this.killerHero : null);
-    setText(this.targetText, target ? t('hud.spectating', { name: `${heroName(target.heroId)}·${displayName(target.name, f.lang)}` }) : '—');
-    this.face(this.targetFace, target?.heroId ?? null);
-  }
-
-  private face(slot: HTMLElement, heroId: string | null): void {
-    const pc = this.portraits;
-    const id = heroId && pc?.hasArt(heroId) ? heroId : '';
-    if (slot.dataset.hero === id) return;
-    slot.dataset.hero = id;
-    slot.replaceChildren(...(id && pc ? [pc.avatar(id)] : []));
-  }
-
-  relabel(): void {
-    this.dirty = true;
   }
 }
 

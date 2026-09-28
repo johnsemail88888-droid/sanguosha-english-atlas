@@ -107,6 +107,29 @@ describe('snapshot codec', () => {
     expect(out.you!.moveMods).toEqual(snap.you!.moveMods); // flags byte shared with moveMods
   });
 
+  it('carries who is reviving a downed hero (rescue) next to the forced movement', () => {
+    const snap = bigSnapshot();
+    snap.you!.downed = true;
+    snap.you!.downedRemaining = 7.3;
+    snap.you!.rescue = { by: 4242, progress: 0.375 };
+    snap.you!.forced = { vel: { x: 1, y: 0, z: 2 }, remaining: 0.1 };
+    const st = tableFor();
+    const out = decodeSnapshotMsg(encodeSnapshotMsg(snap, st), st);
+    expect(out.you!.rescue!.by).toBe(4242);
+    expect(out.you!.rescue!.progress).toBeCloseTo(0.375, 4);
+    expect(out.you!.forced!.remaining).toBeCloseTo(0.1, 2);
+    expect(out.you!.downedRemaining).toBeCloseTo(7.3, 2);
+    expect(out.you!.channel?.revive).toBeUndefined();
+    delete snap.you!.rescue;
+    expect(decodeSnapshotMsg(encodeSnapshotMsg(snap, st), st).you!.rescue).toBeUndefined();
+    // the reviver's side: whom his channel revives (hold F, or a 桃 from the item bar)
+    snap.you!.downed = false;
+    snap.you!.channel = { kind: 'item', progress: 0.5, revive: 77 };
+    const out2 = decodeSnapshotMsg(encodeSnapshotMsg(snap, st), st);
+    expect(out2.you!.channel).toEqual({ kind: 'item', progress: expect.closeTo(0.5, 4), revive: 77 });
+    expect(out2.you!.forced!.remaining).toBeCloseTo(0.1, 2);
+  });
+
   it('carries sprintAds (夏侯渊 神速) and "until consumed" statuses (-1 from the sim) as Infinity', () => {
     const snap = bigSnapshot();
     snap.you!.moveMods = { speedMul: 1.15, canSprint: true, canJump: true, rooted: false, sprintAds: true };

@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import type { Vec3 } from '../../core/math';
 import type { PrivateHeroView, ViewEntity } from '../../core/types';
-import { VF_AIRBORNE, VF_CHANNELING, VF_DANCING, VF_DEAD, VF_DOWNED, VF_MOUNTED, VF_SPRINTING, VF_STUNNED } from '../../core/types';
+import { VF_ADS, VF_AIRBORNE, VF_CHANNELING, VF_DANCING, VF_DEAD, VF_DOWNED, VF_MOUNTED, VF_RELOADING, VF_SPRINTING, VF_STUNNED } from '../../core/types';
 import { HERO_BY_ID, WEAPON_BY_ID } from '../../data';
 import { firstPersonRig, fpEyeHeight } from '../../sim/aim';
 import type { CameraPose } from './tpsCamera';
@@ -32,6 +32,9 @@ export function viewRides(e: RideLike): boolean {
 export function fpEyeOf(e: RideLike): number {
   return fpEyeHeight((e.flags & VF_DOWNED) !== 0, viewRides(e));
 }
+
+/** Eye height while kneeling beside a downed ally to revive him (render only: you cannot shoot meanwhile). */
+export const FP_KNEEL_EYE = 1.0;
 
 /** The first-person camera pose (== the host's crosshair ray) for a hero at `pos` looking (yaw, pitch). */
 export function firstPersonPose(pos: Vec3, yaw: number, pitch: number, eyeHeight: number): CameraPose {
@@ -116,6 +119,8 @@ export interface FpLook {
   yaw: number;
   pitch: number;
   ads: boolean;
+  /** eased aim progress (game/aimFeel.ts): the weapon comes up at the class's own pace */
+  adsBlend?: number;
 }
 
 /** The local character view's parts the first-person view needs (entities/characterView.ts). */
@@ -134,9 +139,12 @@ export class FirstPersonView {
 
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
 
-  /** Eye height to put the camera at (eased when it changes: mounting, going down, getting up). */
-  eyeHeight(e: RideLike, dt: number): number {
-    const want = fpEyeOf(e);
+  /**
+   * Eye height to put the camera at (eased when it changes: mounting, going down, getting up,
+   * `kneel`ing beside a downed ally you revive — so he is in view, not under the item bar).
+   */
+  eyeHeight(e: RideLike, dt: number, kneel = false): number {
+    const want = kneel ? Math.min(fpEyeOf(e), FP_KNEEL_EYE) : fpEyeOf(e);
     if (this.eye < 0 || dt <= 0) this.eye = want;
     else this.eye += (want - this.eye) * (1 - Math.exp(-dt * 9));
     if (Math.abs(this.eye - want) < 1e-3) this.eye = want;
@@ -147,7 +155,19 @@ export class FirstPersonView {
    * After the entities are synced: hide / show the local body and pose the
    * viewmodel. `scoped`: a scope overlay fills the screen (the weapon is hidden).
    */
-  sync(dt: number, ent: ViewEntity | undefined, local: PrivateHeroView | null, view: FpCharacter | undefined, look: FpLook, scoped: boolean): void {
+  sync(
+    dt: number,
+    ent: ViewEntity | undefined,
+    local: PrivateHeroView | null,
+    view: FpCharacter | undefined,
+    look: FpLook,
+    scoped: boolean,
+    spectate: { ent: ViewEntity; view: FpCharacter | undefined } | null = null,
+  ): void {
+    if (spectate) {
+      this.syncSpectate(dt, spectate.ent, spectate.view);
+      return;
+    }
     const on = this.active && !!ent && !!local && !local.dead;
     this.body.apply(on && view ? view.rig.root : null, this.camera, view?.rig.mount?.object ?? null);
     if (!on || !ent || !local) {
@@ -175,6 +195,7 @@ export class FirstPersonView {
       weaponId: w?.id ?? ent.weapon ?? null,
       heroId: ent.sub,
       ads: look.ads,
+      adsBlend: look.adsBlend,
       hidden: scoped || local.downed || (ent.flags & (VF_DOWNED | VF_DEAD)) !== 0,
       sprinting: (ent.flags & VF_SPRINTING) !== 0,
       reloading: local.reloading > 0,
@@ -183,6 +204,29 @@ export class FirstPersonView {
       speed: ent.speed,
       yaw: look.yaw,
       pitch: look.pitch,
+      cameraQuat: this.camera.getWorldQuaternion(_qv),
+    });
+  }
+
+  /**
+   * Spectating in first person (V): the watched hero's body is hidden from this camera and his
+   * weapon is the viewmodel, posed from what everyone can see (his flags, weapon and aim).
+   */
+  private syncSpectate(dt: number, e: ViewEntity, view: FpCharacter | undefined): void {
+    this.body.apply(view ? view.rig.root : null, this.camera, view?.rig.mount?.object ?? null);
+    this.eye = -1;
+    this.viewmodel.update(dt, {
+      weaponId: e.weapon ?? null,
+      heroId: e.sub,
+      ads: (e.flags & VF_ADS) !== 0,
+      hidden: (e.flags & (VF_DOWNED | VF_DEAD)) !== 0,
+      sprinting: (e.flags & VF_SPRINTING) !== 0,
+      reloading: (e.flags & VF_RELOADING) !== 0,
+      lowered: (e.flags & (VF_STUNNED | VF_DANCING | VF_CHANNELING)) !== 0,
+      airborne: (e.flags & VF_AIRBORNE) !== 0,
+      speed: e.speed,
+      yaw: e.yaw,
+      pitch: e.pitch,
       cameraQuat: this.camera.getWorldQuaternion(_qv),
     });
   }

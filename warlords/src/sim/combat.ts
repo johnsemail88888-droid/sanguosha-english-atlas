@@ -20,16 +20,22 @@ import { BTN_FIRE, SIM_DT } from '../core/types';
 import type { WeaponDef } from '../data/types';
 import type { DamageRequest, DamageResult, ProjectileSpec, RayHit, SimApi } from './api';
 import { BULLET_EVASION_CAP } from '../data';
+import { drawDamageMul, spreadDeg } from '../data/weaponFeel';
 import { armorDef, heroDef, mountDef, usesAmmo, warnOnce, weaponDef } from './defs';
 import type { HitscanOptions } from './ext';
 import { flingGear } from './items/util';
 import { rayCylinder, raycastStatic, raySphere } from './physics';
 import type { StaticHit } from './physics';
+import { BLEED_OUT_TIME, DOWNED_FINISH_DAMAGE, downedDrain } from './rules';
 import { findStatus, nullifyEffect, removeStatusIf, statusValue } from './status';
 import type { HeroRuntime, World } from './world';
 
-/** seconds of bleed-out removed per point of damage taken while downed */
-export const DOWNED_DAMAGE_TO_SECONDS = 0.1;
+/**
+ * Seconds of bleed-out removed per point of damage taken while downed, on a first knock
+ * (0.25: 120 damage finishes a fresh 30 s knock). Later knocks bleed out faster and drain in
+ * proportion (rules.ts downedDrain): finishing a knocked hero always takes DOWNED_FINISH_DAMAGE.
+ */
+export const DOWNED_DAMAGE_TO_SECONDS = BLEED_OUT_TIME / DOWNED_FINISH_DAMAGE;
 
 // ── troops vs heroes (「怎么我一下主公一下就死了？」) ─────────────────────────
 // A squad is dangerous, never a firing squad: a lord's 6–12 guards used to put
@@ -90,9 +96,6 @@ export function troopFocusDamage(heat: { value: number; at: number }, now: numbe
 export const LAG_COMP_MAX_TICKS = 8;
 const MAX_SHOTS_PER_TICK = 4;
 const BURST_RESET = 0.35;
-/** spread bloom per consecutive shot and its cap (fractions of the base spread) */
-const BLOOM_PER_SHOT = 0.07;
-const BLOOM_MAX = 0.5;
 
 export const DAMAGEABLE: Readonly<Record<Entity['kind'], boolean>> = {
   hero: true,
@@ -524,14 +527,17 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
 
   // 6. HP (or bleed-out while downed)
   const h = target.hero;
+  /** the whole hit when the HP ran out under it (the shooter's number shows the shot, not the HP that was left) */
+  let full = 0;
   if (amount > 0) {
     if (h?.downed) {
-      h.downedUntil -= amount * DOWNED_DAMAGE_TO_SECONDS;
+      h.downedUntil -= amount * downedDrain(h);
       res.dealt = amount;
     } else {
       const before = target.hp;
       target.hp = Math.max(0, target.hp - amount);
       res.dealt = before - target.hp;
+      if (amount > res.dealt + 1e-6) full = amount + res.absorbed;
     }
   }
   const total = res.dealt + res.absorbed;
@@ -551,6 +557,7 @@ function resolveDamage(w: World, reqIn: DamageRequest): DamageResult {
     pos,
     head: req.head,
     blocked: res.blocked,
+    ...(full > 0 ? { full: Math.round(full * 10) / 10 } : null),
   });
   // stats: HP actually removed (finishing a downed hero only shortens its bleed-out)
   if (credit?.hero && credit !== target && !h?.downed) credit.hero.stats.damage += res.dealt;
@@ -874,18 +881,19 @@ const explosionKind = (dtype: DamageType): string =>
   dtype === 'fire' ? 'fire' : dtype === 'thunder' ? 'thunder' : dtype === 'explosive' ? 'rocket' : 'frag';
 
 // ── Hero weapon fire ────────────────────────────────────────────────────────
-/** Spread cone in degrees for the hero's current state. */
+/**
+ * Spread cone in degrees for the hero's current state (data/weaponFeel.ts spreadDeg — the HUD
+ * crosshair draws the same number): hip → aimed eased over the class's ADS time, moving widens
+ * hip fire, airborne ×1.8, bloom while the trigger stays busy (+7 % per shot, capped at +50 %;
+ * was +12 % / ×2 — autos were useless from the hip beyond a few metres, COMBAT-9; ramping guns
+ * and flame streams don't bloom).
+ */
 export function currentSpread(w: World, e: Entity, def: WeaponDef): number {
   const h = e.hero!;
-  let spread = h.ads ? def.spreadAds : def.spreadHip;
-  const moving = Math.hypot(e.vel.x, e.vel.z) > 1;
-  if (moving && !h.ads) spread *= 1.35;
-  if (!e.onGround) spread *= 1.8;
-  // bloom while the trigger stays busy: +7 % per shot, capped at +50 % (was +12 % / ×2 — autos were
-  // useless from the hip beyond a few metres, COMBAT-9); ramping guns and flame streams don't bloom
-  if (def.special !== 'rapid' && def.class !== 'flamer') spread *= 1 + Math.min(BLOOM_MAX, h.burst * BLOOM_PER_SHOT);
-  void w;
-  return Math.max(0, spread);
+  const rt = w.heroRt(e.id);
+  // (no runtime: a bare hero entity in a test aims instantly)
+  const adsT = rt && rt.adsWeapon === def.id ? rt.adsT : h.ads ? 1 : 0;
+  return spreadDeg(def, { adsT, moving: Math.hypot(e.vel.x, e.vel.z) > 1, airborne: !e.onGround, burst: h.burst });
 }
 
 /** Perturb a unit direction by a random angle within a cone of `deg` degrees. */
@@ -1037,6 +1045,8 @@ function fireOne(w: World, e: Entity, rt: HeroRuntime, def: WeaponDef, inst: Wea
     if (now <= rt.followUpUntil) mul *= rt.followUpMul;
     rt.followUpMul = 1;
   }
+  // bows: the draw is the damage — a hip shot hits for BOW_HIP_DAMAGE of a full draw (data/weaponFeel.ts)
+  if (def.class === 'bow') mul *= drawDamageMul(def, rt.adsWeapon === def.id ? rt.adsT : 0);
   const eye = w.shotOrigin(e);
   let dx = aim.x - eye.x;
   let dy = aim.y - eye.y;

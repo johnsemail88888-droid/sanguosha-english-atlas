@@ -9,7 +9,8 @@
 // weapon switch; recoil kick, idle breathing, look sway and a walk bob on top.
 import * as THREE from 'three';
 import { clamp, lerpAngle, wrapAngle } from '../../core/math';
-import { HERO_BY_ID } from '../../data';
+import { HERO_BY_ID, WEAPON_BY_ID } from '../../data';
+import { aimProfile } from '../../data/weaponFeel';
 import { GeoBuilder, PRIM, mixCol, shade, trs, type ColorLike } from '../core/geo';
 import { SUN_DIR } from '../scene/lights';
 import { buildWeapon, isAkimbo, weaponArtEpoch, type HoldStyle, type WeaponModel, type WeaponModelInfo } from '../models/weapons';
@@ -60,7 +61,7 @@ export const HOLD_SCALE: Partial<Record<HoldStyle, number>> = { bow: 0.72 };
  * the screen centre. Bows are drawn to the eye, canted a little; polearms are
  * levelled at the target.
  */
-export function adsPose(hold: HoldStyle, sightY: number): VmPose {
+export function adsPose(hold: HoldStyle, sightY: number, scoped = false): VmPose {
   switch (hold) {
     case 'bow':
       return pose(-0.075, -0.085, -0.62, 0.03, 0, 0.36);
@@ -72,7 +73,12 @@ export function adsPose(hold: HoldStyle, sightY: number): VmPose {
       return HIP_POSE.none;
     case 'akimbo':
       return pose(0.1, -0.13, -0.38, 0.03, 0.01);
+    case 'hip':
+      // LMG / flamer: a bulky receiver — held lower and further out, so the box does not fill the lower view
+      return pose(0.012, -sightY - 0.05, -0.47);
     default:
+      // a scope comes right up to the eye (the lens overlay takes over once it is there)
+      if (scoped) return pose(0, -sightY + 0.004, -0.2);
       // (the sights a touch under the crosshair: it stays on the target, not on a chunk of gun)
       return pose(0, -sightY - (hold === 'pistol' ? 0.012 : 0.02), hold === 'pistol' ? -0.36 : -0.36);
   }
@@ -100,6 +106,8 @@ export interface ViewModelInput {
   heroId: string;
   /** aiming (ADS) */
   ads: boolean;
+  /** eased aim progress 0..1 when known (game/aimFeel.ts: each class's ADS time); else eased here from `ads` */
+  adsBlend?: number;
   /** hide the viewmodel (a scope fills the screen, downed, dead) */
   hidden: boolean;
   sprinting: boolean;
@@ -126,6 +134,8 @@ interface Held {
   /** weaponArtEpoch() it was built at: a procedural stand-in is rebuilt when the art arrives */
   epoch: number;
   art: boolean;
+  /** looked through a scope (a lens overlay once aimed: data/weaponFeel.ts) */
+  scoped: boolean;
 }
 
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -360,7 +370,8 @@ export class ViewModel {
     }
     const held = this.held!;
     const k = (rate: number): number => 1 - Math.exp(-dt * rate);
-    this.adsBlend += ((inp.ads && !inp.sprinting && !inp.reloading && !inp.lowered ? 1 : 0) - this.adsBlend) * k(14);
+    if (inp.adsBlend !== undefined) this.adsBlend = clamp(inp.adsBlend, 0, 1);
+    else this.adsBlend += ((inp.ads && !inp.sprinting && !inp.reloading && !inp.lowered ? 1 : 0) - this.adsBlend) * k(14);
     this.sprintBlend += ((inp.sprinting && !inp.ads ? 1 : 0) - this.sprintBlend) * k(9);
     this.reloadBlend += ((inp.reloading ? 1 : 0) - this.reloadBlend) * k(10);
     this.lowerBlend += ((inp.lowered ? 1 : 0) - this.lowerBlend) * k(8);
@@ -387,7 +398,7 @@ export class ViewModel {
     this.bobPhase += dt * (6.5 + inp.speed * 0.9);
 
     const hip = HIP_POSE[held.hold];
-    const ads = adsPose(held.hold, held.sightY);
+    const ads = adsPose(held.hold, held.sightY, held.scoped);
     const a = this.adsBlend;
     const t = this.time;
     const breathe = 1 - a * 0.7;
@@ -410,6 +421,13 @@ export class ViewModel {
     p.y -= 0.05 * r;
     p.pitch -= 0.32 * r;
     p.roll += 0.45 * r + Math.sin(t * 9) * 0.02 * r;
+    // a scope: the weapon comes up and then drops out of the frame as the eye meets the lens
+    // (the lens overlay takes over from game/aimFeel.ts SCOPE_AT — no gun model filling the view)
+    if (held.scoped) {
+      const out = clamp((a - 0.3) / 0.15, 0, 1);
+      p.y -= 0.15 * out;
+      p.pitch -= 0.25 * out;
+    }
     // lowered (stunned / dancing / disarmed): out of the way
     const lo = this.lowerBlend;
     p.y -= 0.12 * lo;
@@ -511,7 +529,8 @@ export class ViewModel {
       this.left.add(second.mesh);
     }
     this.left.visible = akimbo;
-    this.held = { id, model, second, info: model.info, hold, sightY: sightHeight(model.mesh.geometry), epoch: weaponArtEpoch(), art: art || !waiting };
+    const scoped = aimProfile(WEAPON_BY_ID[id]).overlay;
+    this.held = { id, model, second, info: model.info, hold, sightY: sightHeight(model.mesh.geometry), epoch: weaponArtEpoch(), art: art || !waiting, scoped };
     this.setHands(this.held, heroId);
     if (changed) this.raise = 0;
   }

@@ -18,8 +18,8 @@ export interface KillCauseLookup {
   ownerOf(id: EntityId): EntityId | undefined;
 }
 
-/** Seconds a landed hit stays the answer (a downed hero bleeds out for 12 s). */
-export const CAUSE_MEMORY = 20;
+/** Seconds a landed hit stays the answer (a downed hero bleeds out for up to 30 s). */
+export const CAUSE_MEMORY = 40;
 /** Seconds an attacker's last action explains damage that lands later (projectiles, burns). */
 export const RECENT_ACTION = 3;
 
@@ -58,9 +58,12 @@ export class KillCauses {
         case 'ability':
           if (ABILITY_BY_ID[ev.ability]) acts.casts.push({ src: ev.src, ability: ev.ability, target: ev.target, proc: !!ev.proc });
           break;
-        case 'itemUse':
-          if (ITEM_BY_ID[ev.item]) acts.uses.push({ src: ev.who, item: ev.item, target: ev.target });
+        case 'itemUse': {
+          // a card used on yourself / a friend (桃, 酒, 闪…) never deals the damage: it is no kill cause
+          const def = ITEM_BY_ID[ev.item];
+          if (def && def.targeting !== 'self' && def.targeting !== 'ally') acts.uses.push({ src: ev.who, item: ev.item, target: ev.target });
           break;
+        }
         case 'melee':
           acts.melee.add(ev.src);
           break;

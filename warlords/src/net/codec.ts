@@ -435,6 +435,18 @@ const Y_HAS_GROUND = 64;
 const Y_ON_GROUND = 128;
 const Y2_MODS = 1;
 const Y2_FORCED = 2;
+/** downed and being revived: the reviver's id + that channel's progress */
+const Y2_RESCUE = 4;
+/** your channel revives a downed hero (channel.revive) */
+const Y2_CH_REVIVE = 8;
+/** downed: the full bleed-out of this knock (downedTotal) */
+const Y2_DOWNED_TOTAL = 16;
+/** the rescue is your own soldier's 战场急救 */
+const Y2_RESCUE_SQUAD = 32;
+/** dead: your 魂幡 still stands (soul) */
+const Y2_SOUL = 64;
+/** soul.by / soul.progress present */
+const SOUL_BY = 1;
 
 function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   w.varuint(y.entityId);
@@ -478,10 +490,20 @@ function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   if (y.vel !== undefined) f |= Y_VEL;
   if (y.onGround !== undefined) f |= Y_HAS_GROUND | (y.onGround ? Y_ON_GROUND : 0);
   w.u8(f);
-  w.u8((y.moveMods ? Y2_MODS : 0) | (y.forced ? Y2_FORCED : 0));
+  const chRevive = y.channel?.revive;
+  w.u8(
+    (y.moveMods ? Y2_MODS : 0) |
+      (y.forced ? Y2_FORCED : 0) |
+      (y.rescue ? Y2_RESCUE : 0) |
+      (chRevive !== undefined ? Y2_CH_REVIVE : 0) |
+      (y.downedTotal !== undefined ? Y2_DOWNED_TOTAL : 0) |
+      (y.rescue?.squad ? Y2_RESCUE_SQUAD : 0) |
+      (y.soul ? Y2_SOUL : 0),
+  );
   if (y.channel) {
     writeEnum(w, CHANNEL_KINDS, y.channel.kind);
     w.u16(Math.round(Math.min(1, Math.max(0, y.channel.progress)) * 65535));
+    if (chRevive !== undefined) w.varuint(chRevive);
   }
   w.u16(csQ(y.downedRemaining));
   const statuses = y.statuses.slice(0, 255);
@@ -513,6 +535,19 @@ function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   if (y.forced) {
     writeVec(w, y.forced.vel);
     w.u16(csQ(y.forced.remaining));
+  }
+  if (y.rescue) {
+    w.varuint(y.rescue.by);
+    w.u16(Math.round(Math.min(1, Math.max(0, y.rescue.progress)) * 65535));
+  }
+  if (y.downedTotal !== undefined) w.u16(csQ(y.downedTotal));
+  if (y.soul) {
+    w.u16(csQ(y.soul.remaining));
+    w.u8(y.soul.by !== undefined ? SOUL_BY : 0);
+    if (y.soul.by !== undefined) {
+      w.varuint(y.soul.by);
+      w.u16(Math.round(Math.min(1, Math.max(0, y.soul.progress ?? 0)) * 65535));
+    }
   }
 }
 
@@ -549,6 +584,7 @@ function readYou(r: ByteReader, st: StringTable): PrivateHeroView {
   if (f & Y_CHANNEL) {
     const kind = readEnum(r, CHANNEL_KINDS);
     channel = { kind, progress: r.u16() / 65535 };
+    if (f2 & Y2_CH_REVIVE) channel.revive = r.varuint();
   }
   const downedRemaining = csDQ(r.u16());
   const ns = r.u8();
@@ -606,6 +642,19 @@ function readYou(r: ByteReader, st: StringTable): PrivateHeroView {
   if (f2 & Y2_FORCED) {
     const vel = readVec(r);
     y.forced = { vel, remaining: csDQ(r.u16()) };
+  }
+  if (f2 & Y2_RESCUE) {
+    const by = r.varuint();
+    y.rescue = { by, progress: r.u16() / 65535 };
+    if (f2 & Y2_RESCUE_SQUAD) y.rescue.squad = true;
+  }
+  if (f2 & Y2_DOWNED_TOTAL) y.downedTotal = csDQ(r.u16());
+  if (f2 & Y2_SOUL) {
+    y.soul = { remaining: csDQ(r.u16()) };
+    if (r.u8() & SOUL_BY) {
+      y.soul.by = r.varuint();
+      y.soul.progress = r.u16() / 65535;
+    }
   }
   return y;
 }

@@ -5,7 +5,42 @@ import { ROLE_BY_ID } from '../data';
 import { clearStatuses } from './status';
 import type { World } from './world';
 
-export const BLEED_OUT_TIME = 12;
+/**
+ * Bleed-out of the 1st, 2nd and every later knock in one life (s): long enough for a teammate to
+ * come with a 桃 (PUBG / Apex), shorter each time so a hero cannot be knocked and picked up forever.
+ */
+export const BLEED_OUT_TIMES: readonly number[] = [30, 20, 12];
+/** A first knock's bleed-out (s). */
+export const BLEED_OUT_TIME = BLEED_OUT_TIMES[0];
+/** Bleed-out of knock number `knocks` (0 = the first) in this life. */
+export function bleedOutTime(knocks: number): number {
+  const i = Math.max(0, Math.min(BLEED_OUT_TIMES.length - 1, Math.floor(knocks) || 0));
+  return BLEED_OUT_TIMES[i];
+}
+/** Damage that finishes a fresh knock, however long its bleed-out: hits drain it in proportion (combat.ts). */
+export const DOWNED_FINISH_DAMAGE = 150;
+/** Bleed-out seconds one point of damage takes off this downed hero. */
+export function downedDrain(h: { downedTotal?: number }): number {
+  return (h.downedTotal ?? BLEED_OUT_TIME) / DOWNED_FINISH_DAMAGE;
+}
+/** 战场急救: a soldier bandages his downed commander this long (s)… */
+export const SQUAD_AID_TIME = 5;
+/** …and gets him up with this much HP (the soldier is spent). */
+export const SQUAD_AID_HP = 60;
+/** A soldier this close (m) to his downed commander starts bandaging… */
+export const SQUAD_AID_REACH = 1.9;
+/** …while no hero hostile to the commander stands within this distance (m) of him… */
+export const SQUAD_AID_CLEAR = 20;
+/** …and only on the first knock of a life (a knock that bleeds out in BLEED_OUT_TIMES[0] s). */
+export const squadAidAllowed = (h: { downedTotal?: number }): boolean => (h.downedTotal ?? BLEED_OUT_TIME) >= BLEED_OUT_TIMES[0];
+/** 招魂: a dead hero's 魂幡 stands at his body this long (s)… */
+export const SOUL_TIME = 60;
+/** …anyone holding F there this long (s) calls him back… */
+export const RECALL_TIME = 5;
+/** …with this much HP and no squad, once per match. */
+export const RECALL_HP = 150;
+/** spawn protection after a 招魂 (s) */
+const RECALL_INVULN = 2;
 export const REVIVE_TIME = 1.5;
 export const REVIVE_HP = 100;
 export const SQUAD_DISBAND_TIME = 20;
@@ -28,8 +63,12 @@ export function downHero(w: World, e: Entity, creditId: EntityId | undefined, so
     return;
   }
   const rt = w.heroRt(e.id);
+  // every knock in one life bleeds out faster (30 → 20 → 12 s)
+  const total = bleedOutTime(rt?.knocks ?? 0);
+  if (rt) rt.knocks = (rt.knocks ?? 0) + 1;
   h.downed = true;
-  h.downedUntil = w.time + BLEED_OUT_TIME;
+  h.downedTotal = total;
+  h.downedUntil = w.time + total;
   e.hp = 0;
   e.shield = 0;
   h.ads = false;
@@ -49,13 +88,15 @@ export function downHero(w: World, e: Entity, creditId: EntityId | undefined, so
   w.hooks.onOtherDowned(e);
 }
 
-export function reviveHero(w: World, e: Entity, hp: number, byId: EntityId | undefined): boolean {
+export function reviveHero(w: World, e: Entity, hp: number, byId: EntityId | undefined, squad = false): boolean {
   const h = e.hero;
   if (!h || h.dead || !h.downed) return false;
   h.downed = false;
   h.downedUntil = 0;
+  h.downedTotal = undefined;
+  h.rescue = undefined;
   e.hp = Math.max(1, Math.min(e.maxHp, hp));
-  w.emit({ t: 'revived', target: e.id, by: byId });
+  w.emit(squad ? { t: 'revived', target: e.id, by: byId, squad: true } : { t: 'revived', target: e.id, by: byId });
   if (byId !== undefined && byId !== e.id) {
     const by = w.get(byId);
     if (by?.hero) by.hero.stats.rescues++;
@@ -63,16 +104,201 @@ export function reviveHero(w: World, e: Entity, hp: number, byId: EntityId | und
   return true;
 }
 
-/** Bleed-out timers. */
-export function tickDowned(w: World, heroes: readonly Entity[]): void {
+/**
+ * The downed hero `e` is reviving right now: a hold-F revive (channel 'revive'), a 桃 used on
+ * someone (an item channel started on a downed hero) or on himself while downed (C3-6).
+ */
+export function reviveTargetOf(w: World, e: Entity): EntityId | undefined {
+  const h = e.hero;
+  const ch = h?.channel;
+  if (!h || h.dead || !ch) return undefined;
+  if (ch.kind === 'revive') return ch.targetId;
+  if (ch.kind !== 'item') return undefined;
+  const ci = w.heroRt(e.id)?.channelItem;
+  if (ci?.selfRevive) return e.id;
+  return ci?.revive ? ch.targetId : undefined;
+}
+
+/**
+ * Bleed-out timers. While someone else is reviving a downed hero his bleed-out is paused
+ * (PUBG / Apex): `rescue` names the reviver for his HUD and VF_REVIVING. Damage still shortens
+ * it (finishing a downed hero, combat.ts) — a revive under fire can be lost. His own 桃 does not
+ * pause it: a hero already out of time is not saved by his own card (C3-6). With nobody hostile
+ * near him, one of his own soldiers bandages him (战场急救, tickSquadAid) — paused as well.
+ */
+export function tickDowned(w: World, heroes: readonly Entity[], dt: number): void {
   for (const e of heroes) {
     const h = e.hero!;
-    if (h.dead || !h.downed) continue;
+    if (h.dead || !h.downed) {
+      if (h.rescue) h.rescue = undefined;
+      if (h.soul) tickSoul(w, e, heroes);
+      continue;
+    }
+    let by: Entity | undefined;
+    for (const r of heroes) {
+      if (r !== e && reviveTargetOf(w, r) === e.id) {
+        by = r;
+        break;
+      }
+    }
+    const ch = by?.hero?.channel;
+    if (by && ch) {
+      h.downedUntil += dt;
+      if (h.rescue && !h.rescue.squad) {
+        h.rescue.by = by.id;
+        h.rescue.start = ch.start;
+        h.rescue.until = ch.until;
+      } else {
+        h.rescue = { by: by.id, start: ch.start, until: ch.until };
+      }
+    } else {
+      if (h.rescue && !h.rescue.squad) h.rescue = undefined;
+      const aid = tickSquadAid(w, e, heroes);
+      if (aid === 'done') continue;
+      if (aid === 'aid') h.downedUntil += dt;
+    }
     if (w.time >= h.downedUntil) {
       const rt = w.heroRt(e.id);
       w.killHero(e, rt?.downedBy, rt?.downedBySource);
     }
   }
+}
+
+/** A dead hero's 魂幡: who is channelling the 招魂 now; it falls when time is up (a 招魂 under way still finishes). */
+function tickSoul(w: World, e: Entity, heroes: readonly Entity[]): void {
+  const h = e.hero!;
+  const soul = h.soul;
+  if (!soul) return;
+  if (!h.dead) {
+    h.soul = undefined;
+    return;
+  }
+  let by: EntityId | undefined;
+  for (const r of heroes) {
+    if (r !== e && reviveTargetOf(w, r) === e.id) {
+      by = r.id;
+      break;
+    }
+  }
+  soul.by = by;
+  if (by === undefined && w.time >= soul.until) h.soul = undefined;
+}
+
+/** A hero hostile to `e` (hit him lately, a known enemy…) stands within SQUAD_AID_CLEAR m. */
+function squadAidBlocked(w: World, e: Entity, heroes: readonly Entity[]): boolean {
+  for (const o of heroes) {
+    if (o === e || !o.alive || o.hero!.dead || o.hero!.downed) continue;
+    if (Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) > SQUAD_AID_CLEAR) continue;
+    if (w.isHostileTo(e, o)) return true;
+  }
+  return false;
+}
+
+/**
+ * 战场急救: the downed commander's own soldier (the squad walks up to him, ai/troopBrain.ts)
+ * bandages him for SQUAD_AID_TIME s while nobody hostile is near; a hit on either of them or the
+ * soldier stepping away breaks it. Done: the commander is up with SQUAD_AID_HP and the soldier is
+ * spent. 'aid' while it runs (the bleed-out is paused), 'done' the tick it succeeds.
+ */
+export function tickSquadAid(w: World, e: Entity, heroes: readonly Entity[]): 'none' | 'aid' | 'done' {
+  const h = e.hero!;
+  const now = w.time;
+  const cur = h.rescue?.squad ? h.rescue : undefined;
+  if (cur) {
+    const s = w.get(cur.by);
+    const ok =
+      !!s &&
+      s.alive &&
+      s.troop?.commanderId === e.id &&
+      Math.hypot(s.pos.x - e.pos.x, s.pos.z - e.pos.z) <= SQUAD_AID_REACH + 0.8 &&
+      !((s.lastDamagedAt ?? -1) >= cur.start) &&
+      !((e.lastDamagedAt ?? -1) >= cur.start) &&
+      !s.statuses.some((st) => st.id === 'stun' && st.until > now);
+    if (!ok || !s) {
+      h.rescue = undefined;
+      return 'none';
+    }
+    if (now < cur.until) return 'aid';
+    if (!reviveHero(w, e, SQUAD_AID_HP, s.id, true)) return 'none';
+    // the soldier gave everything he had
+    w.killUnit(s, undefined);
+    return 'done';
+  }
+  // (not while he is still being hit; only on his first knock in this life)
+  if (h.squad.length === 0 || !squadAidAllowed(h) || (e.lastDamagedAt ?? -99) >= now - 1 || squadAidBlocked(w, e, heroes)) return 'none';
+  let best: Entity | undefined;
+  let bd = SQUAD_AID_REACH;
+  for (const id of h.squad) {
+    const s = w.get(id);
+    if (!s || !s.alive || !s.troop) continue;
+    if (s.statuses.some((st) => st.id === 'stun' && st.until > now)) continue;
+    const d = Math.hypot(s.pos.x - e.pos.x, s.pos.z - e.pos.z);
+    if (d <= bd && (s.lastDamagedAt ?? -99) < now - 1) {
+      bd = d;
+      best = s;
+    }
+  }
+  if (!best) return 'none';
+  h.rescue = { by: best.id, start: now, until: now + SQUAD_AID_TIME, squad: true };
+  return 'aid';
+}
+
+/** The dead hero whose 魂幡 `e` could raise from here (招魂), or undefined. */
+export function recallTargetNear(w: World, e: Entity, range: number): Entity | undefined {
+  let best: Entity | undefined;
+  let bd = range;
+  for (const o of w.heroList()) {
+    const oh = o.hero!;
+    if (o === e || !oh.dead || !oh.soul || w.time >= oh.soul.until) continue;
+    // one 招魂 at a time
+    if (oh.soul.by !== undefined && oh.soul.by !== e.id) continue;
+    const d = Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z);
+    if (d <= bd && Math.abs(o.pos.y - e.pos.y) < 2.5) {
+      bd = d;
+      best = o;
+    }
+  }
+  return best;
+}
+
+/**
+ * 招魂: a dead hero rises at his body — RECALL_HP, no squad, his primary weapon (his cards and gear
+ * lie where he fell), a moment of protection. Once per match; his role stays public.
+ */
+export function recallHero(w: World, e: Entity, byId: EntityId | undefined): boolean {
+  const h = e.hero;
+  const rt = w.heroRt(e.id);
+  if (!h || !h.dead || !h.soul || !rt || rt.recalled) return false;
+  rt.recalled = true;
+  rt.knocks = 0;
+  rt.deathAt = undefined;
+  rt.downedBy = undefined;
+  rt.downedBySource = undefined;
+  h.dead = false;
+  h.soul = undefined;
+  h.killerId = undefined;
+  h.downed = false;
+  h.downedUntil = 0;
+  h.downedTotal = undefined;
+  h.rescue = undefined;
+  h.channel = null;
+  h.order = { kind: 'follow' };
+  e.alive = true;
+  e.hp = Math.min(e.maxHp, RECALL_HP);
+  e.shield = 0;
+  const wi = h.weapons[h.activeSlot] ?? h.weapons.find((x) => x);
+  if (wi) h.activeSlot = h.weapons.indexOf(wi);
+  w.refillAmmo(e.id, 0.5);
+  w.applyStatus(e.id, 'invuln', RECALL_INVULN, { sourceId: e.id });
+  w.markKindsDirty();
+  w.emit({ t: 'revived', target: e.id, by: byId, recall: true });
+  if (byId !== undefined && byId !== e.id) {
+    const by = w.get(byId);
+    if (by?.hero) by.hero.stats.rescues++;
+  }
+  w.announce(`${rt.def.nameZh}·${h.name} 被招魂归来！`, `${rt.def.nameEn} · ${h.name} has been called back from the dead!`, 'info');
+  w.requestWinCheck();
+  return true;
 }
 
 // ── Death ───────────────────────────────────────────────────────────────────
@@ -85,6 +311,7 @@ export function killHero(w: World, e: Entity, creditId: EntityId | undefined, so
   h.dead = true;
   h.downed = false;
   h.downedUntil = 0;
+  h.rescue = undefined;
   h.roleRevealed = true;
   h.killerId = killerId !== e.id ? killerId : undefined;
   h.channel = null;
@@ -117,6 +344,10 @@ export function killHero(w: World, e: Entity, creditId: EntityId | undefined, so
     applyRewards(w, killer, e, direct);
   }
   processBounties(w, e, killer, direct);
+  // PUBG death box: his cards, armor, mount and sidearm lie at the body for anyone to take
+  w.dropEverything(e);
+  // 招魂: his 魂幡 stands at the body for a while (once per match)
+  if (rt && !rt.recalled) h.soul = { until: w.time + SOUL_TIME };
   disbandSquad(w, e);
   w.requestWinCheck();
 }

@@ -318,4 +318,7 @@ export interface StatusVisualHint {
   color: string;
   icon: string;
   debuff: boolean;
+  /** what it does to you, in a few words (the HUD's 「沉默 · 不能放技能」 banner); absent: the name says it */
+  effectZh?: string;
+  effectEn?: string;
 }

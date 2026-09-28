@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Entity, GameEvent, RoleId } from '../../../src/core/types';
 import { BTN_INTERACT, emptyInput } from '../../../src/core/types';
-import { evaluateWin, mvpScore, type WinCheckInput } from '../../../src/sim/rules';
+import { BLEED_OUT_TIME, evaluateWin, mvpScore, type WinCheckInput } from '../../../src/sim/rules';
 import type { World } from '../../../src/sim/world';
 import { hero, makeWorld, place, stepN } from './helpers';
 
@@ -144,12 +144,12 @@ describe('life, death and rewards', () => {
     expect(hero(w, 1).maxHp).toBe(hero(w, 2).maxHp + 100);
   });
 
-  it('bleed-out after 12 s kills and credits whoever downed you', () => {
+  it('bleed-out (30 s on a first knock) kills and credits whoever downed you', () => {
     const w = world5();
     const [, loyal, rebel] = [hero(w, 0), hero(w, 1), hero(w, 2)];
     w.dealDamage({ targetId: rebel.id, sourceId: loyal.id, amount: 5000, type: 'true' });
     expect(rebel.hero!.downed).toBe(true);
-    stepN(w, 30 * 11);
+    stepN(w, 30 * (BLEED_OUT_TIME - 1));
     expect(rebel.hero!.dead).toBe(false);
     stepN(w, 40);
     expect(rebel.hero!.dead).toBe(true);
@@ -164,6 +164,9 @@ describe('life, death and rewards', () => {
     const loyal = hero(w, 1);
     const rebel = hero(w, 2);
     loyal.hero!.items = [null, null, null, null];
+    // (an empty death box: every loot counted below is the reward)
+    rebel.hero!.items = [null, null, null, null];
+    rebel.hero!.weapons[1] = null;
     kill(w, rebel, loyal);
     const reward = ofType(w.drainEvents(), 'reward')[0];
     expect(reward).toMatchObject({ who: loyal.id, kind: 'rebelKill' });
@@ -182,6 +185,9 @@ describe('life, death and rewards', () => {
     lh.armor = 'bagua';
     lh.mount = 'chitu';
     const sec = lh.weapons[1]!.id;
+    // (an empty death box: every loot counted below is the lord's)
+    loyal.hero!.items = [null, null, null, null];
+    loyal.hero!.weapons[1] = null;
     kill(w, loyal, lord);
     expect(lh.items.every((s) => s === null)).toBe(true);
     expect(lh.armor).toBeNull();
@@ -231,7 +237,7 @@ describe('life, death and rewards', () => {
     expect(loyal.hero!.downed).toBe(true);
     // the summon is gone before the loyalist bleeds out
     w.removeEntity(npc.id);
-    stepN(w, 30 * 13);
+    stepN(w, 30 * (BLEED_OUT_TIME + 1));
     expect(loyal.hero!.dead).toBe(true);
     expect(loyal.hero!.killerId).toBe(lord.id);
     expect(lord.hero!.items[0]).not.toBeNull();

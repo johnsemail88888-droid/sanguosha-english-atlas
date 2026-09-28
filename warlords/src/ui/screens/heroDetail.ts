@@ -1,7 +1,7 @@
 // Hero detail panel shared by 选将 and 武将图鉴: header, 勾玉, abilities with
 // key badges, signature weapon, troops, and (gallery) bio / playstyle / quotes.
 import type { AbilityDef, HeroDef, WeaponDef } from '../../data/types';
-import { HERO_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, WEAPON_CLASS_INFO, isPassiveAbility } from '../../data';
+import { ABILITY_HERO, HERO_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, WEAPON_CLASS_INFO, isPassiveAbility } from '../../data';
 import type { UiCtx } from '../ctx';
 import { Bag, appendChildren, h } from '../dom';
 import { getLang, heroName, heroTitle, kingdomName, t, tx } from '../i18n';
@@ -11,6 +11,8 @@ import { difficultyStars, kingdomBadge, magatamaRow } from '../widgets';
 import { gearArt } from '../cardArt';
 import { abilityArt, setArt } from '../artIcons';
 import { abilityShort } from '../short';
+import { aimSummary } from '../../data/weaponFeel';
+import { addsToLine, aimTag, skillChips, skillLineEl } from '../skillCard';
 
 export const SLOT_ORDER: Record<AbilityDef['slot'], number> = { passive: 0, q: 1, e: 2, lord: 3 };
 export const SLOT_KEY: Record<AbilityDef['slot'], string> = { passive: '', q: 'Q', e: 'E', lord: 'G' };
@@ -25,25 +27,40 @@ export function slotLabel(slot: AbilityDef['slot'], passive = false): string {
   return SLOT_KEY[slot];
 }
 
+/**
+ * The original 三国杀 skill a remade one is based on (〔突袭〕), unless another skill of the
+ * same hero already carries that name — 火烧赤壁〔英姿〕 next to the passive 英姿 read as a
+ * link between the two.
+ */
+export function sgsTag(a: AbilityDef): string | null {
+  if (!a.sgsSkill || a.sgsSkill === a.nameZh) return null;
+  const hero = HERO_BY_ID[ABILITY_HERO[a.id]];
+  if (hero?.abilities.some((b) => b !== a && b.nameZh === a.sgsSkill)) return null;
+  return a.sgsSkill;
+}
+
 export function abilityBlock(a: AbilityDef, opts: { dimLord?: boolean } = {}): HTMLElement {
-  const meta: string[] = [];
-  if (a.cooldown) meta.push(t('select.cooldown', { n: a.cooldown }));
-  if (a.charges && a.charges > 1) meta.push(t('select.charges', { n: a.charges }));
   const dim = a.slot === 'lord' && opts.dimLord;
   // the painted skill icon beside the text (a hidden slot without art); while the file loads the
   // slot shows the skill's short name on a disc, like the HUD (NP-4) — never an empty indent
   const en = getLang() === 'en';
-  const ico = h('span', { class: 'ab-ico' }, h('span', { class: `g${en ? ' en' : ''}`, aria: { hidden: 'true' } }, abilityShort(a, en ? 'en' : 'zh')));
+  const lang = en ? 'en' : 'zh';
+  const ico = h('span', { class: 'ab-ico' }, h('span', { class: `g${en ? ' en' : ''}`, aria: { hidden: 'true' } }, abilityShort(a, lang)));
   setArt(ico, abilityArt(a.id), { lazy: true });
+  // what it does in one line + its numbers (伤害 / 射程 / 范围 / 持续 / 冷却, generated from the
+  // ability's params) first; the full rules under them
   return h('div', { class: `sg-ability slot-${a.slot}${dim ? ' dim' : ''}` },
     ico,
     h('div', { class: 'ab-head' },
       h('span', { class: `ab-key k-${a.slot}` }, slotLabel(a.slot, isPassiveAbility(a))),
       h('span', { class: 'ab-name' }, tx(a.nameZh, a.nameEn)),
-      a.sgsSkill && a.sgsSkill !== a.nameZh ? h('span', { class: 'ab-sgs' }, `〔${a.sgsSkill}〕`) : null,
-      meta.length ? h('span', { class: 'ab-meta' }, meta.join(' · ')) : null,
+      sgsTag(a) ? h('span', { class: 'ab-sgs' }, `〔${sgsTag(a)}〕`) : null,
+      isPassiveAbility(a) ? null : aimTag(a, lang),
     ),
-    h('p', { class: 'ab-desc' }, tx(a.descZh, a.descEn)),
+    skillLineEl(a, lang),
+    skillChips(a, lang),
+    // (a description that only repeats the line is left out: 权衡 「所有武器换弹速度 +20%」)
+    addsToLine(a, lang) ? h('p', { class: 'ab-desc' }, tx(a.descZh, a.descEn)) : null,
     dim ? h('p', { class: 'ab-note' }, t('select.lordOnly')) : null,
   );
 }
@@ -99,10 +116,25 @@ export function weaponBlock(w: WeaponDef): HTMLElement {
       stat(tx('伤害', 'Damage'), dmg),
       stat(tx('射速', 'Rate'), `${w.fireRate}/s`),
       stat(tx('弹匣', 'Mag'), String(w.magSize)),
-      stat(tx('射程', 'Range'), `${w.maxRange}m`),
+      stat(tx('射程', 'Range'), w.melee ? `${w.maxRange}m` : `${w.falloffStart}/${w.maxRange}m`),
     ),
+    // how it aims (sight, zoom, aim time, hip cone) — the same line as the in-match stat card
+    h('p', { class: 'wc-aim' }, ...aimParts(w)),
     h('p', { class: 'wc-desc' }, tx(w.descZh, w.descEn)),
   );
+}
+
+/** The aim line in unbreakable parts: a narrow panel wraps between "开镜 0.36 秒" and "腰射 ±1.5°", never inside one. */
+function aimParts(w: WeaponDef): (HTMLElement | string)[] {
+  const a = aimSummary(w);
+  const out: (HTMLElement | string)[] = [];
+  tx(a.zh, a.en)
+    .split(' · ')
+    .forEach((part, i) => {
+      if (i > 0) out.push(' · ');
+      out.push(h('span', null, part));
+    });
+  return out;
 }
 
 function stat(label: string, value: string): HTMLElement {

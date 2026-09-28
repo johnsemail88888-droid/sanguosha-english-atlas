@@ -116,7 +116,8 @@ describe('status effects', () => {
     // a public reveal does not merge into a private one
     w.applyStatus(b.id, 'reveal', 3, { sourceId: a.id });
     evs = statusEvents(w.drainEvents()).filter((e) => e.status === 'reveal');
-    expect(evs).toEqual([{ t: 'status', target: b.id, status: 'reveal', on: true }]);
+    // (an 'on' event carries how long it lasts: nameplates count control effects down)
+    expect(evs).toEqual([{ t: 'status', target: b.id, status: 'reveal', on: true, dur: 3 }]);
     expect(b.statuses.filter((s) => s.id === 'reveal').length).toBe(3);
     // the public one expires first: the private viewers keep theirs
     stepN(w, 91);

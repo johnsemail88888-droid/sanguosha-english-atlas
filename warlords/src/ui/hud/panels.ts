@@ -322,8 +322,13 @@ export class AbilityBar {
   private items: ItemEl[] = [];
   private key = '';
   private silenced = false;
+  private held: AbilitySlot | null = null;
 
-  constructor(private readonly onUse?: (slot: AbilitySlot | 'item', index?: number) => void) {
+  constructor(
+    private readonly onUse?: (slot: AbilitySlot | 'item', index?: number) => void,
+    /** pointer over / off a skill icon (the HUD shows the skill tooltip) */
+    private readonly onHover?: (def: AbilityDef | null) => void,
+  ) {
     this.abilitiesEl = h('div', { class: 'abilities' });
     this.itemsEl = h('div', { class: 'items' });
     this.el = h('div', { class: 'hud-abilities' }, this.abilitiesEl, h('div', { class: 'ab-sep' }), this.itemsEl);
@@ -351,16 +356,24 @@ export class AbilityBar {
       const ico = h('div', { class: 'ico' }, h('span', { class: `g${lang === 'en' ? ' en' : ''}` }, abilityShort(v.def, lang === 'en' ? 'en' : 'zh')), cd, num);
       // the painted icon under the cooldown sweep / seconds (the short name stays as the fallback)
       setArt(ico, abilityArt(v.def.id), { first: true });
-      const root = h('div', { class: `ab slot-${v.def.slot}`, title: `${name}\n${tx(v.def.descZh, v.def.descEn)}` },
+      // the skill's name under its key (the painted icon alone does not say which skill it is);
+      // what it does: the HUD's skill tooltip on hover / while the key is held (hud/skills.ts)
+      const root = h('div', { class: `ab slot-${v.def.slot}`, aria: { label: `${name}: ${tx(v.def.descZh, v.def.descEn)}` } },
         ico,
         v.key ? h('span', { class: 'key' }, v.key) : h('span', { class: 'key passive' }, t(v.def.slot === 'lord' ? 'hud.lord' : 'hud.passive')),
+        h('span', { class: 'ab-nm' }, name),
         charges,
       );
       if (v.active) root.addEventListener('click', () => this.onUse?.(v.def.slot as AbilitySlot));
       else root.classList.add('inert');
+      root.addEventListener('mouseenter', () => this.onHover?.(v.def));
+      root.addEventListener('mouseleave', () => this.onHover?.(null));
       return { view: v, root, cd, num, charges, lastP: -1, lastSecs: -1, lastCharges: -1, ready: true, recharging: false };
     });
     this.abilitiesEl.replaceChildren(...this.abilities.map((a) => a.root));
+    const held = this.held;
+    this.held = null;
+    this.setHeld(held);
   }
 
   update(f: HudFrame): void {
@@ -441,6 +454,13 @@ export class AbilityBar {
     for (const it of this.items) it.key = '';
   }
 
+  /** The skill whose key is held (its targeting preview shows): its icon glows. */
+  setHeld(slot: AbilitySlot | null): void {
+    if (slot === this.held) return;
+    this.held = slot;
+    for (const a of this.abilities) setClass(a.root, 'held', slot !== null && a.view.def.slot === slot);
+  }
+
   /** The sim refused this ability (abilityDenied): a short red pulse on its button. */
   denied(abilityId: string): void {
     const a = this.abilities.find((x) => x.view.def.id === abilityId);
@@ -457,12 +477,19 @@ export function flashDenied(el: Element | null): void {
   );
 }
 
-/** Glow pulse when an ability comes off cooldown (WAAPI: no forced reflow). */
+/** Glow pulse + a gold ring bursting outward when an ability comes off cooldown (WAAPI: no forced reflow). */
 function flashReady(el: Element | null): void {
   if (!el || typeof (el as HTMLElement).animate !== 'function') return;
   (el as HTMLElement).animate(
     [{ filter: 'brightness(1.9) drop-shadow(0 0 10px rgba(255, 230, 150, 0.95))' }, { filter: 'none' }],
     { duration: 600, easing: 'ease-out' },
+  );
+  (el as HTMLElement).animate(
+    [
+      { boxShadow: '0 0 0 2px #fff0b8, 0 0 0 3px rgba(255, 220, 120, 0.9)' },
+      { boxShadow: '0 0 0 2px #d6ad52, 0 0 0 16px rgba(255, 220, 120, 0)' },
+    ],
+    { duration: 520, easing: 'ease-out' },
   );
 }
 

@@ -37,6 +37,7 @@ import type {
 import { BTN_ADS, BTN_FIRE, BTN_FIRST_PERSON, SIM_DT, emptyInput } from '../core/types';
 import type { GameMode } from '../core/types';
 import { ROLE_BY_ID, isPassiveAbility } from '../data';
+import { aimProfile, stepAdsT } from '../data/weaponFeel';
 import type { AbilityDef, HeroDef, WeaponDef } from '../data/types';
 import { NAV_MAIN, buildNavGrid, locateNode, findPath as navFindPath } from './map/nav';
 import type { NavGrid } from './map/nav';
@@ -210,6 +211,16 @@ export interface HeroRuntime {
   movedTick: number;
   /** decayed damage taken from each commander's troops / summons / turrets (sim/combat.ts troopFocusDamage) */
   troopHeat: Map<EntityId, { value: number; at: number }>;
+  /** aim progress 0 (hip) … 1 (aimed) over the weapon class's ADS time (data/weaponFeel.ts; spread eases with it) */
+  adsT: number;
+  /** the weapon adsT belongs to (another weapon in hand starts from the hip) */
+  adsWeapon: string;
+  /** last 「需要桃！」 call made with F while downed (callForHelp) */
+  helpCallAt?: number;
+  /** knocks taken in this life: each one bleeds out faster (rules.ts bleedOutTime) */
+  knocks?: number;
+  /** already called back once by a 招魂 this match (rules.ts recallHero) */
+  recalled?: boolean;
 }
 
 export interface PlayerSlot {
@@ -247,6 +258,8 @@ const ATTACK_MEMORY = 10;
 /** half-life (s) of the per-pair tally of damage a hero dealt another by his own hand (heroHarm) */
 const HARM_HALF_LIFE = 3;
 const MARK_TIME = 12;
+/** a downed hero's F 「需要桃！」 call repeats at most this often (s) */
+export const HELP_CALL_GAP = 3;
 const AIRDROP_RADIUS = 1.0;
 /** airdrops stay this far from the map edge */
 const AIRDROP_EDGE_MARGIN = 25;
@@ -491,6 +504,8 @@ export class World implements SimExt, SimHost {
         rampStart: 0,
         followUpMul: 1,
         followUpUntil: 0,
+        adsT: 0,
+        adsWeapon: '',
         focusAt: -99,
         bountyKills: 0,
         baseMaxHp: maxHp,
@@ -735,7 +750,7 @@ export class World implements SimExt, SimHost {
     // 9. airdrops
     this.updateAirdrops(dt);
     // 10. rules
-    tickDowned(this, heroes);
+    tickDowned(this, heroes, dt);
     this.processTimers();
     if (this.winCheckRequested || this.tick % 15 === 0) {
       this.winCheckRequested = false;
@@ -997,8 +1012,17 @@ export class World implements SimExt, SimHost {
       rt.lastMoveMods = { speedMul: mm.speedMul, canSprint: mm.canSprint, canJump: mm.canJump, rooted: mm.rooted, sprintAds: mm.sprintAds === true };
     }
     rt.movedTick = this.tick;
-    // aiming state (spread, VF_ADS): same precedence rule as predictMove
-    h.ads = wantAds && !h.downed && !cs.stunned && !cs.dancing && (!h.sprinting || rt.mods.sprintAds);
+    // aiming state (spread, VF_ADS): same precedence rule as predictMove; a reload lowers the sights
+    // (the client's aim drops out too: game/aimFeel.ts), so they come up again at the class's pace
+    h.ads = wantAds && !h.downed && !cs.stunned && !cs.dancing && (!h.sprinting || rt.mods.sprintAds) && !(h.reloadUntil > now);
+    // aim progress: spread eases from hip to aimed over the class's ADS time (a fresh weapon starts at the hip)
+    const aimWi = h.weapons[h.activeSlot];
+    const aimId = aimWi?.id ?? '';
+    if (aimId !== rt.adsWeapon) {
+      rt.adsWeapon = aimId;
+      rt.adsT = 0;
+    }
+    rt.adsT = stepAdsT(rt.adsT, h.ads, aimProfile(aimWi ? weaponDef(aimWi.id) : undefined).adsTime, dt);
     if (!cs.stunned) {
       e.yaw = finiteOr(input.yaw, e.yaw);
       e.pitch = clamp(finiteOr(input.pitch, 0), -1.45, 1.45);
@@ -1076,13 +1100,16 @@ export class World implements SimExt, SimHost {
         if (!h.downed) this.commandSquad(e, a.order);
         return;
       case 'mark':
-        if (!h.downed) this.markTarget(e, rt);
+        // a downed hero may still point out who is on him (PUBG / Apex ping)
+        this.markTarget(e, rt);
         return;
       default:
         break;
     }
     if (h.downed) {
       if (a.a === 'item') inv.useItemSlot(this, e, rt, a.slot, cs);
+      // F while downed: call for a 桃 (the 「需要桃！」 quick chat — bots that trust you answer it)
+      else if (a.a === 'interact') this.callForHelp(e, rt);
       return;
     }
     if (cs.stunned) return;
@@ -1300,6 +1327,13 @@ export class World implements SimExt, SimHost {
         break;
     }
     this.setSquadOrder(e.id, order);
+  }
+
+  /** A downed hero's call for a 桃 (F): the public 「需要桃！」 quick chat, at most every HELP_CALL_GAP s. */
+  private callForHelp(e: Entity, rt: HeroRuntime): void {
+    if (rt.helpCallAt !== undefined && this.time - rt.helpCallAt < HELP_CALL_GAP) return;
+    rt.helpCallAt = this.time;
+    this.emit({ t: 'quickchat', who: e.id, id: 'needPeach' });
   }
 
   private markTarget(e: Entity, rt: HeroRuntime): void {
