@@ -71,6 +71,12 @@ describe('when a release happens', () => {
     expect(Object.keys(wf.on).sort()).toEqual(['push', 'workflow_dispatch']);
   });
 
+  it('new art committed by the assets workflow (a GITHUB_TOKEN push starts no workflow) is released explicitly', () => {
+    const assets = fs.readFileSync(path.join(WF_DIR, 'warlords-assets.yml'), 'utf8');
+    expect(assets).toContain('gh workflow run warlords-desktop.yml --ref "${GITHUB_REF_NAME}"');
+    expect(assets).toMatch(/actions: write/);
+  });
+
   it('a manual run publishes by default; publish=false is a dry run (artifacts only)', () => {
     expect(wf.on.workflow_dispatch.inputs.publish).toMatchObject({ type: 'boolean', default: true });
     expect(wf.env.PUBLISH).toBe("${{ github.event_name != 'workflow_dispatch' || inputs.publish }}");
