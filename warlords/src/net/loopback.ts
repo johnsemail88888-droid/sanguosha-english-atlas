@@ -19,6 +19,9 @@ export class LoopbackNetwork {
   private host: LoopbackTransport | null = null;
   private readonly clients = new Map<PeerId, LoopbackTransport>();
   private readonly severed = new Set<PeerId>();
+  /** test helper state: extra one-way delay per client (setLinkDelay) and frozen links (hold) */
+  private readonly linkDelay = new Map<PeerId, { ms: number; dir: 'both' | 'up' | 'down' }>();
+  private readonly held = new Map<PeerId, (() => void)[]>();
   private nextClient = 1;
 
   constructor(readonly opts: LoopbackOptions = {}) {}
@@ -56,6 +59,37 @@ export class LoopbackNetwork {
     this.severed.delete(clientId);
   }
 
+  /**
+   * Test helper: `ms` more one-way delay on everything to and from this client (a slow or
+   * congested path; 0 removes it) — or only on what it sends ('up') / receives ('down').
+   * Messages keep their order while it is unchanged.
+   */
+  setLinkDelay(clientId: PeerId, ms: number, dir: 'both' | 'up' | 'down' = 'both'): void {
+    if (ms > 0) this.linkDelay.set(clientId, { ms, dir });
+    else this.linkDelay.delete(clientId);
+  }
+
+  private extraDelay(from: PeerId, to: PeerId): number {
+    const up = this.linkDelay.get(from);
+    if (up && up.dir !== 'down') return up.ms;
+    const down = this.linkDelay.get(to);
+    return down && down.dir !== 'up' ? down.ms : 0;
+  }
+
+  /**
+   * Test helper: a frozen page — nothing reaches this client or leaves it (its messages queue
+   * up) until release(), which delivers everything queued meanwhile, in order.
+   */
+  hold(clientId: PeerId): void {
+    if (!this.held.has(clientId)) this.held.set(clientId, []);
+  }
+
+  release(clientId: PeerId): void {
+    const queued = this.held.get(clientId);
+    this.held.delete(clientId);
+    for (const fn of queued ?? []) this.schedule(fn);
+  }
+
   /** @internal */
   deliver(from: LoopbackTransport, to: PeerId, data: Payload, channel: Channel): void {
     if (this.severed.has(from.selfId) || this.severed.has(to)) return;
@@ -68,7 +102,13 @@ export class LoopbackNetwork {
     const payload = copyPayload(data);
     // like a real socket, messages sent right before close() are still delivered
     const fromId = from.selfId;
-    this.schedule(() => target.receive(fromId, payload, channel));
+    const run = (): void => target.receive(fromId, payload, channel);
+    const frozen = this.held.get(from.selfId) ?? this.held.get(to);
+    if (frozen) {
+      frozen.push(run);
+      return;
+    }
+    this.schedule(run, this.extraDelay(from.selfId, to));
   }
 
   /** @internal a client closed */
@@ -107,8 +147,8 @@ export class LoopbackNetwork {
     return [...this.clients.keys()];
   }
 
-  private schedule(fn: () => void): void {
-    const ms = this.opts.latencyMs ?? 0;
+  private schedule(fn: () => void, extraMs = 0): void {
+    const ms = (this.opts.latencyMs ?? 0) + extraMs;
     if (ms > 0) setTimeout(fn, ms);
     else queueMicrotask(fn);
   }
