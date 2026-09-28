@@ -111,6 +111,22 @@ export const FALLEN_CSS = /* css */ `
 .hud-deathcard .dc-actions .sg-key { margin-left: ${u(6)}; font-size: 0.7em; }
 .hud-deathcard .dc-note { margin-top: ${u(8)}; font-size: ${fs(12, 10)}; color: #b9a37a; }
 
+/* phones / short windows: the recap is a centred sheet over the touch bar, the spectate panel waits behind it */
+.sg-hud.touch .hud-deathcard { z-index: 24; }
+@media (max-height: 520px) {
+  .hud-deathcard { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, 78vw); max-height: calc(100vh - 16px); padding: 8px 14px; z-index: 24; }
+  .hud-deathcard .dc-head { margin-bottom: 4px; }
+  .hud-deathcard .dc-ttl { font-size: 20px; }
+  .hud-deathcard .dc-ava { --sz: 44px; }
+  .hud-deathcard .dc-killer { padding: 6px 8px; }
+  .hud-deathcard .dc-recap { margin-top: 6px; }
+  .hud-deathcard .dc-rows > :nth-child(n + 3) { display: none; }
+  .hud-deathcard .dc-actions { margin-top: 8px; }
+  .hud-deathcard .dc-note { display: none; }
+  .hud-spectate2.on.behind-card { display: none; }
+}
+.sg-hud.touch .hud-deathcard .dc-actions .sg-key { display: none; }
+
 /* ── spectate panel ────────────────────────────────────────────────── */
 .hud-spectate2 { position: absolute; left: 50%; bottom: ${u(26)}; transform: translateX(-50%); display: none; flex-direction: column; align-items: center; gap: ${u(6)}; padding: ${u(10)} ${u(18)}; background: var(--hud-bg); border: 1px solid var(--hud-line); border-radius: ${u(6)}; pointer-events: auto; z-index: 8; min-width: ${u(460)}; }
 .hud-spectate2.on { display: flex; }

@@ -357,10 +357,8 @@ export class DeathCard {
     this.last = inp;
     this.render();
     this.setOpen(true);
-    play(this.el, [
-      { opacity: 0, transform: 'translate(-24px, -50%)' },
-      { opacity: 1, transform: 'translate(0, -50%)' },
-    ], { duration: 260, easing: 'ease-out' });
+    // (opacity only: where the card sits is up to the CSS — a side card, or a centred sheet on phones)
+    play(this.el, [{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' });
   }
 
   /** reopen the last recap (spectate panel's 死亡回顾) */
