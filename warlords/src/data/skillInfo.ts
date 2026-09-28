@@ -33,7 +33,7 @@ export type SkillArea =
    * `reach`: the real range when the strip only shows part of it (the chips read it; absent: start + length) */
   | { kind: 'line'; start: number; length: number; width: number; endRadius?: number; reach?: number }
   /** the unit under the crosshair within `range` (a secondary area of `radius` m around it) */
-  | { kind: 'target'; range: number; side: 'enemy' | 'ally'; radius?: number; selfFallback?: boolean };
+  | { kind: 'target'; range: number; side: 'enemy' | 'ally'; radius?: number; selfFallback?: boolean; maleOnly?: boolean };
 
 export interface DashStop {
   width: number;
@@ -87,6 +87,8 @@ const AREA_OVERRIDE: Readonly<Record<string, (p: Record<string, number>) => Skil
   zhaoyun_jiuzhu: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'ally', selfFallback: true }),
   // no target → the squad charges freely
   caocao_ningjiao: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'enemy', selfFallback: true }),
+  // a male hero only
+  sunshangxiang_jieyin: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'ally', maleOnly: true }),
   zhangliao_tuxi: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'enemy', radius: num(p, 'radius') }),
   // the second hero is picked around the first
   diaochan_lijian: (p) => ({ kind: 'target', range: num(p, 'range'), side: 'enemy', radius: num(p, 'radius') }),

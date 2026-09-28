@@ -72,7 +72,8 @@ export function aimHintText(def: AbilityDef, key: string, valid: boolean, lang: 
   const name = nameOf(def, lang);
   const area = skillArea(def);
   if (!valid && area?.kind === 'target') {
-    const who = area.side === 'enemy' ? tr(lang, '一名敌人', 'an enemy') : tr(lang, '一名武将', 'a hero');
+    // (结姻 takes a male hero only)
+    const who = area.side === 'enemy' ? tr(lang, '一名敌人', 'an enemy') : def.params.maleOnly ? tr(lang, '一名男性武将', 'a male hero') : tr(lang, '一名武将', 'a hero');
     return { name, how: tr(lang, `准星对准${who}（${fmtNum(area.range)} 米内）`, `Put the crosshair on ${who} (within ${fmtNum(area.range)} m)`), bad: true };
   }
   return { name, how: tr(lang, `松开 ${key} 施放 · 右键取消`, `Release ${key} to cast · right click cancels`), bad: false };
@@ -136,12 +137,24 @@ interface OpenCast {
 }
 
 /**
+ * A field that stays on the ground and works while units stand in it (八阵图, 火烧连营):
+ * what it catches comes over its duration, not at the cast.
+ */
+export function lastingField(def: AbilityDef): boolean {
+  const a = skillArea(def);
+  const p = def.params;
+  return !!a && (a.kind === 'circle' || a.kind === 'line') && (p.duration ?? 0) > 0 && !p.tickEvery;
+}
+
+/**
  * Seconds after a cast during which hits / debuffs count for it: the skill's own
- * timing (delays, dashes, bolts, ticks), at least 0.8 s, at most 4 s.
+ * timing (delays, dashes, bolts, ticks, the first seconds of a lasting field), at
+ * least 0.8 s, at most 4 s.
  */
 export function castWindow(def: AbilityDef): number {
   const p = def.params;
   let t = 0.6;
+  if (lastingField(def)) t += Math.min(p.duration, 3);
   t += p.delay ?? 0;
   t += p.dashTime ?? p.leapTime ?? p.chargeTime ?? 0;
   if (p.bolts && p.interval) t += (p.bolts - 1) * p.interval;
@@ -222,7 +235,9 @@ export class SkillCastTracker {
     this.open = this.open.filter((o) => {
       if (now < o.until) return true;
       o.res.done = true;
-      o.res.missed = !o.res.self && o.res.units === 0 && o.res.statuses.length === 0 && o.res.target === undefined && (o.def.dtype !== undefined || skillArea(o.def) !== null);
+      // (a control field nobody walked into yet is no miss: it stays on the ground)
+      const verdict = o.def.dtype !== undefined || (skillArea(o.def) !== null && !lastingField(o.def));
+      o.res.missed = !o.res.self && o.res.units === 0 && o.res.statuses.length === 0 && o.res.target === undefined && verdict;
       out.push(o.res);
       return false;
     });

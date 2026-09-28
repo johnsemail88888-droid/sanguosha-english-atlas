@@ -72,6 +72,10 @@ describe('planSkillPreview', () => {
     expect(p.tone).toBe('help');
     // 济民 has no fallback
     expect(plan('liubei_jimin')!.valid).toBe(false);
+    // 结姻: a male hero only
+    const her: PreviewUnit = { id: 4, x: 0, y: 0, z: -8, kind: 'hero', own: false, male: false };
+    expect(plan('sunshangxiang_jieyin', undefined, her)!.valid).toBe(false);
+    expect(plan('sunshangxiang_jieyin', undefined, { ...her, male: true })!.valid).toBe(true);
   });
 
   it('a secondary area around the target (离间 15 m)', () => {

@@ -106,12 +106,29 @@ describe('SkillCastTracker', () => {
     expect(tr.push([{ t: 'ability', src: ME, ability: 'xuchu_luoyi' }], null, 0, info)).toEqual([]);
   });
 
+  it('a control field nobody walked into yet is no miss; a damaging one that caught nobody is', () => {
+    const tr = new SkillCastTracker();
+    const zgl = { id: ME, heroId: 'zhugeliang' };
+    tr.push([{ t: 'ability', src: ME, ability: 'zhugeliang_bazhen' }], zgl, 0, info);
+    expect(tr.tick(1)).toEqual([]); // 八阵图 lasts 8 s: its window covers the first 3
+    // a unit walking in is still counted
+    const r = tr.push([{ t: 'status', target: 2, status: 'silence', on: true }], zgl, 2.5, info);
+    expect(r[0].statuses).toEqual([{ id: 'silence', n: 1 }]);
+    const empty = new SkillCastTracker();
+    empty.push([{ t: 'ability', src: ME, ability: 'zhugeliang_bazhen' }], zgl, 0, info);
+    expect(empty.tick(9)[0]).toMatchObject({ done: true, missed: false });
+    const lx = new SkillCastTracker();
+    lx.push([{ t: 'ability', src: ME, ability: 'luxun_huoshao' }], { id: ME, heroId: 'luxun' }, 0, info);
+    expect(lx.tick(9)[0].missed).toBe(true);
+  });
+
   it('cast windows follow the skill’s timing, within 0.8–4 s', () => {
     expect(castWindow(ABILITY_BY_ID.lubu_fangtian)).toBeCloseTo(0.8, 6);
     expect(castWindow(ABILITY_BY_ID.guanyu_qinglong)).toBeCloseTo(0.95, 6); // 0.6 + dash 0.35
     expect(castWindow(ABILITY_BY_ID.zhouyu_chibi)).toBeCloseTo(2.1, 6); // 0.6 + delay 1.5
     expect(castWindow(ABILITY_BY_ID.zhangjiao_leiji)).toBeCloseTo(1.8, 6); // 0.6 + 2 × 0.6
     expect(castWindow(ABILITY_BY_ID.zhangjiao_taiping)).toBe(4); // capped
+    expect(castWindow(ABILITY_BY_ID.zhugeliang_bazhen)).toBeCloseTo(3.6, 6); // a lasting field: its first 3 s
   });
 });
 
@@ -120,6 +137,7 @@ describe('held-skill hint', () => {
     expect(aimHintText(ABILITY_BY_ID.guanyu_qinglong, 'Q', true, 'zh')).toEqual({ name: '青龙斩', how: '松开 Q 施放 · 右键取消', bad: false });
     expect(aimHintText(ABILITY_BY_ID.guanyu_yijue, 'E', false, 'zh')).toEqual({ name: '义绝', how: '准星对准一名敌人（30 米内）', bad: true });
     expect(aimHintText(ABILITY_BY_ID.liubei_jimin, 'Q', false, 'en').how).toBe('Put the crosshair on a hero (within 25 m)');
+    expect(aimHintText(ABILITY_BY_ID.sunshangxiang_jieyin, 'Q', false, 'zh').how).toBe('准星对准一名男性武将（25 米内）');
   });
 });
 

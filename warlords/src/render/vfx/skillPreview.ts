@@ -61,6 +61,8 @@ export interface PreviewUnit {
   kind: string;
   /** your own hero, squad or summon */
   own: boolean;
+  /** a hero's gender is male (结姻 picks a male hero only); absent: unknown / not a hero */
+  male?: boolean;
 }
 
 export interface PreviewInput {
@@ -142,6 +144,7 @@ export function pickable(area: Extract<SkillArea, { kind: 'target' }>, caster: {
   const d = Math.hypot(t.x - caster.x, t.y + 1.1 - (caster.y + 1.6), t.z - caster.z);
   if (d > area.range + 0.6) return false;
   if (area.side === 'enemy') return !t.own;
+  if (area.maleOnly) return t.kind === 'hero' && t.male !== false;
   return t.kind === 'hero' || (t.kind === 'troop' && t.own);
 }
 
@@ -404,8 +407,8 @@ export class SkillPreview {
   constructor() {
     this.group.name = 'skillPreview';
     this.rangeM = new GroundMesh(128, 1, makeMaterial(0.35, 0.3, 0), 41);
-    this.areaM = new GroundMesh(72, 6, makeMaterial(0.26, 0.5, 1), 42);
-    this.stripM = new GroundMesh(4, 40, makeMaterial(0.24, 0.4, 1), 42);
+    this.areaM = new GroundMesh(72, 6, makeMaterial(0.17, 0.5, 1), 42);
+    this.stripM = new GroundMesh(4, 40, makeMaterial(0.2, 0.4, 1), 42);
     this.markerM = new GroundMesh(48, 1, makeMaterial(0.9, 0.2, 0), 43);
     for (const m of [this.rangeM, this.areaM, this.stripM, this.markerM]) this.group.add(m.mesh);
   }
@@ -446,6 +449,8 @@ export class SkillPreview {
       if (strip) drawStrip(m, shape as StripShape, this.groundY);
       else drawPolar(m, shape as PolarShape, this.groundY);
       const u = m.mat.uniforms;
+      // a crisp rim that stays visible on big areas seen at a grazing angle
+      if (m === this.areaM) u.uEdgeW.value = Math.min(0.9, Math.max(0.35, (shape as PolarShape).rOut * 0.08));
       (u.uColor.value as THREE.Color).copy(color);
       u.uAlpha.value = a;
       u.uTime.value = this.time;

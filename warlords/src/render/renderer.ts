@@ -10,7 +10,7 @@ import type { Vec3 } from '../core/math';
 import { dirFromYawPitch } from '../core/math';
 import type { AbilitySlot, EntityId, GameEvent, ViewEntity } from '../core/types';
 import { VF_DANCING, VF_DEAD, VF_DOWNED, VF_STUNNED } from '../core/types';
-import { ABILITY_BY_ID, ABILITY_HERO, WEAPON_BY_ID, heroAbility } from '../data';
+import { ABILITY_BY_ID, ABILITY_HERO, HERO_BY_ID, WEAPON_BY_ID, heroAbility } from '../data';
 import { settings, type Quality, type UserSettings } from '../game/settings';
 import type { ViewSource } from './view';
 import { HERO_VIEW_RANGE, groundVariant, presetPixelRatio, qualityPreset, type CharacterArt, type QualityPreset } from './quality';
@@ -1253,7 +1253,8 @@ export class GameRenderer {
     const t = id !== undefined ? this.view.get(id) : undefined;
     if (!t || !localEnt || t.flags & VF_DEAD) return null;
     const own = t.id === localEnt.id || t.owner === localEnt.id || this.squad.has(t.id);
-    return { id: t.id, x: t.x, y: t.y, z: t.z, kind: t.kind, own };
+    const gender = t.kind === 'hero' ? HERO_BY_ID[t.sub]?.gender : undefined;
+    return { id: t.id, x: t.x, y: t.y, z: t.z, kind: t.kind, own, ...(gender ? { male: gender === 'male' } : {}) };
   }
 
   /** Our own cast: its area stays on the ground for a moment (a key tap or a touch button shows it too). */
