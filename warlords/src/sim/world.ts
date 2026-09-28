@@ -110,6 +110,7 @@ import {
   scatterAround,
 } from './loot';
 import * as inv from './inventory';
+import { emitLockChanges } from './lockWatch';
 import { spawnNpcEntity, updateNpcs } from './npc';
 import type { CollisionWorld, MoveMods, MoveState } from './physics';
 import {
@@ -763,6 +764,8 @@ export class World implements SimExt, SimHost {
     // 10. rules
     tickDowned(this, heroes, dt);
     this.processTimers();
+    // homing locks that began / ended this tick → lock events (the target's warning, the shooter's tone)
+    emitLockChanges(this);
     if (this.winCheckRequested || this.tick % 15 === 0) {
       this.winCheckRequested = false;
       const res = checkWin(this);

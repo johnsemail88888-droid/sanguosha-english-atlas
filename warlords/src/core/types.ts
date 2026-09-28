@@ -309,6 +309,11 @@ export const BTN_INTERACT = 32; // F held (channels: revive/open)
  * mode, not a held control (never counts as activity).
  */
 export const BTN_FIRST_PERSON = 64;
+/**
+ * A scope's second zoom step is selected (8× on a sniper, 5× on 烈弓): other
+ * players see a brighter glint (VF_ZOOM2). A view detail, not a held control.
+ */
+export const BTN_ZOOM2 = 128;
 
 export type AbilitySlot = 'q' | 'e' | 'lord';
 
@@ -372,11 +377,6 @@ export interface EventRouting {
 export type GameEvent = EventRouting &
   (
     | { t: 'shot'; src: EntityId; weapon: string; from: Vec3; to: Vec3; hit?: EntityId }
-    /**
-     * A 方天 volley locked `target`: `rockets` home onto it (the target's HUD warns until they are
-     * gone, the shooter hears a lock tone). `broken`: a dodge roll shook those rockets off.
-     */
-    | { t: 'lock'; src: EntityId; target: EntityId; weapon: string; rockets: EntityId[]; broken?: boolean }
     | {
         t: 'hit';
         target: EntityId;
@@ -431,6 +431,12 @@ export type GameEvent = EventRouting &
         ability?: string;
       }
     | { t: 'gameOver'; result: GameResult }
+    /**
+     * A homing rocket (方天画戟) locked onto `target` (on) — or its lock ended: it
+     * hit, burst, expired or a dodge roll broke it (off). The target sees a
+     * warning toward `src`, the shooter hears the lock (sim/lockWatch.ts).
+     */
+    | { t: 'lock'; src: EntityId; target: EntityId; proj: EntityId; on: boolean }
   );
 
 export interface GameResult {
@@ -476,6 +482,7 @@ export const VF_BOOSTED = 1 << 25; // dmgBoost active (glow)
 export const VF_EXPOSED = 1 << 26; // 'reveal' status: shown on the minimap / outlined through walls (public, or private to this viewer)
 export const VF_REVIVING = 1 << 27; // a downed hero someone else is reviving right now (bleed-out paused)
 export const VF_SOUL = 1 << 28; // a dead hero whose 魂幡 still stands: hold F at the body to call him back (招魂)
+export const VF_ZOOM2 = 1 << 29; // aiming through a scope's second (stronger) zoom step: a brighter scope glint
 
 export interface ViewEntity {
   id: EntityId;

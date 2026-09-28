@@ -74,6 +74,23 @@ export const hitmarker: Recipe = (v, o) => {
   tone(v, { freq: 3100 * o.pitch, peak: 0.12, decay: 0.022 });
 };
 
+/** A hit an armor soaked part of: a dull, muffled tick (armor matters — spec C8). */
+export const armorTick: Recipe = (v, o) => {
+  burst(v, { type: 'bandpass', freq: 1500 * o.pitch, q: 2.2, peak: 0.4, attack: 0.0008, decay: 0.03 });
+  tone(v, { type: 'triangle', freq: 420 * o.pitch, peak: 0.22, decay: 0.05 });
+};
+
+/** 方天画戟 rockets locked on you: two sharp beeps (repeated while they fly). */
+export const lockWarn: Recipe = (v, o) => {
+  const t = v.t;
+  for (const dt of [0, 0.13]) tone(v, { type: 'square', freq: 1960 * o.pitch, start: t + dt, peak: 0.16, attack: 0.002, decay: 0.07 });
+};
+
+/** Your rockets locked on: a rising tone. */
+export const lockTone: Recipe = (v, o) => {
+  tone(v, { type: 'triangle', freq: 880 * o.pitch, to: 1560 * o.pitch, glide: 0.16, peak: 0.24, attack: 0.004, decay: 0.2 });
+};
+
 export const chat: Recipe = (v) => {
   tone(v, { freq: 1318.5, to: 1760, glide: 0.04, peak: 0.25, attack: 0.003, decay: 0.12 });
 };

@@ -74,6 +74,9 @@ function mountGame(container: HTMLElement, view: ViewSource, session: GameSessio
     // the HUD's sights follow the input's aim (ADS progress, scope zoom step, breath)
     aim: () => handle.input.aimSnapshot(),
     cycleZoom: (dir) => handle.input.aim.cycleZoom(dir),
+    // the HUD's aim marks and bloom: the renderer's world queries, the predicted local shots
+    aimAids: () => handle.renderer?.aimAids() ?? null,
+    onLocalFire: (cb) => handle.onLocalFire(cb),
     dispose: () => {
       offDebug?.();
       offProgress();

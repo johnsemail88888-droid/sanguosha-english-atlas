@@ -160,8 +160,9 @@ describe('方天画戟 (R7)', () => {
     hold(w, me, chest(ts[1]), BTN_ADS | BTN_FIRE, 1);
     expect(new Set(homingTargets(w))).toEqual(new Set(ts.map((t) => t.id)));
     expect(w.projHoming.size).toBe(3);
-    const locks = (w.drainEvents() as GameEvent[]).filter((e): e is Extract<GameEvent, { t: 'lock' }> => e.t === 'lock');
+    const locks = (w.drainEvents() as GameEvent[]).filter((e): e is Extract<GameEvent, { t: 'lock' }> => e.t === 'lock' && e.on);
     expect(new Set(locks.map((l) => l.target))).toEqual(new Set(ts.map((t) => t.id)));
+    expect(locks.every((l) => l.src === me.id)).toBe(true);
     // and every target takes its rocket
     hold(w, me, chest(ts[1]), BTN_ADS, 30);
     for (const t of ts) expect(1e6 - t.hp, `seat ${t.hero!.seat}`).toBeGreaterThan(W('fangtian').damage);
@@ -205,7 +206,7 @@ describe('方天画戟 (R7)', () => {
     w.setInput(me.hero!.playerId, frameAt(me, chest(t), BTN_ADS));
     w.step();
     expect(w.projHoming.size).toBe(0);
-    const broken = (w.drainEvents() as GameEvent[]).find((e) => e.t === 'lock' && e.broken);
+    const broken = (w.drainEvents() as GameEvent[]).find((e) => e.t === 'lock' && !e.on);
     expect(broken && broken.t === 'lock' && broken.target).toBe(t.id);
   });
 });

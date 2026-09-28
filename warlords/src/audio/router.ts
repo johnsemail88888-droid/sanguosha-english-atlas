@@ -179,6 +179,15 @@ export const PROC_SIZE = 0.6;
 /** EMP pulses play the 'thunder' explosion at this (small) size. */
 export const EMP_SIZE = 0.6;
 const horiz = (a: { x: number; z: number }, b: { x: number; z: number }): number => Math.hypot(a.x - b.x, a.z - b.z);
+/** Rockets locked on you: the two-beep warning repeats this often (s). */
+export const LOCK_BEEP_EVERY = 0.8;
+/** A lock is forgotten after this long even without its 'off' event (s): no rocket flies longer. */
+const LOCK_MAX_SECONDS = 4;
+
+/** A hit on a unit wearing armor that reduces this damage type (bullets: 'normal'): the armor tick plays. */
+export function armorSoaked(armor: string | undefined, dtype: string): boolean {
+  return !!armor && dtype === 'normal';
+}
 
 /** crate-tier variant of the crateOpen sound for a crate / airdrop entity */
 function crateVariant(e: ViewEntity): '1' | '2' | '3' {
@@ -225,6 +234,9 @@ export class EventRouter {
   private lastUpdate = -1;
   private lastPrune = 0;
   private warned = 0;
+  /** rockets homing on the local hero (proj id → forget-after time) and the next warning beep */
+  private locksOnMe = new Map<EntityId, number>();
+  private nextLockBeep = 0;
   /** short-term combat heat 0..1 (nearby gunfire / explosions / damage) */
   heat = 0;
 
@@ -246,6 +258,7 @@ export class EventRouter {
     this.lastUpdate = -1;
     this.lastLocalReload = 0;
     this.lastLocalDowned = false;
+    this.locksOnMe.clear();
     this.heat = 0;
   }
 
@@ -355,6 +368,7 @@ export class EventRouter {
       }
     }
     try {
+      this.tickLocks(now);
       this.scan(view, localId, now, dt);
     } catch (err) {
       if (this.warned++ < 3) console.warn('[audio] view scan failed', err);
@@ -380,6 +394,8 @@ export class EventRouter {
         return this.onShot(ev, view, localId, now, batch, lis);
       case 'hit':
         return this.onHit(ev, view, localId, now);
+      case 'lock':
+        return this.onLock(ev, localId, now);
       case 'explosion': {
         const k = (ev.kind || '').toLowerCase();
         // EMP pulse (过河拆桥): an electric crack, not a frag blast — the thunder recipe, kept small
@@ -699,6 +715,31 @@ export class EventRouter {
     }
   }
 
+  /**
+   * 方天画戟 locks (sim/lockWatch.ts): rockets homing on you beep twice every
+   * LOCK_BEEP_EVERY s until the last lock ends (a hit, a burst, a dodge roll);
+   * your own rockets locking on play a rising tone once per volley.
+   */
+  private onLock(ev: Extract<GameEvent, { t: 'lock' }>, localId: EntityId | null, now: number): void {
+    if (localId === null) return;
+    if (ev.target === localId) {
+      if (ev.on) {
+        if (this.locksOnMe.size === 0) this.nextLockBeep = now;
+        this.locksOnMe.set(ev.proj, now + LOCK_MAX_SECONDS);
+      } else this.locksOnMe.delete(ev.proj);
+    }
+    if (ev.on && ev.src === localId && ev.target !== localId && this.gate('lockTone', 0.4, now)) this.sink.play('lockTone', {});
+  }
+
+  /** Per frame: the lock warning's beeps while any rocket still homes on you. */
+  private tickLocks(now: number): void {
+    if (this.locksOnMe.size === 0) return;
+    for (const [id, until] of this.locksOnMe) if (now > until) this.locksOnMe.delete(id);
+    if (this.locksOnMe.size === 0 || now < this.nextLockBeep) return;
+    this.nextLockBeep = now + LOCK_BEEP_EVERY;
+    this.sink.play('lockWarn', {});
+  }
+
   private onHit(ev: Extract<GameEvent, { t: 'hit' }>, view: ViewSource, localId: EntityId | null, now: number): void {
     const local = ev.target === localId;
     const target = view.get(ev.target);
@@ -729,6 +770,8 @@ export class EventRouter {
     if (ev.src !== undefined && ev.src === localId && !local && ev.amount > 0) {
       if (ev.head) this.sink.play('headshot', {});
       else this.sink.play('hitmarker', { pitch: ev.amount >= 50 ? 0.85 : 1 });
+      // an armor soaked part of it: a dull tick on top (players learn armor matters)
+      if (armorSoaked(target?.armor, ev.dtype) && this.gate('armorTick', 0.09, now)) this.sink.play('armorTick', {});
     }
   }
 

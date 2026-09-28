@@ -1260,7 +1260,8 @@ export function pickHomingTargets(w: World, e: Entity, eye: Vec3, dir: Vec3, def
 /**
  * One homing rocket per locked target — the rocket of the fan already pointing closest to it; the
  * rest fly straight at full damage (the card's extra 杀 targets, never extra damage on one). Each
- * locked target is told (the 'lock' event: its HUD warns, the shooter hears the tone).
+ * locked target is told: sim/lockWatch.ts turns the projHoming entry into a 'lock' event (its HUD
+ * warns until the rocket is gone, the shooter hears the tone).
  */
 function assignHoming(w: World, e: Entity, def: WeaponDef, eye: Vec3, rockets: readonly Entity[], targets: readonly Entity[]): void {
   const free = rockets.slice();
@@ -1285,25 +1286,15 @@ function assignHoming(w: World, e: Entity, def: WeaponDef, eye: Vec3, rockets: r
     }
     const r = free.splice(best, 1)[0];
     w.projHoming.set(r.id, { targetId: t.id, turnRate });
-    w.emit({ t: 'lock', src: e.id, target: t.id, weapon: def.id, rockets: [r.id] });
   }
 }
 
-/** A dodge roll shakes off every rocket homing on `target` (they fly on straight). */
+/**
+ * A dodge roll shakes off every rocket homing on `target` (they fly on straight); lockWatch
+ * reports each ended lock ('lock', on: false) at the end of the tick.
+ */
 export function breakLocksOn(w: World, target: Entity): void {
-  let rockets: EntityId[] | null = null;
-  let src: EntityId | undefined;
-  let weapon = '';
-  for (const [pid, hom] of w.projHoming) {
-    if (hom.targetId !== target.id) continue;
-    const p = w.ents.get(pid);
-    w.projHoming.delete(pid);
-    if (!p?.alive) continue;
-    (rockets ??= []).push(pid);
-    src ??= p.ownerId;
-    weapon ||= p.proj?.weaponId ?? '';
-  }
-  if (rockets && src !== undefined) w.emit({ t: 'lock', src, target: target.id, weapon, rockets, broken: true });
+  for (const [pid, hom] of w.projHoming) if (hom.targetId === target.id) w.projHoming.delete(pid);
 }
 
 function rotateYaw(d: Vec3, a: number): Vec3 {
