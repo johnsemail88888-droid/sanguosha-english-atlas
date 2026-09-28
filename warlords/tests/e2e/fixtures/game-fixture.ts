@@ -15,6 +15,8 @@ export const CACHE = process.env.SGWL_E2E_CACHE ? path.resolve(process.env.SGWL_
 export const PORT_OFFSET = Number(process.env.SGWL_E2E_PORT_OFFSET ?? 0) || 0;
 export const DIST = path.join(CACHE, 'dist');
 export const DIST_SINGLE = path.join(CACHE, 'dist-single');
+/** the server-run room bundle (`npm run build:headless` into the e2e cache) */
+export const HEADLESS_WORKER = path.join(CACHE, 'dist-headless', 'room-worker.mjs');
 const CHROMIUM = process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';
 export const CHROMIUM_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'];
 
@@ -26,6 +28,15 @@ export function buildGame(kind: 'dist' | 'single'): string {
   const r = spawnSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', timeout: 300_000 });
   if (r.status !== 0) throw new Error(`vite build (${kind}) failed:\n${r.stdout}\n${r.stderr}`);
   return out;
+}
+
+/** `vite build -c vite.headless.config.ts` (the server-run room worker, src/headless) into the e2e cache. */
+export function buildHeadless(): string {
+  const out = path.dirname(HEADLESS_WORKER);
+  const args = [path.join(ROOT, 'node_modules/vite/bin/vite.js'), 'build', '-c', 'vite.headless.config.ts', '--outDir', out, '--emptyOutDir', '--logLevel', 'warn'];
+  const r = spawnSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', timeout: 300_000 });
+  if (r.status !== 0 || !existsSync(HEADLESS_WORKER)) throw new Error(`vite build (headless) failed:\n${r.stdout}\n${r.stderr}`);
+  return HEADLESS_WORKER;
 }
 
 export function ensureBuilt(kind: 'dist' | 'single'): string {
@@ -70,12 +81,18 @@ export async function startPreview(port: number): Promise<Server> {
   return { url, close: () => srv.close() };
 }
 
-/** `node server/server.mjs` (static dist + /ws relay + /peerjs) on 127.0.0.1:<port>. */
-export async function startRelay(port: number): Promise<Server> {
+/**
+ * `node server/server.mjs` (static dist + /ws relay + /peerjs) on 127.0.0.1:<port>.
+ * Rooms are hosted in the creating page (HEADLESS=0) unless `headless`: then the server runs
+ * them (POST /api/rooms → a room worker from the e2e cache's bundle, src/headless).
+ */
+export async function startRelay(port: number, opts: { headless?: boolean } = {}): Promise<Server> {
   ensureBuilt('dist');
+  if (opts.headless && !existsSync(HEADLESS_WORKER)) buildHeadless();
+  const headlessEnv = opts.headless ? { HEADLESS: '1', HEADLESS_WORKER } : { HEADLESS: '0' };
   const proc: ChildProcess = spawn(process.execPath, ['server/server.mjs'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DIST_DIR: DIST },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DIST_DIR: DIST, ...headlessEnv },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   proc.stderr?.on('data', (d) => process.stderr.write(`[relay] ${d}`));

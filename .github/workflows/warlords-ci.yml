@@ -24,6 +24,9 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: npm run typecheck
+      # the server-run room worker the Mac mini builds (deploy/install.sh): built first, so the
+      # unit tests that start it for real (tests/unit/server/rooms.test.ts) run too
+      - run: npm run build:headless
       - run: npm test
       - run: npm run build
       - run: npm run build:single

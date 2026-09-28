@@ -53,7 +53,7 @@ test.beforeAll(async () => {
   // the official server: server.mjs serving that build + the /ws relay
   server = spawn(process.execPath, ['server/server.mjs'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(OFFICIAL_PORT), HOST: '127.0.0.1', DIST_DIR: DIST_OFFICIAL },
+    env: { ...process.env, PORT: String(OFFICIAL_PORT), HOST: '127.0.0.1', DIST_DIR: DIST_OFFICIAL, HEADLESS: '0' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   server.stderr?.on('data', (d) => process.stderr.write(`[official] ${d}`));
