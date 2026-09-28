@@ -62,35 +62,8 @@ export function decodeRelayFrame(buf: Uint8Array): { peer: string; data: Payload
   };
 }
 
-/**
- * Resolve the relay URL: explicit setting (accepts "host:port", "http(s)://…",
- * "ws(s)://…"; adds "/ws" when no path), else same-origin "/ws" when the page is
- * served over http(s) (i.e. by our server). null when nothing applies.
- */
-export function resolveWsUrl(configured: string, loc: { protocol: string; host: string } | null = pageLocation()): string | null {
-  const raw = configured.trim();
-  if (raw) {
-    let url = raw;
-    if (/^https?:\/\//i.test(url)) url = url.replace(/^http/i, 'ws');
-    else if (!/^wss?:\/\//i.test(url)) url = `${loc?.protocol === 'https:' ? 'wss' : 'ws'}://${url}`;
-    try {
-      const u = new URL(url);
-      if (u.pathname === '' || u.pathname === '/') u.pathname = '/ws';
-      return u.toString();
-    } catch {
-      return null;
-    }
-  }
-  if (loc && (loc.protocol === 'http:' || loc.protocol === 'https:') && loc.host) {
-    return `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}/ws`;
-  }
-  return null;
-}
-
-function pageLocation(): { protocol: string; host: string } | null {
-  const l = (globalThis as { location?: { protocol: string; host: string } }).location;
-  return l ? { protocol: l.protocol, host: l.host } : null;
-}
+// (the relay URL resolver lives next to the key store: src/net/relayKey.ts)
+export { resolveWsUrl } from './relayKey';
 
 type Control =
   | { op: 'created'; code: string; id: string; hostId: string; secret?: string }

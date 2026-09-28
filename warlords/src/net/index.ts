@@ -7,6 +7,10 @@
 //                                   owner (canManage); otherwise this page hosts it (?host=browser forces that)
 //   joinOnlineSession(code, …)      join a room by its 5-character code
 //
+// A relay server may require an access key (RELAY_KEY, src/net/relayKey.ts): the page's
+// stored key for that server is added to the relay URL (k=…) and to POST /api/rooms; a
+// server that refuses the page for want of a (right) key says 'keyRequired'.
+//
 // All three return a GameSession (src/game/session.ts). Connection problems
 // reject with a NetError carrying bilingual text (err.zh / err.en / err.code).
 import type { GameSession } from '../game/session';
@@ -14,6 +18,7 @@ import { settings } from '../game/settings';
 import { ClientSession, hasSeatToken, openRetryingRoomNotFound, ROOM_NOT_FOUND_RETRY_MS } from './clientSession';
 import { NetError, toNetError } from './errors';
 import { browserHostForced, createHeadlessRoom } from './headlessRooms';
+import { diagnoseRelayFailure, KEY_PARAM, keyedRelayUrl, keyFor, noteRelayAccepted } from './relayKey';
 import { HostSession } from './hostSession';
 import { sanitizeName } from './protocol';
 import { normalizeRoomCode } from './roomCode';
@@ -30,13 +35,39 @@ export function createLocalSession(opts?: { name?: string }): GameSession {
   return new HostSession({ name: playerName(opts?.name), transport: null, myId: 'local' });
 }
 
+/** The relay URL to open with the current settings (the server's stored key appended), or null. */
+async function relayUrl(): Promise<string | null> {
+  const net = settings.get().net;
+  const { resolveWsUrl } = await import('./wsTransport');
+  const url = resolveWsUrl(net.wsUrl);
+  return url ? keyedRelayUrl(url, net.keys) : null;
+}
+
+/**
+ * Open a relay socket; a failure a key would explain (the server requires one: /sgwl.json)
+ * rejects with 'keyRequired' instead of a generic "cannot reach the server".
+ */
+async function openRelay<T>(url: string, open: () => Promise<T>): Promise<T> {
+  let t: T;
+  try {
+    t = await open();
+  } catch (e) {
+    if (e instanceof NetError && e.code === 'serverUnreachable' && (await diagnoseRelayFailure(url)) === 'keyRequired') {
+      throw new NetError('keyRequired', new URL(url).searchParams.get(KEY_PARAM) ? 'key refused' : 'no key');
+    }
+    throw e;
+  }
+  noteRelayAccepted(url);
+  return t;
+}
+
 async function openHostTransport(mode: NetMode): Promise<{ transport: Transport; code: string }> {
   const net = settings.get().net;
   if (mode === 'ws') {
-    const { WsTransport, resolveWsUrl } = await import('./wsTransport');
-    const url = resolveWsUrl(net.wsUrl);
+    const { WsTransport } = await import('./wsTransport');
+    const url = await relayUrl();
     if (!url) throw new NetError('noServerConfigured');
-    const t = await WsTransport.host(url);
+    const t = await openRelay(url, () => WsTransport.host(url));
     return { transport: t, code: t.roomCode };
   }
   const { PeerTransport } = await import('./peerTransport');
@@ -47,16 +78,18 @@ async function openHostTransport(mode: NetMode): Promise<{ transport: Transport;
 /**
  * WebSocket mode: ask the server to run the room (src/headless) and join it as its owner.
  * null: the server cannot (an older server, no headless bundle, rooms full, unreachable) or
- * joining the new room failed — the page hosts the room itself. Throws only 'rateLimited'.
+ * joining the new room failed — the page hosts the room itself. Throws only 'rateLimited'
+ * and 'keyRequired' (the server's relay would refuse the page-hosted room as well).
  */
 async function serverRunRoom(name: string): Promise<GameSession | null> {
-  const net = settings.get().net;
-  const { resolveWsUrl } = await import('./wsTransport');
-  const url = resolveWsUrl(net.wsUrl);
+  const url = await relayUrl();
   if (!url) return null; // (the page-hosted path says 未配置服务器地址)
   const lang = settings.get().lang === 'en' ? 'en' : 'zh';
-  const r = await createHeadlessRoom(url, { name, lang });
+  // (a key typed into the relay address itself counts too)
+  const key = keyFor(settings.get().net.keys, url) ?? new URL(url).searchParams.get(KEY_PARAM);
+  const r = await createHeadlessRoom(url, { name, lang }, { key });
   if (r.kind === 'rateLimited') throw new NetError('rateLimited');
+  if (r.kind === 'keyRequired') throw new NetError('keyRequired', key ? `key refused: ${r.reason}` : r.reason);
   if (r.kind !== 'created') {
     console.info(`[net] the server does not run this room (${r.reason}) — hosting it in this page`);
     return null;
@@ -88,10 +121,10 @@ async function openClientTransport(mode: NetMode, room: string): Promise<Transpo
   const net = settings.get().net;
   try {
     if (mode === 'ws') {
-      const { WsTransport, resolveWsUrl } = await import('./wsTransport');
-      const url = resolveWsUrl(net.wsUrl);
+      const { WsTransport } = await import('./wsTransport');
+      const url = await relayUrl();
       if (!url) throw new NetError('noServerConfigured');
-      return await WsTransport.join(url, room);
+      return await openRelay(url, () => WsTransport.join(url, room));
     }
     const { PeerTransport } = await import('./peerTransport');
     return await PeerTransport.join(net, room);

@@ -15,6 +15,7 @@
 // branching on samplers, and every layer tiles / mipmaps independently.
 import * as THREE from 'three';
 import { assetList, assetListSync } from '../../game/assets';
+import { assetFetch } from '../../game/assetCdn';
 import { settings, type Quality } from '../../game/settings';
 
 // ── plan (pure) ─────────────────────────────────────────────────────────────
@@ -270,7 +271,7 @@ function srgbLut(): Float32Array {
 }
 
 async function decodeInto(file: string, size: number, tint: readonly [number, number, number], out: Uint8Array, layer: number, avg: THREE.Color): Promise<void> {
-  const res = await fetch(file);
+  const res = await assetFetch(file);
   if (!res.ok) throw new Error(`${file}: HTTP ${res.status}`);
   const bmp = await createImageBitmap(await res.blob());
   try {
@@ -581,7 +582,7 @@ export function requestSkyArt(cb: (art: SkyArt) => void): void {
       const width = texSizesFor(worldArtQuality()).sky;
       skyArt = (async () => {
         try {
-          const res = await fetch(SKY_FILE);
+          const res = await assetFetch(SKY_FILE);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const bmp = await createImageBitmap(await res.blob());
           const w = Math.min(width, bmp.width);

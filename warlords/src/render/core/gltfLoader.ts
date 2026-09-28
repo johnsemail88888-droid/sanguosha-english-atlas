@@ -2,6 +2,7 @@
 // models (prop models, mounts). The addons are imported on first use, so the
 // single-file build / a deploy without art never loads them.
 import * as THREE from 'three';
+import { withCdnFallback } from '../../game/assetCdn';
 
 export type GltfLoaderLike = { loadAsync(url: string): Promise<{ scene: THREE.Object3D }> };
 
@@ -13,7 +14,8 @@ export function sharedGltfLoader(): Promise<GltfLoaderLike> {
       ([{ GLTFLoader }, { MeshoptDecoder }]) => {
         const l = new GLTFLoader();
         l.setMeshoptDecoder(MeshoptDecoder);
-        return l;
+        // (VITE_ASSET_CDN builds: from the CDN, this server as the fallback)
+        return { loadAsync: (url: string) => withCdnFallback(url, (u) => l.loadAsync(u)) };
       },
     );
   }
