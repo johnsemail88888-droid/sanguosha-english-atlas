@@ -330,8 +330,10 @@ export function aboutLine(st: UpdateState | null, inMatch: boolean): { text: str
 export function createAboutBox(version: string): { el: HTMLElement; dispose(): void } {
   const el = h('div', { class: 'set-about' });
   ensureStyles(el.ownerDocument);
+  // the offline single file (file://) never updates: its version, nothing more
+  const offlineFile = globalThis.location?.protocol === 'file:';
   const render = (st: UpdateState | null): void => {
-    const line = aboutLine(st, playing);
+    const line = !st && offlineFile ? { text: '', action: null } : aboutLine(st, playing);
     el.replaceChildren(
       h('div', { class: 'ver' }, h('b', null, versionText(st?.current || desktopVersion() || version))),
       h('div', { class: `upd ${st?.status ?? 'web'}` },
