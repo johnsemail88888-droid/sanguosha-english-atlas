@@ -39,7 +39,7 @@ describe('deploy/install.sh', () => {
     const r = spawnSync('shellcheck', ['-x', SCRIPT], { encoding: 'utf8' });
     expect(r.stdout).toBe('');
     expect(r.status).toBe(0);
-  });
+  }, 60_000); // shellcheck -x follows install.sh: seconds on a busy machine
 
   it('sourced with SGWL_LIB=1 runs nothing (no root check, no output)', () => {
     const r = sh('echo loaded');

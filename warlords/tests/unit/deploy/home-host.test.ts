@@ -60,7 +60,7 @@ describe('deploy/home-host.sh', () => {
     const r = spawnSync('shellcheck', ['-x', SCRIPT], { cwd: path.dirname(SCRIPT), encoding: 'utf8' });
     expect(r.stdout).toBe('');
     expect(r.status).toBe(0);
-  });
+  }, 60_000); // shellcheck -x follows install.sh: seconds on a busy machine
 
   it('sourced with SGWL_LIB=1 runs nothing and brings install.sh along', () => {
     const r = sh('echo loaded; type -t build_game fetch_source game_url relay_url systemd_unit | sort -u');
