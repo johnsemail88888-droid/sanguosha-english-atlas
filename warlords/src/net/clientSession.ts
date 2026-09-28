@@ -425,7 +425,8 @@ export class ClientSession implements GameSession {
         },
       };
       // (canOwn: this client knows a server-run room's owner powers; build: which game it is)
-      const hello: ClientMsg = { t: 'hello', v: PROTOCOL_VERSION, name: this.name, canOwn: true, build: COMPAT_ID };
+      const hello: ClientMsg = { t: 'hello', v: PROTOCOL_VERSION, name: this.name, canOwn: true };
+      if (COMPAT_ID !== null) hello.build = COMPAT_ID;
       if (this.token) hello.token = this.token;
       if (this.ownerKey) hello.owner = this.ownerKey;
       this.send(hello);

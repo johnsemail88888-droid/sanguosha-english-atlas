@@ -75,6 +75,7 @@ describe('createHeadlessRoom', () => {
     expect(calls[0].url).toBe('https://mini.example.ts.net/api/rooms');
     expect(calls[0].init.method).toBe('POST');
     expect(calls[0].init.headers['Content-Type']).toMatch(/^text\/plain/);
+    expect(COMPAT_ID).toMatch(/^[0-9a-f]{12}$/); // (vite.config.ts defines it for the tests too)
     expect(JSON.parse(calls[0].init.body)).toEqual({ name: '甲', lang: 'zh', build: COMPAT_ID });
   });
 

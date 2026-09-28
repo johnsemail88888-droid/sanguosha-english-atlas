@@ -233,16 +233,33 @@ human_players() {
 }
 
 # game_busy SGWL_JSON → status 0 while anyone plays (no update then): a room hosted in a player's
-# browser is open, a player is connected, or a server-hosted room has players (headlessHumans).
-# A server-hosted room nobody is in does not count (it ends by itself); in rooms / players it shows
-# once each (headlessRooms: the server is its relay host).
+# browser is open, a player is connected, a server-hosted room has players (headlessHumans), or a
+# server-hosted match is under way (headlessPlaying — its only player may be reconnecting right now,
+# and a restart would end that match). A server-hosted lobby nobody is in does not count (it ends by
+# itself); in rooms / players it shows once each (headlessRooms: the server is its relay host).
 game_busy() {
-  local rooms players hrooms humans
+  local rooms players hrooms humans playing
   rooms=$(stat_field "$1" rooms)
   players=$(stat_field "$1" players)
   hrooms=$(stat_field "$1" headlessRooms)
   humans=$(stat_field "$1" headlessHumans)
-  ((humans > 0 || rooms > hrooms || players > hrooms))
+  playing=$(stat_field "$1" headlessPlaying)
+  ((humans > 0 || playing > 0 || rooms > hrooms || players > hrooms))
+}
+
+# scripts_changed → status 0 when the source just fetched brings other copies of these scripts than
+# the ones running (bin/ from the last update): they should do the build and restart — a first update
+# after a script change would otherwise build the new version with the old steps
+scripts_changed() {
+  local self=${BASH_SOURCE[0]:-}
+  [[ ${SGWL_REEXEC:-0} != 1 && -n $self && -f $self && -f $APP_DIR/deploy/home-host.sh && -f $APP_DIR/deploy/install.sh ]] || return 1
+  ! cmp -s "$APP_DIR/deploy/home-host.sh" "$self" || ! cmp -s "$APP_DIR/deploy/install.sh" "$HH_LIB"
+}
+
+# hand_over COMMAND → run the fetched version of this script for COMMAND (it skips the fetch)
+hand_over() {
+  log "新版本的安装脚本接手 / the new version's scripts take over"
+  SGWL_REEXEC=1 exec bash "$APP_DIR/deploy/home-host.sh" "$1"
 }
 
 # rotate_log FILE MAX_BYTES → FILE bigger than MAX_BYTES becomes FILE.1 (the one before is dropped)
@@ -732,7 +749,8 @@ cmd_install() {
   if [[ -n $stats ]] && game_busy "$stats"; then
     warn "有人在玩（玩家 $(human_players "$stats")）：重启服务会让他们掉线 / $(human_players "$stats") player(s) connected: restarting the server drops them"
   fi
-  fetch_source
+  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then fetch_source; fi
+  if scripts_changed; then hand_over "$1"; fi
   build_game
   check_build_points_here
   install_service
@@ -797,8 +815,17 @@ cmd_auto_update() {
     log "有人在玩（房间 $(stat_field "$stats" rooms)，玩家 $(human_players "$stats")，服务器托管 $(stat_field "$stats" headlessHumans)），今天不更新 / a game is on — no update today"
     return 0
   fi
-  fetch_source
+  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then fetch_source; fi
+  if scripts_changed; then hand_over auto-update; fi
   build_game
+  # the build takes minutes (npm ci: up to half an hour): someone may have started playing meanwhile.
+  # The new page and room worker are already in place; the restart waits for the next idle morning.
+  stats=$(server_stats)
+  if [[ -n $stats ]] && game_busy "$stats"; then
+    log "已构建，但有人开始玩了，重启推迟到下次 / built, but a game started meanwhile — the restart waits for the next run"
+    refresh_bin
+    return 0
+  fi
   service_kick || die "更新后游戏服务没有启动 / the game server did not come back after the update"
   refresh_bin
   log "已更新 / updated"
@@ -833,11 +860,12 @@ main() {
     if [[ $EUID -ne 0 ]]; then SUDO=sudo; fi
   fi
   mkdir -p "$INSTALL_DIR"
-  exec > >(tee -a "$LOG_FILE") 2>&1
+  # (a hand-over from the previous version's script: its output already goes to the log)
+  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then exec > >(tee -a "$LOG_FILE") 2>&1; fi
   trap 'on_error $LINENO' ERR
   log "$(date '+%F %T') sgwl home-host.sh ${cmd} ($HOST_OS $(uname -m))"
   case $cmd in
-    install | update) cmd_install ;;
+    install | update) cmd_install "$cmd" ;;
     status) cmd_status || exit 1 ;;
     stop) cmd_stop ;;
     auto-update) cmd_auto_update ;;

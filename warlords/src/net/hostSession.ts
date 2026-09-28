@@ -1384,7 +1384,7 @@ export class HostSession implements GameSession {
     }
     // server-run room: the match runs this build's sim and data — a client of another build
     // (a stale tab, an older desktop release) would desync silently; an older client sends none
-    if (this.headless && typeof msg.build === 'string' && msg.build !== COMPAT_ID) {
+    if (this.headless && COMPAT_ID !== null && typeof msg.build === 'string' && msg.build !== COMPAT_ID) {
       this.reject(peer.id, 'versionMismatch');
       return;
     }

@@ -210,6 +210,9 @@ describe('deploy/home-host.sh', () => {
     expect(ok(`game_busy ${j({ rooms: 2, players: 2, headless: true, headlessRooms: 1, headlessHumans: 0 })}`)).toBe(true);
     // an older server (no headless fields): as before
     expect(ok(`game_busy ${j({ rooms: 1, players: 1 })}`)).toBe(true);
+    // a server-hosted match under way whose only player is reconnecting right now: a restart would end it
+    expect(ok(`game_busy ${j({ rooms: 1, players: 1, headless: true, headlessRooms: 1, headlessHumans: 0, headlessPlaying: 1 })}`)).toBe(true);
+    expect(ok(`game_busy ${j({ rooms: 1, players: 1, headless: true, headlessRooms: 1, headlessHumans: 0, headlessPlaying: 0 })}`)).toBe(false);
 
     expect(sh(`human_players ${j({ rooms: 2, players: 6, headlessRooms: 1, headlessHumans: 3 })}`).out).toBe('5');
     expect(sh(`human_players ${j({ rooms: 1, players: 0, headlessRooms: 1 })}`).out).toBe('0');
@@ -219,6 +222,27 @@ describe('deploy/home-host.sh', () => {
     expect(sh(`stat_flag ${j({ rooms: 0 })} headless`).out).toBe('false');
     expect(sh(`stat_field ${j({ rooms: 3, players: 7, headlessRooms: 2, headlessHumans: 5 })} rooms`).out).toBe('3');
     expect(sh(`stat_field ${j({ rooms: 3, players: 7, headlessRooms: 2, headlessHumans: 5 })} headlessHumans`).out).toBe('5');
+  });
+
+  it('an update whose source brings other scripts hands over to them (they build and restart); no loop', () => {
+    const app = mkdtempSync(path.join(TMP, 'app-'));
+    const dep = path.join(app, 'deploy');
+    spawnSync('mkdir', ['-p', dep]);
+    const lib = path.join(path.dirname(SCRIPT), 'install.sh');
+    writeFileSync(path.join(dep, 'home-host.sh'), readFileSync(SCRIPT));
+    writeFileSync(path.join(dep, 'install.sh'), readFileSync(lib));
+    expect(ok(`APP_DIR=${q(app)}; scripts_changed`)).toBe(false); // the same scripts: carry on
+    writeFileSync(path.join(dep, 'install.sh'), `${readFileSync(lib, 'utf8')}\n# a newer build_game\n`);
+    expect(ok(`APP_DIR=${q(app)}; scripts_changed`)).toBe(true);
+    expect(sh(`APP_DIR=${q(app)}; scripts_changed`, { SGWL_REEXEC: '1' }).status).not.toBe(0); // the new copy itself
+    writeFileSync(path.join(dep, 'install.sh'), readFileSync(lib));
+    writeFileSync(path.join(dep, 'home-host.sh'), `${readFileSync(SCRIPT, 'utf8')}\n# newer\n`);
+    expect(ok(`APP_DIR=${q(app)}; scripts_changed`)).toBe(true);
+    // the daily job checks again after the (long) build before it restarts anything
+    const text = readFileSync(SCRIPT, 'utf8');
+    const auto = text.slice(text.indexOf('cmd_auto_update() {'), text.indexOf('cmd_stop() {'));
+    expect(auto.indexOf('build_game')).toBeLessThan(auto.lastIndexOf('game_busy'));
+    expect(auto.lastIndexOf('game_busy')).toBeLessThan(auto.indexOf('service_kick'));
   });
 
   it('status prints the server-hosted match line; the public-DNS retries make no test rooms', () => {

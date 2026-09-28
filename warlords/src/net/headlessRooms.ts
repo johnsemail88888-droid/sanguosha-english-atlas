@@ -111,7 +111,7 @@ export async function createHeadlessRoom(
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       // (build: the server runs a room only for a page of its own build — src/net/compat.ts)
-      body: JSON.stringify({ ...body, build: COMPAT_ID }),
+      body: JSON.stringify(COMPAT_ID !== null ? { ...body, build: COMPAT_ID } : body),
       signal: ctl?.signal,
     });
     let json: unknown = null;

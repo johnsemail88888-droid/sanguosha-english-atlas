@@ -177,7 +177,8 @@ export async function checkHeadless(ep, { lookup, timeoutMs }) {
   const FALLBACK = '玩家会改为在浏览器里开房 / players host rooms in their browser meanwhile';
   let res;
   try {
-    res = await postJson(ep.rooms, { name: 'check', lang: 'zh' }, { lookup, timeoutMs: Math.max(timeoutMs, 16000) });
+    // (probe: the server closes this test room after ~10 s instead of holding a slot for minutes)
+    res = await postJson(ep.rooms, { name: 'check', lang: 'zh', probe: true }, { lookup, timeoutMs: Math.max(timeoutMs, 16000) });
   } catch (err) {
     return { ok: false, line: `⚠ 服务器托管对局：${ep.rooms} 无响应 / Server-hosted matches: no answer (${err?.message ?? err}) — ${FALLBACK}` };
   }
@@ -237,7 +238,9 @@ export async function checkServer(baseUrl, opts = {}) {
   try {
     info = await getJson(ep.info, { lookup, timeoutMs });
     if (info?.app !== 'sanguo-warlords') throw new Error('not the game server (another program answers on this address)');
-    lines.push(`✓ ${ep.info} (${info.rooms ?? 0} rooms, ${info.players ?? 0} players)`);
+    // (a server-hosted room's own relay socket is the server itself, not a player)
+    const people = Math.max(0, (Number(info.players) || 0) - (Number(info.headlessRooms) || 0));
+    lines.push(`✓ ${ep.info} (${info.rooms ?? 0} rooms, ${people} players)`);
   } catch (err) {
     ok = false;
     info = null;
