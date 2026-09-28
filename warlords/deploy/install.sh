@@ -8,8 +8,10 @@
 #   (mirror) curl -fsSL https://cdn.jsdelivr.net/gh/johnsemail88888-droid/sanguosha-english-atlas@main/warlords/deploy/install.sh | sudo bash
 #
 #   … | sudo bash -s -- update     pull the latest game, rebuild, restart
-#   … | sudo bash -s -- status     is everything running? (prints the two lines again)
+#   … | sudo bash -s -- status     is everything running? (prints the share link and the two lines again)
+#   … | sudo bash -s -- rotate-key a new access key (the old share link stops working; restarts the server)
 #   … | sudo DOMAIN=game.example.com bash    use your own domain instead of <ip>.sslip.io
+#   … | sudo SGWL_RELAY_KEY=off bash         no access key: anyone who has the address can play (remembered)
 #   … | sudo SGWL_HEADLESS=0 bash            no server-hosted matches (rooms run in the host player's
 #                                             browser, as before); SGWL_HEADLESS=1 turns them back on
 #
@@ -18,7 +20,9 @@
 #   (shallow git clone, else a codeload tarball) · npm ci (npmmirror fallback) · vite build ·
 #   the server-hosted match worker (npm run build:headless — optional: without it rooms run in the
 #   host player's browser) · systemd service `sgwl` = server/server.mjs on 127.0.0.1:8787 (game
-#   files + /ws relay + /peerjs signalling + /api/rooms server-hosted matches) · Caddy as the HTTPS front (Let's Encrypt certificate for
+#   files + /ws relay + /peerjs signalling + /api/rooms server-hosted matches) behind an access key
+#   (RELAY_KEY, generated once: players need the share link https://<domain>/?k=<key>; the key is
+#   in /etc/sgwl-key.env, root only) · Caddy as the HTTPS front (Let's Encrypt certificate for
 #   https://<a-b-c-d>.sslip.io, derived from this server's public IPv4) · ports 80/443 in
 #   ufw / firewalld when those are active. The cloud provider's own firewall ("security
 #   group" / 防火墙) must allow TCP 80 and 443 — the installer checks and says so.
@@ -38,6 +42,8 @@ NODE_MAJOR=22
 SERVICE=sgwl
 SERVICE_USER=sgwl
 STATE_FILE=${SGWL_STATE:-/etc/sgwl.env}
+# the access key for the service (an EnvironmentFile: `systemctl show` does not print it)
+KEY_ENV_FILE=${SGWL_KEY_ENV:-/etc/sgwl-key.env}
 LOG_FILE=${SGWL_LOG:-/var/log/sgwl-install.log}
 CADDYFILE=${SGWL_CADDYFILE:-/etc/caddy/Caddyfile}
 NPM_MIRROR=https://registry.npmmirror.com
@@ -47,9 +53,48 @@ SRC_DIR="$INSTALL_DIR/src"
 APP_DIR="$SRC_DIR/warlords"
 # '0': the service runs with HEADLESS=0 (no server-hosted matches); remembered in the state file
 HEADLESS_SETTING=${SGWL_HEADLESS:-}
+# the access key (RELAY_KEY): SGWL_RELAY_KEY (a key, or 'off' for none), else the state file's,
+# else a new one (resolve_relay_key); remembered in the state file
+RELAY_KEY=
+# what fetch_source got (a commit sha, '' when unknown) and what it should get ('' = the branch head)
+FETCHED_SHA=
+FETCH_REF=${SGWL_REF:-}
+# the build's art from a pinned CDN copy of the repository (VITE_ASSET_CDN, see resolve_asset_cdn;
+# '' = same origin); SGWL_ASSET_CDN=off: never
+ASSET_CDN=
 
 # ── output ──────────────────────────────────────────────────────────────────
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
+# log_tee FILE: stdin to stdout as it comes, and appended to FILE with every access key masked
+# (?k=… / &k=… → k=<key>): the share link reaches the terminal (and Claude reading it), never the
+# log file — a log gets passed around when something goes wrong
+log_tee() {
+  awk -v logf="$1" '{
+    print; fflush()
+    line = $0
+    while (match(line, /[?&]k=[A-Za-z0-9_-]+/)) line = substr(line, 1, RSTART + 2) "<key>" substr(line, RSTART + RLENGTH)
+    print line >>logf; fflush(logf)
+  }'
+}
+# scrub_log FILE: access keys already in FILE masked in place (a log written by an older version of
+# these scripts, which logged the share link as it was)
+scrub_log() {
+  local f=$1 tmp
+  if [[ ! -f $f ]] || ! grep -qE '[?&]k=[A-Za-z0-9_-]' "$f" 2>/dev/null; then return 0; fi
+  tmp=$(mktemp "$f.XXXXXX") || return 0
+  if awk '{ while (match($0, /[?&]k=[A-Za-z0-9_-]+/)) $0 = substr($0, 1, RSTART + 2) "<key>" substr($0, RSTART + RLENGTH); print }' "$f" >"$tmp"; then
+    cat "$tmp" >"$f"
+  fi
+  rm -f "$tmp"
+}
+# open_log FILE: FILE exists, readable by its owner only (it may hold paths, addresses, errors)
+open_log() {
+  (
+    umask 077
+    : >>"$1"
+  )
+  chmod 600 "$1" 2>/dev/null || true
+}
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
 die() {
   printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2
@@ -104,6 +149,78 @@ valid_domain() {
   [[ $1 =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]]
 }
 
+# gen_relay_key → a new access key: 32 URL-safe characters (24 random bytes, base64url)
+gen_relay_key() {
+  local k=''
+  if command -v openssl >/dev/null 2>&1; then
+    k=$(openssl rand -base64 24 2>/dev/null | tr '+/' '-_' | tr -d '=\n' || true)
+  fi
+  if ((${#k} < 24)) && command -v node >/dev/null 2>&1; then
+    k=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("base64url"))' 2>/dev/null || true)
+  fi
+  ((${#k} >= 24)) || return 1
+  printf '%s\n' "$k"
+}
+
+# valid_relay_key KEY → status 0 for a key this script uses (URL-safe, 24–128 characters)
+valid_relay_key() {
+  [[ $1 =~ ^[A-Za-z0-9_-]{24,128}$ ]]
+}
+
+# share_url DOMAIN KEY → the link friends open: https://DOMAIN/?k=KEY (the page keeps the key and
+# takes it off the address bar); without a key ('' / off) the plain game URL
+share_url() {
+  if [[ -n ${2:-} && ${2:-} != off ]]; then printf 'https://%s/?k=%s\n' "$1" "$2"; else game_url "$1"; fi
+}
+
+# write_key_env FILE KEY → FILE (mode 600) holds RELAY_KEY=KEY for the service; no key: no file
+write_key_env() {
+  local f=$1 key=${2:-}
+  if [[ -z $key || $key == off ]]; then
+    rm -f "$f"
+    return 0
+  fi
+  mkdir -p "$(dirname "$f")"
+  (
+    umask 077
+    printf '# written by warlords/deploy: the game server access key\nRELAY_KEY=%s\n' "$key" >"$f.tmp"
+  )
+  mv "$f.tmp" "$f"
+}
+
+# resolve_relay_key SAVED → RELAY_KEY: SGWL_RELAY_KEY (a key / off) wins, else SAVED (the state
+# file's), else a new key (the first install: RELAY_KEY_NEW=1)
+RELAY_KEY_NEW=0
+resolve_relay_key() {
+  local saved=${1:-} want=${SGWL_RELAY_KEY:-}
+  RELAY_KEY_NEW=0
+  if [[ -n $want ]]; then
+    if [[ $want == off ]] || valid_relay_key "$want"; then
+      RELAY_KEY=$want
+      return 0
+    fi
+    die "SGWL_RELAY_KEY 无效（24–128 个字母、数字、- 或 _，或 off）/ invalid SGWL_RELAY_KEY (24–128 of A-Z a-z 0-9 - _, or off)"
+  fi
+  if [[ $saved == off ]] || valid_relay_key "$saved"; then
+    RELAY_KEY=$saved
+    return 0
+  fi
+  RELAY_KEY=$(gen_relay_key) || die "无法生成访问密钥（没有 openssl / node）/ could not generate an access key (no openssl / node)"
+  RELAY_KEY_NEW=1
+}
+
+# is_sha TEXT → status 0 for a full commit sha
+is_sha() {
+  [[ $1 =~ ^[0-9a-f]{40}$ ]]
+}
+
+# asset_cdn_base SHA → jsDelivr's copy of warlords/public/ at that commit (the build's VITE_ASSET_CDN):
+# files committed to the repository, pinned to one commit — what a URL serves never changes
+asset_cdn_base() {
+  is_sha "${1:-}" || return 1
+  printf 'https://cdn.jsdelivr.net/gh/%s@%s/warlords/public/\n' "$REPO_SLUG" "$1"
+}
+
 # caddyfile DOMAIN PORT → Caddy config: HTTPS for DOMAIN, everything proxied to the game server.
 # The WebSocket endpoints (/ws relay, /peerjs signalling) get a plain proxy (Caddy passes the
 # Upgrade through by itself); pages and assets are compressed.
@@ -139,11 +256,17 @@ write_caddyfile() {
   return 0
 }
 
-# systemd_unit NODE_BIN APP_DIR PORT USER [WRITER] [HEADLESS] → the sgwl.service unit
-# (HEADLESS 0: Environment=HEADLESS=0 — no server-hosted matches)
+# systemd_unit NODE_BIN APP_DIR PORT USER [WRITER] [HEADLESS] [KEY_ENV_FILE] [NAME=VALUE…] → the
+# sgwl.service unit. HEADLESS 0: Environment=HEADLESS=0 (no server-hosted matches); KEY_ENV_FILE:
+# an EnvironmentFile with RELAY_KEY (not in the unit: anyone can read that); NAME=VALUE: more
+# Environment= lines.
 systemd_unit() {
-  local node=$1 dir=$2 port=$3 user=$4 writer=${5:-install.sh} extra=''
+  local node=$1 dir=$2 port=$3 user=$4 writer=${5:-install.sh} extra='' kv
   if [[ ${6:-} == 0 ]]; then extra=$'\nEnvironment=HEADLESS=0'; fi
+  if (($# > 7)); then
+    for kv in "${@:8}"; do extra+=$'\n'"Environment=${kv}"; done
+  fi
+  if [[ -n ${7:-} ]]; then extra+=$'\n'"EnvironmentFile=-${7}"; fi
   cat <<EOF
 # 三国杀·枪火乱世 official server — written by warlords/deploy/${writer}
 [Unit]
@@ -338,11 +461,13 @@ install_node() {
 }
 
 # ── the game ────────────────────────────────────────────────────────────────
+# fetch_tarball → the source at FETCH_REF (a commit sha; else the branch head) from codeload
 fetch_tarball() {
-  local tmp
+  local tmp ref="refs/heads/${BRANCH}"
+  if is_sha "$FETCH_REF"; then ref=$FETCH_REF; fi
   tmp=$(mktemp -d)
   log "下载源码包 / downloading the source tarball (codeload.github.com)"
-  curl -fL --retry 3 --max-time 900 "https://codeload.github.com/${REPO_SLUG}/tar.gz/refs/heads/${BRANCH}" -o "$tmp/src.tgz" || {
+  curl -fL --retry 3 --max-time 900 "https://codeload.github.com/${REPO_SLUG}/tar.gz/${ref}" -o "$tmp/src.tgz" || {
     rm -rf "$tmp"
     return 1
   }
@@ -355,23 +480,42 @@ fetch_tarball() {
     rm -rf "$tmp"
     return 1
   }
-  # keep the installed node_modules: npm ci decides whether they are still right
-  if [[ -d $APP_DIR/node_modules ]]; then mv "$APP_DIR/node_modules" "$tmp/src/warlords/node_modules"; fi
+  # keep the installed node_modules (npm ci decides whether they are still right) and the build the
+  # server is serving right now (with its stamp): the site stays up until the new build replaces it
+  local keep
+  for keep in node_modules dist dist-headless .sgwl-sha; do
+    if [[ -e $APP_DIR/$keep && ! -e $tmp/src/warlords/$keep ]]; then mv "$APP_DIR/$keep" "$tmp/src/warlords/$keep"; fi
+  done
   rm -rf "$SRC_DIR"
   mkdir -p "$INSTALL_DIR"
   mv "$tmp/src" "$SRC_DIR"
   rm -rf "$tmp"
+  FETCHED_SHA=''
+  if is_sha "$FETCH_REF"; then FETCHED_SHA=$FETCH_REF; fi
 }
 
+# git_head → the checked-out commit of a git source ('' otherwise)
+git_head() {
+  local h
+  h=$(git -C "$SRC_DIR" rev-parse HEAD 2>/dev/null || true)
+  if is_sha "$h"; then echo "$h"; fi
+}
+
+# fetch_source → the game's source in SRC_DIR at FETCH_REF (a commit sha; '' = the branch head);
+# FETCHED_SHA = the commit it is ('' when unknown: a branch tarball)
 fetch_source() {
+  local ref=$BRANCH
+  if is_sha "$FETCH_REF"; then ref=$FETCH_REF; fi
   mkdir -p "$INSTALL_DIR"
+  FETCHED_SHA=''
   if ! git_ok; then
     fetch_tarball || die "无法下载游戏源码 / could not download the game"
     return 0
   fi
   if [[ -d $SRC_DIR/.git ]]; then
     log "更新源码 / updating the source (git)"
-    if run_timeout 600 git -C "$SRC_DIR" fetch --depth 1 origin "$BRANCH" && git -C "$SRC_DIR" reset -q --hard FETCH_HEAD; then
+    if run_timeout 600 git -C "$SRC_DIR" fetch --depth 1 origin "$ref" && git -C "$SRC_DIR" reset -q --hard FETCH_HEAD; then
+      FETCHED_SHA=$(git_head)
       return 0
     fi
     warn "git 更新失败，改用源码包 / git update failed, using the tarball"
@@ -390,16 +534,50 @@ fetch_source() {
   if run_timeout 900 git clone -q --depth 1 --branch "$BRANCH" --filter=blob:none --sparse "https://github.com/${REPO_SLUG}.git" "$tmp" &&
     git -C "$tmp" sparse-checkout set warlords; then
     mv "$tmp" "$SRC_DIR"
+    cloned_to_ref
     return 0
   fi
   rm -rf "$tmp"
   if run_timeout 900 git clone -q --depth 1 --branch "$BRANCH" "https://github.com/${REPO_SLUG}.git" "$tmp"; then
     mv "$tmp" "$SRC_DIR"
+    cloned_to_ref
     return 0
   fi
   rm -rf "$tmp"
   warn "git clone 失败，改用源码包 / git clone failed, using the tarball"
   fetch_tarball || die "无法下载游戏源码（github.com 不通？）/ could not download the game (is github.com reachable?)"
+}
+
+# cloned_to_ref: a fresh clone has the branch head; FETCH_REF (a commit) moves it there if it is
+# another one (best effort — the branch head is fine too). FETCHED_SHA = what it has.
+cloned_to_ref() {
+  if is_sha "$FETCH_REF" && [[ $(git_head) != "$FETCH_REF" ]]; then
+    { run_timeout 600 git -C "$SRC_DIR" fetch -q --depth 1 origin "$FETCH_REF" && git -C "$SRC_DIR" reset -q --hard FETCH_HEAD; } || true
+  fi
+  FETCHED_SHA=$(git_head)
+}
+
+# resolve_asset_cdn → ASSET_CDN for the build: jsDelivr's copy of warlords/public/ pinned to the
+# last commit that changed public/assets (GitHub API; else the built commit itself) — the art's
+# URLs stay the same across updates that do not touch it, so browsers keep their cached copies.
+# Nothing when the commit is unknown or SGWL_ASSET_CDN=off. The page falls back to this server's
+# own copy of any file the CDN does not deliver.
+resolve_asset_cdn() {
+  ASSET_CDN=''
+  [[ ${SGWL_ASSET_CDN:-} != off ]] || return 0
+  is_sha "$FETCHED_SHA" || return 0
+  local pin
+  pin=$(curl -fsS --max-time 15 -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/${REPO_SLUG}/commits?path=warlords/public/assets&sha=${FETCHED_SHA}&per_page=1" 2>/dev/null |
+    grep -oE '"sha": *"[0-9a-f]{40}"' | head -n1 | grep -oE '[0-9a-f]{40}' || true)
+  is_sha "$pin" || pin=$FETCHED_SHA
+  ASSET_CDN=$(asset_cdn_base "$pin")
+}
+
+# stamp_build: the commit the build in dist/ is (server/server.mjs reports it in /sgwl.json;
+# home-host.sh's auto-update compares it with GitHub's)
+stamp_build() {
+  if is_sha "$FETCHED_SHA"; then echo "$FETCHED_SHA" >.sgwl-sha; else rm -f .sgwl-sha; fi
 }
 
 build_game() {
@@ -421,16 +599,28 @@ build_game() {
   fi
   # vite only: the type check (tsc -b) belongs to development and needs ~1 GB RAM on its own.
   # This server is the build's official server (src/net/official.ts): its page offers 官方服务器 = itself.
+  # Its art may come from a pinned CDN copy of the repository (resolve_asset_cdn: VITE_ASSET_CDN).
+  if [[ -z $ASSET_CDN ]]; then resolve_asset_cdn; fi
   log "构建游戏 / building the game (vite build)"
-  VITE_OFFICIAL_RELAY=$(relay_url "$DOMAIN") VITE_OFFICIAL_WEB=$(game_url "$DOMAIN") NODE_OPTIONS=--max-old-space-size=1536 \
+  VITE_OFFICIAL_RELAY=$(relay_url "$DOMAIN") VITE_OFFICIAL_WEB=$(game_url "$DOMAIN") VITE_ASSET_CDN=$ASSET_CDN NODE_OPTIONS=--max-old-space-size=1536 \
     node node_modules/vite/bin/vite.js build --outDir dist.new --emptyOutDir --logLevel warn || die "构建失败（正在运行的版本不受影响）/ build failed (the running version is untouched)"
   [[ -f dist.new/index.html ]] || die "构建失败：没有 index.html / build produced no index.html"
+  # pages still open run the previous build: its bundles stay a few days, or their lazy imports
+  # fail the moment a player starts a match (scripts/keep-old-assets.mjs)
+  if [[ -d dist && -f scripts/keep-old-assets.mjs ]]; then
+    node scripts/keep-old-assets.mjs dist dist.new --days=3 || warn "旧版本文件没有保留 / could not keep the previous build's files"
+  fi
+  # .br / .gz next to the files (server.mjs sends them): the 2 MB main bundle leaves the uplink as 0.5 MB
+  if [[ -f scripts/precompress.mjs ]]; then
+    node scripts/precompress.mjs dist.new || warn "预压缩失败（服务器会即时压缩）/ precompression failed (the server compresses on the fly)"
+  fi
   # swap in the new build only once it is complete: a failed update leaves the site as it was
   rm -rf dist.old
   if [[ -d dist ]]; then mv dist dist.old; fi
   mv dist.new dist
   rm -rf dist.old
   build_headless
+  stamp_build
 }
 
 # has_npm_script NAME → status 0 if package.json (current directory) defines that script
@@ -465,7 +655,8 @@ install_service() {
     nologin=$(command -v nologin || echo /bin/false)
     useradd --system --no-create-home --shell "$nologin" "$SERVICE_USER"
   fi
-  systemd_unit "$node" "$APP_DIR" "$APP_PORT" "$SERVICE_USER" install.sh "$HEADLESS_SETTING" >"/etc/systemd/system/${SERVICE}.service"
+  write_key_env "$KEY_ENV_FILE" "$RELAY_KEY"
+  systemd_unit "$node" "$APP_DIR" "$APP_PORT" "$SERVICE_USER" install.sh "$HEADLESS_SETTING" "$KEY_ENV_FILE" >"/etc/systemd/system/${SERVICE}.service"
   systemctl daemon-reload
   systemctl enable -q "$SERVICE"
   systemctl restart "$SERVICE"
@@ -601,6 +792,7 @@ wait_https() {
 }
 
 # ── configuration ───────────────────────────────────────────────────────────
+SAVED_RELAY_KEY=
 load_state() {
   if [[ -f $STATE_FILE ]]; then
     local saved_domain saved_headless
@@ -608,18 +800,37 @@ load_state() {
     DOMAIN=${DOMAIN:-$saved_domain}
     saved_headless=$(sed -n 's/^SGWL_HEADLESS=//p' "$STATE_FILE" | head -n1)
     HEADLESS_SETTING=${HEADLESS_SETTING:-$saved_headless}
+    SAVED_RELAY_KEY=$(sed -n 's/^RELAY_KEY=//p' "$STATE_FILE" | head -n1)
+  fi
+  RELAY_KEY=$SAVED_RELAY_KEY
+}
+
+# ensure_relay_key: this install's access key (install / update): the saved one, the one asked
+# for (SGWL_RELAY_KEY), or a new one the first time
+ensure_relay_key() {
+  resolve_relay_key "$SAVED_RELAY_KEY"
+  if [[ $RELAY_KEY_NEW == 1 ]]; then
+    log "已生成访问密钥：玩家要用最后打印的分享链接进入 / made an access key: players join through the share link printed at the end"
+  elif [[ $RELAY_KEY == off ]]; then
+    warn "访问密钥已关闭（SGWL_RELAY_KEY=off）：谁拿到网址都能玩 / access key off: anyone with the address can play"
   fi
 }
 
+# save_state: the install record — it holds the access key, so only its owner may read it (600)
 save_state() {
-  cat >"$STATE_FILE" <<EOF
+  (
+    umask 077
+    cat >"$STATE_FILE.tmp" <<EOF
 # written by warlords/deploy/install.sh
 DOMAIN=$DOMAIN
 SGWL_DIR=$INSTALL_DIR
 SGWL_PORT=$APP_PORT
 SGWL_BRANCH=$BRANCH
 SGWL_HEADLESS=$HEADLESS_SETTING
+RELAY_KEY=$RELAY_KEY
 EOF
+  )
+  mv "$STATE_FILE.tmp" "$STATE_FILE"
 }
 
 # the server's public IPv4: IP-echo services (global + China), then the cloud metadata APIs
@@ -653,12 +864,21 @@ resolve_domain() {
   log "公网 IP / public IP: $ip → $DOMAIN"
 }
 
+# print_summary: the box — the share link friends open (with the access key) and the two lines
+# for Claude (the game URL and the relay: no key in them)
 print_summary() {
   local game relay
   game=$(game_url "$DOMAIN")
   relay=$(relay_url "$DOMAIN")
   printf '\n\033[1;33m%s\033[0m\n' '=================================================================='
   printf '\033[1m  %s\033[0m\n\n' '三国杀·枪火乱世 · 官方联机服务器 / official online server'
+  if [[ -n ${RELAY_KEY:-} && ${RELAY_KEY:-} != off ]]; then
+    printf '\033[1;32m  分享链接 SHARE LINK:  %s\033[0m\n' "$(share_url "$DOMAIN" "$RELAY_KEY")"
+    printf '\033[1;32m  %s\033[0m\n' '↑ 发给朋友的是这一条（带访问密钥，别公开发布）/ send THIS link to friends (it carries the access key — do not post it publicly)'
+    printf '    %s\n\n' '换密钥 / new key: … -- rotate-key （旧链接随即失效 / old links stop working）'
+  else
+    printf '\033[1;33m  %s\033[0m\n\n' '访问密钥：关闭——谁拿到网址都能玩 / access key: off — anyone with the address can play'
+  fi
   printf '\033[1;36m  游戏网址 Game:   %s\033[0m\n' "$game"
   printf '\033[1;36m  中继地址 Relay:  %s\033[0m\n\n' "$relay"
   printf '\033[1;32m  %s\033[0m\n' '↑ 把这两行发给 Claude  (send these two lines to Claude)'
@@ -677,6 +897,7 @@ cmd_install() {
   detect_pkg
   install_base
   resolve_domain
+  ensure_relay_key
   ensure_swap
   install_node
   fetch_source
@@ -698,6 +919,7 @@ cmd_update() {
   [[ -f $STATE_FILE || -d $APP_DIR ]] || die "尚未安装，请先运行不带参数的安装命令 / not installed yet — run the installer without arguments first"
   detect_pkg
   resolve_domain
+  ensure_relay_key
   install_node
   fetch_source
   build_game
@@ -705,6 +927,18 @@ cmd_update() {
   if command -v caddy >/dev/null 2>&1; then configure_caddy; fi
   save_state
   log "已更新到最新版本 / updated to the latest version"
+  print_summary
+}
+
+# rotate-key: a new access key (a share link that went too far). Restarts the server: everyone
+# playing drops; every friend needs the new link.
+cmd_rotate_key() {
+  [[ -f $STATE_FILE ]] || die "尚未安装 / not installed yet"
+  load_state
+  RELAY_KEY=$(gen_relay_key) || die "无法生成访问密钥 / could not generate an access key"
+  save_state
+  install_service
+  warn "访问密钥已更换：旧的分享链接失效了，把下面的新链接发给朋友 / the access key changed: old share links no longer work — send friends the new link below"
   print_summary
 }
 
@@ -737,7 +971,7 @@ cmd_status() {
 }
 
 on_error() {
-  warn "第 $1 行出错。请把本窗口最后 30 行（或 $LOG_FILE）发给 Claude。/ Failed at line $1 — send the last 30 lines (or $LOG_FILE) to Claude."
+  warn "第 $1 行出错。请把本窗口最后 30 行发给 Claude。/ Failed at line $1 — send the last 30 lines of this window to Claude."
 }
 
 main() {
@@ -747,14 +981,17 @@ main() {
   [[ $EUID -eq 0 ]] || die "请用 root 运行（命令前加 sudo）/ run as root (prefix the command with sudo)"
   command -v systemctl >/dev/null 2>&1 || die "需要 systemd / systemd is required"
   mkdir -p "$(dirname "$LOG_FILE")"
-  exec > >(tee -a "$LOG_FILE") 2>&1
+  scrub_log "$LOG_FILE"
+  open_log "$LOG_FILE"
+  exec > >(log_tee "$LOG_FILE") 2>&1
   trap 'on_error $LINENO' ERR
   log "$(date '+%F %T') sgwl install.sh ${cmd}"
   case $cmd in
     install) cmd_install ;;
     update) cmd_update ;;
     status) cmd_status || exit 1 ;;
-    *) die "用法 / usage: install.sh [install|update|status]" ;;
+    rotate-key) cmd_rotate_key ;;
+    *) die "用法 / usage: install.sh [install|update|status|rotate-key]" ;;
   esac
 }
 

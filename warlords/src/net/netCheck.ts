@@ -1,10 +1,13 @@
 // 联机检测 (connection check): three quick probes the online screen runs on demand.
 //   signal — the PeerJS signalling server answers GET <server>/<key>/id (what PeerJS itself asks first)
 //   ice    — ICE gathering with our STUN/TURN list yields a relay candidate (TURN reachable)
-//   relay  — the official relay accepts a WebSocket
+//   relay  — the official relay accepts a WebSocket (with this page's key for it, if any);
+//            one that refuses it while the server says it requires a key: 'needs key' /
+//            'key refused' (src/net/relayKey.ts)
 // Loaded lazily (the button), never by single player. Rows: src/ui/netHelp.ts formatProbe().
 import type { NetServerConfig } from '../game/settings';
 import { iceServersFor, peerOptionsFor } from './peerTransport';
+import { diagnoseRelayFailure, hasKeyParam, keyedRelayUrl } from './relayKey';
 
 export type ProbeId = 'signal' | 'ice' | 'relay';
 
@@ -106,7 +109,29 @@ export async function probeIce(net: NetServerConfig, timeoutMs = 7000, Pc: PcCto
 
 type WsCtor = new (url: string) => WebSocket;
 
-export async function probeRelay(url: string | null, timeoutMs = 6000, Ws: WsCtor | undefined = (globalThis as { WebSocket?: WsCtor }).WebSocket): Promise<ProbeResult> {
+/** probe detail: the relay refused the socket and its server requires a key the page does not have */
+export const NEEDS_KEY = 'needs key';
+/** probe detail: … and the page sent one (wrong, or replaced since: rotate-key) */
+export const KEY_REFUSED = 'key refused';
+
+/**
+ * Probe the relay; a refused socket (not a timeout) is explained when the server says it
+ * requires a key and the page's key (if any) is not it (`needsKey`: diagnoseRelayFailure —
+ * /sgwl.json, then the key itself; a right key refused for another reason stays unexplained).
+ */
+export async function probeRelay(
+  url: string | null,
+  timeoutMs = 6000,
+  Ws: WsCtor | undefined = (globalThis as { WebSocket?: WsCtor }).WebSocket,
+  needsKey: (url: string) => Promise<boolean | null> = async (u) => (await diagnoseRelayFailure(u)) === 'keyRequired',
+): Promise<ProbeResult> {
+  const r = await probeSocket(url, timeoutMs, Ws);
+  if (!url || r.ok !== false || (r.detail !== 'error' && r.detail !== 'closed')) return r;
+  if ((await needsKey(url).catch(() => null)) !== true) return r;
+  return { ...r, detail: hasKeyParam(url) ? KEY_REFUSED : NEEDS_KEY };
+}
+
+async function probeSocket(url: string | null, timeoutMs: number, Ws: WsCtor | undefined): Promise<ProbeResult> {
   if (!url) return { id: 'relay', ok: null, ms: null, detail: 'not configured' };
   let host = url;
   try {
@@ -142,7 +167,7 @@ export async function probeRelay(url: string | null, timeoutMs = 6000, Ws: WsCto
   });
 }
 
-/** All three probes at once (each has its own timeout). */
+/** All three probes at once (each has its own timeout); the relay with this page's key for it. */
 export function runNetCheck(net: NetServerConfig, relayUrl: string | null): Promise<ProbeResult[]> {
-  return Promise.all([probeSignalling(net), probeIce(net), probeRelay(relayUrl)]);
+  return Promise.all([probeSignalling(net), probeIce(net), probeRelay(relayUrl ? keyedRelayUrl(relayUrl, net.keys) : null)]);
 }

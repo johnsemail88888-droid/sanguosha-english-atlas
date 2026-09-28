@@ -8,7 +8,7 @@ import { colon, getLang, t, tx } from '../i18n';
 import { displayName } from '../../game/names';
 import { button, field, segmented, toggle } from '../widgets';
 import { rolePreview } from './single';
-import { inviteLink } from '../invite';
+import { inviteLink, maskedInviteLink } from '../invite';
 import { canNativeShare, inviteStatus, type InviteNotice } from '../quickInvite';
 import { gpuChip, platformInfo } from '../perfcheck';
 import { shouldUseTouch } from '../touch';
@@ -144,11 +144,14 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     const plat = platformInfo();
     const touch = shouldUseTouch(settings.get().touchControls);
     const st = inviteStatus(copied, plat.os, touch);
-    const field = h('input', { class: 'sg-input invite-link', value: link, autocomplete: 'off', aria: { label: t('lobby.inviteLink') } });
+    // (on screen with its key masked — screen shares, screenshots; the whole link while the
+    // field is focused for 长按 / Ctrl+C, and for 复制 / the share sheet)
+    const field = h('input', { class: 'sg-input invite-link', value: maskedInviteLink(link), autocomplete: 'off', aria: { label: t('lobby.inviteLink') } });
     field.readOnly = true;
     field.spellcheck = false;
     const selectAll = (): void => {
       try {
+        if (field.value !== link) field.value = link;
         field.select();
         field.setSelectionRange(0, field.value.length);
       } catch {
@@ -157,6 +160,9 @@ export function createLobbyScreen(ctx: UiCtx, session: GameSession): Screen {
     };
     field.addEventListener('focus', selectAll);
     field.addEventListener('click', selectAll);
+    field.addEventListener('blur', () => {
+      field.value = maskedInviteLink(link);
+    });
     const copyBtn = button(copied ? t('lobby.copyAgain') : t('lobby.copyLink'), () => {
       void copyText(linkNow()).then((ok) => {
         copied = ok;

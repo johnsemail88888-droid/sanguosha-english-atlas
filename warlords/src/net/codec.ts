@@ -795,6 +795,9 @@ export function decodeSnapshotMsg(
  * keeping the last `capacity` decoded snapshots as baselines. `newest` is the
  * tick to acknowledge to the sender.
  */
+/** Decoded snapshots a SnapshotReceiver keeps as delta baselines (the host stays within it: hostSession.ts). */
+export const SNAPSHOT_RECEIVER_CAPACITY = 64;
+
 export class SnapshotReceiver {
   private readonly baselines = new Map<number, Map<EntityId, ViewEntity>>();
   /** newest decoded snapshot tick (-1 = none yet) */
@@ -804,7 +807,7 @@ export class SnapshotReceiver {
 
   constructor(
     private readonly table: StringTable,
-    private readonly capacity = 64,
+    private readonly capacity = SNAPSHOT_RECEIVER_CAPACITY,
   ) {}
 
   /**

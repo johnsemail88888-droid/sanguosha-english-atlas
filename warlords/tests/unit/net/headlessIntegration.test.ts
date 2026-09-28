@@ -15,7 +15,7 @@ import { WsTransport } from '../../../src/net/wsTransport';
 import { startServer } from '../../../server/server.mjs';
 import { waitFor } from './fixtures';
 
-let srv: { port: number; close(): Promise<void>; relay: { markServerHosted(code: string): void; endRoom(code: string): void } } | null = null;
+let srv: { port: number; close(): Promise<void>; relay: { markServerHosted(code: string): void; endRoom(code: string): void; stats(): { rooms: number } } } | null = null;
 let relayUrl = '';
 const rooms: HeadlessRoom[] = [];
 const sessions: GameSession[] = [];
@@ -43,11 +43,11 @@ afterAll(async () => {
  * (marked server-hosted on the relay, as server.mjs does — `attest: false` leaves that out:
  * a player's page merely claiming to be a server-run room).
  */
-function stubCreateRooms(status: number | 'run', attest = true): { calls: { url: string; body: unknown }[] } {
+function stubCreateRooms(status: number | 'run', attest = true, error?: string): { calls: { url: string; body: unknown }[] } {
   const calls: { url: string; body: unknown }[] = [];
   vi.stubGlobal('fetch', async (url: string, init: { body: string }) => {
     calls.push({ url, body: JSON.parse(init.body) });
-    if (status !== 'run') return { status, json: async () => ({ error: status === 429 ? 'rate-limited' : 'headless-unavailable' }) };
+    if (status !== 'run') return { status, json: async () => ({ error: error ?? (status === 429 ? 'rate-limited' : 'headless-unavailable') }) };
     const ownerKey = `k${Math.random().toString(36).slice(2)}${'x'.repeat(40)}`;
     const transport = await WsTransport.host(relayUrl);
     const room = runHeadlessRoom({ transport, roomCode: transport.roomCode, ownerKey, post: () => undefined, exit: () => undefined });
@@ -127,5 +127,22 @@ describe('hostOnlineSession (WebSocket mode) with server-run rooms', () => {
       (e: unknown) => e,
     );
     expect(isNetError(err) && err.code).toBe('rateLimited');
+  }, 30_000);
+
+  it('a full server (503 server-full) or an address with enough rooms (429 too-many-rooms): said so — nothing is hosted in the page', async () => {
+    const before = srv!.relay.stats().rooms;
+    for (const [status, error, code, zh] of [
+      [503, 'server-full', 'serverFull', '服务器房间已满，请稍后再试'],
+      [429, 'too-many-rooms', 'tooManyRooms', '你这边已经开着房间了，请先关掉一个再创建'],
+    ] as const) {
+      stubCreateRooms(status, true, error);
+      const err = await hostOnlineSession({ name: '甲', mode: 'ws' }).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(isNetError(err) && err.code).toBe(code);
+      expect(isNetError(err) && err.zh).toBe(zh);
+    }
+    expect(srv!.relay.stats().rooms).toBe(before);
   }, 30_000);
 });

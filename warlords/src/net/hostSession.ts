@@ -40,7 +40,7 @@ import {
   type SeatInfo,
 } from './protocol';
 import { COMPAT_ID } from './compat';
-import { binaryTag, buildMatchStrings, decodeInputMsg, decodeJson, encodeJson, encodeSnapshotMsg, heroKingdom, StringTable } from './codec';
+import { binaryTag, buildMatchStrings, decodeInputMsg, decodeJson, encodeJson, encodeSnapshotMsg, heroKingdom, SNAPSHOT_RECEIVER_CAPACITY, StringTable } from './codec';
 import { Emitter } from './emitter';
 import { NetError, netErrorText } from './errors';
 import { filterEventsFor, hasPrivateEvents } from './eventFilter';
@@ -179,10 +179,25 @@ export const RELAY_LINK_KEY = 'relayLink';
 /** Consecutive throwing sim steps before the match is abandoned (1 s). */
 const MAX_STEP_FAILURES = SIM_HZ;
 /**
- * Snapshots remembered per client as delta baselines (1.6 s at 20 Hz). A
- * client whose newest acknowledged snapshot is older gets a full snapshot.
+ * Snapshots remembered per client as delta baselines (1.6 s at 20 Hz), besides the one
+ * it acknowledged last: that one is kept until a newer one is acknowledged, however long
+ * that takes — a lagging client gets deltas against it, never a stream of full snapshots.
  */
 export const DELTA_HISTORY = 32;
+/**
+ * Snapshot congestion control: a client that has not acknowledged a snapshot sent longer
+ * than its round trip + this (ms) ago — the first one after the snapshot it acknowledged
+ * last — is not keeping up: its link is congested or its page stalled. It gets no snapshot
+ * then until it acknowledges a newer one, except one every (its round trip + this) so a
+ * link that lost the ones in flight cannot stall for good. Its bandwidth drops instead of
+ * piling up at the relay (full snapshots, before: 62 KB/s instead of 26 KB/s).
+ */
+export const SNAPSHOT_ACK_SLACK_MS = 300;
+/**
+ * Snapshots a client keeps to decode deltas against (SnapshotReceiver, codec.ts). After
+ * this many sent since its acknowledged baseline it may have dropped that baseline: full.
+ */
+const RECEIVER_BASELINES = SNAPSHOT_RECEIVER_CAPACITY - 4;
 
 /** Typed debug / e2e cheats (HostSession.debugCheats). */
 export interface HostDebugCheats {
@@ -284,10 +299,14 @@ interface PeerRec {
   starvedTicks: number;
   /** neutral input has been applied since the last real frame */
   neutralized: boolean;
-  /** snapshots sent this match, oldest first: tick → entities (delta baselines) */
+  /** snapshots sent this match, oldest first: tick → entities (delta baselines; the acknowledged one is always kept) */
   sent: Map<number, Map<EntityId, ViewEntity>>;
   /** newest sent snapshot the client confirmed holding (-1 = none: send full) */
   snapAck: number;
+  /** snapshots sent since the one acknowledged last (or since the first, while none is) */
+  sinceAck: number;
+  /** diagnostics: snapshots held back from this client for congestion (SNAPSHOT_ACK_SLACK_MS) */
+  snapsHeld: number;
   loaded: boolean;
   chatTimes: number[];
   /** recent owner messages (flood control) */
@@ -680,6 +699,7 @@ export class HostSession implements GameSession {
       peer.neutralized = false;
       peer.sent.clear();
       peer.snapAck = -1;
+      peer.sinceAck = 0;
       peer.loading = false;
       peer.warmUp.reset();
       peer.lastInputAt = 0;
@@ -1148,6 +1168,8 @@ export class HostSession implements GameSession {
       neutralized: false,
       sent: new Map(),
       snapAck: -1,
+      sinceAck: 0,
+      snapsHeld: 0,
       loaded: false,
       chatTimes: [],
       ownerTimes: [],
@@ -1354,7 +1376,7 @@ export class HostSession implements GameSession {
       }
       case 'ack':
         // delta baseline acknowledgement from the client's receive path (MP2-6)
-        if (typeof msg.tick === 'number' && msg.tick > peer.snapAck && peer.sent.has(msg.tick)) peer.snapAck = msg.tick;
+        if (typeof msg.tick === 'number') this.onSnapAck(peer, msg.tick);
         break;
       case 'loaded':
         peer.loaded = true;
@@ -1614,8 +1636,7 @@ export class HostSession implements GameSession {
     peer.lastInputAt = t;
     peer.warmUp.beat();
     // delta baseline acknowledgement (only ticks we actually sent this match)
-    const ack = pkt.snapAck;
-    if (ack !== undefined && ack > peer.snapAck && peer.sent.has(ack)) peer.snapAck = ack;
+    if (pkt.snapAck !== undefined) this.onSnapAck(peer, pkt.snapAck);
     const f = pkt.frame;
     if (f.seq <= peer.lastInputSeq) return; // late / duplicate
     // rescue edge actions from frames that were lost (seq-based dedup)
@@ -1948,6 +1969,7 @@ export class HostSession implements GameSession {
     peer.neutralized = false;
     peer.sent.clear();
     peer.snapAck = -1;
+    peer.sinceAck = 0;
     // it is building the map / scene and compiling shaders now (a page frozen for
     // seconds at a time on a slow device): the long loading timeout until 'loaded'
     peer.loading = true;
@@ -2138,6 +2160,10 @@ export class HostSession implements GameSession {
       if (peer.seat === null || !peer.loaded) continue;
       const rec = this.seats.get(peer.seat);
       if (!rec || rec.peer !== peer.id) continue;
+      if (this.snapshotHeld(peer, sim.tick)) {
+        peer.snapsHeld++;
+        continue;
+      }
       try {
         const raw = sim.snapshotFor(rec.playerId);
         const snap = {
@@ -2148,8 +2174,9 @@ export class HostSession implements GameSession {
             return ping === undefined ? p : { ...p, ping };
           }),
         };
-        // delta against the newest snapshot the client confirmed (full if none)
-        const baseEnts = peer.snapAck >= 0 ? peer.sent.get(peer.snapAck) : undefined;
+        // delta against the newest snapshot the client confirmed (full if none — or if so many were
+        // sent since that the client may no longer hold it)
+        const baseEnts = peer.snapAck >= 0 && peer.sinceAck < RECEIVER_BASELINES ? peer.sent.get(peer.snapAck) : undefined;
         const base = baseEnts ? { tick: peer.snapAck, ents: baseEnts } : null;
         t.send(peer.id, encodeSnapshotMsg(snap, table, base), 'unreliable');
         this.rememberSent(peer, snap.tick, snap.ents);
@@ -2159,17 +2186,60 @@ export class HostSession implements GameSession {
     }
   }
 
-  /** Keep what was sent as a potential delta baseline (bounded history). */
+  /**
+   * Keep what was sent as a potential delta baseline (bounded history: the oldest go, never
+   * the acknowledged one — a lagging client keeps getting deltas against it, not full snapshots).
+   */
   private rememberSent(peer: PeerRec, tick: number, ents: readonly ViewEntity[]): void {
     const byId = new Map<EntityId, ViewEntity>();
     for (const e of ents) byId.set(e.id, e);
     peer.sent.delete(tick);
     peer.sent.set(tick, byId);
-    while (peer.sent.size > DELTA_HISTORY) {
-      const oldest = peer.sent.keys().next().value as number;
-      peer.sent.delete(oldest);
-      if (oldest === peer.snapAck) peer.snapAck = -1;
+    peer.sinceAck++;
+    if (peer.sent.size <= DELTA_HISTORY + 1) return;
+    for (const t of peer.sent.keys()) {
+      if (t === peer.snapAck) continue;
+      peer.sent.delete(t);
+      if (peer.sent.size <= DELTA_HISTORY + 1) break;
     }
+  }
+
+  /**
+   * The client confirmed holding snapshot `tick` (an input packet's snapAck, or 'ack'): a
+   * newer one than before, that we sent this match, becomes its delta baseline; the older
+   * ones can never be a baseline again (acknowledgements only move forward).
+   */
+  private onSnapAck(peer: PeerRec, tick: number): void {
+    if (!(tick > peer.snapAck) || !peer.sent.has(tick)) return;
+    peer.snapAck = tick;
+    let after = 0;
+    for (const t of [...peer.sent.keys()]) {
+      if (t < tick) peer.sent.delete(t);
+      else if (t > tick) after++;
+    }
+    peer.sinceAck = after;
+  }
+
+  /**
+   * Congestion control (SNAPSHOT_ACK_SLACK_MS): hold this client's snapshot back while the
+   * oldest snapshot it has not acknowledged (the first sent after its acknowledged baseline)
+   * went out longer than its round trip + the slack ago — it gets the next one once it
+   * acknowledges a newer snapshot, or one every (round trip + slack) as a keep-alive (the
+   * ones in flight may all have been lost). Snapshots flowing normally are acknowledged
+   * within a round trip: never held; after a hold the flow is back within one round trip.
+   */
+  private snapshotHeld(peer: PeerRec, tick: number): boolean {
+    let oldest = -1;
+    let last = -1;
+    for (const t of peer.sent.keys()) {
+      if (t > peer.snapAck && oldest < 0) oldest = t;
+      last = t;
+    }
+    if (oldest < 0) return false; // nothing unacknowledged
+    const budgetMs = (peer.rtt ?? 0) + SNAPSHOT_ACK_SLACK_MS;
+    const tickMs = 1000 / SIM_HZ;
+    if ((tick - oldest) * tickMs <= budgetMs) return false;
+    return (tick - last) * tickMs < budgetMs;
   }
 
   private onGameOver(r: GameResult): void {
