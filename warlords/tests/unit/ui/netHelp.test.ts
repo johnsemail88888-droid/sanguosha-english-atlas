@@ -159,7 +159,8 @@ describe('联机检测 probes (fakes)', () => {
       close(): void {}
     }
     expect(await probeRelay('wss://47-242-10-3.sslip.io/ws', 1000, OpenWs as never)).toMatchObject({ id: 'relay', ok: true, target: '47-242-10-3.sslip.io' });
-    expect(await probeRelay('wss://47-242-10-3.sslip.io/ws', 1000, FailWs as never)).toMatchObject({ ok: false, detail: 'error' });
+    // (a server that does not say it requires a key: the plain error — no /sgwl.json request from a unit test)
+    expect(await probeRelay('wss://47-242-10-3.sslip.io/ws', 1000, FailWs as never, async () => null)).toMatchObject({ ok: false, detail: 'error' });
     expect(await probeRelay(null)).toEqual({ id: 'relay', ok: null, ms: null, detail: 'not configured' });
   });
 });

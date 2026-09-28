@@ -136,11 +136,12 @@ function pipeLines(stream, line) {
  *           perIpRooms?: number, readyTimeoutMs?: number, emptyLobbyMs?: number, noHumansMs?: number,
  *           probeLobbyMs?: number, enabled?: boolean, workerLog?: boolean, log?: (msg: string) => void,
  *           errorLog?: (msg: string) => void, pauseAfterFailures?: number, pauseMs?: number,
- *           onReady?: (code: string) => void, onExit?: (code: string | null) => void }} opts
+ *           onReady?: (code: string, ip: string) => void, onExit?: (code: string | null) => void }} opts
  *   enabled: false = off (HEADLESS=0); workerLog: ask the workers for their log lines;
  *   perIpRooms: ROOMS_PER_IP; probeLobbyMs: PROBE_LOBBY_MS; errorLog: the workers' stderr (default console.error);
  *   pauseAfterFailures / pauseMs: FAILURES_BEFORE_PAUSE / FAILURE_PAUSE_MS.
- *   onReady / onExit: the relay room of a worker that just became ready / just exited.
+ *   onReady / onExit: the relay room of a worker that just became ready (and the address that
+ *   asked for it) / just exited.
  */
 export function createHeadlessRooms(opts) {
   const workerPath = opts.workerPath;
@@ -299,7 +300,7 @@ export function createHeadlessRooms(opts) {
             failuresInARow = 0;
             log(`[rooms] room ${room.code} started (${workerData.name}, ${ip}) — ${rooms.size}/${maxRooms} rooms`);
             try {
-              opts.onReady?.(room.code);
+              opts.onReady?.(room.code, ip);
             } catch {
               /* ignore */
             }
@@ -401,11 +402,26 @@ export function createHeadlessRooms(opts) {
     return shuttingDown;
   }
 
+  /** The bundle's game-compatibility id for /sgwl.json (read at most every 10 s), null when unknown. */
+  let buildCache = { at: -Infinity, compat: /** @type {string | null} */ (null) };
+  function build() {
+    const now = Date.now();
+    if (now - buildCache.at >= 10_000) buildCache = { at: now, compat: bundlePresent() ? bundleBuild() : null };
+    return buildCache.compat;
+  }
+
   return {
     available,
     create,
     stats,
+    build,
     shutdown,
+    /** Rooms `ip` asked for that are still starting (no relay room of theirs yet: the relay's MAX_ROOMS_PER_IP counts them). */
+    startingOf(ip) {
+      let n = 0;
+      for (const r of rooms) if (!r.ready && r.ip === ip) n++;
+      return n;
+    },
     /** the live rooms (tests, diagnostics) */
     list: () => [...rooms].map((r) => ({ code: r.code, ip: r.ip, createdAt: r.createdAt, phase: r.phase, humans: r.humans, bots: r.bots, players: r.players, ready: r.ready })),
   };

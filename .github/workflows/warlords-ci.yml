@@ -1,5 +1,8 @@
 name: Warlords · CI
 
+# The Mac mini's auto-update (warlords/deploy/home-host.sh) updates only to a commit this workflow
+# passed: it asks GitHub for the runs of `warlords-ci.yml` by name — keep the file name.
+
 on:
   pull_request:
     paths: ['warlords/**', '.github/workflows/warlords-*.yml']

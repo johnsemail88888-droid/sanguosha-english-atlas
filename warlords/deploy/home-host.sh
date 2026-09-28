@@ -8,11 +8,22 @@
 #   curl -fsSL https://raw.githubusercontent.com/johnsemail88888-droid/sanguosha-english-atlas/main/warlords/deploy/home-host.sh | bash
 #
 #   … | bash -s -- update    pull the latest game, rebuild, restart (running it again does the same)
-#   … | bash -s -- status    is everything up? (prints the two lines again)
-#   … | bash -s -- stop      stop hosting (service, daily update and Funnel off)
+#   … | bash -s -- status    is everything up? (prints the share link and the two lines again)
+#   … | bash -s -- rotate-key  turn the access key on / change it: only share-link holders can play
+#                            (the old link stops working; restarts the server)
+#   … | bash -s -- stop      stop hosting (service, auto-update and Funnel off)
 #   … | SGWL_HEADLESS=0 bash no server-hosted matches (rooms run in the host player's browser, as
 #                            before); SGWL_HEADLESS=1 turns them back on (remembered in host.env)
-#   (auto-update: what the daily 05:07 job runs — skipped while anyone plays; logs rotate at 5 MB)
+#   … | SGWL_RELAY_KEY=on bash   an access key (only SHARE LINK holders play); =off turns it off (remembered)
+#   … | SGWL_UPDATE_INTERVAL=86400 bash  auto-update once a day instead of every 5 minutes (remembered)
+#   (auto-update: what the job every SGWL_UPDATE_INTERVAL seconds runs — it updates only to a commit
+#    GitHub's CI passed, only while nobody plays; logs rotate at 5 MB)
+#
+# Access key: off by default — a home server is zero setup (the game's web page and desktop app use
+# it as their official server with no key). The machine's name is public (Certificate Transparency
+# logs); per-address / total room caps and socket limits hold strangers off. `rotate-key` (or
+# SGWL_RELAY_KEY=on) turns a key on: friends then join through the SHARE LINK
+# https://<machine>.<tailnet>.ts.net/?k=<key> the summary prints (kept in ~/sanguo-warlords/host.env).
 #
 # What it does (safe to re-run — every step checks what is already there):
 #   Node 22 (macOS: Homebrew node@22, else the official nodejs.org build in ~/sanguo-warlords/node;
@@ -24,7 +35,8 @@
 #   a reboot (macOS: LaunchAgent com.sanguo-warlords.server, wrapped in `caffeinate -is` so the Mac
 #   does not sleep while it hosts; Linux: systemd unit sgwl-home) · Tailscale Funnel: public
 #   https://<machine>.<tailnet>.ts.net → 127.0.0.1:8787, WebSockets included, no router port
-#   forwarding · an end-to-end check of https://…/sgwl.json and wss://…/ws through public DNS.
+#   forwarding · an end-to-end check of https://…/sgwl.json and wss://…/ws through public DNS ·
+#   an auto-update job every 5 minutes (LaunchAgent com.sanguo-warlords.update / systemd timer).
 #
 # No Tailscale account? Cloudflare's quick tunnel works without one, but its random
 # https://<words>.trycloudflare.com address changes every time it restarts:
@@ -84,13 +96,27 @@ NODE_DIR="$INSTALL_DIR/node"
 LABEL=com.sanguo-warlords.server
 PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 UNIT=sgwl-home
-# the daily update (05:07, skipped while anyone plays) runs this copy of the scripts
+# the auto-update (every UPDATE_INTERVAL seconds; see cmd_auto_update) runs this copy of the scripts
 BIN_DIR="$INSTALL_DIR/bin"
 UPDATE_LABEL=com.sanguo-warlords.update
 UPDATE_PLIST="$HOME/Library/LaunchAgents/${UPDATE_LABEL}.plist"
 UPDATE_LOG="$INSTALL_DIR/update.log"
-UPDATE_HOUR=5
-UPDATE_MINUTE=7
+# seconds between auto-update checks: SGWL_UPDATE_INTERVAL (≥ 60), else what an earlier run saved, else 300
+UPDATE_INTERVAL=300
+# its memory: one line per skip reason (logged at most once an hour), the last failed build, …
+AU_STATE="$INSTALL_DIR/auto-update.state"
+# a build under way (its commit): still there on the next run = that build failed
+AU_BUILDING="$INSTALL_DIR/.building"
+SKIP_LOG_EVERY=3600
+FAILED_RETRY_AFTER=3600
+# one install / update at a time (the auto-update skips while it is held; install waits for it)
+LOCK_DIR="$INSTALL_DIR/.update.lock"
+LOCK_HELD=0
+# the game server's environment on a home machine: no PeerJS signalling, ≤ 4 relay rooms, a dropped
+# host keeps its room 2 minutes (as long as its page tries to get it back); + RELAY_KEY
+HOME_ENV=(NO_PEER=1 MAX_ROOMS=4 HOST_GRACE_MS=120000)
+# Linux: the access key for the systemd service (an EnvironmentFile, mode 600)
+SERVER_ENV="$INSTALL_DIR/server.env"
 LOG_MAX_BYTES=5000000
 HOST_OS=
 SUDO=
@@ -124,12 +150,16 @@ xml_escape() {
   printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
 }
 
-# launchd_plist LABEL NODE_BIN APP_DIR PORT LOG [HEADLESS] → the LaunchAgent: server.mjs on
-# 127.0.0.1:PORT, started at login and restarted if it stops; caffeinate -is keeps the Mac awake
-# while it runs (the display may still sleep). HEADLESS 0: HEADLESS=0 (no server-hosted matches).
+# launchd_plist LABEL NODE_BIN APP_DIR PORT LOG [HEADLESS] [RELAY_KEY] → the LaunchAgent: server.mjs
+# on 127.0.0.1:PORT, started at login and restarted if it stops; caffeinate -is keeps the Mac awake
+# while it runs (the display may still sleep). Environment: HOME_ENV (no PeerJS, ≤ 4 rooms, a 2-minute
+# host grace); HEADLESS 0: HEADLESS=0 (no server-hosted matches); RELAY_KEY: the access key (the file
+# is written 600 — install_service).
 launchd_plist() {
-  local label node dir log port=$4 extra=''
-  if [[ ${6:-} == 0 ]]; then extra=$'\n\t\t<key>HEADLESS</key>\n\t\t<string>0</string>'; fi
+  local label node dir log port=$4 extra='' kv
+  for kv in "${HOME_ENV[@]}"; do extra+=$'\n\t\t'"<key>${kv%%=*}</key>"$'\n\t\t'"<string>${kv#*=}</string>"; done
+  if [[ ${6:-} == 0 ]]; then extra+=$'\n\t\t<key>HEADLESS</key>\n\t\t<string>0</string>'; fi
+  if [[ -n ${7:-} && ${7:-} != off ]]; then extra+=$'\n\t\t<key>RELAY_KEY</key>\n\t\t'"<string>$(xml_escape "$7")</string>"; fi
   label=$(xml_escape "$1")
   node=$(xml_escape "$2")
   dir=$(xml_escape "$3")
@@ -247,6 +277,110 @@ game_busy() {
   ((humans > 0 || playing > 0 || rooms > hrooms || players > hrooms))
 }
 
+# stat_sha SGWL_JSON → the commit the running server was built from (/sgwl.json build.sha; '' unknown)
+stat_sha() {
+  sed -nE 's/.*"sha":"([0-9a-f]{40})".*/\1/p' <<<"$1" | head -n1 || true
+}
+
+# ts_key_expiry < `tailscale status --json` → when this machine's Tailscale key expires
+# (Self.KeyExpiry, e.g. 2027-03-01T10:00:00Z); '' when key expiry is disabled
+ts_key_expiry() {
+  node -e '
+let s = "";
+process.stdin.on("data", (d) => (s += d)).on("end", () => {
+  let j = {};
+  try { j = JSON.parse(s) || {}; } catch {}
+  const e = String((j.Self || {}).KeyExpiry || "");
+  console.log(/^\d{4}-\d\d-\d\dT/.test(e) && !e.startsWith("0001-") ? e : "");
+});'
+}
+
+# update_decision HEAD BUILT RUNNING → what the auto-update does about GitHub's head commit HEAD,
+# the commit the build on disk is (BUILT, '' unknown) and the one the server runs (RUNNING):
+#   current  the build is the head and the server runs it
+#   restart  the build is the head, the server still runs an older one (a restart that had to wait)
+#   check    the head is another commit: ask GitHub whether its CI passed
+update_decision() {
+  if [[ -n $2 && $1 == "$2" ]]; then
+    if [[ $3 != "$2" ]]; then echo restart; else echo current; fi
+  else
+    echo check
+  fi
+}
+
+# ci_verdict RUNS_JSON [SHA] → success | pending | failure | none | unknown: what GitHub says of the
+# warlords-ci runs of a commit (actions/workflows/warlords-ci.yml/runs?head_sha=…): one run that
+# passed is enough; none finished yet = pending; all finished, none passed = failure; no run at all
+# = none (the commit touched nothing the CI watches, or it was pushed seconds ago); bad JSON = unknown
+ci_verdict() {
+  node -e '
+let j = null;
+try { j = JSON.parse(process.argv[1]); } catch {}
+const sha = process.argv[2] || "";
+if (!j || !Array.isArray(j.workflow_runs)) { console.log("unknown"); process.exit(0); }
+const runs = j.workflow_runs.filter((r) => r && (!sha || r.head_sha === sha));
+if (runs.some((r) => r.status === "completed" && r.conclusion === "success")) console.log("success");
+else if (runs.some((r) => r.status !== "completed")) console.log("pending");
+else console.log(runs.length ? "failure" : "none");' "$1" "${2:-}"
+}
+
+# latest_green_sha RUNS_JSON → the commit of the newest warlords-ci run that passed ('' none)
+latest_green_sha() {
+  node -e '
+let j = null;
+try { j = JSON.parse(process.argv[1]); } catch {}
+const runs = j && Array.isArray(j.workflow_runs) ? j.workflow_runs : [];
+const r = runs.find((x) => x && x.status === "completed" && x.conclusion === "success" && /^[0-9a-f]{40}$/.test(String(x.head_sha)));
+console.log(r ? r.head_sha : "");' "$1"
+}
+
+# now_s → the time in seconds (SGWL_NOW: tests)
+now_s() {
+  echo "${SGWL_NOW:-$(date +%s)}"
+}
+
+# au_get KEY / au_set KEY VALUE → the auto-update's memory (AU_STATE: one "KEY VALUE" line per key)
+au_get() {
+  sed -n "s/^$1 //p" "$AU_STATE" 2>/dev/null | head -n1 || true
+}
+au_set() {
+  local tmp
+  mkdir -p "$(dirname "$AU_STATE")"
+  tmp="$AU_STATE.tmp.$$"
+  { grep -v "^$1 " "$AU_STATE" 2>/dev/null || true; } >"$tmp"
+  echo "$1 $2" >>"$tmp"
+  mv "$tmp" "$AU_STATE"
+}
+
+# skip_log REASON MESSAGE → MESSAGE in the log, at most once an hour per REASON (the job runs every
+# 5 minutes: the log gets one line when something starts holding updates back, not 12 an hour)
+AU_HEADER_DONE=0
+skip_log() {
+  local now last
+  now=$(now_s)
+  last=$(au_get "skip:$1")
+  if [[ $last =~ ^[0-9]+$ ]] && ((now - last < SKIP_LOG_EVERY)); then return 0; fi
+  au_set "skip:$1" "$now"
+  au_header
+  log "$2"
+}
+
+# au_header: the auto-update's heading line — once, and only when it has something to say
+au_header() {
+  if [[ $AU_HEADER_DONE == 0 ]]; then
+    AU_HEADER_DONE=1
+    log "$(date '+%F %T') sgwl home-host.sh auto-update"
+  fi
+}
+
+# recently_failed SHA → status 0 when a build of SHA failed less than FAILED_RETRY_AFTER ago
+recently_failed() {
+  local sha='' at=''
+  read -r sha at <<<"$(au_get failed)" || true
+  [[ -n $sha && $sha == "$1" && $at =~ ^[0-9]+$ ]] && (($(now_s) - at < FAILED_RETRY_AFTER))
+}
+
+
 # scripts_changed → status 0 when the source just fetched brings other copies of these scripts than
 # the ones running (bin/ from the last update): they should do the build and restart — a first update
 # after a script change would otherwise build the new version with the old steps
@@ -259,7 +393,8 @@ scripts_changed() {
 # hand_over COMMAND → run the fetched version of this script for COMMAND (it skips the fetch)
 hand_over() {
   log "新版本的安装脚本接手 / the new version's scripts take over"
-  SGWL_REEXEC=1 exec bash "$APP_DIR/deploy/home-host.sh" "$1"
+  # (the commit fetched goes along; the lock stays: exec keeps this process)
+  SGWL_TARGET_SHA=$FETCHED_SHA SGWL_REEXEC=1 exec bash "$APP_DIR/deploy/home-host.sh" "$1"
 }
 
 # rotate_log FILE MAX_BYTES → FILE bigger than MAX_BYTES becomes FILE.1 (the one before is dropped)
@@ -267,9 +402,12 @@ hand_over() {
 rotate_log() {
   local f=$1 max=$2 size
   [[ -f $f ]] || return 0
+  # (logs are the owner's only — launchd creates them 644)
+  chmod 600 "$f" 2>/dev/null || true
   size=$(wc -c <"$f" | tr -d ' ')
   ((size > max)) || return 0
   cp "$f" "$f.1"
+  chmod 600 "$f.1" 2>/dev/null || true
   : >"$f"
 }
 
@@ -283,18 +421,19 @@ pmset_ok() {
 
 PMSET_CMD='sudo pmset -a sleep 0 autorestart 1 womp 1'
 
-# update_plist LABEL SCRIPT HOUR MINUTE PATH LOG → the LaunchAgent that runs `SCRIPT auto-update`
-# every day at HOUR:MINUTE (launchd runs a missed one when the Mac wakes)
+# update_plist LABEL SCRIPT INTERVAL_S PATH LOG → the LaunchAgent that runs `SCRIPT auto-update` every
+# INTERVAL_S seconds (launchd never starts it twice at once; a run missed while the Mac slept comes
+# when it wakes). The job itself decides whether there is anything to do (cmd_auto_update).
 update_plist() {
   local label script path log
   label=$(xml_escape "$1")
   script=$(xml_escape "$2")
-  path=$(xml_escape "$5")
-  log=$(xml_escape "$6")
+  path=$(xml_escape "$4")
+  log=$(xml_escape "$5")
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- 三国杀·枪火乱世 daily update — written by warlords/deploy/home-host.sh -->
+<!-- 三国杀·枪火乱世 auto-update — written by warlords/deploy/home-host.sh -->
 <plist version="1.0">
 <dict>
 	<key>Label</key>
@@ -310,13 +449,10 @@ update_plist() {
 		<key>PATH</key>
 		<string>${path}</string>
 	</dict>
-	<key>StartCalendarInterval</key>
-	<dict>
-		<key>Hour</key>
-		<integer>$3</integer>
-		<key>Minute</key>
-		<integer>$4</integer>
-	</dict>
+	<key>StartInterval</key>
+	<integer>$3</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
 	<key>StandardOutPath</key>
 	<string>${log}</string>
 	<key>StandardErrorPath</key>
@@ -326,33 +462,36 @@ update_plist() {
 EOF
 }
 
-# update_units SCRIPT USER HOUR MINUTE PATH → sgwl-home-update.service, a line "---", sgwl-home-update.timer
+# update_units SCRIPT USER INTERVAL_S PATH → sgwl-home-update.service, a line "---", sgwl-home-update.timer
+# (2 minutes after boot, then INTERVAL_S after each run ended: never two at once)
 update_units() {
   cat <<EOF
-# 三国杀·枪火乱世 daily update — written by warlords/deploy/home-host.sh
+# 三国杀·枪火乱世 auto-update — written by warlords/deploy/home-host.sh
 [Unit]
-Description=Sanguo Warlords daily update (skipped while a room is open)
+Description=Sanguo Warlords auto-update (a commit GitHub CI passed; skipped while anyone plays)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 User=$2
-Environment=PATH=$5
+Environment=PATH=$4
 ExecStart=/bin/bash $1 auto-update
 ---
-# 三国杀·枪火乱世 daily update — written by warlords/deploy/home-host.sh
+# 三国杀·枪火乱世 auto-update — written by warlords/deploy/home-host.sh
 [Unit]
-Description=Sanguo Warlords daily update at $(printf '%02d:%02d' "$3" "$4")
+Description=Sanguo Warlords auto-update every $(($3 / 60)) minutes
 
 [Timer]
-OnCalendar=*-*-* $(printf '%02d:%02d' "$3" "$4"):00
-Persistent=true
+OnBootSec=2min
+OnUnitInactiveSec=$3s
+AccuracySec=30s
 
 [Install]
 WantedBy=timers.target
 EOF
 }
+
 
 # tailscale_help OS → how to install Tailscale and log in (printed when it is missing)
 tailscale_help() {
@@ -502,6 +641,18 @@ Tailscale is not connected (state $state): click the Tailscale menu-bar icon →
   [[ $dns != - ]] || die "Tailscale 没有给出本机域名 / Tailscale reports no DNS name for this machine"
   DOMAIN=$dns
   log "Tailscale: $DOMAIN"
+  warn_key_expiry
+}
+
+# warn_key_expiry: Tailscale logs a machine out when its key expires (180 days by default) — the
+# public address then stops working without a word. Say so while key expiry is on.
+warn_key_expiry() {
+  local exp
+  exp=$("$TS" status --json 2>/dev/null | ts_key_expiry || true)
+  [[ -n $exp ]] || return 0
+  warn "这台机器的 Tailscale 密钥会在 ${exp%%T*} 过期，到时公网地址会失效。请主人在 https://login.tailscale.com/admin/machines 点这台机器右侧「…」→ Disable key expiry。
+  Tailscale's key for this machine expires on ${exp%%T*}, and then the public address stops working:
+  https://login.tailscale.com/admin/machines → this machine's … → Disable key expiry."
 }
 
 enable_funnel() {
@@ -531,6 +682,81 @@ then run the same command again."
   fi
   log "Funnel: https://$DOMAIN/ → 127.0.0.1:$APP_PORT"
 }
+
+# ── GitHub (the auto-update's questions) ────────────────────────────────────
+
+# remote_head_sha → the commit at the head of the branch on GitHub (git ls-remote; else the API)
+remote_head_sha() {
+  local out=''
+  if git_ok; then
+    out=$(run_timeout 30 git ls-remote "https://github.com/${REPO_SLUG}.git" "refs/heads/${BRANCH}" 2>/dev/null | cut -f1 | head -n1 || true)
+    if is_sha "$out"; then
+      echo "$out"
+      return 0
+    fi
+  fi
+  out=$(curl -fsS --max-time 20 -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/${REPO_SLUG}/commits/${BRANCH}" 2>/dev/null || true)
+  is_sha "$out" || return 1
+  echo "$out"
+}
+
+# github_api URL → GitHub's JSON answer (unauthenticated: 60 requests an hour per address — the job
+# asks at most 2–3 times per run). Status 2 when GitHub refuses for now (rate limit), 1 otherwise.
+github_api() {
+  local out code
+  out=$(curl -sS --max-time 20 -H 'Accept: application/vnd.github+json' -w '\n%{http_code}' "$1" 2>/dev/null) || return 1
+  code=$(printf '%s\n' "$out" | tail -n1)
+  case $code in
+    200) printf '%s\n' "$out" | sed '$d' ;;
+    403 | 429) return 2 ;;
+    *) return 1 ;;
+  esac
+}
+
+ci_runs_url() {
+  printf 'https://api.github.com/repos/%s/actions/workflows/warlords-ci.yml/runs?%s\n' "$REPO_SLUG" "$1"
+}
+
+# ── one install / update at a time ──────────────────────────────────────────
+
+# acquire_lock [WAIT_S] → status 0 once this process holds LOCK_DIR (waiting up to WAIT_S for the
+# holder; a lock whose process is gone is taken over; the process a hand-over exec'd keeps it)
+acquire_lock() {
+  local wait=${1:-0} waited=0 pid
+  while :; do
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      echo "$$" >"$LOCK_DIR/pid"
+      LOCK_HELD=1
+      return 0
+    fi
+    pid=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+    if [[ -z $pid ]]; then
+      # (just created, its pid not written yet — or left empty by a crash)
+      sleep 1
+      pid=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+    fi
+    if [[ $pid == "$$" ]]; then
+      LOCK_HELD=1
+      return 0
+    fi
+    if [[ -z $pid ]] || ! kill -0 "$pid" 2>/dev/null; then
+      rm -rf "$LOCK_DIR"
+      continue
+    fi
+    ((waited < wait)) || return 1
+    if ((waited == 0)); then log "另一个安装/更新正在进行，等它结束（最多 $((wait / 60)) 分钟）/ another install or update is running — waiting for it (up to $((wait / 60)) min)"; fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+}
+
+release_lock() {
+  if [[ $LOCK_HELD == 1 ]]; then
+    rm -rf "$LOCK_DIR"
+    LOCK_HELD=0
+  fi
+}
+
 
 # ── the service ─────────────────────────────────────────────────────────────
 local_ok() {
@@ -574,7 +800,11 @@ install_service() {
   fi
   if [[ $HOST_OS == macos ]]; then
     mkdir -p "$(dirname "$PLIST")"
-    launchd_plist "$LABEL" "$node" "$APP_DIR" "$APP_PORT" "$SERVER_LOG" "$HEADLESS_SETTING" >"$PLIST.tmp"
+    # (it holds the access key: only this user reads it)
+    (
+      umask 077
+      launchd_plist "$LABEL" "$node" "$APP_DIR" "$APP_PORT" "$SERVER_LOG" "$HEADLESS_SETTING" "$RELAY_KEY" >"$PLIST.tmp"
+    )
     mv "$PLIST.tmp" "$PLIST"
     launchctl enable "gui/$UID/$LABEL" >/dev/null 2>&1 || true
     if ! launchctl bootstrap "gui/$UID" "$PLIST" 2>/dev/null; then
@@ -583,7 +813,9 @@ install_service() {
     fi
   else
     tmp=$(mktemp)
-    systemd_unit "$node" "$APP_DIR" "$APP_PORT" "$(id -un)" home-host.sh "$HEADLESS_SETTING" >"$tmp"
+    # the key in an EnvironmentFile of our own (600): the unit itself is readable by anyone
+    write_key_env "$SERVER_ENV" "$RELAY_KEY"
+    systemd_unit "$node" "$APP_DIR" "$APP_PORT" "$(id -un)" home-host.sh "$HEADLESS_SETTING" "$SERVER_ENV" "${HOME_ENV[@]}" >"$tmp"
     $SUDO install -m 0644 "$tmp" "/etc/systemd/system/${UNIT}.service"
     rm -f "$tmp"
     $SUDO systemctl daemon-reload
@@ -612,32 +844,68 @@ check_build_points_here() {
   fi
 }
 
-# check_public → status 0 once friends can reach the game (public DNS → Funnel → this machine)
+# check_public → status 0 once friends can reach the game (public DNS → Funnel → this machine),
+# with the access key — and the relay must refuse a socket without it
 check_public() {
-  local url _i
+  local url _i key=''
   url=$(game_url "$DOMAIN")
   [[ -f $APP_DIR/deploy/check.mjs ]] || return 1
+  # (the key goes in the environment: a command line is visible to every user in `ps`)
+  if [[ -n $RELAY_KEY && $RELAY_KEY != off ]]; then key=$RELAY_KEY; fi
   log "检查（本机经 Tailscale）/ checking through Tailscale"
-  node "$APP_DIR/deploy/check.mjs" "$url" || warn "经 Tailscale 访问失败 / not reachable through Tailscale"
+  SGWL_CHECK_KEY=$key node "$APP_DIR/deploy/check.mjs" "$url" || warn "经 Tailscale 访问失败 / not reachable through Tailscale"
   log "检查公网访问（朋友走的路：公网 DNS → Funnel）/ checking from the internet side (public DNS → Funnel)"
   # (the server-hosted match check ran above: no test room per retry)
   for _i in $(seq 1 12); do
-    if node "$APP_DIR/deploy/check.mjs" "$url" --public-dns --no-headless; then return 0; fi
+    if SGWL_CHECK_KEY=$key node "$APP_DIR/deploy/check.mjs" "$url" --public-dns --no-headless; then return 0; fi
     sleep 10
   done
   return 1
 }
 
 # ── configuration ───────────────────────────────────────────────────────────
+# save_state: host.env — it holds the access key, so only this user may read it (600)
 save_state() {
-  cat >"$STATE_FILE" <<EOF
+  mkdir -p "$(dirname "$STATE_FILE")"
+  (
+    umask 077
+    cat >"$STATE_FILE.tmp" <<EOF
 # written by warlords/deploy/home-host.sh
 DOMAIN=$DOMAIN
 SGWL_PORT=$APP_PORT
 SGWL_BRANCH=$BRANCH
 SGWL_HEADLESS=$HEADLESS_SETTING
+RELAY_KEY=$RELAY_KEY
+SGWL_UPDATE_INTERVAL=$UPDATE_INTERVAL
 NODE_BIN_DIR=$(dirname "$(command -v node)")
 EOF
+  )
+  chmod 600 "$STATE_FILE.tmp"
+  mv "$STATE_FILE.tmp" "$STATE_FILE"
+}
+
+# saved_relay_key → the access key an earlier run saved in host.env ('' none, 'off' turned off)
+saved_relay_key() {
+  sed -n 's/^RELAY_KEY=//p' "$STATE_FILE" 2>/dev/null | head -n1 || true
+}
+
+# load_key_setting: the access key for this install / update — SGWL_RELAY_KEY (a key / on / off),
+# else host.env's, else none: a home server is zero setup (the game's builds connect to it with no
+# key); `rotate-key` or SGWL_RELAY_KEY=on turns a key on (friends then need the share link)
+load_key_setting() {
+  resolve_relay_key "$(saved_relay_key)" off
+  if [[ $RELAY_KEY_NEW == 1 ]]; then
+    log "已生成访问密钥：从现在起朋友要用最后打印的「分享链接」进入 / made an access key: from now on friends join through the SHARE LINK printed at the end"
+  elif [[ $RELAY_KEY == off ]]; then
+    log "访问密钥：关闭（零设置，打开网址或游戏就能联机；要只让拿到分享链接的人进：rotate-key）/ access key: off (zero setup; to admit only people with the share link: rotate-key)"
+  fi
+}
+
+# load_update_interval: SGWL_UPDATE_INTERVAL (seconds, ≥ 60), else host.env's, else 300
+load_update_interval() {
+  local v=${SGWL_UPDATE_INTERVAL:-}
+  [[ -n $v ]] || v=$(sed -n 's/^SGWL_UPDATE_INTERVAL=//p' "$STATE_FILE" 2>/dev/null | head -n1 || true)
+  if [[ $v =~ ^[0-9]+$ ]] && ((v >= 60)); then UPDATE_INTERVAL=$v; fi
 }
 
 # SGWL_HEADLESS from the environment, else what an earlier run saved
@@ -655,10 +923,18 @@ server_stats() {
 load_state() {
   [[ -f $STATE_FILE ]] || return 1
   DOMAIN=$(sed -n 's/^DOMAIN=//p' "$STATE_FILE" | head -n1)
+  RELAY_KEY=$(saved_relay_key)
   [[ -n $DOMAIN ]]
 }
 
-# refresh_bin: the copy of these scripts the daily update runs (renamed into place: a running copy is not disturbed)
+# built_sha → the commit the build on disk is (APP_DIR/.sgwl-sha, written after a build; '' unknown)
+built_sha() {
+  local s
+  s=$(cat "$APP_DIR/.sgwl-sha" 2>/dev/null || true)
+  if is_sha "$s"; then echo "$s"; fi
+}
+
+# refresh_bin: the copy of these scripts the auto-update runs (renamed into place: a running copy is not disturbed)
 refresh_bin() {
   [[ -f $APP_DIR/deploy/home-host.sh ]] || return 0
   mkdir -p "$BIN_DIR"
@@ -666,35 +942,36 @@ refresh_bin() {
   cp "$APP_DIR/deploy/install.sh" "$BIN_DIR/install.sh.new" && mv "$BIN_DIR/install.sh.new" "$BIN_DIR/install.sh"
 }
 
-# the daily update: a copy of these scripts (an update replaces the source tree under it) and a
-# LaunchAgent / systemd timer that runs `home-host.sh auto-update` at 05:07
+# the auto-update: a copy of these scripts (an update replaces the source tree under it) and a
+# LaunchAgent / systemd timer that runs `home-host.sh auto-update` every UPDATE_INTERVAL seconds
 install_updater() {
   local path
   if [[ ! -f $APP_DIR/deploy/home-host.sh ]]; then
-    warn "这个版本还没有 home-host.sh，跳过每日自动更新 / no home-host.sh in this version: no daily update"
+    warn "这个版本还没有 home-host.sh，跳过自动更新 / no home-host.sh in this version: no auto-update"
     return 0
   fi
   refresh_bin
   path="$(dirname "$(command -v node)"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
   if [[ $HOST_OS == macos ]]; then
-    update_plist "$UPDATE_LABEL" "$BIN_DIR/home-host.sh" "$UPDATE_HOUR" "$UPDATE_MINUTE" "$path" "$UPDATE_LOG" >"$UPDATE_PLIST.tmp"
+    update_plist "$UPDATE_LABEL" "$BIN_DIR/home-host.sh" "$UPDATE_INTERVAL" "$path" "$UPDATE_LOG" >"$UPDATE_PLIST.tmp"
     mv "$UPDATE_PLIST.tmp" "$UPDATE_PLIST"
     launchctl bootout "gui/$UID/$UPDATE_LABEL" >/dev/null 2>&1 || true
-    launchctl bootstrap "gui/$UID" "$UPDATE_PLIST" 2>/dev/null || launchctl load -w "$UPDATE_PLIST" 2>/dev/null || warn "每日更新没有启用 / could not schedule the daily update"
+    launchctl bootstrap "gui/$UID" "$UPDATE_PLIST" 2>/dev/null || launchctl load -w "$UPDATE_PLIST" 2>/dev/null || warn "自动更新没有启用 / could not schedule the auto-update"
   else
     local tmp
     tmp=$(mktemp)
-    update_units "$BIN_DIR/home-host.sh" "$(id -un)" "$UPDATE_HOUR" "$UPDATE_MINUTE" "$path" >"$tmp"
+    update_units "$BIN_DIR/home-host.sh" "$(id -un)" "$UPDATE_INTERVAL" "$path" >"$tmp"
     sed '/^---$/,$d' "$tmp" | $SUDO tee "/etc/systemd/system/${UNIT}-update.service" >/dev/null
     sed '1,/^---$/d' "$tmp" | $SUDO tee "/etc/systemd/system/${UNIT}-update.timer" >/dev/null
     rm -f "$tmp"
     $SUDO systemctl daemon-reload
-    $SUDO systemctl enable -q --now "${UNIT}-update.timer"
+    $SUDO systemctl enable -q "${UNIT}-update.timer"
+    $SUDO systemctl restart "${UNIT}-update.timer"
   fi
-  log "每日 $(printf '%02d:%02d' "$UPDATE_HOUR" "$UPDATE_MINUTE") 自动更新（有人在玩时跳过）/ daily update at $(printf '%02d:%02d' "$UPDATE_HOUR" "$UPDATE_MINUTE") (skipped while anyone plays)"
+  log "每 $((UPDATE_INTERVAL / 60)) 分钟检查一次更新：只更新到 GitHub CI 通过的版本，有人在玩时不更新 / checks for updates every $((UPDATE_INTERVAL / 60)) minutes: only to a version GitHub's CI passed, never while anyone plays"
 }
 
-# restart the game server without sudo (the daily update): launchd / systemd (Restart=always) start it again
+# restart the game server without sudo (the auto-update): launchd / systemd (Restart=always) start it again
 service_kick() {
   if [[ $HOST_OS == macos ]]; then
     launchctl kickstart -k "gui/$UID/$LABEL"
@@ -742,14 +1019,26 @@ EOF
 cmd_install() {
   local stats
   rotate_logs
+  # (an auto-update building right now finishes first: two builds must not swap dist/ at once)
+  acquire_lock 2700 || die "另一个安装/更新 45 分钟还没结束 / another install or update has been running for 45 minutes — see $LOG_FILE"
   load_headless_setting
+  load_update_interval
+  load_key_setting
   ensure_node
   ensure_tailscale
+  # the key is saved before anything else can fail: the next run keeps it
+  save_state
   stats=$(server_stats)
   if [[ -n $stats ]] && game_busy "$stats"; then
     warn "有人在玩（玩家 $(human_players "$stats")）：重启服务会让他们掉线 / $(human_players "$stats") player(s) connected: restarting the server drops them"
   fi
-  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then fetch_source; fi
+  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then
+    # the branch head, pinned (a source tarball says no commit by itself)
+    FETCH_REF=$(remote_head_sha || true)
+    fetch_source
+  else
+    FETCHED_SHA=${SGWL_TARGET_SHA:-$(git_head)}
+  fi
   if scripts_changed; then hand_over "$1"; fi
   build_game
   check_build_points_here
@@ -770,8 +1059,10 @@ cmd_install() {
 }
 
 cmd_status() {
-  local ok=1 stats state dns _https _funnel target
+  local ok=1 stats state dns _https _funnel target sha
   node_path_setup
+  RELAY_KEY=$(saved_relay_key)
+  load_update_interval
   if service_running; then log "游戏服务 / game server: 运行中 / running"; else
     warn "游戏服务未运行 / game server is not running"
     ok=0
@@ -784,6 +1075,13 @@ cmd_status() {
     else
       log "服务器托管对局 headless: 关 off（房间由房主的浏览器运行 / rooms run in the host player's browser）"
     fi
+    if [[ $(stat_flag "$stats" keyRequired) == true ]]; then
+      log "访问密钥 access key: 开 on（朋友用分享链接进入 / friends join through the share link）"
+    else
+      warn "访问密钥 access key: 关 off — 谁拿到网址都能玩 / anyone with the address can play"
+    fi
+    sha=$(stat_sha "$stats")
+    log "版本 version: ${sha:0:12}${sha:+ · }每 $((UPDATE_INTERVAL / 60)) 分钟自动更新到 GitHub CI 通过的版本 / auto-updates every $((UPDATE_INTERVAL / 60)) min to what GitHub's CI passed"
   else
     warn "本机 127.0.0.1:${APP_PORT} 无响应 / no answer"
     ok=0
@@ -791,6 +1089,7 @@ cmd_status() {
   TS=$(find_tailscale) || stop_here "$(tailscale_help "$HOST_OS")"
   read -r state dns _https _funnel <<<"$(ts_fields)"
   log "Tailscale: $state $dns"
+  warn_key_expiry
   DOMAIN=$dns
   [[ $DOMAIN != - ]] || DOMAIN=$(sed -n 's/^DOMAIN=//p' "$STATE_FILE" 2>/dev/null | head -n1)
   [[ -n $DOMAIN ]] || die "未找到本机的 Tailscale 域名 / no Tailscale name for this machine"
@@ -804,31 +1103,146 @@ cmd_status() {
   ((ok == 1))
 }
 
-# the daily job: skip while anyone plays; otherwise pull, rebuild, restart
+# auto_restart SHA: the server still runs an older build than the one on disk (a restart that had
+# to wait for the players) — restart it now, once per build (a server that cannot say which build it
+# runs must not be restarted every 5 minutes)
+auto_restart() {
+  if [[ $(au_get restarted) == "$1" ]]; then
+    skip_log restart-no-effect "重启后服务器仍报告旧版本 / after a restart the server still reports another build than ${1:0:12}"
+    return 0
+  fi
+  au_set restarted "$1"
+  au_header
+  log "重启到已构建的新版本 / restarting into the build waiting on disk (${1:0:12})"
+  service_kick || die "重启后游戏服务没有启动 / the game server did not come back after the restart"
+  log "已更新 / updated (${1:0:12})"
+}
+
+# the job every 5 minutes: nothing while anyone plays; nothing unless GitHub's branch head is another
+# commit than the one built here AND GitHub's warlords-ci passed for it (else the newest commit CI
+# passed); then fetch, build, check again that nobody started playing, restart. Each reason to skip
+# is logged at most once an hour; GitHub rate limits / no network skip the round.
 cmd_auto_update() {
-  local stats
+  local stats head built running decision runs rc verdict target
   rotate_logs
   node_path_setup
   load_state || die "尚未安装 / not installed yet"
+  load_headless_setting
+  load_update_interval
+  acquire_lock 0 || {
+    skip_log locked "另一个安装/更新正在进行，这一轮跳过 / another install or update is running — skipping this round"
+    return 0
+  }
+  # a build marker left behind: that build failed (it died) — not again for an hour
+  if [[ -f $AU_BUILDING ]]; then
+    au_set failed "$(cat "$AU_BUILDING" 2>/dev/null || echo unknown) $(now_s)"
+    rm -f "$AU_BUILDING"
+  fi
   stats=$(server_stats)
-  if [[ -n $stats ]] && game_busy "$stats"; then
-    log "有人在玩（房间 $(stat_field "$stats" rooms)，玩家 $(human_players "$stats")，服务器托管 $(stat_field "$stats" headlessHumans)），今天不更新 / a game is on — no update today"
+  if [[ -z $stats ]]; then
+    skip_log server-down "游戏服务没有响应（launchd / systemd 会重启它），这一轮不更新 / the game server does not answer (launchd / systemd restarts it) — no update this round"
     return 0
   fi
-  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then fetch_source; fi
+  if game_busy "$stats"; then
+    skip_log busy "有人在玩（房间 $(stat_field "$stats" rooms)，玩家 $(human_players "$stats")，服务器托管 $(stat_field "$stats" headlessHumans)），不更新 / a game is on — no update"
+    return 0
+  fi
+  if [[ ${SGWL_REEXEC:-0} == 1 ]]; then
+    # the previous version's scripts decided and fetched; these build it
+    FETCHED_SHA=${SGWL_TARGET_SHA:-$(git_head)}
+  else
+    head=$(remote_head_sha) || {
+      skip_log offline "连不上 GitHub，这一轮跳过 / GitHub unreachable — skipping this round"
+      return 0
+    }
+    built=$(built_sha)
+    running=$(stat_sha "$stats")
+    decision=$(update_decision "$head" "$built" "$running")
+    if [[ $decision == current ]]; then return 0; fi
+    if [[ $decision == restart ]]; then
+      auto_restart "$built"
+      return 0
+    fi
+    if recently_failed "$head"; then
+      skip_log build-failed "${head:0:12} 的构建一小时内失败过，稍后再试 / building ${head:0:12} failed within the hour — trying again later"
+      return 0
+    fi
+    if runs=$(github_api "$(ci_runs_url "head_sha=${head}&event=push&per_page=20")"); then rc=0; else rc=$?; fi
+    if ((rc == 2)); then
+      skip_log rate-limited "GitHub 暂时拒绝查询（频率限制），这一轮跳过 / GitHub refuses for now (rate limit) — skipping this round"
+      return 0
+    elif ((rc != 0)); then
+      skip_log github "查不到 GitHub CI 的结果，这一轮跳过 / could not ask GitHub about CI — skipping this round"
+      return 0
+    fi
+    verdict=$(ci_verdict "$runs" "$head")
+    case $verdict in
+      success) target=$head ;;
+      pending)
+        skip_log ci-pending "${head:0:12} 的 CI 还没跑完，等它通过 / CI for ${head:0:12} is still running — waiting for it to pass"
+        return 0
+        ;;
+      failure)
+        skip_log ci-failed "${head:0:12} 的 CI 没通过，不更新 / CI failed for ${head:0:12} — not updating"
+        return 0
+        ;;
+      *)
+        # no warlords-ci run for the head (it changed nothing the CI watches, or was pushed seconds
+        # ago): the newest commit CI passed on the branch, if the build here is not that one already
+        if runs=$(github_api "$(ci_runs_url "branch=${BRANCH}&event=push&status=success&per_page=1")"); then rc=0; else rc=$?; fi
+        target=''
+        if ((rc == 0)); then target=$(latest_green_sha "$runs"); fi
+        if [[ -z $target || $target == "$built" ]] || recently_failed "$target"; then
+          skip_log no-ci "${head:0:12} 没有 warlords-ci 的结果，已是 CI 通过的最新版 / no warlords-ci run for ${head:0:12}; the build here is the newest CI passed"
+          return 0
+        fi
+        ;;
+    esac
+    au_header
+    log "更新到 / updating to ${target:0:12}（GitHub CI ✓）"
+    FETCH_REF=$target
+    fetch_source
+    # (a source tarball knows no commit by itself: it is the one asked for)
+    if [[ -z $FETCHED_SHA ]]; then FETCHED_SHA=$target; fi
+  fi
   if scripts_changed; then hand_over auto-update; fi
+  au_header
+  echo "${FETCHED_SHA:-unknown}" >"$AU_BUILDING"
   build_game
+  rm -f "$AU_BUILDING"
   # the build takes minutes (npm ci: up to half an hour): someone may have started playing meanwhile.
-  # The new page and room worker are already in place; the restart waits for the next idle morning.
+  # The new page and room worker are already in place; the restart waits for a run nobody plays in.
   stats=$(server_stats)
   if [[ -n $stats ]] && game_busy "$stats"; then
-    log "已构建，但有人开始玩了，重启推迟到下次 / built, but a game started meanwhile — the restart waits for the next run"
+    log "已构建，但有人开始玩了，重启推迟 / built, but a game started meanwhile — the restart waits until nobody plays"
     refresh_bin
     return 0
   fi
+  au_set restarted "${FETCHED_SHA:-unknown}"
   service_kick || die "更新后游戏服务没有启动 / the game server did not come back after the update"
   refresh_bin
-  log "已更新 / updated"
+  log "已更新 / updated (${FETCHED_SHA:0:12})"
+}
+
+# rotate-key: a new access key (a share link went too far). The server restarts with it: everyone
+# playing drops, and every friend needs the new share link.
+cmd_rotate_key() {
+  local stats
+  rotate_logs
+  node_path_setup
+  load_state || die "尚未安装，先运行安装命令 / not installed yet — run the install command first"
+  load_headless_setting
+  load_update_interval
+  acquire_lock 2700 || die "另一个安装/更新还在进行 / another install or update is still running"
+  stats=$(server_stats)
+  if [[ -n $stats ]] && game_busy "$stats"; then
+    warn "有人在玩（玩家 $(human_players "$stats")）：换密钥会重启服务，他们会掉线 / $(human_players "$stats") player(s) connected: the restart drops them"
+  fi
+  RELAY_KEY=$(gen_relay_key) || die "无法生成访问密钥 / could not generate an access key"
+  save_state
+  install_service
+  warn "访问密钥已更换：旧的分享链接从现在起失效，把下面的新链接发给朋友 / the access key changed: old share links stop working now — send friends the new link below"
+  print_summary
 }
 
 cmd_stop() {
@@ -860,19 +1274,33 @@ main() {
     if [[ $EUID -ne 0 ]]; then SUDO=sudo; fi
   fi
   mkdir -p "$INSTALL_DIR"
-  # (a hand-over from the previous version's script: its output already goes to the log)
-  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then exec > >(tee -a "$LOG_FILE") 2>&1; fi
+  # everything in it is this user's alone (host.env and the LaunchAgent hold the access key; the logs)
+  chmod 700 "$INSTALL_DIR" 2>/dev/null || true
+  # (a hand-over from the previous version's script: its output already goes to the log; the log
+  # gets every line with the access key masked — the terminal shows the share link)
+  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then
+    # (what an older version logged as it was — the first update from one hands over to this
+    # script while the old one's log copy still takes every line: masked on the next run)
+    scrub_log "$LOG_FILE"
+    scrub_log "$LOG_FILE.1"
+    open_log "$LOG_FILE"
+    exec > >(log_tee "$LOG_FILE") 2>&1
+  fi
   trap 'on_error $LINENO' ERR
-  log "$(date '+%F %T') sgwl home-host.sh ${cmd} ($HOST_OS $(uname -m))"
+  trap release_lock EXIT
+  # (the auto-update runs every 5 minutes: it writes its heading only when it has something to say)
+  if [[ $cmd != auto-update ]]; then log "$(date '+%F %T') sgwl home-host.sh ${cmd} ($HOST_OS $(uname -m))"; fi
   case $cmd in
     install | update) cmd_install "$cmd" ;;
     status) cmd_status || exit 1 ;;
+    rotate-key) cmd_rotate_key ;;
     stop) cmd_stop ;;
     auto-update) cmd_auto_update ;;
-    *) die "用法 / usage: home-host.sh [install|update|status|stop|auto-update]" ;;
+    *) die "用法 / usage: home-host.sh [install|update|status|rotate-key|stop|auto-update]" ;;
   esac
 }
 
 if [[ ${SGWL_LIB:-0} != 1 ]]; then
   main "$@"
 fi
+

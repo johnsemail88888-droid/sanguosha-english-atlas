@@ -13,3 +13,5 @@ scripts/package-lock.json
 *.tsbuildinfo
 test-results-mac
 playwright-report-mac
+# deploy/install.sh: the commit the build in dist/ is
+.sgwl-sha

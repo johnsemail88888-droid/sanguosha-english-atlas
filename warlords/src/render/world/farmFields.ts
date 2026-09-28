@@ -17,6 +17,7 @@ import { hashString, valueNoise2 } from '../core/noise';
 import { texFile, texSizesFor, worldArtQuality } from '../core/worldArt';
 import { applySkyArtFog, skyArtFogKey } from '../core/skyArtFog';
 import { capTexture } from './propModels';
+import { withCdnFallback } from '../../game/assetCdn';
 
 export const FARM_TEX = texFile('farm');
 
@@ -232,7 +233,7 @@ export function buildFarmArt(map: MapData, tex: THREE.Texture | null): FarmArt |
 /** Decode tex/farm.webp (sized for the quality tier), or null when it fails. */
 export async function loadFarmTexture(): Promise<THREE.Texture | null> {
   try {
-    const tex = await new THREE.TextureLoader().loadAsync(FARM_TEX);
+    const tex = await withCdnFallback(FARM_TEX, (u) => new THREE.TextureLoader().loadAsync(u));
     tex.colorSpace = THREE.SRGBColorSpace;
     const q = worldArtQuality();
     const out = capTexture(tex, texSizesFor(q).ground);

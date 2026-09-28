@@ -82,5 +82,7 @@ export default defineConfig(({ mode }) => ({
   test: {
     include: ['tests/unit/**/*.test.ts'],
     environment: 'node',
+    // the shipped build talks to the owner's Mac mini (src/net/official.ts); tests never do
+    env: { VITE_OFFICIAL_RELAY: '', VITE_OFFICIAL_WEB: '' },
   },
 }));

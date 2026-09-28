@@ -1,0 +1,2 @@
+sgwl-asset-cdn
+# src/game/assetCdn.ts asks a VITE_ASSET_CDN copy of public/ for this file before loading art from it.

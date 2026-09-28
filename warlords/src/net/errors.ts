@@ -24,7 +24,15 @@ export type NetErrorCode =
   /** the server refused to create another room right now (POST /api/rooms answered 429) */
   | 'rateLimited'
   /** a server-run room was closed by the server (restart / update) */
-  | 'serverClosed';
+  | 'serverClosed'
+  /** the server requires an access key (RELAY_KEY) this page does not have, or has a wrong / outdated one of */
+  | 'keyRequired'
+  /** host: the relay ended this room for good (idle too long / open for hours) and refuses its code */
+  | 'roomClosed'
+  /** the server has no room left (MAX_ROOMS): nobody can open another one right now */
+  | 'serverFull'
+  /** this network address already holds as many rooms as the server allows at once (MAX_ROOMS_PER_IP) */
+  | 'tooManyRooms';
 
 const MESSAGES: Record<NetErrorCode, { zh: string; en: string }> = {
   roomNotFound: { zh: '房间不存在', en: 'Room not found' },
@@ -55,6 +63,10 @@ const MESSAGES: Record<NetErrorCode, { zh: string; en: string }> = {
   relayLost: { zh: '与中转服务器的连接已断开', en: 'Lost the connection to the relay server' },
   rateLimited: { zh: '创建房间太频繁了，请过一分钟再试', en: 'Too many rooms created just now — try again in a minute' },
   serverClosed: { zh: '服务器关闭了房间（可能正在更新），请重新创建房间', en: 'The server closed the room (it may be updating) — please create a new room' },
+  keyRequired: { zh: '需要房主发的邀请链接（带密钥）', en: 'Ask the host for the invite link (it carries the key)' },
+  roomClosed: { zh: '服务器关闭了这个房间（空闲太久或开得太久），请重新创建房间', en: 'The server closed this room (idle too long, or open for hours) — please create a new room' },
+  serverFull: { zh: '服务器房间已满，请稍后再试', en: 'The server is full — try again a little later' },
+  tooManyRooms: { zh: '你这边已经开着房间了，请先关掉一个再创建', en: 'You already have rooms open on this server — close one before creating another' },
 };
 
 /**

@@ -35,8 +35,13 @@ describe('classifyCreateResponse', () => {
     expect(classifyCreateResponse(201, { code: 'abcde', ownerKey: OWNER_KEY })).toMatchObject({ kind: 'created', code: 'ABCDE' });
   });
 
-  it('429 is the one error the player sees', () => {
+  it('429 and a full server are the errors the player sees', () => {
     expect(classifyCreateResponse(429, { error: 'rate-limited' })).toEqual({ kind: 'rateLimited' });
+    expect(classifyCreateResponse(429, null)).toEqual({ kind: 'rateLimited' });
+    // MAX_ROOMS_PER_IP: this address holds enough rooms (its page-hosted room would be refused too)
+    expect(classifyCreateResponse(429, { error: 'too-many-rooms' })).toEqual({ kind: 'tooManyRooms' });
+    // MAX_ROOMS: the relay has no room left either — not "host it in the page"
+    expect(classifyCreateResponse(503, { error: 'server-full' })).toEqual({ kind: 'serverFull' });
   });
 
   it('anything else hosts the room in the page: old server, no bundle, full, worker failed, malformed', () => {

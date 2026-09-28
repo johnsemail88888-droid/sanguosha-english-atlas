@@ -25,7 +25,9 @@ export function buildGame(kind: 'dist' | 'single'): string {
   const out = kind === 'dist' ? DIST : DIST_SINGLE;
   const args = [path.join(ROOT, 'node_modules/vite/bin/vite.js'), 'build', '--outDir', out, '--emptyOutDir', '--logLevel', 'warn'];
   if (kind === 'single') args.push('--mode', 'single');
-  const r = spawnSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', timeout: 300_000 });
+  // e2e builds never talk to the real official server (the owner's Mac mini, src/net/official.ts)
+  const env = { ...process.env, VITE_OFFICIAL_RELAY: process.env.VITE_OFFICIAL_RELAY ?? '', VITE_OFFICIAL_WEB: process.env.VITE_OFFICIAL_WEB ?? '' };
+  const r = spawnSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', timeout: 300_000, env });
   if (r.status !== 0) throw new Error(`vite build (${kind}) failed:\n${r.stdout}\n${r.stderr}`);
   return out;
 }
@@ -86,13 +88,14 @@ export async function startPreview(port: number): Promise<Server> {
  * Rooms are hosted in the creating page (HEADLESS=0) unless `headless`: then the server runs
  * them (POST /api/rooms → a room worker from the e2e cache's bundle, src/headless).
  */
-export async function startRelay(port: number, opts: { headless?: boolean } = {}): Promise<Server> {
+export async function startRelay(port: number, opts: { headless?: boolean; env?: Record<string, string> } = {}): Promise<Server> {
   ensureBuilt('dist');
   if (opts.headless && !existsSync(HEADLESS_WORKER)) buildHeadless();
   const headlessEnv = opts.headless ? { HEADLESS: '1', HEADLESS_WORKER } : { HEADLESS: '0' };
   const proc: ChildProcess = spawn(process.execPath, ['server/server.mjs'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DIST_DIR: DIST, ...headlessEnv },
+    // (env: e.g. RELAY_KEY for a server that requires the access key)
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', DIST_DIR: DIST, ...headlessEnv, ...opts.env },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   proc.stderr?.on('data', (d) => process.stderr.write(`[relay] ${d}`));
