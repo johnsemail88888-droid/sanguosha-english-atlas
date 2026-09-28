@@ -1,20 +1,22 @@
-// Scope glint: a hero looking down a sniper / marksman scope flashes a small
-// sun glint toward whoever stands in front of the lens — the fair tell of a
-// scope aimed at you (other heroes only, never through walls). A small star
-// sprite at the scope, a constant size on screen, brightest dead on the aim line.
+// Scope glint: a hero looking down a real scope (the sniper's, 烈弓's — the
+// lens-overlay sights; a DMR's near sight does not flash) glints toward whoever
+// stands in front of the lens — the fair tell of a scope aimed at you (other
+// heroes only, beyond 20 m, never through walls). A small star sprite at the
+// scope, a constant size on screen, brightest dead on the aim line and brighter
+// the stronger the zoom (2.5× 0.4 … 8× 1.0: data/weaponFeel.ts glintBrightness).
 import * as THREE from 'three';
 import type { Vec3 } from '../../core/math';
 import { dirFromYawPitch } from '../../core/math';
 import type { EntityId, ViewEntity } from '../../core/types';
-import { VF_ADS, VF_DEAD, VF_DOWNED, VF_STEALTH } from '../../core/types';
+import { VF_ADS, VF_DEAD, VF_DOWNED, VF_STEALTH, VF_ZOOM2 } from '../../core/types';
 import { WEAPON_BY_ID } from '../../data';
-import { aimProfile } from '../../data/weaponFeel';
+import { adsZooms, aimProfile, glintBrightness } from '../../data/weaponFeel';
 import { fpEyeOf } from '../camera/firstPerson';
 
 const COS_FULL = Math.cos((7 * Math.PI) / 180);
 const COS_NONE = Math.cos((22 * Math.PI) / 180);
 /** Closer than this the glint adds nothing (you can see the shooter anyway). */
-const MIN_DIST = 10;
+export const GLINT_MIN_DIST = 20;
 
 /**
  * Glint strength 0..1 for a scope aimed along `aim` seen from the direction
@@ -22,10 +24,17 @@ const MIN_DIST = 10;
  * line, gone past ~22°; none up close.
  */
 export function glintStrength(aim: Vec3, toViewer: Vec3, dist: number): number {
-  if (dist < MIN_DIST) return 0;
+  if (dist < GLINT_MIN_DIST) return 0;
   const c = aim.x * toViewer.x + aim.y * toViewer.y + aim.z * toViewer.z;
   const s = (c - COS_NONE) / (COS_FULL - COS_NONE);
   return s <= 0 ? 0 : s >= 1 ? 1 : s;
+}
+
+/** The zoom another hero looks through (his scope's first step, or its second: VF_ZOOM2). */
+export function glintZoom(e: Pick<ViewEntity, 'flags' | 'weapon'>): number {
+  const def = e.weapon ? WEAPON_BY_ID[e.weapon] : undefined;
+  const z = adsZooms(def);
+  return (e.flags & VF_ZOOM2 ? z[z.length - 1] : z[0]) ?? 1;
 }
 
 /** Does this hero entity show a glint at all (aiming a scoped weapon, up, not hidden)? */
@@ -94,13 +103,14 @@ export class ScopeGlints {
       _to.multiplyScalar(1 / dist);
       const s = glintStrength(aim, _to, dist);
       if (s <= 0.02 || blocked(_eye, { x: camPos.x, y: camPos.y, z: camPos.z })) continue;
+      const bright = glintBrightness(glintZoom(e));
       const sp = this.sprite(n++);
       sp.position.set(_eye.x, _eye.y, _eye.z);
       // ~3° across at full strength whatever the distance / zoom, with a slow twinkle
       const twinkle = 0.85 + 0.15 * Math.sin(time * 7.3 + e.id * 1.7);
-      const size = (dist * 0.052 * (0.45 + 0.55 * s) * twinkle) / Math.max(1, zoom);
+      const size = (dist * 0.052 * (0.45 + 0.55 * s) * (0.6 + 0.4 * bright) * twinkle) / Math.max(1, zoom);
       sp.scale.set(size, size, 1);
-      (sp.material as THREE.SpriteMaterial).opacity = Math.min(1, 0.35 + 0.75 * s);
+      (sp.material as THREE.SpriteMaterial).opacity = Math.min(1, (0.35 + 0.75 * s) * bright);
       sp.visible = true;
     }
     for (let i = n; i < this.pool.length; i++) this.pool[i]!.visible = false;

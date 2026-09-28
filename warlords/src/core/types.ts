@@ -215,6 +215,10 @@ export interface ProjectileState {
   pierce: number; // remaining pierce-through count
   canDodge: boolean;
   onHitStatus?: { id: StatusId; duration: number; params?: Record<string, number> };
+  /** explosions before this time are duds: the direct hit only (a launcher grenade's arming distance) */
+  armAt?: number;
+  /** lag compensation (a remote human's shot): the ticks units are rewound by when this projectile tests hits, all flight long */
+  lagTicks?: number;
 }
 
 export interface LootState {
@@ -305,6 +309,11 @@ export const BTN_INTERACT = 32; // F held (channels: revive/open)
  * mode, not a held control (never counts as activity).
  */
 export const BTN_FIRST_PERSON = 64;
+/**
+ * A scope's second zoom step is selected (8× on a sniper, 5× on 烈弓): other
+ * players see a brighter glint (VF_ZOOM2). A view detail, not a held control.
+ */
+export const BTN_ZOOM2 = 128;
 
 export type AbilitySlot = 'q' | 'e' | 'lord';
 
@@ -378,6 +387,8 @@ export type GameEvent = EventRouting &
         head?: boolean;
         /** the whole hit when the target's HP ran out under it (`amount` is only the HP that was left): the damage number shows this */
         full?: number;
+        /** damage the target's armor took off this hit (absent: none) — the pale-blue number and the armor tick */
+        soak?: number;
         /** 'redirect': the victim handed the hit to another unit (大乔 流离) — the shooter sees "deflected" */
         blocked?: 'dodge' | 'armor' | 'invuln' | 'shield' | 'nullify' | 'redirect';
       }
@@ -422,6 +433,12 @@ export type GameEvent = EventRouting &
         ability?: string;
       }
     | { t: 'gameOver'; result: GameResult }
+    /**
+     * A homing rocket (方天画戟) locked onto `target` (on) — or its lock ended: it
+     * hit, burst, expired or a dodge roll broke it (off). The target sees a
+     * warning toward `src`, the shooter hears the lock (sim/lockWatch.ts).
+     */
+    | { t: 'lock'; src: EntityId; target: EntityId; proj: EntityId; on: boolean }
   );
 
 export interface GameResult {
@@ -467,6 +484,7 @@ export const VF_BOOSTED = 1 << 25; // dmgBoost active (glow)
 export const VF_EXPOSED = 1 << 26; // 'reveal' status: shown on the minimap / outlined through walls (public, or private to this viewer)
 export const VF_REVIVING = 1 << 27; // a downed hero someone else is reviving right now (bleed-out paused)
 export const VF_SOUL = 1 << 28; // a dead hero whose 魂幡 still stands: hold F at the body to call him back (招魂)
+export const VF_ZOOM2 = 1 << 29; // aiming through a scope's second (stronger) zoom step: a brighter scope glint
 
 export interface ViewEntity {
   id: EntityId;

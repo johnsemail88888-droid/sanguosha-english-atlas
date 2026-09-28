@@ -200,6 +200,9 @@ describe('viewmodel', () => {
     expect(vm.hold).toBe('pole');
     // aiming draws the bow in toward the centre
     expect(Math.abs(adsPose('bow', 0).x)).toBeLessThan(Math.abs(HIP_POSE.bow.x) * 0.6);
+    // a launcher is aimed with its ladder, held right and low: its head never sits on the crosshair
+    expect(adsPose('launcher', 0.1).x).toBeGreaterThan(0.05);
+    expect(adsPose('launcher', 0.1).y).toBeLessThan(adsPose('rifle', 0.1).y - 0.05);
     vm.dispose();
   });
 

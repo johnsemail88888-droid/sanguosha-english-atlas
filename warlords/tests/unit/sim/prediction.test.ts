@@ -4,8 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import { terrainHeight } from '../../../src/core/map';
 import type { InputFrame, RoleId } from '../../../src/core/types';
-import { BTN_ADS, BTN_SPRINT, SIM_DT, defaultSettings, emptyInput } from '../../../src/core/types';
-import { HEROES } from '../../../src/data';
+import { BTN_ADS, BTN_FIRE, BTN_SPRINT, SIM_DT, defaultSettings, emptyInput } from '../../../src/core/types';
+import { HEROES, WEAPON_BY_ID } from '../../../src/data';
+import { adsMoveMul } from '../../../src/sim/handling';
 import { generateMap } from '../../../src/sim/map/generate';
 import { NAV_MAIN, buildNavGrid, locateNode } from '../../../src/sim/map/nav';
 import type { MoveMods, MoveState } from '../../../src/sim/physics';
@@ -16,11 +17,12 @@ import { hero, makeWorld, place } from './helpers';
 
 const ROLES5: RoleId[] = ['lord', 'loyalist', 'rebel', 'rebel', 'traitor'];
 
-/** What net/clientView does: the host's last moveMods + the frame's own ADS button. */
+/** What net/clientView does: the host's last moveMods + the frame's own ADS button + the ADS walk speed of the weapon in hand. */
 function clientMods(w: World, player: string, frame: InputFrame): MoveMods {
   const you = w.snapshotFor(player).you!;
   const ads = (frame.buttons & BTN_ADS) !== 0;
-  return { ...you.moveMods!, ads, downed: you.downed };
+  const wi = you.weapons[you.activeSlot];
+  return { ...you.moveMods!, ads, downed: you.downed, adsMul: adsMoveMul(wi ? WEAPON_BY_ID[wi.id] : undefined) };
 }
 
 function parity(w: World, seat: number, frames: InputFrame[]): number {
@@ -80,6 +82,22 @@ describe('client prediction parity', () => {
     // sprinting and aiming at once
     expect(e.hero!.sprinting).toBe(true);
     expect(e.hero!.ads).toBe(true);
+  });
+
+  it('each class walks at its own ADS pace and the client predicts it (SMG 0.72 … sniper 0.42), fire held never sprints', () => {
+    for (const id of ['smg', 'qilin', 'huben']) {
+      const w = makeWorld(ROLES5);
+      const e = hero(w, 2);
+      e.hero!.weapons[0] = w.newWeapon(id);
+      e.hero!.activeSlot = 0;
+      place(w, e, 0, 50, 0);
+      const frames = sprintThenAim(0);
+      // and sprint held with the trigger down
+      for (let i = 0; i < 15; i++) frames.push({ ...emptyInput(), moveZ: 1, yaw: 0, buttons: BTN_SPRINT | BTN_FIRE });
+      const worst = parity(w, 2, frames);
+      expect(worst, id).toBeLessThan(1e-9);
+      expect(e.hero!.sprinting, id).toBe(false);
+    }
   });
 });
 

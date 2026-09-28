@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Vec3 } from '../../../src/core/math';
 import type { Entity, GameEvent, InputAction, InputFrame, RoleId } from '../../../src/core/types';
 import { emptyInput } from '../../../src/core/types';
-import { HERO_BY_ID, isPassiveAbility } from '../../../src/data';
+import { HERO_BY_ID, WEAPON_BY_ID, isPassiveAbility } from '../../../src/data';
 import { SHU_HEROES } from '../../../src/data/heroes-shu';
 import { getAbility } from '../../../src/sim/abilities';
 import { aimAnglesFor } from '../../../src/sim/aim';
@@ -299,7 +299,7 @@ describe('张飞', () => {
     const gun = zf.hero!.weapons[0]!;
     gun.mag = 0;
     expect(cast(press(w, 1, 'q', { yaw: Math.PI }), q.id)).toBe(true);
-    expect(gun.mag).toBe(6);
+    expect(gun.mag).toBe(WEAPON_BY_ID.zhangba.magSize); // 8
     expect(w.hasStatus(zf.id, 'noReload')).toBe(true);
     expect(w.statusParam(zf.id, 'fireRateUp', 'mul', 1)).toBeCloseTo(q.params.fireRateMul, 5);
     expect(w.statusParam(near.id, 'slow', 'amount', 0)).toBeCloseTo(q.params.slow, 5);
@@ -307,7 +307,7 @@ describe('张飞', () => {
     // shooting (at the sky) does not use ammo
     send(w, 1, [], { yaw: Math.PI, pitch: 0.5, buttons: 1 });
     stepN(w, 20);
-    expect(gun.mag).toBe(6);
+    expect(gun.mag).toBe(WEAPON_BY_ID.zhangba.magSize);
     expect(w.cooldownLeft(zf.id, q.id)).toBeGreaterThan(q.cooldown! - 2);
   });
 
@@ -539,7 +539,7 @@ describe('马超', () => {
     expect(cast(press(w, 1, 'q'), q.id)).toBe(true);
     expect(w.hasStatus(mc.id, 'undodgeable')).toBe(true);
     expect(w.hasStatus(mc.id, 'pierce')).toBe(true);
-    foe.hero!.armor = 'baiyin'; // caps hits at 60 — unless armor is ignored
+    foe.hero!.armor = 'baiyin'; // caps hits at 80 — unless armor is ignored
     foe.hero!.dodgingUntil = w.time + 1; // mid-roll — unless the hit is undodgeable
     const r = w.dealDamage({ targetId: foe.id, sourceId: mc.id, amount: 100, type: 'normal', weaponId: 'hutou' });
     expect(r.blocked).toBeUndefined();
@@ -549,7 +549,7 @@ describe('马超', () => {
     foe.hero!.dodgingUntil = 0;
     w.removeStatus(foe.id, 'silence');
     const r2 = w.dealDamage({ targetId: foe.id, sourceId: mc.id, amount: 100, type: 'normal', weaponId: 'hutou' });
-    expect(r2.dealt).toBeLessThanOrEqual(60 + 1e-6);
+    expect(r2.dealt).toBeLessThanOrEqual(80 + 1e-6);
     expect(w.hasStatus(foe.id, 'silence')).toBe(false);
   });
 
@@ -711,7 +711,7 @@ describe('黄忠', () => {
     place(w, hz, 0, 50);
     line.forEach((t, i) => place(w, t, 0, 40 - i * 5));
     place(w, hero(w, 4), 20, 50);
-    line[1].hero!.armor = 'baiyin'; // would cap a normal hit at 60
+    line[1].hero!.armor = 'baiyin'; // would cap a normal hit at 80
     w.step();
     const q = def('q');
     expect(cast(press(w, 1, 'q', aim(w, hz, { x: 0, y: 0.2, z: 0 })), q.id)).toBe(true);

@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Entity, GameEvent, InputFrame } from '../../../src/core/types';
-import { BTN_ADS, BTN_FIRE, emptyInput } from '../../../src/core/types';
+import { BTN_ADS, BTN_FIRE, SIM_HZ, emptyInput } from '../../../src/core/types';
 import { BULLET_EVASION_CAP } from '../../../src/data';
+import { AIM_PROFILES } from '../../../src/data/weaponFeel';
 import { circleAttack } from '../../../src/sim/abilities/common';
+import { isBullet as weiIsBullet } from '../../../src/sim/abilities/wei/shared';
+import type { DamageRequest } from '../../../src/sim/api';
+import { isBulletDamage as combatIsBullet } from '../../../src/sim/combat';
+import { isBulletDamage } from '../../../src/sim/damageKinds';
 import type { AbilityImplEx } from '../../../src/sim/ext';
 import { aimAnglesFor } from '../../../src/sim/aim';
 import { DOWNED_DAMAGE_TO_SECONDS } from '../../../src/sim/combat';
@@ -39,6 +44,15 @@ function aimFrame(w: World, shooter: Entity, target: { x: number; y: number; z: 
   const f = { ...emptyInput(), yaw: ang.yaw, pitch: ang.pitch, aimPoint: { ...target }, viewTick: w.tick, ...p };
   f.buttons |= BTN_ADS;
   return f;
+}
+
+/** Hold the sights on `target` (seq 0 frames) until the weapon is fully aimed: a DMR's hip cone is wide (4.5°). */
+function raiseSights(w: World, shooter: Entity, target: { x: number; y: number; z: number }): void {
+  const n = Math.ceil(AIM_PROFILES.dmr.adsTime * SIM_HZ) + 2;
+  for (let i = 0; i < n; i++) {
+    w.setInput(shooter.hero!.playerId, aimFrame(w, shooter, target, { buttons: 0 }));
+    w.step();
+  }
 }
 
 function events<T extends GameEvent['t']>(evs: GameEvent[], t: T): Extract<GameEvent, { t: T }>[] {
@@ -78,15 +92,15 @@ describe('damage pipeline', () => {
     expect(w.dealDamage({ targetId: b.id, amount: 30, type: 'zone' }).dealt).toBe(30);
   });
 
-  it('八卦 evades ~35 % of bullets but never melee', () => {
+  it('八卦 evades ~30 % of bullets but never melee', () => {
     const { w, a, b } = duel();
     b.hero!.armor = 'bagua';
     b.maxHp = 1e9;
     b.hp = 1e9;
     let dodged = 0;
     for (let i = 0; i < 1000; i++) if (w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 1, type: 'normal', weaponId: 'pistol' }).blocked === 'dodge') dodged++;
-    expect(dodged).toBeGreaterThan(290);
-    expect(dodged).toBeLessThan(410);
+    expect(dodged).toBeGreaterThan(240);
+    expect(dodged).toBeLessThan(360);
     for (let i = 0; i < 100; i++) expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 1, type: 'melee' }).blocked).toBeUndefined();
     // armor-piercing rounds ignore 八卦 entirely
     for (let i = 0; i < 100; i++) expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 1, type: 'normal', weaponId: 'qinggang', ignoreArmor: true }).blocked).toBeUndefined();
@@ -94,8 +108,8 @@ describe('damage pipeline', () => {
 
   it('bullet evasion sources combine as 1 − Π(1 − p) and are capped at BULLET_EVASION_CAP', () => {
     const { w, a, b } = duel();
-    b.hero!.armor = 'bagua'; // 0.35
-    w.applyStatus(b.id, 'dodgeChance', 1e6, { sourceId: b.id, params: { chance: 0.5 } }); // → 0.675 uncapped
+    b.hero!.armor = 'bagua'; // 0.3
+    w.applyStatus(b.id, 'dodgeChance', 1e6, { sourceId: b.id, params: { chance: 0.5 } }); // → 0.65 uncapped
     b.maxHp = 1e9;
     b.hp = 1e9;
     let dodged = 0;
@@ -143,27 +157,31 @@ describe('damage pipeline', () => {
     // b at z=20 facing +z (toward a at z=30): yaw = pi
     b.yaw = Math.PI;
     const front = w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 100, type: 'normal', weaponId: 'pistol' });
-    expect(front.dealt).toBeCloseTo(30, 5);
+    expect(front.dealt).toBeCloseTo(60, 5);
     b.yaw = 0; // facing away
     const back = w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 100, type: 'normal', weaponId: 'pistol' });
     expect(back.dealt).toBeCloseTo(100, 5);
   });
 
-  it('藤甲: -40 % bullets, immune to troop bullets, fire ×2', () => {
+  it('藤甲: -30 % bullets, immune to troop bullets, fire ×1.75', () => {
     const { w, a, b } = duel();
     b.hero!.armor = 'tengjia';
-    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 100, type: 'normal', weaponId: 'pistol' }).dealt).toBeCloseTo(60, 5);
-    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 50, type: 'fire' }).dealt).toBeCloseTo(100, 5);
+    b.maxHp = b.hp = 1e6;
+    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 100, type: 'normal', weaponId: 'pistol' }).dealt).toBeCloseTo(70, 5);
+    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 50, type: 'fire' }).dealt).toBeCloseTo(87.5, 5);
+    // thunder direct hit: a bullet (×0.7); 朱雀's fire stream: no reduction, fire ×1.75
+    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 100, type: 'thunder', weaponId: 'taiping', canDodge: false }).dealt).toBeCloseTo(70, 5);
+    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 100, type: 'fire', weaponId: 'zhuque', canDodge: false }).dealt).toBeCloseTo(175, 5);
     const [troop] = w.spawnTroops(a.id, 'shu_rifleman', 1, { x: 0, y: 0, z: 25 });
     const r = w.dealDamage({ targetId: b.id, sourceId: troop.id, amount: 40, type: 'normal', weaponId: 'troop_rifle' });
     expect(r.dealt).toBe(0);
     expect(r.blocked).toBe('armor');
   });
 
-  it('白银狮子 caps single hits at 60 and heals 100 when removed', () => {
+  it('白银狮子 caps single hits at 80 and heals 100 when removed', () => {
     const { w, a, b } = duel();
     b.hero!.armor = 'baiyin';
-    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 250, type: 'explosive' }).dealt).toBe(60);
+    expect(w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 250, type: 'explosive' }).dealt).toBe(80);
     const hpBefore = b.hp;
     w.stripArmor(b.id);
     expect(b.hero!.armor).toBeNull();
@@ -180,7 +198,7 @@ describe('damage pipeline', () => {
 
   it('outgoing mods apply before armor, victim modifyIncoming after armor, shield after that', () => {
     const { w, a, b } = duel();
-    b.hero!.armor = 'tengjia'; // bullets ×0.6
+    b.hero!.armor = 'tengjia'; // bullets ×0.7
     let seenIncoming = -1;
     inject(w, a, { id: 't_out', modifyOutgoing: (_c, amt) => amt * 2 });
     inject(w, b, {
@@ -192,9 +210,9 @@ describe('damage pipeline', () => {
     });
     w.addShield(b.id, 20, 10);
     const r = w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 50, type: 'normal', weaponId: 'pistol' });
-    expect(seenIncoming).toBeCloseTo(50 * 2 * 0.6, 5);
+    expect(seenIncoming).toBeCloseTo(50 * 2 * 0.7, 5);
     expect(r.absorbed).toBeCloseTo(20, 5);
-    expect(r.dealt).toBeCloseTo(60 - 10 - 20, 5);
+    expect(r.dealt).toBeCloseTo(70 - 10 - 20, 5);
     expect(b.shield).toBe(0);
   });
 
@@ -334,7 +352,8 @@ describe('weapons', () => {
     const { w, a, b } = duel();
     b.hp = b.maxHp;
     const chest = { x: b.pos.x, y: b.pos.y + 1.1, z: b.pos.z };
-    a.hero!.weapons[0] = { id: 'qinggang', mag: 12, reserve: 48 }; // accurate DMR
+    a.hero!.weapons[0] = { id: 'qinggang', mag: 12, reserve: 48 }; // accurate DMR (once aimed)
+    raiseSights(w, a, chest);
     w.setInput('p2', aimFrame(w, a, chest, { seq: 1, buttons: BTN_FIRE }));
     w.drainEvents();
     w.step();
@@ -392,6 +411,7 @@ describe('weapons', () => {
   it('lag compensation rewinds targets to the shooter view tick', () => {
     const { w, a, b } = duel();
     a.hero!.weapons[0] = { id: 'qinggang', mag: 12, reserve: 48 };
+    raiseSights(w, a, { x: b.pos.x, y: b.pos.y + 1.1, z: b.pos.z });
     // b stands still for a few ticks at x=0 (history), then teleports 3 m to the side
     stepN(w, 5);
     const viewTick = w.tick;
@@ -577,5 +597,19 @@ describe('无懈可击 (nullify) vs ability effects', () => {
     expect(w.dealDamage({ targetId: b.id, sourceId: b.id, amount: 5, type: 'true', abilityId: 'self' }).dealt).toBe(5);
     expect(w.applyStatus(b.id, 'slow', 2, { sourceId: own.id, params: { amount: 0.2 } })).toBe(true);
     expect(w.hasStatus(b.id, 'nullify')).toBe(true);
+  });
+});
+
+describe('damageKinds.isBulletDamage (R9: armor, 八卦, 鬼才, 倾国, 流离 share it)', () => {
+  it('every direct weapon hit is a bullet; splash, zone, true HP loss, melee and ability hits are not', () => {
+    const r = (o: Partial<DamageRequest>): DamageRequest => ({ targetId: 1, amount: 1, type: 'normal', ...o });
+    for (const type of ['normal', 'pierce', 'fire', 'thunder', 'explosive'] as const) expect(isBulletDamage(r({ type, weaponId: 'x' })), type).toBe(true);
+    expect(isBulletDamage(r({ type: 'explosive', weaponId: 'guanshi', splash: true }))).toBe(false);
+    for (const type of ['zone', 'true', 'melee'] as const) expect(isBulletDamage(r({ type, weaponId: 'x' })), type).toBe(false);
+    expect(isBulletDamage(r({ type: 'normal', abilityId: 'x' }))).toBe(false);
+  });
+  it('the ability modules and combat use the one definition', () => {
+    expect(weiIsBullet).toBe(isBulletDamage);
+    expect(combatIsBullet).toBe(isBulletDamage);
   });
 });

@@ -18,8 +18,10 @@ import { mountTouchControls, shouldUseTouch, type TouchControls } from '../touch
 import { button, keyCap } from '../widgets';
 import { controlsFor, touchControlCells } from '../screens/help';
 import { AbilityBar, SquadPanel, TopBar, VitalsPanel, WeaponPanel } from './panels';
-import { ChannelBar, DamageDirection, DamageNumbers, DuelBar, InteractPromptView, KillStamp, SquadFocusWarning, ZoneWarning } from './combat';
-import { Crosshair, HitMarker, LootCompare, SightOverlay, WeaponCard, aimViewOf } from './aim';
+import { ChannelBar, DamageDirection, DuelBar, InteractPromptView, KillStamp, SquadFocusWarning, ZoneWarning } from './combat';
+import { Crosshair, HitMarker, LootCompare, SightOverlay, WeaponCard, aimViewOf, hitDamageKind } from './aim';
+import { AimMarks } from './aimMarks';
+import { DamageNumbers } from './damageNumbers';
 import { DeathCard, DownedPanel, KnockStamp, ReviveMarkers, ReviveRing, SpectatePanel, killerSnapshot } from './fallen';
 import { DamageLog, HelpCalls, MARKER_RANGE, bledOut, downedMarkers, knownFriends, type DownedMarker } from './deathlog';
 import { Announcer, ChatBox, KillFeed, PickupStrip, type FeedParty } from './feed';
@@ -78,6 +80,8 @@ export class Hud {
   /** what you look through while aiming (scope lens, red dot, iron sights, the bow's draw) — ./aim.ts */
   private readonly sight = new SightOverlay();
   private readonly hitMark = new HitMarker();
+  /** holdover ladder, impact diamond, blocked shot, 方天 lock brackets / warning — ./aimMarks.ts */
+  private readonly marks = new AimMarks();
   /** the stat card of a weapon that just came into your hands */
   private readonly wcard = new WeaponCard();
   /** stats of a weapon on the ground against yours, under its F prompt */
@@ -223,6 +227,8 @@ export class Hud {
     this.squad = new SquadPanel((o: SquadOrderKind) => this.handle.input.pushAction({ a: 'command', order: o }));
     // touch: the scope's zoom button switches the input's zoom step (the wheel on desktop)
     this.sight.onZoomTap = () => void this.handle.cycleZoom?.(1);
+    // touch: the 屏息 button holds the breath (Shift on a keyboard)
+    this.sight.onBreath = (down) => this.handle.input.setHeld('breath', down);
     this.top = new TopBar((id) => entityLabel(this.view, id, getLang())?.name ?? `#${id}`);
     // the link chip's buttons: 重试 restarts the automatic rejoin now, 离开 leaves the room (MP2-1 / MP2-2)
     this.top.onLinkAction = (a) => {
@@ -300,10 +306,12 @@ export class Hud {
       this.sight.near,
       this.sight.zoomBtn,
       this.rvMarks.el,
+      this.sight.breathBtn,
       this.dmgDir.el,
       this.focusWarn.el,
       this.dmg.el,
       this.crosshair.el,
+      this.marks.el,
       this.hitMark.el,
       this.skillAim.el,
       this.skillFeed.el,
@@ -361,6 +369,9 @@ export class Hud {
     const offApplying = this.ctx.qualityApplying?.((on) => this.setQualityApplying(on));
     if (offApplying) this.bag.add(offApplying);
     this.bag.add(this.handle.onEvents((evs) => this.onEvents(evs)));
+    // the crosshair blooms with every predicted shot of ours (not a round trip later with the host's 'shot')
+    const offFire = this.handle.onLocalFire?.((weaponId) => this.crosshair.shot(performance.now() / 1000, weaponId));
+    if (offFire) this.bag.add(offFire);
     this.bag.add(
       this.session.on('chat', (c) => {
         // lobby notices (join / leave / kick) also arrive as 'status' below: show them once
@@ -546,8 +557,9 @@ export class Hud {
     this.top.update(f);
     // the local aim (ADS progress, zoom, scope breath) from the input when the game provides it
     const aim = aimViewOf(f, this.handle.aim?.());
-    const scoped = this.sight.update(f, aim);
-    this.crosshair.update(f, aim);
+    const scoped = this.sight.update(f, aim, this.handle.aimAids?.() ?? null);
+    this.marks.update(f, aim, this.handle.aimAids?.() ?? null, settings.get().fov);
+    this.crosshair.update(f, aim, this.marks.blockedNow);
     this.wcard.update(f, aim.blend > 0.3 || scoped);
     this.dmg.update(now);
     this.dmgDir.update(f);
@@ -754,9 +766,14 @@ export class Hud {
             const mine = ev.src !== undefined && ev.src === myId;
             const bySquad = ev.src !== undefined && squad.has(ev.src);
             if ((mine || bySquad) && ev.target !== myId) {
-              if (ev.blocked) this.dmg.spawn(t(`hud.blocked.${ev.blocked}`), 'blocked', ev.pos, now);
+              // numbers float over the target's head (damageNumbers.ts puts them to its right), never on the aim point
+              const tv = this.view.get(ev.target);
+              const at = tv ? { x: tv.x, y: tv.y + 2.2, z: tv.z } : ev.pos;
+              // a dodge / 八卦: grey 「闪」 (merged numbers per target: ./damageNumbers.ts)
+              if (ev.blocked === 'dodge') this.dmg.hit(ev.target, 0, 'dodge', at, now, mine);
+              else if (ev.blocked) this.dmg.spawn(t(`hud.blocked.${ev.blocked}`), 'blocked', at, now);
               // (a knock / kill shows the whole shot, not just the HP that was left: ev.full)
-              else if (ev.amount > 0) this.dmg.spawn(String(Math.round(ev.full ?? ev.amount)), ev.head ? 'head' : mine ? 'normal' : 'squad', ev.pos, now);
+              else if (ev.amount > 0) this.dmg.hit(ev.target, ev.full ?? ev.amount, hitDamageKind(ev, mine), at, now, mine);
               if (mine && !ev.blocked && ev.amount > 0) this.hitMark.hit(ev.head ? 'head' : 'hit');
             }
             if (ev.target === myId && ev.src !== undefined && ev.src !== myId && ev.amount > 0) {
@@ -773,9 +790,12 @@ export class Hud {
           case 'heal':
             if (ev.target === myId && ev.amount >= 1) this.dmg.spawn(`+${Math.round(ev.amount)}`, 'heal', null, now);
             break;
+          case 'lock':
+            this.marks.onLock(ev, myId, now);
+            break;
           case 'shot':
-            // our own shots: the crosshair blooms like the sim's spread
-            if (ev.src === myId) this.crosshair.shot(now);
+            // our own shots: the crosshair blooms like the sim's spread (hosts without local fire only)
+            if (ev.src === myId && !this.handle.onLocalFire) this.crosshair.shot(now, ev.weapon);
             // soldiers' hits on you: the squad focus warning
             if (ev.hit !== undefined && ev.hit === myId) {
               const s = this.view.get(ev.src);

@@ -5,6 +5,7 @@ import type { Screen, SettingsTab, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { button, field, nameFieldModel, segmented, slider, tabs, textInput, toggle } from '../widgets';
+import { requestGyroPermission } from '../touch';
 import { choiceChosen, choicePatch, defaultChoice, markModeChosen, relayAddressPatch, type ConnChoice } from '../invite';
 import { officialServer } from '../../net/official';
 import { gpuShortName, isMac, qualityName } from '../perfcheck';
@@ -85,7 +86,14 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
     const st = settings.get();
     return [
       field(t('settings.mouse'), slider(st.mouseSensitivity, 0.2, 3, 0.05, (v) => upd({ mouseSensitivity: v }), mul, t('settings.mouse'))),
-      field(t('settings.ads'), slider(st.adsSensitivity, 0.2, 1.5, 0.05, (v) => upd({ adsSensitivity: v }), mul, t('settings.ads'))),
+      field(t('settings.ads'), slider(st.adsSensitivity, 0.5, 1.5, 0.05, (v) => upd({ adsSensitivity: v }), mul, t('settings.ads')),
+        tx('相对倍镜换算：1.00× 时，任何倍镜下鼠标移动同样距离，准星扫过的画面比例都与腰射相同（4 倍镜自动约 0.22 倍速）。',
+          'Relative to the zoom: at 1.00× the reticle sweeps the same share of the picture per mouse inch through every sight as at the hip (a 4× scope turns at about 0.22×).')),
+      field(tx('开镜换算系数', 'ADS coefficient'), segmented([
+        { value: 0, label: tx('准星处 (0)', 'At crosshair (0)') },
+        { value: 1.33, label: tx('4:3 边缘 (1.33)', '4:3 edge (1.33)') },
+      ], st.adsCoef >= 0.5 ? 1.33 : 0, (v) => upd({ adsCoef: v }), { name: tx('开镜换算系数', 'ADS coefficient') }),
+        tx('0：准星附近的转动与腰射一致（默认）；1.33：在 4:3 画面边缘处一致，高倍镜略快。', '0: turns match near the crosshair (default); 1.33: they match at the edge of a 4:3 box — high zoom a little faster.')),
       field(t('settings.invertY'), toggle(st.invertY, (v) => upd({ invertY: v }), t('settings.invertY'))),
       field(tx('视角', 'View'), segmented([
         { value: 'auto' as const, label: t('common.auto') },
@@ -99,6 +107,29 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
         { value: 'off' as const, label: t('common.off') },
       ], st.touchControls, (v) => upd({ touchControls: v }), { name: t('settings.touch') }),
       tx('“自动”会在触屏设备上显示虚拟摇杆与按钮。', '“Auto” shows the virtual stick and buttons on touch devices.')),
+      // touch aiming: its own sensitivities, the aim assist (never with a mouse), hold-to-aim firing, the gyro
+      field(tx('触屏视角灵敏度', 'Touch look sensitivity'), slider(st.touchLook, 0.3, 3, 0.05, (v) => upd({ touchLook: v }), mul, tx('触屏视角灵敏度', 'Touch look sensitivity'))),
+      field(tx('触屏开镜灵敏度', 'Touch ADS sensitivity'), slider(st.touchAds, 0.5, 1.5, 0.05, (v) => upd({ touchAds: v }), mul, tx('触屏开镜灵敏度', 'Touch ADS sensitivity'))),
+      field(tx('辅助瞄准', 'Aim assist'), segmented([
+        { value: 'off' as const, label: t('common.off') },
+        { value: 'low' as const, label: tx('弱', 'Low') },
+        { value: 'standard' as const, label: tx('标准', 'Standard') },
+      ], st.aimAssist, (v) => upd({ aimAssist: v }), { name: tx('辅助瞄准', 'Aim assist') }),
+      tx('仅触屏：准星在敌人身上时转动放慢，并轻微跟随移动目标（最多 10°/秒）；不会吸附子弹。鼠标永不生效。',
+        'Touch only: the look slows on a target and gently follows a moving one (at most 10°/s); no bullet magnetism. Never with a mouse.')),
+      field(tx('按住开镜、松开射击', 'Hold to aim, release to fire'), toggle(st.touchFireRelease, (v) => upd({ touchFireRelease: v }), tx('按住开镜、松开射击', 'Hold to aim, release to fire')),
+        tx('触屏，狙击枪 / 弓 / 射手步枪：按住开火键抬起瞄准，松开时射出。', 'Touch, sniper / bows / DMRs: holding fire raises the sights, letting go shoots.')),
+      field(tx('陀螺仪瞄准', 'Gyro aiming'), segmented([
+        { value: 'off' as const, label: t('common.off') },
+        { value: 'scoped' as const, label: tx('开镜时', 'While aimed') },
+        { value: 'always' as const, label: tx('始终', 'Always') },
+      ], st.gyro, (v) => {
+        upd({ gyro: v });
+        // iOS asks for motion access on a user gesture: this tap is one
+        if (v !== 'off') void requestGyroPermission();
+      }, { name: tx('陀螺仪瞄准', 'Gyro aiming') }),
+      tx('触屏：转动手机微调准星（开镜时按倍镜换算）。', 'Touch: turn the phone to fine-tune the aim (scaled with the zoom while aimed).')),
+      field(tx('陀螺仪灵敏度', 'Gyro sensitivity'), slider(st.gyroGain, 1, 2, 0.05, (v) => upd({ gyroGain: v }), mul, tx('陀螺仪灵敏度', 'Gyro sensitivity'))),
       // a Mac: the trackpad, ⌥ for 闪避, the ⌘ / fn keys
       isMac() ? macNotesBox('settings') : null,
     ].filter((x): x is HTMLElement => !!x);

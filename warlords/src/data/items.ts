@@ -430,10 +430,14 @@ export const ITEMS: ItemDef[] = [
  */
 export const BULLET_EVASION_CAP = 0.5;
 
-// bulletReduction applies to damage type 'normal' only. `special` semantics:
+// A "bullet" is any direct hit of a weapon — bullet, pellet, arrow, rocket or flame stream striking
+// the body (sim/damageKinds.ts isBulletDamage) — never an explosion's splash, the zone, 'true' HP
+// loss or a melee blow. bulletReduction applies to every bullet except fire bullets (those meet
+// 藤甲's fireMul alone). `special` semantics:
 //  bagua    chance: probability to fully evade a dodgeable bullet (ignored by undodgeable).
 //  renwang  frontArc: degrees in front of the wearer; mul: bullet damage multiplier from that arc.
-//  tengjia  fireMul: fire damage multiplier; troopImmune=1: immune to troop/NPC/turret bullets.
+//  tengjia  fireMul: fire damage multiplier (any fire: bullets, splash, fields, burns);
+//           troopImmune=1: immune to troop/NPC/turret bullets (not their melee).
 //  baiyin   cap: max damage from any single hit (any type except zone and 'true' HP loss; like
 //           every armor it is bypassed by armor-piercing hits — 青釭剑, 'pierce');
 //           healOnRemove: heal when the armor is removed, swapped, stripped or stolen.
@@ -443,12 +447,12 @@ export const ARMORS: ArmorDef[] = [
     nameZh: '八卦阵',
     nameEn: 'Bagua Deflector',
     sgsCard: '八卦阵',
-    descZh: '偏导力场：每颗子弹有 35% 几率被完全闪避。',
-    descEn: 'Deflector field: each incoming bullet has a 35% chance to be completely evaded.',
+    descZh: '偏导力场：每颗子弹（含箭矢、火箭与火焰的直接命中）有 30% 几率被完全闪避；爆炸溅射与近战不算子弹。',
+    descEn: 'Deflector field: each incoming bullet (arrows, rockets and flame direct hits included) has a 30% chance to be completely evaded. Blast splash and melee are not bullets.',
     rarity: 'rare',
     bulletReduction: 0,
     special: 'bagua',
-    params: { chance: 0.35 },
+    params: { chance: 0.3 },
     color: '#e8d27a',
   },
   {
@@ -456,12 +460,12 @@ export const ARMORS: ArmorDef[] = [
     nameZh: '仁王盾',
     nameEn: 'Benevolent King Shield',
     sgsCard: '仁王盾',
-    descZh: '前置防弹盾：来自正面 90° 的子弹伤害 -70%。',
-    descEn: 'Front ballistic shield: bullet damage from your front 90° is reduced by 70%.',
+    descZh: '前置防弹盾：来自正面 90° 的子弹伤害 -40%（爆炸溅射与近战不挡）。',
+    descEn: 'Front ballistic shield: bullet damage from your front 90° is reduced by 40% (blast splash and melee get through).',
     rarity: 'rare',
     bulletReduction: 0,
     special: 'renwang',
-    params: { frontArc: 90, mul: 0.3 },
+    params: { frontArc: 90, mul: 0.6 },
     color: '#b0b8c8',
   },
   {
@@ -469,12 +473,12 @@ export const ARMORS: ArmorDef[] = [
     nameZh: '藤甲',
     nameEn: 'Rattan Armor',
     sgsCard: '藤甲',
-    descZh: '子弹伤害 -40%，免疫士兵、NPC 与炮台的子弹；但受到的火焰伤害 ×2。',
-    descEn: 'Bullet damage -40% and immune to soldier, NPC and turret bullets — but fire damage taken ×2.',
+    descZh: '子弹伤害 -30%，免疫士兵、NPC 与炮台的子弹（近战照常）；但受到的火焰伤害 ×1.75（火焰子弹不减伤）。',
+    descEn: 'Bullet damage -30% and immune to soldier, NPC and turret bullets (not their melee) — but fire damage taken ×1.75 (fire bullets get no reduction).',
     rarity: 'rare',
-    bulletReduction: 0.4,
+    bulletReduction: 0.3,
     special: 'tengjia',
-    params: { fireMul: 2, troopImmune: 1 },
+    params: { fireMul: 1.75, troopImmune: 1 },
     color: '#a07a3a',
   },
   {
@@ -482,12 +486,12 @@ export const ARMORS: ArmorDef[] = [
     nameZh: '白银狮子',
     nameEn: 'Silver Lion',
     sgsCard: '白银狮子',
-    descZh: '任何单次伤害最多 60 点；被卸下、拆除或偷走时回复 100 生命。',
-    descEn: 'No single hit can deal more than 60 damage. When removed, stripped or stolen, heal 100 HP.',
+    descZh: '任何单次伤害最多 80 点；被卸下、拆除或偷走时回复 100 生命。',
+    descEn: 'No single hit can deal more than 80 damage. When removed, stripped or stolen, heal 100 HP.',
     rarity: 'epic',
     bulletReduction: 0,
     special: 'baiyin',
-    params: { cap: 60, healOnRemove: 100 },
+    params: { cap: 80, healOnRemove: 100 },
     color: '#d8dce8',
   },
 ];
