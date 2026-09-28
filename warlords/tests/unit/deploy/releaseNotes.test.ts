@@ -66,6 +66,9 @@ describe('pieces', () => {
     expect(md).toMatch(/推荐安装版/);
     expect(md).toMatch(/update themselves/);
     expect(md).toMatch(/重启并更新/);
+    // every copy from before the updater (0.1.0) needs this one last download — friends' too
+    expect(md).toContain('「测试版 v0.1.0」（没有 build 号）的旧桌面版不会自动更新');
+    expect(md).toMatch(/Beta v0\.1\.0.*cannot update itself/);
     expect(renderNotes({ build: 3 })).toContain('（无记录 / nothing recorded）');
   });
 });

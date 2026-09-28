@@ -81,7 +81,9 @@ ${changes}
 ### 已经装了桌面版？/ Already installed?
 - **Windows 安装版、Linux AppImage：什么都不用做。** 游戏会在后台下载新版本，退出游戏时自动安装；标题页也会出现「重启并更新」。
 - **Windows 便携版、macOS：** 标题页会提示「有新版本 build ${build} · 下载」，点一下就下载新文件，替换旧的即可。
+- **标题页底部写着「测试版 v0.1.0」（没有 build 号）的旧桌面版不会自动更新**（自己的和朋友的都一样）：请按下面「第一次下载」重新下载一次（Windows 选安装版），以后就会自动更新。
 - The Windows setup build and the Linux AppImage **update themselves**: the new build downloads in the background and installs when you quit (or click “Restart to update” on the title screen). The portable exe and the Mac app show “New version: build ${build} · Download” on the title screen.
+- **An old copy whose title screen says “Beta v0.1.0” (no build number) cannot update itself** — yours or a friend's: download once more below (Windows: the setup build); from then on it updates by itself.
 
 ### 第一次下载，选哪个？
 - **Windows（推荐安装版）：\`${a.setup}\`** —— 装一次，以后自动更新，不用再来这里下载。
