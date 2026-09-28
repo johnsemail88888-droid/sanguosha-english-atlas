@@ -230,8 +230,11 @@ export function revealedTo(e: Entity, viewerId: number | undefined, now: number)
 }
 
 // ── events ──────────────────────────────────────────────────────────────────
-function statusEvent(targetId: EntityId, id: StatusId, on: boolean, route: number | undefined): GameEvent {
-  return route !== undefined ? { t: 'status', target: targetId, status: id, on, privateTo: route } : { t: 'status', target: targetId, status: id, on };
+function statusEvent(targetId: EntityId, id: StatusId, on: boolean, route: number | undefined, dur?: number): GameEvent {
+  const ev: GameEvent = route !== undefined ? { t: 'status', target: targetId, status: id, on, privateTo: route } : { t: 'status', target: targetId, status: id, on };
+  // how long a timed status lasts (the nameplate badge counts it down)
+  if (on && dur !== undefined && Number.isFinite(dur) && dur > 0) ev.dur = Math.round(dur * 10) / 10;
+  return ev;
 }
 
 /** Does another instance (index ≠ skip) with the same id and route exist (active only when `activeOnly`)? */
@@ -326,7 +329,7 @@ export function applyStatusTo(
     newInst.params = { ...(newInst.params ?? {}), _next: carryNext ?? now + STATUS_PERIOD };
   }
   list.push(newInst);
-  if (!hadRoute) w.emit(statusEvent(target.id, id, true, routeOf(newInst)));
+  if (!hadRoute) w.emit(statusEvent(target.id, id, true, routeOf(newInst), until - now));
   onApplied(w, target, id);
   return true;
 }

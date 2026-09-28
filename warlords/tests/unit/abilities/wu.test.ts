@@ -11,6 +11,7 @@ import type { AbilityDef } from '../../../src/data/types';
 import { getAbility, hasAbility } from '../../../src/sim/abilities';
 import { FIRESHIP_FIELD, LUXUN_FIELD, NAPALM_FIELD } from '../../../src/sim/abilities/wu';
 import { aimAnglesFor } from '../../../src/sim/aim';
+import { DOWNED_DAMAGE_TO_SECONDS } from '../../../src/sim/combat';
 import { maxReserve, weaponDef } from '../../../src/sim/defs';
 import type { MatchInit } from '../../../src/sim/host';
 import { generateMap } from '../../../src/sim/map/generate';
@@ -777,7 +778,7 @@ describe('大乔 Da Qiao', () => {
       const bleed = lord.hero!.downedUntil;
       bullet(w, att, q, 20);
       expect(lost(q)).toBe(0);
-      expect(lord.hero!.downedUntil).toBeCloseTo(bleed - 20 * 0.1, 5);
+      expect(lord.hero!.downedUntil).toBeCloseTo(bleed - 20 * DOWNED_DAMAGE_TO_SECONDS, 5);
 
       // the 3 m wall at x = 10 (z −5…5) stands between her and the only other unit
       const w2 = mk([D, D, 'daqiao', D, D]);

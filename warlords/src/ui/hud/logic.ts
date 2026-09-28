@@ -8,7 +8,7 @@ import type {
   ViewEntity,
   ZoneView,
 } from '../../core/types';
-import { VF_AIRBORNE, VF_DEAD, VF_DOWNED, VF_OPENED } from '../../core/types';
+import { VF_AIRBORNE, VF_DEAD, VF_DOWNED, VF_OPENED, VF_SOUL } from '../../core/types';
 import type { AbilityDef, HeroDef, WeaponClass } from '../../data/types';
 import { ABILITY_BY_ID, ARMOR_BY_ID, HERO_BY_ID, ITEM_BY_ID, MOUNT_BY_ID, TROOP_BY_ID, WEAPON_BY_ID, isPassiveAbility } from '../../data';
 import { displayName } from '../../game/names';
@@ -207,6 +207,8 @@ export function spreadToPx(spreadDeg: number, vfovDeg: number, viewportH: number
 
 export type InteractPrompt =
   | { kind: 'revive'; targetId: EntityId; heroId: string; name: string; needPeach: boolean }
+  /** 招魂: a fallen hero's 魂幡 still stands — hold F at the body */
+  | { kind: 'recall'; targetId: EntityId; heroId: string; name: string }
   | { kind: 'airdrop'; targetId: EntityId }
   | { kind: 'crate'; targetId: EntityId; tier: 1 | 2 | 3 }
   /** `ammo`: the same gun you already hold — F takes its rounds ('full': your reserve is full, F does nothing) */
@@ -242,6 +244,8 @@ export function itemSwapSlot(items: readonly ({ id: string } | null)[], itemId: 
 export const INTERACT_FACING_WEIGHT = 1.5;
 /** The sim skips a downed hero this far off your facing (cos < 0.3) unless it is under the crosshair. */
 export const REVIVE_MIN_COS = 0.3;
+/** The sim puts a 魂幡 you face ahead of the cards scattered round the body (sim/inventory.ts interact). */
+export const RECALL_FACING_BONUS = 1.2;
 
 /**
  * Context-sensitive F prompt from nearby loot / crates / downed heroes. It names
@@ -280,7 +284,9 @@ export function deriveInteract(me: PrivateHeroView | null, pos: { x: number; y: 
     const score = d + (1 - cos) * INTERACT_FACING_WEIGHT;
     switch (e.kind) {
       case 'hero':
-        if (d <= REVIVE_RANGE && e.flags & VF_DOWNED && !(e.flags & VF_DEAD) && cos >= REVIVE_MIN_COS) {
+        if (d <= REVIVE_RANGE && e.flags & VF_DEAD && e.flags & VF_SOUL) {
+          consider({ kind: 'recall', targetId: e.id, heroId: e.sub, name: e.name ?? e.sub }, score - (cos > REVIVE_MIN_COS ? RECALL_FACING_BONUS : 0));
+        } else if (d <= REVIVE_RANGE && e.flags & VF_DOWNED && !(e.flags & VF_DEAD) && cos >= REVIVE_MIN_COS) {
           const needPeach = !me.items.some((it) => it?.id === 'tao') && !canReviveFree(me);
           consider({ kind: 'revive', targetId: e.id, heroId: e.sub, name: e.name ?? e.sub, needPeach }, score);
         }
@@ -438,7 +444,7 @@ export class UiKeyDeduper {
 // ── refused cards / abilities ────────────────────────────────────────────────
 
 /** Reasons the sim gives for a refused card / ability ('sfx' abilityDenied / itemDenied). */
-export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced';
+export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced' | 'outOfRange';
 
 /**
  * Warning text for a refused card / ability of ours (sfx 'itemDenied' /
@@ -454,6 +460,9 @@ export function deniedText(ev: { reason?: unknown; item?: unknown; ability?: unk
   switch (reason) {
     case 'noTarget':
       msg = { zh: '准星需对准目标', en: 'Aim at a target first' };
+      break;
+    case 'outOfRange':
+      msg = { zh: '目标太远', en: 'Target out of range' };
       break;
     case 'fullHp':
       msg = { zh: '体力已满', en: 'Already at full health' };

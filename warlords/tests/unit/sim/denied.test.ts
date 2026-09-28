@@ -74,6 +74,25 @@ describe('abilityDenied (APP-5)', () => {
     expect(fired(evs, 'diaochan_lianhuan')).toBe(false);
   });
 
+  it('an enemy under the crosshair but out of range → outOfRange (「目标太远」), not noTarget', () => {
+    const { w, at } = arena(['dummy', 'dummy', 'zhangliao', 'dummy', 'zhouyu']);
+    const zl = at(2);
+    const foe = at(3);
+    place(w, zl, 0, 40);
+    place(w, foe, 0, 20); // 20 m: 突袭 reaches 12
+    const evs = press(w, 2, [{ a: 'ability', slot: 'q' }], aimAt(zl, foe));
+    expect(fired(evs, 'zhangliao_tuxi')).toBe(false);
+    expect(denials(evs, 'abilityDenied')[0]).toMatchObject({ ability: 'zhangliao_tuxi', reason: 'outOfRange' });
+    expect(w.cooldownLeft(zl.id, 'zhangliao_tuxi')).toBe(0);
+    // 反间 (its own crosshair helper): 30 m range, the enemy 45 m away
+    const zy = at(4);
+    place(w, zy, 30, 40);
+    place(w, foe, 30, -5);
+    expect(denials(press(w, 4, [{ a: 'ability', slot: 'q' }], aimAt(zy, foe)), 'abilityDenied')[0]).toMatchObject({ ability: 'zhouyu_fanjian', reason: 'outOfRange' });
+    // nothing at all under the crosshair is still noTarget
+    expect(denials(press(w, 2, [{ a: 'ability', slot: 'q' }], SKY), 'abilityDenied')[0]?.reason).toBe('noTarget');
+  });
+
   it('a cast that works sends no denial; a bot that fails a cast gets no cue', () => {
     const { w, at } = arena(['dummy', 'dummy', 'diaochan', 'dummy', 'dummy']);
     const dc = at(2);

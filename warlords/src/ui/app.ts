@@ -65,6 +65,8 @@ export interface GameHandle {
   /** batches of GameEvents each frame (the renderer is the only drainEvents consumer and re-emits them here) */
   onEvents(cb: (evs: readonly GameEvent[]) => void): () => void;
   setSpectateTarget(id: number | null): void;
+  /** Optional: spectate from the watched hero's eye (true) or over his shoulder (false) — V while dead. */
+  setSpectateView?(firstPerson: boolean): void;
   dispose(): void;
   /**
    * Optional: project a world point to CSS pixels relative to the game container

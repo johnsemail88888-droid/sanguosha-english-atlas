@@ -57,6 +57,15 @@ describe('KillCauses', () => {
     expect(k.causeOf(9, 2, 4)).toEqual({ kind: 'item', id: 'nanman' });
   });
 
+  it('a card he used on himself (桃 / 酒) is never the kill cause: his weapon is', () => {
+    const k = tracker();
+    k.ingest([{ t: 'itemUse', who: 2, item: 'tao' }, hit(2, 9)], 4);
+    k.ingest([{ t: 'itemUse', who: 2, item: 'jiu' }], 4.5);
+    k.ingest([hit(2, 9)], 5);
+    const c = k.causeOf(9, 2, 5);
+    expect(c?.kind).not.toBe('item');
+  });
+
   it("a troop's shot credited to its hero names the troop's weapon (no art → no glyph)", () => {
     const k = tracker();
     k.ingest([hit(1, 9), shot(50, 'troop_rifle', 9)], 4);

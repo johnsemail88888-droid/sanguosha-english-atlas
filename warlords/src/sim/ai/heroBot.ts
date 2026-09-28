@@ -22,6 +22,7 @@ import { cameraRig } from '../aim';
 import { ext } from '../ext';
 import type { SimExt } from '../ext';
 import { OPENING_CALM } from '../hostility';
+import { RECALL_TIME } from '../rules';
 import { AbilityUser, LORD_RESTRAINT, groundPointOf } from './abilityUse';
 import { Aimer } from './aimer';
 import type { AimOut } from './aimer';
@@ -795,7 +796,7 @@ export class HeroBot implements BotBrain, BotView {
    */
   private reviveCandidate(): { e: Entity; p: Vec3 } | undefined {
     const { sim, self, now } = this;
-    if (!this.hasTao() && !this.canReviveFree()) return undefined;
+    if (!this.hasTao() && !this.canReviveFree()) return this.recallCandidate();
     let best: { e: Entity; p: Vec3 } | undefined;
     let bs = Infinity;
     for (const e of sim.heroes()) {
@@ -816,6 +817,36 @@ export class HeroBot implements BotBrain, BotView {
       if (s < bs) {
         bs = s;
         best = { e, p };
+      }
+    }
+    return best ?? this.recallCandidate();
+  }
+
+  /**
+   * 招魂: a fallen hero of this bot's own side (his role is public now) whose 魂幡 still stands
+   * near enough to reach and hold for RECALL_TIME s, with no known foe about (a 5 s channel by the
+   * body of a hero who was just killed there is no place to be under fire). Never the 主公 himself.
+   */
+  private recallCandidate(): { e: Entity; p: Vec3 } | undefined {
+    const { sim, self, now } = this;
+    const side = (r: RoleId | undefined): string => (r === 'lord' || r === 'loyalist' || r === 'double' ? 'lord' : r === 'rebel' ? 'rebel' : 'none');
+    const mine = side(this.role);
+    if (mine === 'none' || this.role === 'lord' || now - this.lastHurtAt < 4) return undefined;
+    let best: { e: Entity; p: Vec3 } | undefined;
+    let bd = Infinity;
+    for (const e of sim.heroes()) {
+      const eh = e.hero;
+      if (e === self || !eh || !eh.dead || !eh.soul || (eh.soul.by !== undefined && eh.soul.by !== self.id)) continue;
+      if (side(eh.role) !== mine) continue;
+      const d = dist2d(e.pos, self.pos);
+      if (d > 40 || Math.abs(e.pos.y - self.pos.y) > 3) continue;
+      if (eh.soul.until - now < d / 5 + RECALL_TIME + 0.5 && eh.soul.by !== self.id) continue;
+      let danger = false;
+      for (const t of this.threats) if (t.e.kind === 'hero' && t.hostility >= 0.5 && dist2d(t.e.pos, e.pos) < 28) danger = true;
+      if (danger) continue;
+      if (d < bd) {
+        bd = d;
+        best = { e, p: e.pos };
       }
     }
     return best;
@@ -900,7 +931,27 @@ export class HeroBot implements BotBrain, BotView {
       }
       case 'revive': {
         const e = this.reviveId !== undefined ? this.sim.get(this.reviveId) : undefined;
-        if (e && e.hero?.downed && !e.hero.dead) {
+        if (e?.hero?.dead && e.hero.soul) {
+          // 招魂: stand at the body and hold F
+          const d = dist2d(e.pos, self.pos);
+          if (d > 1.6) {
+            const n = this.nav.steer(this.sim, self, e.pos, 1.2);
+            mv = n;
+            jump = n.jump;
+            sprint = d > 8;
+          }
+          if (d < INTERACT_RANGE) {
+            this.aimer.lookAt(self, e.pos, dt, 0.1);
+            aimed = true;
+            f.aimTargetId = e.id;
+            f.aimPoint = { x: e.pos.x, y: e.pos.y + 0.3, z: e.pos.z };
+            f.buttons |= BTN_INTERACT;
+            if (!h.channel && now >= this.interactAt) {
+              this.interactAt = now + 0.6;
+              f.actions.push({ a: 'interact' });
+            }
+          }
+        } else if (e && e.hero?.downed && !e.hero.dead) {
           const p = this.seesNow(e) ? e.pos : (this.posOf(e) ?? this.goal ?? e.pos);
           const d = dist2d(p, self.pos);
           if (d > 1.6) {

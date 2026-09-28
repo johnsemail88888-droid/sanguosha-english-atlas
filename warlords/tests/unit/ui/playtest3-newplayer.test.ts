@@ -10,7 +10,7 @@ import { overrideLang, t } from '../../../src/ui/i18n';
 import { guideClockRuns, guideMayMount } from '../../../src/ui/hud/guide';
 import { LOADING_TIPS, loadingTip } from '../../../src/ui/screens/loading';
 import { CONTROLS, TOUCH_CONTROLS, playerWeapons, touchCapLabels } from '../../../src/ui/screens/help';
-import { isSignatureWeapon, weaponCardNote } from '../../../src/ui/screens/heroDetail';
+import { isSignatureWeapon, sgsTag, weaponCardNote } from '../../../src/ui/screens/heroDetail';
 import { clearOfLabels, type MapBox } from '../../../src/ui/hud/minimap';
 import { itemLabel, itemShort, touchLabel } from '../../../src/ui/short';
 import { lordWaitKey } from '../../../src/ui/screens/heroSelect';
@@ -95,6 +95,21 @@ describe('NP-8: 专属武器 / 初始武器', () => {
     expect([t('select.signature'), t('select.startWeapon')]).toEqual(['专属武器', '初始武器']);
     overrideLang('en');
     expect([t('select.signature'), t('select.startWeapon')]).toEqual(['Signature weapon', 'Starting weapon']);
+  });
+});
+
+describe('the 〔original skill〕 tag is left out when another skill of the hero has that name', () => {
+  it('火烧赤壁〔英姿〕 next to the passive 英姿 would read as a link: dropped; a tag naming no sibling stays', () => {
+    const skills = Object.values(HERO_BY_ID).flatMap((h) => h.abilities);
+    const byId = (id: string) => skills.find((a) => a.id === id)!;
+    expect(sgsTag(byId('zhouyu_chibi'))).toBeNull();
+    for (const hero of Object.values(HERO_BY_ID))
+      for (const a of hero.abilities) {
+        const tag = sgsTag(a);
+        if (tag) expect(hero.abilities.some((b) => b !== a && b.nameZh === tag), a.id).toBe(false);
+      }
+    // some remain (the original skill has no namesake here)
+    expect(skills.some((a) => sgsTag(a) !== null)).toBe(true);
   });
 });
 

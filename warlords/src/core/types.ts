@@ -121,6 +121,8 @@ export interface ChannelState {
   targetId?: EntityId;
   itemSlot?: number;
   abilityId?: string;
+  /** a 'revive' channel on a dead hero's 魂幡 (招魂 — sim/rules recallHero) */
+  recall?: boolean;
 }
 
 export interface HeroState {
@@ -149,7 +151,19 @@ export interface HeroState {
   dodgingUntil: number;
   downed: boolean;
   downedUntil: number; // bleed-out time
+  /** 濒死 only: the full bleed-out of this knock (30 / 20 / 12 s: each knock in one life bleeds out faster — sim/rules) */
+  downedTotal?: number;
+  /**
+   * 濒死 only: who is reviving this hero right now and that channel's span (bleed-out paused; sim/rules tickDowned).
+   * `squad`: one of his own soldiers is bandaging him (战场急救 — `by` is the soldier).
+   */
+  rescue?: { by: EntityId; start: number; until: number; squad?: boolean };
   dead: boolean;
+  /**
+   * Dead only: his 魂幡 still stands at the body until this sim time — anyone may hold F there
+   * for a 招魂 (once per match; sim/rules recallHero). `by`: who is channelling it right now.
+   */
+  soul?: { until: number; by?: EntityId };
   killerId?: EntityId;
   squad: EntityId[];
   order: SquadOrder;
@@ -347,7 +361,7 @@ export const emptyInput = (seq = 0): InputFrame => ({
  * size), blocked (rooted, no room, no path…), needs a second unit nearby (离间), the aimed unit
  * is not a valid target (downed, immune), or the hero is silenced / dancing.
  */
-export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced';
+export type DeniedReason = 'noTarget' | 'fullHp' | 'cap' | 'blocked' | 'needOther' | 'invalidTarget' | 'silenced' | 'outOfRange';
 
 /** Optional routing shared by every GameEvent. */
 export interface EventRouting {
@@ -388,10 +402,12 @@ export type GameEvent = EventRouting &
         /** a passive trigger (奸雄, 流离, 连营 …), not an activation: no cast gesture, a lighter cue */
         proc?: boolean;
       }
-    | { t: 'status'; target: EntityId; status: StatusId; on: boolean }
+    /** `dur`: seconds it lasts (an 'on' event of a timed status; nameplates count it down) */
+    | { t: 'status'; target: EntityId; status: StatusId; on: boolean; dur?: number }
     | { t: 'heal'; target: EntityId; amount: number; src?: EntityId }
     | { t: 'downed'; target: EntityId; src?: EntityId }
-    | { t: 'revived'; target: EntityId; by?: EntityId }
+    /** `squad`: his own soldier bandaged him (战场急救); `recall`: called back from death at his 魂幡 (招魂) */
+    | { t: 'revived'; target: EntityId; by?: EntityId; squad?: boolean; recall?: boolean }
     | { t: 'death'; target: EntityId; killer?: EntityId; kind: EntityKind; role?: RoleId; heroId?: string; name?: string }
     | { t: 'pickup'; who: EntityId; item: string }
     | { t: 'itemUse'; who: EntityId; item: string; pos?: Vec3; target?: EntityId }
@@ -458,6 +474,8 @@ export const VF_ROOTED = 1 << 23;
 export const VF_SLOWED = 1 << 24;
 export const VF_BOOSTED = 1 << 25; // dmgBoost active (glow)
 export const VF_EXPOSED = 1 << 26; // 'reveal' status: shown on the minimap / outlined through walls (public, or private to this viewer)
+export const VF_REVIVING = 1 << 27; // a downed hero someone else is reviving right now (bleed-out paused)
+export const VF_SOUL = 1 << 28; // a dead hero whose 魂幡 still stands: hold F at the body to call him back (招魂)
 
 export interface ViewEntity {
   id: EntityId;
@@ -510,10 +528,20 @@ export interface PrivateHeroView {
   abilityState: Record<string, number>;
   dodgeCharges: number;
   reloading: number; // seconds remaining (0 = not)
-  channel: { kind: ChannelState['kind']; progress: number } | null;
+  /** `revive`: the downed hero this channel is reviving (hold F, or a 桃 used on him — you, for your own 桃) */
+  channel: { kind: ChannelState['kind']; progress: number; revive?: EntityId } | null;
   downed: boolean;
   downedRemaining: number;
+  /** (downed only) the full bleed-out of this knock (30 / 20 / 12 s) — the bar's scale */
+  downedTotal?: number;
+  /**
+   * (downed only) someone is reviving you: bleed-out paused (your own 桃 shows as channel.revive = you).
+   * `squad`: one of your own soldiers is bandaging you (战场急救).
+   */
+  rescue?: { by: EntityId; progress: number; squad?: boolean };
   dead: boolean;
+  /** (dead only) your 魂幡 still stands: seconds left for a 招魂, and who is channelling it right now */
+  soul?: { remaining: number; by?: EntityId; progress?: number };
   statuses: { id: StatusId; remaining: number }[];
   squad: { id: EntityId; hp: number; maxHp: number }[];
   order: SquadOrder;

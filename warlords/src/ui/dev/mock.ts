@@ -294,7 +294,7 @@ export class MockView implements ViewSource {
       shrinkEnd: this.t0 + 37,
       dps: 8,
     };
-    if (this.lively) this.seedEvents();
+    if (this.lively) this.seedEvents(state);
   }
 
   private add(e: ViewEntity): void {
@@ -302,7 +302,7 @@ export class MockView implements ViewSource {
     this.list.push(e);
   }
 
-  private seedEvents(): void {
+  private seedEvents(state: MockHeroState = 'alive'): void {
     // a populated kill feed / chat for the first frame
     const k = (killer: EntityId | undefined, target: EntityId, role: RoleId): GameEvent => {
       const e = this.ents.get(target);
@@ -317,6 +317,17 @@ export class MockView implements ViewSource {
     this.events.push({ t: 'announce', zh: '烽火圈开始收缩！', en: 'The zone is closing in!', kind: 'warn' });
     this.events.push(...this.strike(this.myId, 107, 'ability'));
     this.events.push({ t: 'downed', target: 107, src: this.myId });
+    // the downed hero calls for a 桃: his 救 marker (world + minimap)
+    this.events.push({ t: 'quickchat', who: 107, id: 'needPeach' });
+    if (state === 'dead') {
+      // your death: 106 knocked you down and finished you (the death recap card)
+      this.events.push(...this.strike(106, this.myId, 'weapon'), ...this.strike(106, this.myId, 'weapon'));
+      this.events.push({ t: 'hit', target: this.myId, amount: 24, dtype: 'zone', pos: { x: 0, y: 1, z: 0 } });
+      this.events.push({ t: 'downed', target: this.myId, src: 106 });
+      this.events.push(...this.strike(106, this.myId, 'weapon'));
+      const me = this.ents.get(this.myId);
+      this.events.push({ t: 'death', target: this.myId, killer: 106, kind: 'hero', role: this.me?.role, heroId: me?.sub, name: me?.name });
+    }
   }
 
   /** A shot with the attacker's weapon, or one of its hero's skills, landing on `target`. */

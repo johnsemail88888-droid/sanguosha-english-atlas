@@ -1,8 +1,8 @@
 // 玩法说明: roles & win conditions, dying & rewards, zone, squads, controls,
 // and cards / gear / weapons tables generated from the data files.
-import type { RoleId } from '../../core/types';
+import type { Kingdom, RoleId } from '../../core/types';
 import type { ItemKind } from '../../data/types';
-import { ARMORS, ITEMS, ITEM_KIND_INFO, MOUNTS, ROLES, ROLE_DISTRIBUTION, TROOPS, WEAPONS } from '../../data';
+import { ARMORS, HEROES, ITEMS, ITEM_KIND_INFO, MOUNTS, ROLES, ROLE_DISTRIBUTION, TROOPS, WEAPONS } from '../../data';
 import type { Screen, UiCtx } from '../ctx';
 import { Bag, h, type Child } from '../dom';
 import { colon, getLang, kingdomName, t, tx, type I18nKey } from '../i18n';
@@ -11,7 +11,7 @@ import { touchLabel, type TouchKey } from '../short';
 import { shouldUseTouch } from '../touch';
 import { settings, type Lang } from '../../game/settings';
 import { button, keyCap, roleSeal, tabs } from '../widgets';
-import { weaponCardNote, weaponClassName } from './heroDetail';
+import { abilityBlock, sortedAbilities, weaponCardNote, weaponClassName } from './heroDetail';
 import { AIM_BY_WEAPON, AIM_PROFILES, MOVE_AIMED, SIGHT_LABEL, accuracyScore, aimProfile, shotKick, zoomLabel } from '../../data/weaponFeel';
 import type { WeaponClass, WeaponDef } from '../../data/types';
 import { gearArt, isUnitWeapon } from '../cardArt';
@@ -19,7 +19,7 @@ import { isMac } from '../perfcheck';
 import { artKnown, gearIcon, roleCardBadge, setArt, whenArtKnown } from '../artIcons';
 import { ZONE_PHASES } from '../../sim/zone';
 
-type HelpTab = 'roles' | 'rules' | 'zone' | 'squad' | 'controls' | 'items' | 'gear' | 'weapons';
+type HelpTab = 'roles' | 'rules' | 'zone' | 'squad' | 'skills' | 'controls' | 'items' | 'gear' | 'weapons';
 
 /** Zone schedule (GAME_SPEC §4), generated from the sim's phase table so it never drifts. */
 export const ZONE_TABLE: readonly { phase: number; wait: number; shrink: number; radius: number; dps: number }[] = ZONE_PHASES.map((z, phase) => ({
@@ -46,9 +46,9 @@ export const CONTROLS: readonly ControlRow[] = [
   { keys: ['Shift'], zh: '冲刺', en: 'Sprint' },
   { keys: ['Space'], zh: '跳跃', en: 'Jump' },
   { keys: ['Ctrl', 'Alt'], zh: '闪避翻滚（闪）· 2 次充能，8 秒恢复', en: 'Dodge roll (闪) · 2 charges, 8 s recharge' },
-  { keys: ['Q', 'E'], zh: '武将技能', en: 'Hero abilities' },
+  { keys: ['Q', 'E'], zh: '武将技能：瞄准类技能按住看范围、松开施放（右键取消）', en: 'Hero abilities: aimed ones show their area while held, cast on release (right click cancels)' },
   { keys: ['G'], zh: '主公技（仅主公）', en: 'Lord skill (Lord only)' },
-  { keys: ['F'], zh: '拾取 / 打开锦囊 / 按住救援', en: 'Pick up / open chest / hold to revive' },
+  { keys: ['F'], zh: '拾取 / 打开锦囊 / 按住救援 / 倒地时呼救', en: 'Pick up / open chest / hold to revive / call for help when downed' },
   { keys: ['1', '2'], zh: '切换主 / 副武器（或滚轮）', en: 'Primary / secondary weapon (or wheel)' },
   { keys: ['4', '5', '6', '7'], zh: '使用锦囊栏', en: 'Use item slots' },
   { keys: ['X + 4–7'], zh: '丢弃该栏锦囊（按住 X 再按数字键）', en: 'Discard that card (hold X, then press the slot key)' },
@@ -228,9 +228,12 @@ function rulesTab(): HTMLElement {
     section(tx('体力与濒死', 'Health & dying'),
       h('ul', null,
         h('li', null, tx('体力 = 三国杀体力 × 100（3 勾玉 → 300）。主公（及影武者）体力 +100。没有自然回复。', 'HP = 三国杀 HP × 100 (3 → 300). The Lord (and Double) get +100. No passive regeneration.')),
-        h('li', null, tx('体力归零进入濒死：12 秒失血倒计时，只能以 25% 速度爬行，不能开火。', 'At 0 HP you are downed: 12 s bleed-out, crawling at 25% speed, unable to shoot.')),
-        h('li', null, tx('任何人可按住 F 用「桃」救起濒死者（1.5 秒，回复 100 体力）；濒死者可饮「酒」自救（50 体力）。', 'Anyone can hold F with a Peach to revive (1.5 s → 100 HP); the downed hero may drink Wine to rise (50 HP).')),
-        h('li', null, tx('阵亡后身份公开，你可以观战；你的部曲会溃散。', 'On death your role is revealed and you spectate; your squad disbands.')),
+        h('li', null, tx('体力归零即倒地（濒死）：失血倒计时 30 秒（同一条命里第二次倒地 20 秒、之后 12 秒），只能以 25% 速度爬行，不能开火；中弹会加速失血——敌人可以补刀。', 'At 0 HP you are downed: a 30 s bleed-out (20 s on your second knock in one life, 12 s after that), crawling at 25% speed, unable to shoot; every hit drains the bleed-out — enemies can finish you.')),
+        h('li', null, tx('每条命第一次倒地时，只要 20 米内没有敌对武将，你的部曲会跑来为你包扎（5 秒，失血暂停，回复 60 体力；这名士兵随之倒下）——中弹会打断。', 'On your first knock in a life, with no hostile hero within 20 m, one of your own soldiers runs over and bandages you (5 s, bleed-out paused, back up with 60 HP; that soldier is spent) — a hit breaks it.')),
+        h('li', null, tx('任何人可按住 F 用「桃」救起倒地者（1.5 秒，回复 100 体力），救援期间失血暂停；倒地者可饮「酒」自救（50 体力）或吃自己的「桃」。', 'Anyone can hold F with a Peach to revive (1.5 s → 100 HP) — the bleed-out pauses meanwhile; the downed hero may drink Wine (50 HP) or eat his own Peach.')),
+        h('li', null, tx('倒地时按 F 呼救「需要桃！」：附近的人会在小地图和画面上看到你的求救标记 30 秒（敌人也看得到）。', 'Downed, press F to call “I need a Peach!”: nearby players see your SOS marker on the minimap and on screen for 30 s (enemies too).')),
+        h('li', null, tx('阵亡后身份公开，并显示死亡回顾（谁用什么击杀你、受到的伤害来源）；随后观战击杀者，←/→ 或鼠标左/右键切换，V 切换第一/第三人称，其他人的身份依旧保密。你的部曲会溃散，锦囊、防具、坐骑与副武器掉落在尸体旁。', 'On death your role is revealed and a recap shows who killed you with what and where your damage came from; then you spectate your killer (←/→ or left/right click to switch, V for first / third person) — everyone else\'s role stays hidden. Your squad disbands; your cards, armor, mount and sidearm drop at your body.')),
+        h('li', null, tx('招魂：阵亡后 60 秒内尸体旁立着你的「魂幡」，任何人在尸体旁按住 F 5 秒即可把你召回（150 体力、没有部曲，每局一次）。', 'Recall: for 60 s after you die your Soul Banner stands by your body — anyone who holds F there for 5 s calls you back (150 HP, no squad, once per match).')),
       ),
     ),
     section(tx('奖惩', 'Rewards & penalties'),
@@ -498,11 +501,39 @@ function weaponsTab(): HTMLElement {
   );
 }
 
+/** 武将技能: how skills work, then every hero's skills (line + numbers from the ability data). */
+function skillsTab(): HTMLElement {
+  const kingdoms: Kingdom[] = ['shu', 'wei', 'wu', 'qun'];
+  return h('div', null,
+    section(tx('技能怎么用', 'How skills work'),
+      h('div', { class: 'sk-howto' },
+        h('ul', null,
+          h('li', null, tx('每位武将有 Q、E 两个主动技能和被动技能；主公另有 G 主公技。技能冷却时图标变暗，金色圆环走满即就绪。', 'Every hero has two active skills (Q, E) and passives; the Lord also gets a lord skill on G. A skill on cooldown is dimmed; when the gold ring closes it is ready.')),
+          h('li', null, tx('需要瞄准的技能（准星方向 / 准星落点 / 准星敌人 / 自身周围）：按住按键，地上会画出范围——冲锋路线、扇形、落点圆圈或目标光圈，松开才施放；按住时点右键取消。', 'Aimed skills (aimed direction / point / enemy / around you): hold the key and the area is drawn on the ground — the dash path, the cone, the circle or a ring under the target — and the skill fires when you let go; right click while holding cancels.')),
+          h('li', null, tx('「准星敌人 / 友军」技能要把准星对准目标，灰色光圈表示现在没有目标。只作用于自身的技能按下即施放。', '“Aimed enemy / ally” skills need the crosshair on a unit — a grey ring means nothing is targeted. Self-only skills fire as soon as you press the key.')),
+          h('li', null, tx('施放后准星下方会告诉你结果：命中几人、对谁生效、或未命中。', 'After a cast, the line under the crosshair tells you what it did: how many it hit, whom it affected, or that it missed.')),
+        ),
+      ),
+    ),
+    ...kingdoms.map((k) =>
+      section(kingdomName(k),
+        HEROES.filter((hd) => hd.kingdom === k).map((hd) =>
+          h('div', { class: 'sk-hero' },
+            h('h4', null, tx(hd.nameZh, hd.nameEn), h('small', null, tx(hd.titleZh, hd.titleEn)), hd.lordCandidate ? h('small', null, tx('★ 主公候选', '★ Lord candidate')) : null),
+            h('div', { class: 'sk-list' }, sortedAbilities(hd).map((a) => abilityBlock(a))),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 const TAB_BUILDERS: Record<HelpTab, () => HTMLElement> = {
   roles: rolesTab,
   rules: rulesTab,
   zone: zoneTab,
   squad: squadTab,
+  skills: skillsTab,
   controls: controlsTab,
   items: itemsTab,
   gear: gearTab,
@@ -523,7 +554,7 @@ export function createHelpScreen(ctx: UiCtx): Screen {
   };
 
   const build = (): void => {
-    const ids: HelpTab[] = ['roles', 'rules', 'zone', 'squad', 'controls', 'items', 'gear', 'weapons'];
+    const ids: HelpTab[] = ['roles', 'rules', 'zone', 'squad', 'skills', 'controls', 'items', 'gear', 'weapons'];
     el.replaceChildren(
       h('header', { class: 'help-head' },
         button(`‹ ${t('common.back')}`, () => ctx.go('title'), { cls: 'ghost small', sfx: 'back' }),

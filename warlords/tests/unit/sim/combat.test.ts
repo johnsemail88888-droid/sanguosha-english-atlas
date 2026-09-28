@@ -10,6 +10,7 @@ import { isBulletDamage as combatIsBullet } from '../../../src/sim/combat';
 import { isBulletDamage } from '../../../src/sim/damageKinds';
 import type { AbilityImplEx } from '../../../src/sim/ext';
 import { aimAnglesFor } from '../../../src/sim/aim';
+import { DOWNED_DAMAGE_TO_SECONDS } from '../../../src/sim/combat';
 import type { World } from '../../../src/sim/world';
 import { hero, makeWorld, place, stepN } from './helpers';
 
@@ -328,7 +329,8 @@ describe('damage pipeline', () => {
     expect(events(w.drainEvents(), 'downed')[0]).toMatchObject({ target: b.id, src: a.id });
     const until = b.hero!.downedUntil;
     w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 20, type: 'normal' });
-    expect(b.hero!.downedUntil).toBeCloseTo(until - 2, 5);
+    // (a first knock: 30 s, 120 damage finishes it — rules.ts DOWNED_FINISH_DAMAGE)
+    expect(b.hero!.downedUntil).toBeCloseTo(until - 20 * DOWNED_DAMAGE_TO_SECONDS, 5);
     w.dealDamage({ targetId: b.id, sourceId: a.id, amount: 500, type: 'normal' });
     expect(b.hero!.dead).toBe(true);
     const death = events(w.drainEvents(), 'death')[0];
