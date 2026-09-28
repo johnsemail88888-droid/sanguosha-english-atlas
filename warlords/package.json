@@ -71,7 +71,8 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest/download"
+        "url": "https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest/download",
+        "useMultipleRangeRequest": false
       }
     ],
     "win": {

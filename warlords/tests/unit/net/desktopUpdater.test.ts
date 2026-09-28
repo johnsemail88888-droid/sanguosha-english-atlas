@@ -104,7 +104,7 @@ describe('which update path an install takes', () => {
   });
 
   it('the feed is package.json build.publish (generic, releases/latest/download) — electron-builder puts it in app-update.yml', () => {
-    expect(pkg.build.publish).toEqual([{ provider: 'generic', url: U.FEED_URL }]);
+    expect(pkg.build.publish).toEqual([{ provider: 'generic', url: U.FEED_URL, useMultipleRangeRequest: false }]);
     expect(U.FEED_URL).toBe('https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest/download');
     // what electron-builder wrote into resources/app-update.yml (npx electron-builder --linux dir)
     const yml = 'provider: generic\nurl: https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest/download\nupdaterCacheDirName: sanguo-warlords-updater\n';
@@ -114,6 +114,20 @@ describe('which update path an install takes', () => {
     expect(U.feedFromAppUpdateYml(undefined)).toBeNull();
     // electron-updater needs the dependency packaged: a production dependency, pinned
     expect(pkg.dependencies['electron-updater']).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it('differential updates ask GitHub for one byte range per request (it answers a multi-range request 501)', () => {
+    // electron-updater's own reading of the config electron-builder copies into app-update.yml:
+    // with several ranges per request every "download only the changed blocks" attempt failed on
+    // github.com (501 Unsupported client range) and fell back to the whole installer / AppImage
+    const factory = require('electron-updater/out/providerFactory') as {
+      createClient(cfg: unknown, updater: unknown, opts: unknown): { constructor: { name: string }; isUseMultipleRangeRequest: boolean };
+    };
+    const client = factory.createClient(pkg.build.publish[0], {}, { isUseMultipleRangeRequest: true, platform: 'win32', executor: {} });
+    expect(client.constructor.name).toBe('GenericProvider');
+    expect(client.isUseMultipleRangeRequest).toBe(false);
+    // (without the flag it would be multi-range)
+    expect(factory.createClient({ provider: 'generic', url: U.FEED_URL }, {}, { platform: 'win32', executor: {} }).isUseMultipleRangeRequest).toBe(true);
   });
 
   it('the asset names the updater builds are package.json’s artifactName patterns', () => {
