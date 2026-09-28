@@ -19,12 +19,15 @@ export const aimsAlways = (def: WeaponDef): boolean => def.class === 'sniper' ||
 
 /**
  * Raise the sights at `d` m? DMRs, snipers and bows at every range beyond 4 m (easy bots only
- * beyond 25 m); shotguns and flamers never; everything else beyond 16 m (hard) / 22 m.
+ * beyond 25 m); shotguns and flamers never; everything else beyond 16 m (hard) / 22 m — or beyond
+ * 2 m at a `downed` target (a crawling body is small and cannot dodge: the hip cone and its bloom
+ * are the miss, so finish it aimed).
  */
-export function wantsAds(def: WeaponDef | undefined, d: number, prof: DifficultyProfile): boolean {
+export function wantsAds(def: WeaponDef | undefined, d: number, prof: DifficultyProfile, downed = false): boolean {
   if (!def || def.melee) return false;
   if (aimsAlways(def)) return prof.name === 'easy' ? d > 25 : d > 4;
   if (def.class === 'shotgun' || def.class === 'flamer') return false;
+  if (downed && d > 2) return true;
   return d > (prof.name === 'hard' ? 16 : 22);
 }
 

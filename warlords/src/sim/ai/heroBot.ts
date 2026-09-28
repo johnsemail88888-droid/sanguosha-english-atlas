@@ -1246,7 +1246,7 @@ export class HeroBot implements BotBrain, BotView {
     w = this.x.activeWeapon(self.id);
     const def = w?.def;
     const d = this.targetDist;
-    const ads = wantsAds(def, d, prof);
+    const ads = wantsAds(def, d, prof, t.hero?.downed === true);
     const o = this.aimer.track(sim, self, t, def, dt, ads);
     const adsT = this.adsTrack.update(def, ads && !(h.reloadUntil > now), dt);
     this.lastAim = { errAngle: o.errAngle, targetAngle: o.targetAngle, point: o.point };
