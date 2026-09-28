@@ -296,7 +296,7 @@ export function recallHero(w: World, e: Entity, byId: EntityId | undefined): boo
     const by = w.get(byId);
     if (by?.hero) by.hero.stats.rescues++;
   }
-  w.announce(`${h.name} 被招魂归来！`, `${h.name} has been called back from the dead!`, 'info');
+  w.announce(`${rt.def.nameZh}·${h.name} 被招魂归来！`, `${rt.def.nameEn} · ${h.name} has been called back from the dead!`, 'info');
   w.requestWinCheck();
   return true;
 }

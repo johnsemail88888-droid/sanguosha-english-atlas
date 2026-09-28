@@ -49,8 +49,9 @@ export const FALLEN_CSS = /* css */ `
 @keyframes sg-dn-key { from { transform: scale(1); box-shadow: 0 0 0 rgba(255, 90, 60, 0); } to { transform: scale(1.18); box-shadow: 0 0 ${u(12)} rgba(255, 90, 60, 0.95); } }
 .hud-fallen-downed.collapsed .dn-hints { padding: ${u(6)} ${u(12)}; }
 .hud-fallen-downed.collapsed .dn-hint.best { margin: 0; }
-/* phones: the bar sits above the touch buttons, the guide card is gone while you are down */
-.sg-hud.touch .hud-fallen-downed .dn-box { bottom: auto; top: 18%; width: min(420px, 70vw); }
+/* phones: just above the vitals / card bar, between the stick and the buttons (the guide card is gone while you are down) */
+.sg-hud.touch .hud-fallen-downed .dn-box { bottom: 112px; width: min(400px, 56vw); gap: 4px; }
+.sg-hud.touch .hud-fallen-downed .dn-ttl { font-size: 20px; }
 .sg-hud.touch .hud-fallen-downed .dn-hint.dim { display: none; }
 
 /* the moment of death: the world drains of colour while the camera pulls back over your body */
