@@ -25,7 +25,9 @@ export function buildGame(kind: 'dist' | 'single'): string {
   const out = kind === 'dist' ? DIST : DIST_SINGLE;
   const args = [path.join(ROOT, 'node_modules/vite/bin/vite.js'), 'build', '--outDir', out, '--emptyOutDir', '--logLevel', 'warn'];
   if (kind === 'single') args.push('--mode', 'single');
-  const r = spawnSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', timeout: 300_000 });
+  // e2e builds never talk to the real official server (the owner's Mac mini, src/net/official.ts)
+  const env = { ...process.env, VITE_OFFICIAL_RELAY: process.env.VITE_OFFICIAL_RELAY ?? '', VITE_OFFICIAL_WEB: process.env.VITE_OFFICIAL_WEB ?? '' };
+  const r = spawnSync(process.execPath, args, { cwd: ROOT, encoding: 'utf8', timeout: 300_000, env });
   if (r.status !== 0) throw new Error(`vite build (${kind}) failed:\n${r.stdout}\n${r.stderr}`);
   return out;
 }

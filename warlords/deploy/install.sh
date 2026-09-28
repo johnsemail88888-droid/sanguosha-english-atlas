@@ -188,12 +188,23 @@ write_key_env() {
   mv "$f.tmp" "$f"
 }
 
-# resolve_relay_key SAVED → RELAY_KEY: SGWL_RELAY_KEY (a key / off) wins, else SAVED (the state
-# file's), else a new key (the first install: RELAY_KEY_NEW=1)
+# resolve_relay_key SAVED [DEFAULT] → RELAY_KEY: SGWL_RELAY_KEY (a key / off; 'on' = SAVED's key or a
+# new one) wins, else SAVED (the state file's), else DEFAULT: 'new' (a new key, RELAY_KEY_NEW=1 —
+# the cloud installer) or 'off' (the home server: zero setup, a key only when asked for)
 RELAY_KEY_NEW=0
 resolve_relay_key() {
-  local saved=${1:-} want=${SGWL_RELAY_KEY:-}
+  local saved=${1:-} want=${SGWL_RELAY_KEY:-} fallback=${2:-new}
   RELAY_KEY_NEW=0
+  if [[ $want == on ]]; then
+    # a saved key stays; a saved 'off' (or nothing) gives way to a new key
+    if valid_relay_key "$saved"; then
+      RELAY_KEY=$saved
+      return 0
+    fi
+    RELAY_KEY=$(gen_relay_key) || die "无法生成访问密钥（没有 openssl / node）/ could not generate an access key (no openssl / node)"
+    RELAY_KEY_NEW=1
+    return 0
+  fi
   if [[ -n $want ]]; then
     if [[ $want == off ]] || valid_relay_key "$want"; then
       RELAY_KEY=$want
@@ -203,6 +214,10 @@ resolve_relay_key() {
   fi
   if [[ $saved == off ]] || valid_relay_key "$saved"; then
     RELAY_KEY=$saved
+    return 0
+  fi
+  if [[ $fallback == off ]]; then
+    RELAY_KEY=off
     return 0
   fi
   RELAY_KEY=$(gen_relay_key) || die "无法生成访问密钥（没有 openssl / node）/ could not generate an access key (no openssl / node)"

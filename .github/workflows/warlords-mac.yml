@@ -39,6 +39,10 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: npm run build
+        env:
+          # CI never talks to the owner's Mac mini (the shipped official server)
+          VITE_OFFICIAL_RELAY: ''
+          VITE_OFFICIAL_WEB: ''
       - name: Install Playwright WebKit + Chromium
         run: npx playwright install --with-deps webkit chromium
       - name: Machine
@@ -110,6 +114,9 @@ jobs:
           cache-dependency-path: warlords/package-lock.json
       - run: npm ci
       - run: npm run build
+        env:
+          VITE_OFFICIAL_RELAY: ''
+          VITE_OFFICIAL_WEB: ''
       - name: Build the arm64 dmg
         run: npx electron-builder --mac dmg --arm64 --publish never
         env:

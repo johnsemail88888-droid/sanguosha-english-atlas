@@ -60,29 +60,46 @@ describe('the access key', () => {
     expect(sh(`valid_relay_key ${'A'.repeat(24)}`).status).toBe(0);
   });
 
-  it('made once on the first install, kept in host.env (600) after that; SGWL_RELAY_KEY sets it or turns it off', () => {
+  it('off by default on a home server (zero setup); SGWL_RELAY_KEY=on makes one, kept in host.env (600); a key of your own; off again', () => {
     const dir = mkdtempSync(path.join(TMP, 'key-'));
     const env = { SGWL_DIR: dir };
+    // no setting, nothing saved: no key — the game's builds connect without one
     const first = sh('load_key_setting; DOMAIN=mac.tail1.ts.net; save_state; echo "KEY=$RELAY_KEY"', env);
     expect(first.status).toBe(0);
-    expect(first.out).toContain('made an access key');
-    const key = /KEY=([A-Za-z0-9_-]+)/.exec(first.out)![1];
-    expect(key).toHaveLength(32);
+    expect(first.out).toContain('KEY=off');
+    expect(first.out).toContain('access key: off (zero setup');
     const state = path.join(dir, 'host.env');
-    expect(readFileSync(state, 'utf8')).toContain(`RELAY_KEY=${key}\n`);
+    expect(readFileSync(state, 'utf8')).toContain('RELAY_KEY=off\n');
     expect(mode(state)).toBe(0o600);
-    // the next run keeps it (and says nothing about a new key)
-    const again = sh('load_key_setting; echo "KEY=$RELAY_KEY"', env);
-    expect(again.out).toBe(`KEY=${key}`);
+    // SGWL_RELAY_KEY=on: a new key, remembered; the next plain run keeps it (and says nothing new)
+    const on = sh('load_key_setting; DOMAIN=mac.tail1.ts.net; save_state; echo "KEY=$RELAY_KEY"', { ...env, SGWL_RELAY_KEY: 'on' });
+    expect(on.out).toContain('made an access key');
+    const key = /KEY=([A-Za-z0-9_-]+)/.exec(on.out)![1];
+    expect(key).toHaveLength(32);
+    expect(readFileSync(state, 'utf8')).toContain(`RELAY_KEY=${key}\n`);
+    expect(sh('load_key_setting; echo "KEY=$RELAY_KEY"', env).out).toBe(`KEY=${key}`);
+    expect(sh('load_key_setting; echo "KEY=$RELAY_KEY"', { ...env, SGWL_RELAY_KEY: 'on' }).out).toBe(`KEY=${key}`); // on again: the same key
     expect(sh('load_state; echo "$RELAY_KEY"', env).out).toBe(key);
-    // SGWL_RELAY_KEY: a key of your own, or off (remembered by save_state)
+    // a key of your own, or off (remembered by save_state)
     const own = 'my-own-key_0123456789abcdefXYZ';
     expect(sh('load_key_setting; echo "$RELAY_KEY"', { ...env, SGWL_RELAY_KEY: own }).out).toBe(own);
     const off = sh('load_key_setting; DOMAIN=m; save_state; echo "$RELAY_KEY"', { ...env, SGWL_RELAY_KEY: 'off' });
-    expect(off.out).toBe('off');
-    expect(off.err).toContain('access key off');
-    expect(sh('load_key_setting; echo "$RELAY_KEY"', env).out).toBe('off'); // (remembered)
+    expect(off.out).toContain('off');
+    expect(sh('load_key_setting; echo "KEY=$RELAY_KEY"', env).out).toMatch(/KEY=off$/); // (remembered)
     expect(sh('load_key_setting', { ...env, SGWL_RELAY_KEY: 'short' }).status).not.toBe(0);
+    // the cloud installer (install.sh) still makes a key by default
+    expect(sh('resolve_relay_key ""; echo "$RELAY_KEY_NEW"').out).toBe('1');
+  });
+
+  it('SGWL_UPDATE_INTERVAL: how often the auto-update looks (≥ 60 s), remembered in host.env; 300 by default', () => {
+    const dir = mkdtempSync(path.join(TMP, 'intv-'));
+    const env = { SGWL_DIR: dir };
+    expect(sh('load_update_interval; echo "$UPDATE_INTERVAL"', env).out).toBe('300');
+    expect(sh('load_update_interval; echo "$UPDATE_INTERVAL"', { ...env, SGWL_UPDATE_INTERVAL: '30' }).out).toBe('300'); // too often: ignored
+    const daily = sh('load_key_setting; load_update_interval; DOMAIN=m; save_state; echo "$UPDATE_INTERVAL"', { ...env, SGWL_UPDATE_INTERVAL: '86400' });
+    expect(daily.out).toContain('86400');
+    expect(readFileSync(path.join(dir, 'host.env'), 'utf8')).toContain('SGWL_UPDATE_INTERVAL=86400\n');
+    expect(sh('load_update_interval; echo "$UPDATE_INTERVAL"', env).out).toBe('86400'); // (remembered)
   });
 
   it('goes into the LaunchAgent (written 600) and, on Linux, an EnvironmentFile (600) — never into the unit', () => {
@@ -201,37 +218,11 @@ describe('the key stays out of the logs', () => {
   });
 });
 
-describe('an install from before the access key (the auto-update does not make one)', () => {
-  const OPEN = JSON.stringify({ app: 'sanguo-warlords', rooms: 1, players: 2, keyRequired: false });
-  const noticeRun = (dir: string, stats: string, now: string) =>
-    sh(`HOST_OS=linux; key_off_notice ${q(stats)}`, { SGWL_DIR: dir, SGWL_NOW: now });
-
-  it('an open server and no RELAY_KEY line in host.env: the log says so, at most once an hour', () => {
-    const dir = mkdtempSync(path.join(TMP, 'koff-'));
-    writeFileSync(path.join(dir, 'host.env'), 'DOMAIN=mac.tail1.ts.net\n');
-    const r1 = noticeRun(dir, OPEN, '5000000');
-    expect(r1.status).toBe(0);
-    expect(r1.out).toContain('访问密钥未开启：运行 update 生成分享链接');
-    expect(noticeRun(dir, OPEN, '5000300').out).toBe('');
-    expect(noticeRun(dir, OPEN, `${5000000 + 3600}`).out).toContain('run update to make the share link');
-    // a server that reports no keyRequired at all (the version before the key): the same
-    expect(noticeRun(mkdtempSync(path.join(TMP, 'koff-')), '{"app":"sanguo-warlords","rooms":0}', '1').out).toContain('访问密钥未开启');
-  });
-
-  it('nothing when the key is on, or the owner chose off (a RELAY_KEY line)', () => {
-    const dir = mkdtempSync(path.join(TMP, 'kon-'));
-    writeFileSync(path.join(dir, 'host.env'), 'DOMAIN=mac.tail1.ts.net\n');
-    expect(noticeRun(dir, JSON.stringify({ keyRequired: true }), '1').out).toBe('');
-    const off = mkdtempSync(path.join(TMP, 'koff-'));
-    writeFileSync(path.join(off, 'host.env'), 'DOMAIN=mac.tail1.ts.net\nRELAY_KEY=off\n');
-    expect(noticeRun(off, OPEN, '1').out).toBe('');
-    // the auto-update asks on every run, busy or not
+describe('no nagging about the key (the home server is zero setup by default)', () => {
+  it('the auto-update never asks for a key', () => {
     const text = readFileSync(SCRIPT, 'utf8');
-    const auto = text.slice(text.indexOf('cmd_auto_update() {'), text.indexOf('cmd_rotate_key() {'));
-    expect(auto.indexOf('key_off_notice "$stats"')).toBeGreaterThan(0);
-    expect(auto.indexOf('key_off_notice "$stats"')).toBeLessThan(auto.indexOf('if game_busy "$stats"'));
-    // on the Mac: a notification too (osascript, the text as arguments — no quoting games)
-    expect(text).toContain("osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title (item 2 of argv)'");
+    expect(text).not.toContain('key_off_notice');
+    expect(text).not.toContain('display notification');
   });
 });
 

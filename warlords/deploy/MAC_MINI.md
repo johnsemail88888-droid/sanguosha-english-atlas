@@ -14,18 +14,15 @@
 装好以后：
 
 - 公网地址 `https://<机器名>.<tailnet>.ts.net/`（Tailscale Funnel：不用在路由器上开端口，不暴露家里的 IP）。
-- **访问密钥**：机器名是公开的（写进了公开的证书透明日志），所以服务器要求密钥。安装时自动生成一次，存在 `~/sanguo-warlords/host.env`（只有本账户能读）。朋友要用**分享链接** `https://<机器名>.<tailnet>.ts.net/?k=<密钥>` 进入——安装、`update`、`status` 结束时的框里第一行就是它。不带密钥的网址能打开页面，但进不了联机（页面会提示「需要房主发的邀请链接（带密钥）」）。链接传出去了就运行 `rotate-key` 换一个（见「日常运维」）。
-  - 分享链接**只出现在脚本的屏幕输出里**（你在 Bash 里看到的输出）；日志文件 `home-host.log` 里同一行写成 `?k=<key>`，所以日志可以放心转给别人。
-  - 朋友用分享链接打开一次，密钥就记在他的浏览器里（地址栏里的 `?k=…` 会自己消失）。游戏大厅里显示的邀请链接把密钥遮成 `k=••••`，点「复制」/「分享」拿到的是完整链接；带密钥的邀请链接总是指向这台 Mac 的网址（即使房主是从 GitHub Pages 网页版开的房），密钥不会被发到别的网站。
-  - 朋友的浏览器已经有一个能用的密钥时，打开一个带**别的**密钥的链接（旧链接、写错的链接），页面会先问服务器：新密钥对才换，不对就保留原来那个。
+- **访问密钥（默认关闭，零设置）**：网页版、桌面版和这台 Mac 自己的网页都默认连这台服务器，朋友打开游戏就能联机，不用填任何东西。机器名是公开的（写进了公开的证书透明日志），所以陌生人理论上也能连；服务器有这些限制兜底：每个网络最多 2 个房间、整台最多 4 个、每个 IP 最多 8 个连接、单个连接最多占 1 MB 内存。
+  - 真遇到陌生人来占房间，就运行 `rotate-key` 开启密钥：之后只有拿到**分享链接** `https://<机器名>.<tailnet>.ts.net/?k=<密钥>` 的人能联机（链接在 `status` 的框里）。开启后，朋友第一次要用分享链接打开一次，密钥会记在他的浏览器里；桌面版玩家也要用分享链接打开一次网页版。
+  - 开了密钥时，分享链接**只出现在脚本的屏幕输出里**；日志文件里同一行写成 `?k=<key>`，日志可以放心转给别人。
 - 服务器 `~/sanguo-warlords/src/warlords/server/server.mjs` 监听 `127.0.0.1:8787`，由 launchd 常驻：崩溃自动重启，**登录后**自动启动（Mac 重启后靠第 4 步的自动登录），运行时阻止 Mac 睡眠。
-- **每 5 分钟**检查一次更新：GitHub `main` 有新提交、**并且 GitHub 上它的 warlords-ci 通过了**、并且没人在玩，才更新并重启；否则什么都不做（原因每小时最多记一行到 `update.log`）。网页版（GitHub Pages）每次推送都会更新，这样 Mac 最多晚几分钟跟上，「服务器托管对局」不会因为版本不一致长时间退回浏览器托管。
+- **每 5 分钟**检查一次更新：GitHub `main` 有新提交、**并且 GitHub 上它的 warlords-ci 通过了**、并且没人在玩，才更新并重启；否则什么都不做（原因每小时最多记一行到 `update.log`）。网页版（GitHub Pages）每次推送都会更新，这样 Mac 最多晚几分钟跟上，「服务器托管对局」不会因为版本不一致长时间退回浏览器托管。 想改成每天一次：更新时加 `SGWL_UPDATE_INTERVAL=86400`（会被记住；单位秒，最少 60）。
 - 「服务器托管对局」（headless）：对局在这台 Mac 上运行，而不是在房主的浏览器里——谁都看不到别人的隐藏身份（房主也看不到），房主离开也不散场。
-- **已经装过的 Mac（装的是还没有访问密钥的旧版本）要用第 3 步那条命令（新下载的脚本）跑一次 `update`**（见「日常运维」的「马上更新」）。
-  - 不跑的话：旧版本每天 05:07 的自动更新会自己把游戏换成新版本（之后仍然每天 05:07 一次，但只更新到 CI 通过的版本），**但不会开启访问密钥**——服务器一直谁都能连，也不会改成每 5 分钟一次。新版本的自动更新会每小时在 `update.log` / `home-host.log` 里记一行、并在 Mac 屏幕上弹一条通知：「访问密钥未开启：运行 update 生成分享链接」。
-  - 这次 `update` 会：生成密钥（存进 `host.env`）；重写游戏服务的 LaunchAgent（带 `RELAY_KEY`、`NO_PEER=1`、`MAX_ROOMS=4`、`HOST_GRACE_MS=120000`）；把自动更新改成每 5 分钟一次；最后在屏幕上打印分享链接。
-  - 更新完用 `curl -s http://127.0.0.1:8787/sgwl.json` 确认有 `"keyRequired":true` 和 `"headless":true`。
-  - 这之后朋友以前的网址（不带 `k=`）不能联机了：把新的分享链接发给他们。
+- **已经装过的 Mac 要用第 3 步那条命令（新下载的脚本）跑一次 `update`**（见「日常运维」的「马上更新」）。
+  - 这次 `update` 会：重写游戏服务的 LaunchAgent（`NO_PEER=1`、`MAX_ROOMS=4`、`HOST_GRACE_MS=120000`）；把自动更新改成每 5 分钟检查一次（只更新到 CI 通过的版本，有人在玩不更新；要保持每天一次就加 `SGWL_UPDATE_INTERVAL=86400`）；访问密钥保持关闭（要开就 `SGWL_RELAY_KEY=on` 或事后 `rotate-key`）。
+  - 不跑的话：旧版本每天 05:07 的自动更新照样会把游戏换成新版本，只是不会改自动更新的频率和上面这些设置。
 
 ## 规则（必须遵守）
 
@@ -120,9 +117,9 @@ tail -n 40 ~/sanguo-warlords/home-host.log | perl -pe 's/\e\[[0-9;]*m//g'
 
 脚本会自己完成这些：
 - 安装 Node 22：已有 Node ≥22 就直接用；否则用 Homebrew；Homebrew 不可用或装不上（例如非管理员账户）时，装到 `~/sanguo-warlords/node`。
-- 第一次安装时生成访问密钥（以后一直沿用，存在 `~/sanguo-warlords/host.env`）。
+- 访问密钥默认不开（零设置）；`SGWL_RELAY_KEY=on` 或事后 `rotate-key` 才生成（以后一直沿用，存在 `~/sanguo-warlords/host.env`）。
 - 把游戏下载到 `~/sanguo-warlords/src` 并构建（网页文件预压缩成 `.br` / `.gz`；上一版的脚本文件保留 3 天，开着旧页面的人不会在开局时报错）。
-- 注册 launchd 服务（环境变量里带密钥，plist 只有本账户能读），开启 Funnel，带密钥从公网验证，并确认不带密钥的连接会被拒绝。
+- 注册 launchd 服务（开了密钥时环境变量里带密钥，plist 只有本账户能读），开启 Funnel，从公网验证（开了密钥时还会确认不带密钥的连接被拒绝）。
 - 注册每 5 分钟一次的自动更新。
 
 **运行中途**可能出现：
@@ -135,7 +132,7 @@ tail -n 40 ~/sanguo-warlords/home-host.log | perl -pe 's/\e\[[0-9;]*m//g'
 
 | 结果 | 含义 | 处理 |
 |---|---|---|
-| `SGWL_EXIT=0`，并且有 `朋友可以访问了 / reachable from the internet` | 成功 | 记下框里的**分享链接**（`分享链接 SHARE LINK:` 那一行，带 `?k=`）和下面两行（游戏网址、中继地址），进入第 4 步。 |
+| `SGWL_EXIT=0`，并且有 `朋友可以访问了 / reachable from the internet` | 成功 | 记下框里的两行（游戏网址、中继地址；开了密钥时还有带 `?k=` 的**分享链接**），进入第 4 步。 |
 | `SGWL_EXIT=0`，但有 `[!] 公网暂时还访问不到 https://…` | 服务和 Funnel 已装好，只是公网 DNS 还没生效。**第一次开 Funnel 时，公网 DNS 可能要 10–30 分钟才出现**（期间连 ts.net 的权威服务器也会回 NXDOMAIN，脚本的 2 分钟重试会全部失败），属于正常 | 进入第 4 步；过 15–30 分钟再跑第 5 步的 `status`。超过 1 小时还不行：`"$TS" funnel --https=443 off`，再重跑第 3 步。 |
 | `SGWL_EXIT=2`（最后一段是黄字说明） | 需要主人操作 | 看下表，主人做完后，重跑同一条命令。 |
 | 其他非 0（`[x] …` 或 `[!] 第 N 行出错`） | 出错 | 看下表；表里没有的，把日志的最后 30 行（下面这条命令的输出）原样给主人，请他转给云端的 Claude：`tail -n 30 ~/sanguo-warlords/home-host.log \| perl -pe 's/\e\[[0-9;]*m//g; s/([?&]k=)[A-Za-z0-9_-]+/$1<key>/g'`。日志里的密钥已经遮住了（`?k=<key>`）；**不要转发屏幕输出**，那里的分享链接带着真密钥。 |
@@ -194,17 +191,17 @@ echo "$D"; SGWL_CHECK_KEY="$K" "$N" ~/sanguo-warlords/src/warlords/deploy/check.
 
 期望看到：
 
-- `status` 的 `exit=0`。输出里有服务运行中、`访问密钥 access key: 开 on`、`Funnel: https://… → http://127.0.0.1:8787`、`公网 / internet: 正常 / OK`，最后打印那个框（分享链接 + 两行）。如果有黄字「Tailscale 密钥会在 … 过期」，把它记进第 6 步的未完成项（第 2 步的 Disable key expiry）。
-- `sgwl.json` 里有 `"app":"sanguo-warlords"`、`"keyRequired":true` 和 `"headless":true`（「服务器托管对局」已启用），`"build"` 里是这次构建的提交号。如果是 `"headless":false`：`grep -n 服务器托管对局 ~/sanguo-warlords/home-host.log | tail -3` 看构建有没有失败；刚从旧版本更新上来的，用第 3 步的命令再跑一次 `update`（见「日常运维」）。`false` 时游戏照样能玩，只是房间在房主的浏览器里运行。`sgwl.json` 里**永远不会**出现密钥本身。
-- `check.mjs` 的 `exit=0`，并且有 `✓ 不带密钥的连接被拒绝 / connections without the key are refused (401)`。（密钥通过环境变量 `SGWL_CHECK_KEY` 传给它，不放在命令行上：命令行本机所有账户都能用 `ps` 看到。）
+- `status` 的 `exit=0`。输出里有服务运行中、`访问密钥 access key`（默认 `关 off`）、`Funnel: https://… → http://127.0.0.1:8787`、`公网 / internet: 正常 / OK`，最后打印那个框。如果有黄字「Tailscale 密钥会在 … 过期」，把它记进第 6 步的未完成项（第 2 步的 Disable key expiry）。
+- `sgwl.json` 里有 `"app":"sanguo-warlords"`、`"keyRequired":false`（默认；开了密钥是 `true`）和 `"headless":true`（「服务器托管对局」已启用），`"build"` 里是这次构建的提交号。如果是 `"headless":false`：`grep -n 服务器托管对局 ~/sanguo-warlords/home-host.log | tail -3` 看构建有没有失败；刚从旧版本更新上来的，用第 3 步的命令再跑一次 `update`（见「日常运维」）。`false` 时游戏照样能玩，只是房间在房主的浏览器里运行。`sgwl.json` 里**永远不会**出现密钥本身。
+- `check.mjs` 的 `exit=0`。（开了密钥时还会有 `✓ 不带密钥的连接被拒绝 / connections without the key are refused (401)`；密钥通过环境变量 `SGWL_CHECK_KEY` 传给它，不放在命令行上。）
 
-最后请 👤 主人**用手机、关掉 Wi-Fi、用蜂窝网络**打开**分享链接**：能进标题页（地址栏里的 `?k=…` 会自己消失），点「联机」→「创建房间」能拿到房间码，就说明外网的朋友也能进。再用不带 `?k=` 的游戏网址试一次联机：应该提示「需要房主发的邀请链接（带密钥）」。
+最后请 👤 主人**用手机、关掉 Wi-Fi、用蜂窝网络**打开**游戏网址**（开了密钥时用分享链接）：能进标题页，点「联机」→「创建房间」能拿到房间码，就说明外网的朋友也能进。
 
 ## 第 6 步：汇报
 
 用中文告诉主人：
 
-1. **分享链接**（框里第一行，带 `?k=`）：这是发给朋友的，**只私下发**，不要贴到公开的地方。链接传出去了，运行 `rotate-key` 换一个（旧链接立刻失效，要把新链接重新发给朋友）。
+1. **发给朋友的网址**：默认就是游戏网址（框里「游戏网址 Game」那一行），朋友打开就能联机；桌面版不用任何设置也连这台服务器。开了密钥时发带 `?k=` 的分享链接（只私下发；传出去了就 `rotate-key` 换一个）。
 2. 游戏网址和中继地址（框里下面那两行，不含密钥），并提醒他把这两行**发给云端的 Claude**（开发这个游戏的那个会话）。它会把这个地址设成网页版和桌面版的默认服务器。云端 Claude 只需要这两行，不需要密钥。
 3. 还没做完的项，例如：没插网线、FileVault 还开着或没开自动登录、没 Disable key expiry、Tailscale 自动更新还开着、机器名还是默认的。
 4. 下面的日常用法。
@@ -219,23 +216,22 @@ echo "$D"; SGWL_CHECK_KEY="$K" "$N" ~/sanguo-warlords/src/warlords/deploy/check.
 |---|---|
 | 看状态（顺便重新打印分享链接和那两行；公网不通时要跑几分钟，加长超时） | `bash ~/sanguo-warlords/bin/home-host.sh status` |
 | 只要分享链接（不跑检查） | `D=$(sed -n 's/^DOMAIN=//p' ~/sanguo-warlords/host.env); K=$(sed -n 's/^RELAY_KEY=//p' ~/sanguo-warlords/host.env); echo "https://$D/?k=$K"` |
-| **换访问密钥**（分享链接传到不该去的地方了）。会重启服务（正在玩的人掉线）；旧链接立刻失效，把新链接重新发给朋友 | `bash ~/sanguo-warlords/bin/home-host.sh rotate-key` |
+| **开启 / 更换访问密钥**（只让拿到分享链接的人进；陌生人来占房间时用）。会重启服务（正在玩的人掉线）；旧链接立刻失效，把新的分享链接发给朋友 | `bash ~/sanguo-warlords/bin/home-host.sh rotate-key` |
 | 马上更新到最新版，不等自动更新（会重启服务；放后台运行；不看 CI 结果）。用新下载的脚本：本机 `bin/` 里的副本可能是旧的 | `curl -fsSL https://raw.githubusercontent.com/johnsemail88888-droid/sanguosha-english-atlas/main/warlords/deploy/home-host.sh -o /tmp/sgwl-home-host.sh && caffeinate -i bash /tmp/sgwl-home-host.sh update; echo "SGWL_EXIT=$?"` |
 | 停止当服务器（服务、自动更新、Funnel 全关） | `bash ~/sanguo-warlords/bin/home-host.sh stop` |
-| 重新开始当服务器 | 重跑第 3 步（密钥不变，分享链接照旧） |
+| 重新开始当服务器 | 重跑第 3 步（设置不变） |
 | 服务器日志（每行带 UTC 时间；有人时每分钟一行 `[stats]`；每个连接/断开一行 `[relay] +` / `[relay] -`；从不写密钥） | `tail -n 100 ~/sanguo-warlords/server.log` |
-| 自动更新日志（为什么没更新：有人在玩 / CI 还在跑 / CI 没过 / GitHub 限流 / 访问密钥未开启…，同一原因每小时最多一行） | `tail -n 50 ~/sanguo-warlords/update.log` |
+| 自动更新日志（为什么没更新：有人在玩 / CI 还在跑 / CI 没过 / GitHub 限流…，同一原因每小时最多一行） | `tail -n 50 ~/sanguo-warlords/update.log` |
 | 安装/更新脚本日志（分享链接在这里写成 `?k=<key>`；要链接用 `status`） | `tail -n 50 ~/sanguo-warlords/home-host.log \| perl -pe 's/\e\[[0-9;]*m//g'` |
 | 现在有没有人在玩 | `curl -s http://127.0.0.1:8787/sgwl.json`，按规则 8 判断（`headlessHumans`、`headlessPlaying`，以及 `rooms` / `players` 和 `headlessRooms` 比） |
 | 现在跑的是哪个版本 | `curl -s http://127.0.0.1:8787/sgwl.json` 里的 `"build":{"compat":…,"sha":…}`（`sha` 是 GitHub 上的提交号） |
 | Funnel 指向哪里 | `/Applications/Tailscale.app/Contents/MacOS/Tailscale funnel status` |
-| 不要访问密钥了（谁拿到网址都能玩；不推荐） | 用「马上更新」那条命令，把 `bash /tmp/sgwl-home-host.sh update` 换成 `SGWL_RELAY_KEY=off bash /tmp/sgwl-home-host.sh update`（会被记住；想恢复就 `rotate-key`） |
+| 关掉访问密钥（回到零设置） | 用「马上更新」那条命令，把 `bash /tmp/sgwl-home-host.sh update` 换成 `SGWL_RELAY_KEY=off bash /tmp/sgwl-home-host.sh update`（会被记住） |
 
 注意：表格里的 `\|` 是 Markdown 转义，实际命令里是普通的 `|`。
 
-自动更新怎么决定（每 5 分钟一次，`~/Library/LaunchAgents/com.sanguo-warlords.update.plist` 的 `StartInterval 300`）：
+自动更新怎么决定（默认每 5 分钟一次，`~/Library/LaunchAgents/com.sanguo-warlords.update.plist` 的 `StartInterval`；`SGWL_UPDATE_INTERVAL` 可改）：
 
-0. 服务器没开访问密钥、`host.env` 里也没有 `RELAY_KEY=` 这一行（从旧版本装上来、还没跑过 `update`）→ 每小时记一行并在 Mac 上弹通知「访问密钥未开启：运行 update 生成分享链接」。自动更新**不会**自己生成密钥（朋友手里的旧网址会突然失效）。
 1. 有人在玩（规则 8 的条件）→ 这一轮什么都不做。
 2. 问 GitHub `main` 最新的提交；和本机构建的一样 → 什么都不做（如果之前构建好但因为有人在玩没重启，这时补一次重启）。
 3. 不一样 → 问 GitHub 这个提交的 `warlords-ci` 结果：通过 → 下载**这个提交**、构建、再确认没人在玩、重启；还在跑 → 等下一轮；没通过 → 不更新；这个提交没有 warlords-ci（只改了别的目录）→ 用最近一个 CI 通过的提交。

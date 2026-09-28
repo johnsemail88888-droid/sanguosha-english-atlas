@@ -9,17 +9,21 @@
 #
 #   … | bash -s -- update    pull the latest game, rebuild, restart (running it again does the same)
 #   … | bash -s -- status    is everything up? (prints the share link and the two lines again)
-#   … | bash -s -- rotate-key  a new access key: the old share link stops working (restarts the server)
+#   … | bash -s -- rotate-key  turn the access key on / change it: only share-link holders can play
+#                            (the old link stops working; restarts the server)
 #   … | bash -s -- stop      stop hosting (service, auto-update and Funnel off)
 #   … | SGWL_HEADLESS=0 bash no server-hosted matches (rooms run in the host player's browser, as
 #                            before); SGWL_HEADLESS=1 turns them back on (remembered in host.env)
-#   … | SGWL_RELAY_KEY=off bash  no access key: anyone who has the address can play (remembered)
-#   (auto-update: what the job every 5 minutes runs — it updates only to a commit GitHub's CI passed,
-#    only while nobody plays; logs rotate at 5 MB)
+#   … | SGWL_RELAY_KEY=on bash   an access key (only SHARE LINK holders play); =off turns it off (remembered)
+#   … | SGWL_UPDATE_INTERVAL=86400 bash  auto-update once a day instead of every 5 minutes (remembered)
+#   (auto-update: what the job every SGWL_UPDATE_INTERVAL seconds runs — it updates only to a commit
+#    GitHub's CI passed, only while nobody plays; logs rotate at 5 MB)
 #
-# Access key: the machine's name is public (Certificate Transparency logs), so the server wants a
-# key (RELAY_KEY, made on the first install, kept in ~/sanguo-warlords/host.env): friends join
-# through the SHARE LINK https://<machine>.<tailnet>.ts.net/?k=<key> the summary prints.
+# Access key: off by default — a home server is zero setup (the game's web page and desktop app use
+# it as their official server with no key). The machine's name is public (Certificate Transparency
+# logs); per-address / total room caps and socket limits hold strangers off. `rotate-key` (or
+# SGWL_RELAY_KEY=on) turns a key on: friends then join through the SHARE LINK
+# https://<machine>.<tailnet>.ts.net/?k=<key> the summary prints (kept in ~/sanguo-warlords/host.env).
 #
 # What it does (safe to re-run — every step checks what is already there):
 #   Node 22 (macOS: Homebrew node@22, else the official nodejs.org build in ~/sanguo-warlords/node;
@@ -97,6 +101,7 @@ BIN_DIR="$INSTALL_DIR/bin"
 UPDATE_LABEL=com.sanguo-warlords.update
 UPDATE_PLIST="$HOME/Library/LaunchAgents/${UPDATE_LABEL}.plist"
 UPDATE_LOG="$INSTALL_DIR/update.log"
+# seconds between auto-update checks: SGWL_UPDATE_INTERVAL (≥ 60), else what an earlier run saved, else 300
 UPDATE_INTERVAL=300
 # its memory: one line per skip reason (logged at most once an hour), the last failed build, …
 AU_STATE="$INSTALL_DIR/auto-update.state"
@@ -871,6 +876,7 @@ SGWL_PORT=$APP_PORT
 SGWL_BRANCH=$BRANCH
 SGWL_HEADLESS=$HEADLESS_SETTING
 RELAY_KEY=$RELAY_KEY
+SGWL_UPDATE_INTERVAL=$UPDATE_INTERVAL
 NODE_BIN_DIR=$(dirname "$(command -v node)")
 EOF
   )
@@ -883,32 +889,23 @@ saved_relay_key() {
   sed -n 's/^RELAY_KEY=//p' "$STATE_FILE" 2>/dev/null | head -n1 || true
 }
 
-# load_key_setting: the access key for this install / update — SGWL_RELAY_KEY (a key / off), else
-# host.env's, else a new one (the first install with this version: friends need the share link)
+# load_key_setting: the access key for this install / update — SGWL_RELAY_KEY (a key / on / off),
+# else host.env's, else none: a home server is zero setup (the game's builds connect to it with no
+# key); `rotate-key` or SGWL_RELAY_KEY=on turns a key on (friends then need the share link)
 load_key_setting() {
-  resolve_relay_key "$(saved_relay_key)"
+  resolve_relay_key "$(saved_relay_key)" off
   if [[ $RELAY_KEY_NEW == 1 ]]; then
     log "已生成访问密钥：从现在起朋友要用最后打印的「分享链接」进入 / made an access key: from now on friends join through the SHARE LINK printed at the end"
   elif [[ $RELAY_KEY == off ]]; then
-    warn "访问密钥已关闭（SGWL_RELAY_KEY=off）：谁拿到网址都能玩 / access key off: anyone with the address can play"
+    log "访问密钥：关闭（零设置，打开网址或游戏就能联机；要只让拿到分享链接的人进：rotate-key）/ access key: off (zero setup; to admit only people with the share link: rotate-key)"
   fi
 }
 
-# key_off_notice SGWL_JSON: the server runs without the access key and nobody chose that (host.env has
-# no RELAY_KEY line: an install from before the key — the auto-update does not make one, friends'
-# links would stop working): say so at most once an hour — the log, and a notification on the Mac
-key_off_notice() {
-  if [[ $(stat_flag "$1" keyRequired) == true ]] || grep -q '^RELAY_KEY=' "$STATE_FILE" 2>/dev/null; then return 0; fi
-  local now last msg
-  now=$(now_s)
-  last=$(au_get "skip:key-off")
-  if [[ $last =~ ^[0-9]+$ ]] && ((now - last < SKIP_LOG_EVERY)); then return 0; fi
-  msg="访问密钥未开启：运行 update 生成分享链接 / the access key is not on — run update to make the share link"
-  skip_log key-off "$msg（… | bash -s -- update）"
-  if [[ $HOST_OS == macos ]] && command -v osascript >/dev/null 2>&1; then
-    osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title (item 2 of argv)' -e 'end run' \
-      "$msg" "三国杀·枪火乱世 服务器 / game server" >/dev/null 2>&1 || true
-  fi
+# load_update_interval: SGWL_UPDATE_INTERVAL (seconds, ≥ 60), else host.env's, else 300
+load_update_interval() {
+  local v=${SGWL_UPDATE_INTERVAL:-}
+  [[ -n $v ]] || v=$(sed -n 's/^SGWL_UPDATE_INTERVAL=//p' "$STATE_FILE" 2>/dev/null | head -n1 || true)
+  if [[ $v =~ ^[0-9]+$ ]] && ((v >= 60)); then UPDATE_INTERVAL=$v; fi
 }
 
 # SGWL_HEADLESS from the environment, else what an earlier run saved
@@ -1025,6 +1022,7 @@ cmd_install() {
   # (an auto-update building right now finishes first: two builds must not swap dist/ at once)
   acquire_lock 2700 || die "另一个安装/更新 45 分钟还没结束 / another install or update has been running for 45 minutes — see $LOG_FILE"
   load_headless_setting
+  load_update_interval
   load_key_setting
   ensure_node
   ensure_tailscale
@@ -1064,6 +1062,7 @@ cmd_status() {
   local ok=1 stats state dns _https _funnel target sha
   node_path_setup
   RELAY_KEY=$(saved_relay_key)
+  load_update_interval
   if service_running; then log "游戏服务 / game server: 运行中 / running"; else
     warn "游戏服务未运行 / game server is not running"
     ok=0
@@ -1129,6 +1128,7 @@ cmd_auto_update() {
   node_path_setup
   load_state || die "尚未安装 / not installed yet"
   load_headless_setting
+  load_update_interval
   acquire_lock 0 || {
     skip_log locked "另一个安装/更新正在进行，这一轮跳过 / another install or update is running — skipping this round"
     return 0
@@ -1143,7 +1143,6 @@ cmd_auto_update() {
     skip_log server-down "游戏服务没有响应（launchd / systemd 会重启它），这一轮不更新 / the game server does not answer (launchd / systemd restarts it) — no update this round"
     return 0
   fi
-  key_off_notice "$stats"
   if game_busy "$stats"; then
     skip_log busy "有人在玩（房间 $(stat_field "$stats" rooms)，玩家 $(human_players "$stats")，服务器托管 $(stat_field "$stats" headlessHumans)），不更新 / a game is on — no update"
     return 0
@@ -1233,6 +1232,7 @@ cmd_rotate_key() {
   node_path_setup
   load_state || die "尚未安装，先运行安装命令 / not installed yet — run the install command first"
   load_headless_setting
+  load_update_interval
   acquire_lock 2700 || die "另一个安装/更新还在进行 / another install or update is still running"
   stats=$(server_stats)
   if [[ -n $stats ]] && game_busy "$stats"; then
