@@ -30,7 +30,7 @@ English section below → [English](#english).*
 | 方式 | 说明 |
 |---|---|
 | **网页版** | <https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/> —— 打开即玩（推荐 Chrome / Edge / Firefox 最新版） |
-| **桌面版** | 在 GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases) 下载：Windows 便携版 / 安装版（`.exe`）、macOS（`.dmg`）、Linux（`.AppImage`）。桌面版自带局域网服务器。应用未签名：Windows 首次运行点「更多信息 → 仍要运行」，并在防火墙提示里允许「专用网络」（否则朋友连不进来）；macOS 15+ 在「系统设置 → 隐私与安全性」点「仍要打开」。 |
+| **桌面版** | 在 GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest) 下载。**Windows 推荐安装版 `…-Windows-setup.exe`：装一次，以后自动更新**（后台下载新版本，退出游戏时安装，标题页也可点「重启并更新」）；便携版 `…-Windows-portable.exe` 和 macOS（`.dmg`）有新版本时标题页会提示「有新版本 build N · 下载」；Linux（`.AppImage`）同样自动更新。标题页写着「测试版 v0.1.0」的旧桌面版不会自动更新，需重新下载一次。联机零设置：打开就连官方服务器。桌面版自带局域网服务器。应用未签名：Windows 首次运行点「更多信息 → 仍要运行」，并在防火墙提示里允许「专用网络」（否则朋友连不进来）；macOS 15+ 在「系统设置 → 隐私与安全性」点「仍要打开」。 |
 | **离线单文件** | 下载 [`sanguo-warlords-offline.html`](https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/sanguo-warlords-offline.html)（或自行 `npm run build:single` 生成 `dist-single/index.html`），双击即可单机游玩，无需网络。 |
 
 手机横屏也能玩（自动切换触屏操作：左侧摇杆、右侧拖动瞄准、射击 / 开镜 / 跳跃 / 闪避 / 技能按钮；左上角「令 聊 图 战 ☰」再点一次即关闭，长按锦囊栏可查看说明）。
@@ -236,6 +236,8 @@ P2P 模式需要双方能打洞。对称型 NAT、手机 4G/5G（运营商级 NA
 | `npm run electron` | 以桌面应用运行 |
 | `npm run dist:win` / `dist:mac` / `dist:linux` | 打包桌面版到 `release/` |
 
+- 发布：合并到 `main` 的改动（游戏代码、美术、服务器、依赖）会自动发布——网页版由 `warlords-pages.yml` 部署，桌面版由 `warlords-desktop.yml` 构建 Windows / macOS / Linux 并发布成最新的 GitHub Release（版本 `0.1.<运行号>`，标签 `warlords-build-<运行号>`，附带 electron-updater 需要的 `latest*.yml` 和 `.blockmap`）。已安装的桌面版自己更新（`electron/updater.cjs`：安装版和 AppImage 后台下载、退出时安装；便携版和 Mac 版在标题页提示下载）。只改文档 / 测试不发布。只有 `main` 会发布：手动运行该工作流时选其他分支（或取消勾选 `publish`）只是试跑（只产出构建文件，不发布）。
+
 - 调试：在网址后加 `?debug=1` 会暴露 `window.__sgwl`（当前会话、视图、本地英雄、事件统计、加载耗时，以及仅限本地单人练习的作弊：`cheats.timeScale(4)`、`cheats.god()`、`cheats.give('tao')`、`cheats.teleport(x, z)` 等；联机房主与客人均不可用），供自动化测试与试玩使用。
 - e2e 默认使用 `/opt/pw-browsers/chromium`，可用 `CHROMIUM_PATH` 覆盖；`SGWL_E2E_SKIP_BUILD=1` 复用上次的测试构建。
 
@@ -286,7 +288,7 @@ and glyphs — gameplay is identical.
 
 ### How to play
 - **Web:** <https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/> (latest Chrome / Edge / Firefox; phones in landscape get touch controls).
-- **Desktop:** download from GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases) — Windows portable / installer, macOS `.dmg`, Linux `.AppImage`. The desktop app embeds the LAN server. The builds are unsigned: on Windows choose "More info → Run anyway" and allow **private networks** at the firewall prompt (otherwise LAN friends can't join); on macOS 15+ use System Settings → Privacy & Security → "Open Anyway".
+- **Desktop:** download from GitHub [Releases](https://github.com/johnsemail88888-droid/sanguosha-english-atlas/releases/latest). **On Windows get the installer `…-Windows-setup.exe`: install once and it updates itself** (new builds download in the background and install when you quit, or click “Restart to update” on the title screen). The portable exe and the macOS `.dmg` show “New version: build N · Download” on the title screen; the Linux `.AppImage` updates itself too. An old copy whose title screen says “Beta v0.1.0” cannot update itself: download it once more. Online play needs no setup (the official server). The desktop app embeds the LAN server. The builds are unsigned: on Windows choose "More info → Run anyway" and allow **private networks** at the firewall prompt (otherwise LAN friends can't join); on macOS 15+ use System Settings → Privacy & Security → "Open Anyway".
 - **Offline single file:** [`sanguo-warlords-offline.html`](https://johnsemail88888-droid.github.io/sanguosha-english-atlas/warlords/sanguo-warlords-offline.html) (or `npm run build:single` → `dist-single/index.html`); double-click to play single player without a network.
 - Switch the UI language on the title screen (中文 / English).
 - Needs WebGL 2. If the title screen says "3D graphics can't start", turn on hardware acceleration in the browser settings, update the graphics driver or browser, and reload.
@@ -438,7 +440,10 @@ domain: `curl … | sudo DOMAIN=your.domain bash`). Update later with `curl … 
 Node.js 22 LTS (Vite 8 needs ≥ 20.19 / 22.12). In `warlords/`: `npm ci`, `npm run dev`, `npm run build`, `npm run build:single`,
 `npm run typecheck`, `npm test` (vitest), `npm run e2e` (Playwright on SwiftShader: full single-player flow, three
 browsers joining over the WebSocket relay, the `file://` single-file build, phone touch controls), `npm run server`,
-`npm run electron`, `npm run dist:win|mac|linux`. Append `?debug=1` to the URL to get `window.__sgwl` (session,
+`npm run electron`, `npm run dist:win|mac|linux`. Releases are automatic: a push to `main` that changes the game deploys the web
+version (`warlords-pages.yml`) and publishes the desktop apps as the latest GitHub release (`warlords-desktop.yml`: version
+`0.1.<run>`, tag `warlords-build-<run>`, with electron-updater's `latest*.yml` / `.blockmap`); installed apps update from it
+(`electron/updater.cjs`). Only `main` publishes: a manual run of any other branch (or with `publish` off) is a dry run. Append `?debug=1` to the URL to get `window.__sgwl` (session,
 view, local hero, event counters, load timings and — in local single-player matches only, never online — cheats such as `cheats.timeScale(4)`,
 `cheats.god()`, `cheats.give('tao')`) for automated play-testing. Layout: `src/core` contracts · `src/data` content · `src/sim`
 headless authoritative simulation + AI + map generator · `src/net` sessions & transports · `src/render` three.js ·

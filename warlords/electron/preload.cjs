@@ -1,6 +1,7 @@
-// Exposes desktop-only info (LAN addresses of the embedded server) to the game UI, and
-// keeps the game's localStorage keys mirrored in the app's data folder (PLATFORM-7): the
-// page's origin changes with the embedded server's port, and localStorage with it.
+// Exposes desktop-only info (LAN addresses of the embedded server, the app version and its
+// updates) to the game UI, and keeps the game's localStorage keys mirrored in the app's data
+// folder (PLATFORM-7): the page's origin changes with the embedded server's port, and
+// localStorage with it.
 const { contextBridge, ipcRenderer } = require('electron');
 const { MARK_KEY, restoreStorage, snapshotStorage } = require('./state.cjs');
 
@@ -63,6 +64,32 @@ function webglStatus() {
   }
 }
 
+/**
+ * Desktop updates (electron/updater.cjs, src/ui/desktopUpdate.ts). onState(cb) calls cb with the
+ * state now and on every change, and returns the unsubscribe; download() opens the new build (the
+ * portable exe / the dmg) or starts the background download; restart() installs a downloaded one.
+ */
+const update = {
+  onState(cb) {
+    if (typeof cb !== 'function') return () => undefined;
+    const push = (_ev, st) => cb(st);
+    ipcRenderer.on('sgwl:update-state', push);
+    try {
+      const st = ipcRenderer.sendSync('sgwl:update-get');
+      if (st) cb(st);
+    } catch {
+      /* no updater: nothing to show */
+    }
+    return () => ipcRenderer.removeListener('sgwl:update-state', push);
+  },
+  /** which: 'setup' — the portable's offer of the setup build (it updates itself) */
+  download: (which) => ipcRenderer.send('sgwl:update-do', 'download', which === 'setup' ? 'setup' : undefined),
+  restart: () => ipcRenderer.send('sgwl:update-do', 'restart'),
+  check: () => ipcRenderer.send('sgwl:update-do', 'check'),
+  /** a match is on: no update check, download or restart until it ends */
+  playing: (on) => ipcRenderer.send('sgwl:update-playing', !!on),
+};
+
 let lanUrls = [];
 try {
   lanUrls = JSON.parse(decodeURIComponent(arg('sgwl-lan')) || '[]');
@@ -86,4 +113,7 @@ contextBridge.exposeInMainWorld('sgwlDesktop', {
   port: Number(arg('sgwl-port') || 8787),
   /** how Chromium runs WebGL (app.getGPUFeatureStatus().webgl: 'enabled…' = on the GPU; '' unknown) */
   webgl: webglStatus(),
+  /** the app's version (0.1.<build> for a release build) */
+  version: arg('sgwl-version'),
+  update,
 });

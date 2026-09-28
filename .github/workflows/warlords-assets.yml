@@ -50,10 +50,12 @@ jobs:
             sleep 5
           done
           exit 1
-      # a push made with GITHUB_TOKEN starts no workflows, so the web version would keep
-      # the old art until the next unrelated push: deploy it explicitly
-      - name: Deploy the web version with the new art
+      # a push made with GITHUB_TOKEN starts no workflows, so the web version and the desktop apps
+      # would keep the old art until the next unrelated push: deploy / release them explicitly
+      - name: Deploy the web version and release the desktop apps with the new art
         if: steps.commit.outputs.pushed == 'true' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run warlords-pages.yml --ref "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}"
+        run: |
+          gh workflow run warlords-pages.yml --ref "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}"
+          gh workflow run warlords-desktop.yml --ref "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}"

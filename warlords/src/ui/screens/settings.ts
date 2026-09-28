@@ -5,10 +5,11 @@ import type { Screen, SettingsTab, UiCtx } from '../ctx';
 import { Bag, h } from '../dom';
 import { getLang, t, tx } from '../i18n';
 import { button, field, nameFieldModel, segmented, slider, tabs, textInput, toggle } from '../widgets';
-import { choiceOf, choicePatch, markModeChosen, relayAddressPatch, type ConnChoice } from '../invite';
+import { choiceChosen, choicePatch, defaultChoice, markModeChosen, relayAddressPatch, type ConnChoice } from '../invite';
 import { officialServer } from '../../net/official';
 import { gpuShortName, isMac, qualityName } from '../perfcheck';
 import { macNotesBox } from './help';
+import { createAboutBox } from '../desktopUpdate';
 
 /** localhost, 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, ::1, fc00::/7, *.local: nobody has a TLS certificate there */
 export function isPrivateHost(host: string): boolean {
@@ -67,8 +68,18 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
         { value: 'en' as Lang, label: 'English' },
       ], st.lang, (v) => upd({ lang: v }), { name: t('settings.language') })),
       field(t('settings.name'), nameInput()),
+      // 版本 · build N — 已是最新 / 有新版本 · 下载 / 重启并更新 (desktop app); 网页版 refreshes itself
+      field(t('settings.about'), about()),
     ];
   };
+
+  let aboutBox: { el: HTMLElement; dispose(): void } | null = null;
+  const about = (): HTMLElement => {
+    aboutBox?.dispose();
+    aboutBox = createAboutBox(ctx.version ?? '');
+    return aboutBox.el;
+  };
+  bag.add(() => aboutBox?.dispose());
 
   const controls = (): HTMLElement[] => {
     const st = settings.get();
@@ -177,7 +188,8 @@ export function createSettingsPanel(ctx: UiCtx, initialTab: SettingsTab, onClose
         ...(official ? [{ value: 'official' as const, label: t('online.official') }] : []),
         { value: 'peer' as const, label: t('online.peer') },
         { value: 'ws' as const, label: official ? t('online.own') : t('online.ws') },
-      ], choiceOf(n.mode, n.wsUrl), (v) => {
+      // what online play would use now — a fresh profile: 官方服务器（推荐）, not the stored P2P default
+      ], defaultChoice({ mode: n.mode, wsUrl: n.wsUrl, chosen: choiceChosen() }), (v) => {
         markModeChosen();
         net(choicePatch(v, settings.get().net));
         renderBody();
