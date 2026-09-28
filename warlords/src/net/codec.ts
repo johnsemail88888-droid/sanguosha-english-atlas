@@ -435,6 +435,8 @@ const Y_HAS_GROUND = 64;
 const Y_ON_GROUND = 128;
 const Y2_MODS = 1;
 const Y2_FORCED = 2;
+/** downed and being revived: the reviver's id + that channel's progress */
+const Y2_RESCUE = 4;
 
 function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   w.varuint(y.entityId);
@@ -478,7 +480,7 @@ function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   if (y.vel !== undefined) f |= Y_VEL;
   if (y.onGround !== undefined) f |= Y_HAS_GROUND | (y.onGround ? Y_ON_GROUND : 0);
   w.u8(f);
-  w.u8((y.moveMods ? Y2_MODS : 0) | (y.forced ? Y2_FORCED : 0));
+  w.u8((y.moveMods ? Y2_MODS : 0) | (y.forced ? Y2_FORCED : 0) | (y.rescue ? Y2_RESCUE : 0));
   if (y.channel) {
     writeEnum(w, CHANNEL_KINDS, y.channel.kind);
     w.u16(Math.round(Math.min(1, Math.max(0, y.channel.progress)) * 65535));
@@ -513,6 +515,10 @@ function writeYou(w: ByteWriter, st: StringTable, y: PrivateHeroView): void {
   if (y.forced) {
     writeVec(w, y.forced.vel);
     w.u16(csQ(y.forced.remaining));
+  }
+  if (y.rescue) {
+    w.varuint(y.rescue.by);
+    w.u16(Math.round(Math.min(1, Math.max(0, y.rescue.progress)) * 65535));
   }
 }
 
@@ -606,6 +612,10 @@ function readYou(r: ByteReader, st: StringTable): PrivateHeroView {
   if (f2 & Y2_FORCED) {
     const vel = readVec(r);
     y.forced = { vel, remaining: csDQ(r.u16()) };
+  }
+  if (f2 & Y2_RESCUE) {
+    const by = r.varuint();
+    y.rescue = { by, progress: r.u16() / 65535 };
   }
   return y;
 }

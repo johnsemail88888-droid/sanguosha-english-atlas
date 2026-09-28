@@ -627,7 +627,8 @@ export class ClientView implements ViewSource {
         ...you,
         cooldowns,
         reloading: dec(you.reloading),
-        downedRemaining: dec(you.downedRemaining),
+        // being revived pauses the bleed-out (sim/rules tickDowned): the clock holds still meanwhile
+        downedRemaining: you.rescue ? you.downedRemaining : dec(you.downedRemaining),
         statuses: you.statuses.map((s) => ({ id: s.id, remaining: dec(s.remaining) })),
       };
     }

@@ -210,6 +210,8 @@ export interface HeroRuntime {
   movedTick: number;
   /** decayed damage taken from each commander's troops / summons / turrets (sim/combat.ts troopFocusDamage) */
   troopHeat: Map<EntityId, { value: number; at: number }>;
+  /** last 「需要桃！」 call made with F while downed (callForHelp) */
+  helpCallAt?: number;
 }
 
 export interface PlayerSlot {
@@ -247,6 +249,8 @@ const ATTACK_MEMORY = 10;
 /** half-life (s) of the per-pair tally of damage a hero dealt another by his own hand (heroHarm) */
 const HARM_HALF_LIFE = 3;
 const MARK_TIME = 12;
+/** a downed hero's F 「需要桃！」 call repeats at most this often (s) */
+export const HELP_CALL_GAP = 3;
 const AIRDROP_RADIUS = 1.0;
 /** airdrops stay this far from the map edge */
 const AIRDROP_EDGE_MARGIN = 25;
@@ -735,7 +739,7 @@ export class World implements SimExt, SimHost {
     // 9. airdrops
     this.updateAirdrops(dt);
     // 10. rules
-    tickDowned(this, heroes);
+    tickDowned(this, heroes, dt);
     this.processTimers();
     if (this.winCheckRequested || this.tick % 15 === 0) {
       this.winCheckRequested = false;
@@ -1076,13 +1080,16 @@ export class World implements SimExt, SimHost {
         if (!h.downed) this.commandSquad(e, a.order);
         return;
       case 'mark':
-        if (!h.downed) this.markTarget(e, rt);
+        // a downed hero may still point out who is on him (PUBG / Apex ping)
+        this.markTarget(e, rt);
         return;
       default:
         break;
     }
     if (h.downed) {
       if (a.a === 'item') inv.useItemSlot(this, e, rt, a.slot, cs);
+      // F while downed: call for a 桃 (the 「需要桃！」 quick chat — bots that trust you answer it)
+      else if (a.a === 'interact') this.callForHelp(e, rt);
       return;
     }
     if (cs.stunned) return;
@@ -1300,6 +1307,13 @@ export class World implements SimExt, SimHost {
         break;
     }
     this.setSquadOrder(e.id, order);
+  }
+
+  /** A downed hero's call for a 桃 (F): the public 「需要桃！」 quick chat, at most every HELP_CALL_GAP s. */
+  private callForHelp(e: Entity, rt: HeroRuntime): void {
+    if (rt.helpCallAt !== undefined && this.time - rt.helpCallAt < HELP_CALL_GAP) return;
+    rt.helpCallAt = this.time;
+    this.emit({ t: 'quickchat', who: e.id, id: 'needPeach' });
   }
 
   private markTarget(e: Entity, rt: HeroRuntime): void {

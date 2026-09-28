@@ -54,6 +54,7 @@ export function reviveHero(w: World, e: Entity, hp: number, byId: EntityId | und
   if (!h || h.dead || !h.downed) return false;
   h.downed = false;
   h.downedUntil = 0;
+  h.rescue = undefined;
   e.hp = Math.max(1, Math.min(e.maxHp, hp));
   w.emit({ t: 'revived', target: e.id, by: byId });
   if (byId !== undefined && byId !== e.id) {
@@ -63,11 +64,53 @@ export function reviveHero(w: World, e: Entity, hp: number, byId: EntityId | und
   return true;
 }
 
-/** Bleed-out timers. */
-export function tickDowned(w: World, heroes: readonly Entity[]): void {
+/**
+ * The downed hero `e` is reviving right now: a hold-F revive (channel 'revive'), a 桃 used on
+ * someone (an item channel started on a downed hero) or on himself while downed (C3-6).
+ */
+export function reviveTargetOf(w: World, e: Entity): EntityId | undefined {
+  const h = e.hero;
+  const ch = h?.channel;
+  if (!h || h.dead || !ch) return undefined;
+  if (ch.kind === 'revive') return ch.targetId;
+  if (ch.kind !== 'item') return undefined;
+  const ci = w.heroRt(e.id)?.channelItem;
+  if (ci?.selfRevive) return e.id;
+  return ci?.revive ? ch.targetId : undefined;
+}
+
+/**
+ * Bleed-out timers. While someone (or the hero himself) is reviving a downed hero his bleed-out
+ * is paused (PUBG / Apex): `rescue` names the reviver for his HUD and VF_REVIVING. Damage still
+ * shortens it (finishing a downed hero, combat.ts) — a revive under fire can be lost.
+ */
+export function tickDowned(w: World, heroes: readonly Entity[], dt: number): void {
   for (const e of heroes) {
     const h = e.hero!;
-    if (h.dead || !h.downed) continue;
+    if (h.dead || !h.downed) {
+      if (h.rescue) h.rescue = undefined;
+      continue;
+    }
+    let by: Entity | undefined;
+    for (const r of heroes) {
+      if (reviveTargetOf(w, r) === e.id) {
+        by = r;
+        break;
+      }
+    }
+    const ch = by?.hero?.channel;
+    if (by && ch) {
+      h.downedUntil += dt;
+      if (h.rescue) {
+        h.rescue.by = by.id;
+        h.rescue.start = ch.start;
+        h.rescue.until = ch.until;
+      } else {
+        h.rescue = { by: by.id, start: ch.start, until: ch.until };
+      }
+    } else if (h.rescue) {
+      h.rescue = undefined;
+    }
     if (w.time >= h.downedUntil) {
       const rt = w.heroRt(e.id);
       w.killHero(e, rt?.downedBy, rt?.downedBySource);
@@ -85,6 +128,7 @@ export function killHero(w: World, e: Entity, creditId: EntityId | undefined, so
   h.dead = true;
   h.downed = false;
   h.downedUntil = 0;
+  h.rescue = undefined;
   h.roleRevealed = true;
   h.killerId = killerId !== e.id ? killerId : undefined;
   h.channel = null;

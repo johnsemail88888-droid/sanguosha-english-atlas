@@ -35,6 +35,7 @@ import {
   VF_OPENED,
   VF_RELOADING,
   VF_REVEALED,
+  VF_REVIVING,
   VF_ROOTED,
   VF_SHIELDED,
   VF_SLOWED,
@@ -171,6 +172,7 @@ export function viewEntity(w: World, e: Entity): ViewEntity {
   if (h) {
     if (h.dead) v.flags |= VF_DEAD;
     if (h.downed) v.flags |= VF_DOWNED;
+    if (h.downed && h.rescue) v.flags |= VF_REVIVING;
     if (h.ads) v.flags |= VF_ADS;
     if (h.sprinting) v.flags |= VF_SPRINTING;
     if (h.reloadUntil > now) v.flags |= VF_RELOADING;
@@ -299,6 +301,10 @@ export function privateView(w: World, e: Entity): PrivateHeroView {
   if (h.role === 'bounty' && h.bountyTargetId !== undefined) view.bountyTargetId = h.bountyTargetId;
   if (knownAllies.length) view.knownAllies = knownAllies;
   if (rt?.lastMoveMods) view.moveMods = { ...rt.lastMoveMods };
+  if (h.downed && h.rescue) {
+    const r = h.rescue;
+    view.rescue = { by: r.by, progress: Math.max(0, Math.min(1, (now - r.start) / Math.max(1e-3, r.until - r.start))) };
+  }
   return view;
 }
 

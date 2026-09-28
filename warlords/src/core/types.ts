@@ -149,6 +149,8 @@ export interface HeroState {
   dodgingUntil: number;
   downed: boolean;
   downedUntil: number; // bleed-out time
+  /** 濒死 only: who is reviving this hero right now and that channel's span (bleed-out paused; sim/rules tickDowned) */
+  rescue?: { by: EntityId; start: number; until: number };
   dead: boolean;
   killerId?: EntityId;
   squad: EntityId[];
@@ -447,6 +449,7 @@ export const VF_ROOTED = 1 << 23;
 export const VF_SLOWED = 1 << 24;
 export const VF_BOOSTED = 1 << 25; // dmgBoost active (glow)
 export const VF_EXPOSED = 1 << 26; // 'reveal' status: shown on the minimap / outlined through walls (public, or private to this viewer)
+export const VF_REVIVING = 1 << 27; // a downed hero someone is reviving right now (bleed-out paused)
 
 export interface ViewEntity {
   id: EntityId;
@@ -502,6 +505,8 @@ export interface PrivateHeroView {
   channel: { kind: ChannelState['kind']; progress: number } | null;
   downed: boolean;
   downedRemaining: number;
+  /** (downed only) someone — or you, with your own 桃 — is reviving you: bleed-out paused */
+  rescue?: { by: EntityId; progress: number };
   dead: boolean;
   statuses: { id: StatusId; remaining: number }[];
   squad: { id: EntityId; hp: number; maxHp: number }[];
