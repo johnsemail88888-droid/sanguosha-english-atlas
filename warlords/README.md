@@ -71,7 +71,7 @@ English section below → [English](#english).*
 - **主公阵亡**：若场上只剩内奸（中立身份不计）→ **内奸胜**；否则 → **反贼胜**（即使反贼已全部阵亡）。
 - **反贼与内奸全部阵亡**且主公存活 → **主公与忠臣胜**。
 - **奖惩**：击杀反贼者获得 3 个锦囊；主公误杀忠臣，丢弃全部锦囊、装备与副武器。
-- **濒死**：体力归零后倒地 12 秒，队友按住 F 用「桃」救起，或自己饮「酒」自救；流血结束即阵亡并公开身份。
+- **濒死**：体力归零后倒地 30 秒（同一条命再倒地 20 秒、之后 12 秒），队友按住 F 用「桃」救起，或自己饮「酒」自救，身边没有敌人时部曲会来包扎；流血结束即阵亡并公开身份，锦囊掉落在尸体旁；60 秒内队友可在尸体旁按住 F「招魂」把你召回（每局一次）。
 - **乱世身份**：影武者（与主公一同戴冠，但没有主公技）、墙头草（活到最后即随胜方获胜）、赏金猎人（击杀悬赏目标得奖励）。
 - 烽火圈最终会缩小到零，一局最长 15 分钟。完整规则见 [`docs/GAME_SPEC.md`](docs/GAME_SPEC.md) 或游戏内「玩法说明」。
 
@@ -289,7 +289,7 @@ open; online matches keep running — when the browser releases the pointer on E
 5–8 players: 1 Lord, 1–2 Loyalists, 2–4 Rebels, 1 Traitor (chaos mode adds Body Double, Opportunist and Bounty Hunter).
 If the Lord dies, the Traitor wins when they are the only non-neutral survivor, otherwise the Rebels win. If every
 Rebel and the Traitor die while the Lord lives, Lord + Loyalists win. Killing a Rebel rewards 3 items; a Lord who
-kills a Loyalist drops everything. At 0 HP you are downed for 12 s — an ally can revive you with a Peach (hold F),
+kills a Loyalist drops everything. At 0 HP you are downed for 30 s (20 s, then 12 s on later knocks in one life) — an ally can revive you with a Peach (hold F),
 or drink Wine to get up yourself. Full rules: [`docs/GAME_SPEC.md`](docs/GAME_SPEC.md).
 
 ### Heroes

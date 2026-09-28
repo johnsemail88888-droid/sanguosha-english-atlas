@@ -9,12 +9,15 @@
 //    a clean 忠-claimer, not even under an order, a mark or 借刀杀人;
 //  - leashed engagement around the order point, nav paths for long trips
 //    (steer.ts), catch-up speed when far behind the formation;
-//  - cover while reloading (budgeted per tick), stepping out of harmful hazards.
+//  - cover while reloading (budgeted per tick), stepping out of harmful hazards;
+//  - 战场急救: when the commander is downed and no hero hostile to him is near, the nearest
+//    soldier runs to him and kneels there (sim/rules.ts tickSquadAid bandages him).
 import type { Vec3 } from '../../core/math';
 import type { Entity, EntityId } from '../../core/types';
 import type { SimApi } from '../api';
 import { troopDef } from '../defs';
 import { ext } from '../ext';
+import { SQUAD_AID_CLEAR } from '../rules';
 import { followSlot } from '../troops';
 import { findCover } from './cover';
 import { dist2d, hasLineOfSight, hazardEscape, isTargetable, pickTarget, scanJitter } from './perception';
@@ -46,6 +49,47 @@ export function ringSlot(center: Vec3, slot: number, count: number): Vec3 {
 }
 
 const coverTick = new WeakMap<SimApi, { tick: number; used: number }>();
+const medicMemo = new WeakMap<Entity, { tick: number; id: EntityId | undefined }>();
+
+/**
+ * 战场急救: the soldier who goes to bandage his downed commander — the one already at it, else the
+ * nearest — or none while a hero hostile to him stands within SQUAD_AID_CLEAR m (they fight).
+ */
+export function squadMedic(sim: SimApi, cmd: Entity): EntityId | undefined {
+  const h = cmd.hero;
+  if (!h || !h.downed || h.dead || h.squad.length === 0) return undefined;
+  const memo = medicMemo.get(cmd);
+  if (memo && memo.tick === sim.tick) return memo.id;
+  let id: EntityId | undefined;
+  const prev = memo?.id !== undefined ? sim.get(memo.id) : undefined;
+  if (h.rescue?.squad) id = h.rescue.by;
+  else {
+    let blocked = false;
+    for (const o of sim.heroes()) {
+      if (o === cmd || !o.alive || o.hero?.dead || o.hero?.downed) continue;
+      if (dist2d(o.pos, cmd.pos) <= SQUAD_AID_CLEAR && sim.isHostileTo(cmd, o)) {
+        blocked = true;
+        break;
+      }
+    }
+    // the one already on his way keeps going
+    if (!blocked && prev?.alive && prev.troop?.commanderId === cmd.id) id = prev.id;
+    else if (!blocked) {
+      let bd = Infinity;
+      for (const sid of h.squad) {
+        const s = sim.get(sid);
+        if (!s || !s.alive || !s.troop) continue;
+        const d = dist2d(s.pos, cmd.pos);
+        if (d < bd) {
+          bd = d;
+          id = sid;
+        }
+      }
+    }
+  }
+  medicMemo.set(cmd, { tick: sim.tick, id });
+  return id;
+}
 
 function coverAllowed(sim: SimApi): boolean {
   let c = coverTick.get(sim);
@@ -84,6 +128,16 @@ export class BasicTroopBrain implements TroopBrain {
       return out;
     }
     const order = cmd!.hero!.order;
+
+    // 战场急救: the commander is down and nobody hostile is near — the medic runs to him and kneels
+    if (cmd!.hero!.downed && squadMedic(sim, cmd!) === self.id) {
+      tr.targetId = undefined;
+      out.medic = true;
+      const d = steerTo(sim, self, cmd!.pos, ai, out, 1.0);
+      if (d > 4) out.speedMul = 1.35;
+      out.faceYaw = Math.atan2(-(cmd!.pos.x - self.pos.x), -(cmd!.pos.z - self.pos.z));
+      return out;
+    }
 
     // ── target selection ── (a calm / taunt-off effect holds acquisition: ai.aggroHoldUntil, see SHU-4)
     if ((ai.aggroHoldUntil ?? 0) > now) {

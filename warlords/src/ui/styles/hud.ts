@@ -200,7 +200,8 @@ export const HUD_CSS = /* css */ `
 
 /* ── downed / spectate ─────────────────────────────────── */
 .sg-hud.dead .hud-left, .sg-hud.dead .hud-abilities, .sg-hud.dead .hud-weapon, .sg-hud.dead .hud-interact, .sg-hud.dead .hud-channel { display: none; }
-.sg-hud.downed .hud-abilities { opacity: 0.4; }
+/* downed: the gun and Q / E are out of play — only the cards (酒 / 桃) still count */
+.sg-hud.downed .hud-abilities .abilities, .sg-hud.downed .hud-abilities .ab-sep, .sg-hud.downed .hud-weapon { opacity: 0.35; }
 .sg-hud.no-hero :is(.hud-left, .hud-abilities, .hud-weapon, .role-chip, .hud-interact, .hud-channel) { display: none; }
 
 /* ── left: squad + vitals ──────────────────────────────── */
@@ -494,7 +495,7 @@ export const HUD_CSS = /* css */ `
 /* menus and panels cover it; the "click to play" prompt moves left of it instead of under it */
 .sg-hud:not(.touch):has(.hud-guide) .hud-pause[data-mode="click"] { padding-right: calc(var(--guide-w) + ${u(16)} + 0.5em); }
 .sg-hud:not(.touch):has(.hud-guide) .hud-pause[data-mode="click"] .click-prompt { max-width: calc(100% - 1em); flex-wrap: wrap; justify-content: center; }
-.sg-hud:is([data-overlay="map"], [data-overlay="wheel"], [data-overlay="chat"], [data-overlay="controls"], .show-score, .dead) .hud-guide,
+.sg-hud:is([data-overlay="map"], [data-overlay="wheel"], [data-overlay="chat"], [data-overlay="controls"], .show-score, .dead, .downed) .hud-guide,
 .sg-hud[data-overlay="pause"][data-pause-mode="menu"] .hud-guide { display: none; }
 .hud-guide h3 { color: var(--red-lo); margin: 0 0 0.4em; }
 .hud-guide .gd-x { position: absolute; top: 0.3em; right: 0.3em; width: 2em; height: 2em; border-radius: 50%; border: 0; background: rgba(140, 106, 38, 0.18); color: var(--paper-ink); cursor: pointer; }

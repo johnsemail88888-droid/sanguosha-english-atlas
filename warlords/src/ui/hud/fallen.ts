@@ -1,17 +1,22 @@
 // Downed → revived / dead → spectating, the PUBG / Apex way:
 //  - DownedPanel: the world drains of colour (heartbeat vignette), a big bleed-out bar with the
-//    seconds, who is reviving you (the bleed-out is paused meanwhile) and how to get up: 酒 / 桃
-//    keys, F to call for a 桃, crawling
+//    seconds (30 / 20 / 12 s: downedTotal), who is reviving you — a teammate, or your own soldier
+//    bandaging you (战场急救) — (the bleed-out is paused meanwhile) and how to get up: 酒 / 桃 keys,
+//    F to call for a 桃, crawling. After a few seconds it shrinks to the one action that matters,
+//    its key pulsing when time runs short; it sits low, just above the item bar (you crawl in the middle)
 //  - ReviveMarkers: a 救 marker with the distance over downed heroes you may save (a known ally,
-//    or anyone who called for help — the call is public; hidden roles stay hidden)
-//  - ReviveRing: the reviver's progress ring around the crosshair
+//    or anyone who called for help — the call is public; hidden roles stay hidden) — a red 倒
+//    「补刀」 chip over the ones you knocked down yourself
+//  - ReviveRing: the reviver's progress ring around the crosshair (招魂 on a fallen hero's 魂幡)
 //  - KnockStamp: 「击倒」 when your damage downs someone — distinct from the 斩 kill stamp
-//  - DeathCard: 被 X 用 Y 击杀, the damage you took in the last 10 s by source, the killer's
-//    remaining HP, your role now public; 继续观战 / 返回大厅
+//  - DeathCard: 被 X 用 Y 击杀 (or 被 X 击倒，失血而亡), the damage you took — from 10 s before the
+//    knock — by source, the killer's remaining HP, your role now public, your cards lying at the body,
+//    your 魂幡 (招魂: who is calling you back, the seconds left); 继续观战 / 返回大厅
 //  - SpectatePanel: whose view it is (HP, public role only), ◀ ▶ / ← → / mouse buttons, the recap
 //    and 返回大厅 at hand; online you keep spectating until the match ends
-import type { EntityId, PublicPlayerView, RoleId, ViewEntity } from '../../core/types';
-import { VF_DOWNED } from '../../core/types';
+import type { EntityId, PrivateHeroView, PublicPlayerView, RoleId, ViewEntity } from '../../core/types';
+import { VF_DEAD, VF_DOWNED } from '../../core/types';
+import { BLEED_OUT_TIME, SQUAD_AID_TIME } from '../../sim/rules';
 import { ABILITY_BY_ID } from '../../data';
 import { displayName } from '../../game/names';
 import { h, setClass, setText } from '../dom';
@@ -25,7 +30,10 @@ import type { HudFrame } from './types';
 import { viewport } from './viewport';
 
 const canAnimate = typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function';
-const BLEED_TOTAL = 12;
+/** Seconds the downed panel shows every way up before it shrinks to the one that matters. */
+export const DOWNED_COLLAPSE_AFTER = 3;
+/** Under this many seconds of bleed-out the best action's key pulses. */
+const URGENT_SECS = 4;
 
 function play(el: Element, frames: Keyframe[], opts: KeyframeAnimationOptions): void {
   if (canAnimate) el.animate(frames, opts);
@@ -54,6 +62,13 @@ export interface DownedCtx {
   sinceCall: number;
 }
 
+/** The one thing to do while downed, best first: drink 酒 (up at once) > eat 桃 > call for help. */
+export function bestDownedAction(me: Pick<PrivateHeroView, 'items'>, sinceCall: number): 'jiu' | 'tao' | 'call' | 'called' {
+  if (me.items.some((it) => it?.id === 'jiu')) return 'jiu';
+  if (me.items.some((it) => it?.id === 'tao')) return 'tao';
+  return sinceCall < 15 ? 'called' : 'call';
+}
+
 export class DownedPanel {
   readonly el: HTMLElement;
   private readonly title: HTMLElement;
@@ -67,6 +82,8 @@ export class DownedPanel {
   private on = false;
   private key = '';
   private secsShown = '';
+  private since = 0;
+  private rescueSecs = '';
 
   constructor() {
     this.title = h('div', { class: 'dn-ttl' });
@@ -95,6 +112,7 @@ export class DownedPanel {
       this.on = on;
       setClass(this.el, 'on', on);
       this.key = '';
+      this.since = f.now;
     }
     if (!on || !me) return;
     const rem = Math.max(0, me.downedRemaining);
@@ -103,45 +121,76 @@ export class DownedPanel {
       this.secsShown = s;
       setText(this.secs, tx('{s} 秒', '{s} s', { s }));
     }
-    this.fill.style.transform = `scaleX(${Math.min(1, rem / BLEED_TOTAL).toFixed(3)})`;
+    const total = me.downedTotal ?? BLEED_OUT_TIME;
+    this.fill.style.transform = `scaleX(${Math.min(1, rem / Math.max(1, total)).toFixed(3)})`;
     const rescue = me.rescue;
     // eating your own 桃: your own channel (the bleed-out keeps running — C3-6)
     const selfRevive = !rescue && me.channel?.revive === me.entityId ? me.channel : null;
     const progress = rescue ? rescue.progress : selfRevive ? selfRevive.progress : 0;
     if (rescue || selfRevive) this.rescueFill.style.transform = `scaleX(${Math.max(0, Math.min(1, progress)).toFixed(3)})`;
+    // your own soldier bandaging you (战场急救): the seconds left
+    if (rescue?.squad) {
+      const left = bleedText(Math.max(0, (1 - rescue.progress) * SQUAD_AID_TIME));
+      if (left !== this.rescueSecs) {
+        this.rescueSecs = left;
+        setText(this.rescueText, tx('部曲正在为你包扎 {s} 秒', 'Your soldier is bandaging you: {s} s', { s: left }));
+      }
+    } else this.rescueSecs = '';
     const jiu = me.items.findIndex((it) => it?.id === 'jiu');
     const tao = me.items.findIndex((it) => it?.id === 'tao');
     const called = ctx.sinceCall < 3 ? 2 : ctx.sinceCall < 15 ? 1 : 0;
-    const k = `${f.lang}|${f.touch}|${rescue ? rescue.by : ''}|${selfRevive ? 1 : 0}|${jiu}|${tao}|${called}|${rem < 4 ? 1 : 0}|${me.squad.length > 0 ? 1 : 0}`;
+    const urgent = !rescue && rem < URGENT_SECS;
+    // after a few seconds: only the one action that matters (the rest is known by then)
+    const collapsed = f.now - this.since >= DOWNED_COLLAPSE_AFTER;
+    const best = bestDownedAction(me, ctx.sinceCall);
+    const k = `${f.lang}|${f.touch}|${rescue ? `${rescue.by}${rescue.squad ? 's' : ''}` : ''}|${selfRevive ? 1 : 0}|${jiu}|${tao}|${called}|${urgent ? 1 : 0}|${me.squad.length > 0 ? 1 : 0}|${collapsed ? 1 : 0}`;
     if (k === this.key) return;
     this.key = k;
     setText(this.title, tx('倒地', 'DOWNED'));
     setText(
       this.state,
-      rescue ? tx('救援中 · 失血已暂停', 'Being revived · bleed-out paused') : selfRevive ? tx('自救中', 'Getting up') : rem < 4 ? tx('即将阵亡！', 'Bleeding out!') : tx('失血中', 'Bleeding out'),
+      rescue?.squad
+        ? tx('包扎中 · 失血已暂停', 'Bandaging · bleed-out paused')
+        : rescue
+          ? tx('救援中 · 失血已暂停', 'Being revived · bleed-out paused')
+          : selfRevive
+            ? tx('自救中', 'Getting up')
+            : urgent
+              ? tx('即将阵亡！', 'Bleeding out!')
+              : tx('失血中', 'Bleeding out'),
     );
     setClass(this.el, 'saving', !!rescue);
-    setClass(this.el, 'critical', !rescue && rem < 4);
+    setClass(this.el, 'critical', urgent);
+    setClass(this.el, 'collapsed', collapsed);
     setClass(this.rescueRow, 'sg-hidden', !rescue && !selfRevive);
-    if (rescue) setText(this.rescueText, tx('{name} 正在救你', '{name} is reviving you', { name: ctx.label(rescue.by) ?? '?' }));
+    if (rescue?.squad) this.rescueSecs = '';
+    else if (rescue) setText(this.rescueText, tx('{name} 正在救你', '{name} is reviving you', { name: ctx.label(rescue.by) ?? '?' }));
     else if (selfRevive) setText(this.rescueText, tx('正在吃「桃」自救…', 'Eating your Peach…'));
     const rows: HTMLElement[] = [];
-    const row = (key: string, text: string, cls = ''): void => {
-      rows.push(h('div', { class: `dn-hint ${cls}`.trim() }, key && !f.touch ? keyCap(key) : null, h('span', null, text)));
+    const row = (key: string, text: string, cls = '', act?: ReturnType<typeof bestDownedAction>): void => {
+      if (collapsed && act !== best) return;
+      const isBest = act !== undefined && act === best;
+      const c = `dn-hint ${cls}${isBest ? ' best' : ''}${isBest && urgent ? ' urgent' : ''}`;
+      rows.push(h('div', { class: c }, key && !f.touch ? keyCap(key) : null, h('span', null, text)));
     };
-    if (jiu >= 0) row(String(4 + jiu), tx('饮「酒」立刻起身', 'Drink Wine: back up at once'), 'good');
-    if (tao >= 0) row(String(4 + tao), tx('吃「桃」自救（需 1.5 秒，趁早）', 'Eat your Peach (takes 1.5 s: do not wait)'), 'good');
-    if (called === 2) row('F', tx('已呼救：附近的人会在地图上看到你', 'Help called: nearby players see you on the map'), 'done');
-    else row('F', f.touch ? tx('点「呼救」喊「需要桃！」（你的位置会暴露）', 'Tap Call: “I need a Peach!” (shows where you are)') : tx('呼救「需要桃！」（你的位置会暴露）', 'Call “I need a Peach!” (shows where you are)'));
+    if (jiu >= 0) row(String(4 + jiu), tx('饮「酒」立刻起身', 'Drink Wine: back up at once'), 'good', 'jiu');
+    if (tao >= 0) row(String(4 + tao), tx('吃「桃」自救（需 1.5 秒，趁早）', 'Eat your Peach (takes 1.5 s: do not wait)'), 'good', 'tao');
+    if (called === 2 || (collapsed && best === 'called')) row('F', tx('已呼救：附近的人会在地图上看到你', 'Help called: nearby players see you on the map'), 'done', 'called');
+    else row('F', f.touch ? tx('点「呼救」喊「需要桃！」（你的位置会暴露）', 'Tap Call: “I need a Peach!” (shows where you are)') : tx('呼救「需要桃！」（你的位置会暴露）', 'Call “I need a Peach!” (shows where you are)'), '', called ? 'called' : 'call');
     row(f.touch ? '' : 'WASD', tx('爬向掩体 · 中弹会加速失血', 'Crawl to cover · hits drain the bleed-out'), 'dim');
-    // your squad still fights: point them at whoever is on you
-    if (me.squad.length > 0 && !f.touch) row(tx('中键', 'MMB'), tx('标记敌人，部曲集火', 'Mark an enemy: your squad focuses him'), 'dim');
+    if (me.squad.length > 0) {
+      // your squad: they fight whoever is on you, and bandage you once nobody hostile is near
+      row('', tx('身边没有敌人时，部曲会来为你包扎', 'With no enemy near, your soldiers come to bandage you'), 'dim');
+      if (!f.touch) row(tx('中键', 'MMB'), tx('标记敌人，部曲集火', 'Mark an enemy: your squad focuses him'), 'dim');
+    }
     this.hints.replaceChildren(...rows);
+    setClass(this.hints, 'sg-hidden', rows.length === 0);
   }
 
   relabel(): void {
     this.key = '';
     this.secsShown = '';
+    this.rescueSecs = '';
   }
 }
 
@@ -149,6 +198,7 @@ export class DownedPanel {
 
 interface MarkEl {
   el: HTMLElement;
+  glyph: HTMLElement;
   dist: HTMLElement;
   name: HTMLElement;
   id: EntityId;
@@ -183,16 +233,18 @@ export class ReviveMarkers {
       }
       this.show(el, true);
       el.el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) translate(-50%, -100%)`;
-      const cls = `rv-mark${m.reviving ? ' reviving' : ''}${m.ally ? ' ally' : ''}${m.called && !m.reviving ? ' called' : ''}`;
+      // your own victim: a red 倒 「补刀」 chip — never an invitation to revive him
+      const cls = m.finish ? `rv-mark finish${m.reviving ? ' reviving' : ''}` : `rv-mark${m.reviving ? ' reviving' : ''}${m.ally ? ' ally' : ''}${m.called && !m.reviving ? ' called' : ''}`;
       if (cls !== el.cls) {
         el.cls = cls;
         el.el.className = cls;
+        setText(el.glyph, m.finish ? '倒' : '救');
       }
       const d = `${Math.round(m.dist)}m`;
-      const txt = `${m.id}|${lang}|${m.reviving ? 1 : 0}|${d}`;
+      const txt = `${m.id}|${lang}|${m.reviving ? 1 : 0}|${m.finish ? 1 : 0}|${d}`;
       if (txt !== el.txt) {
         el.txt = txt;
-        setText(el.dist, m.reviving ? tx('救援中', 'Reviving') : d);
+        setText(el.dist, m.finish ? (m.reviving ? tx('正被救援 · 补刀', 'Being revived · finish him') : tx('补刀 {d}', 'Finish {d}', { d })) : m.reviving ? tx('救援中', 'Reviving') : d);
         if (el.id !== m.id) {
           el.id = m.id;
           setText(el.name, this.label(m.id) ?? '');
@@ -214,10 +266,11 @@ export class ReviveMarkers {
     if (!m) {
       const dist = h('b', { class: 'rv-dist' });
       const name = h('span', { class: 'rv-name' });
-      const el = h('div', { class: 'rv-mark' }, h('span', { class: 'rv-ico' }, h('span', null, '救')), dist, name);
+      const glyph = h('span', null, '救');
+      const el = h('div', { class: 'rv-mark' }, h('span', { class: 'rv-ico' }, glyph), dist, name);
       el.style.display = 'none';
       this.el.appendChild(el);
-      m = { el, dist, name, id: -1, shown: false, cls: 'rv-mark', txt: '' };
+      m = { el, glyph, dist, name, id: -1, shown: false, cls: 'rv-mark', txt: '' };
       this.pool[i] = m;
     }
     return m;
@@ -278,10 +331,14 @@ export class ReviveRing {
     const p = Math.max(0, Math.min(1, ch.progress));
     this.fg.setAttribute('stroke-dashoffset', (RING_C * (1 - p)).toFixed(1));
     setText(this.pct, `${Math.round(p * 100)}%`);
-    const k = `${target}|${f.lang}`;
+    // 招魂: the channel is on a fallen hero's 魂幡
+    const recall = f.ents.some((e) => e.id === target && (e.flags & VF_DEAD) !== 0);
+    const k = `${target}|${f.lang}|${recall ? 1 : 0}`;
     if (k !== this.key) {
       this.key = k;
-      setText(this.text, tx('救援 {name} · 别松手', 'Reviving {name} · keep holding', { name: this.label(target) ?? '?' }));
+      setClass(this.el, 'recall', recall);
+      const name = this.label(target) ?? '?';
+      setText(this.text, recall ? tx('为 {name} 招魂 · 别松手', 'Calling {name} back · keep holding', { name }) : tx('救援 {name} · 别松手', 'Reviving {name} · keep holding', { name }));
     }
     return true;
   }
@@ -320,6 +377,12 @@ export class KnockStamp {
 
 export interface DeathCardInput {
   recap: DeathRecap;
+  /** knocked down and bled out (the last hit landed well before death): 「被 X 击倒，失血而亡」 */
+  bledOut?: boolean;
+  /** what you carried (it lies at your body now) */
+  dropped?: { cards: number; gear: number };
+  /** your 魂幡 stands: allies may call you back (招魂) */
+  soul?: boolean;
   /** your role (now public) */
   role: RoleId | undefined;
   /** the killer's hero + public view as it was at the moment of death (null: the zone / nobody) */
@@ -333,6 +396,9 @@ export interface DeathCardInput {
 export class DeathCard {
   readonly el: HTMLElement;
   private readonly body: HTMLElement;
+  /** live: 招魂 — the seconds your 魂幡 has left, who is calling you back */
+  private readonly soulEl: HTMLElement;
+  private soulKey = '';
   private open = false;
   private last: DeathCardInput | null = null;
 
@@ -342,7 +408,25 @@ export class DeathCard {
     private readonly onLeave: () => void,
   ) {
     this.body = h('div', { class: 'dc-body' });
+    this.soulEl = h('div', { class: 'dc-soul sg-hidden' });
     this.el = h('div', { class: 'hud-deathcard sg-dark sg-corners', role: 'dialog' }, this.body);
+  }
+
+  /** The 魂幡 line (every frame while dead): seconds left, or who is calling you back. */
+  updateSoul(soul: PrivateHeroView['soul'] | undefined): void {
+    const k = soul ? `${Math.ceil(soul.remaining)}|${soul.by ?? ''}|${Math.round((soul.progress ?? 0) * 20)}` : '';
+    if (k === this.soulKey) return;
+    this.soulKey = k;
+    setClass(this.soulEl, 'sg-hidden', !soul);
+    setClass(this.soulEl, 'active', soul?.by !== undefined);
+    if (!soul) return;
+    const label = this.last?.label;
+    setText(
+      this.soulEl,
+      soul.by !== undefined
+        ? tx('{name} 正在为你招魂 {p}%', '{name} is calling you back: {p}%', { name: label?.(soul.by) ?? '?', p: Math.round((soul.progress ?? 0) * 100) })
+        : tx('魂幡立在你的尸体旁：队友按住 F 5 秒可为你招魂 · 还剩 {s} 秒', 'Your Soul Banner stands by your body: an ally holding F there for 5 s calls you back · {s} s left', { s: Math.ceil(soul.remaining) }),
+    );
   }
 
   get isOpen(): boolean {
@@ -375,10 +459,12 @@ export class DeathCard {
   /** a new life (revived after all, a new match): forget it */
   reset(): void {
     this.last = null;
+    this.soulKey = '';
     this.setOpen(false);
   }
 
   relabel(): void {
+    this.soulKey = '';
     if (this.open) this.render();
   }
 
@@ -394,9 +480,10 @@ export class DeathCard {
     const k = inp.killer;
     const killerName = k ? inp.label(k.id) ?? '?' : '';
     const how = causeName(r.cause);
-    // headline: 被 X 用 Y 击杀 / 倒在烽火圈里 / 失血而亡
+    // headline: 被 X 用 Y 击杀 / 被 X 击倒，失血而亡 / 倒在烽火圈里 / 失血而亡
     let line: string;
-    if (k) line = how ? tx('被 {k} 用「{w}」击杀', 'Killed by {k} with {w}', { k: killerName, w: how }) : tx('被 {k} 击杀', 'Killed by {k}', { k: killerName });
+    if (k && inp.bledOut) line = how ? tx('被 {k} 用「{w}」击倒，失血而亡', 'Knocked down by {k} with {w}, bled out', { k: killerName, w: how }) : tx('被 {k} 击倒，失血而亡', 'Knocked down by {k}, bled out', { k: killerName });
+    else if (k) line = how ? tx('被 {k} 用「{w}」击杀', 'Killed by {k} with {w}', { k: killerName, w: how }) : tx('被 {k} 击杀', 'Killed by {k}', { k: killerName });
     else if (r.rows.some((x) => x.zone)) line = tx('倒在了烽火圈外', 'Fell to the beacon fire zone');
     else line = tx('失血而亡', 'Bled out');
     const head = h('div', { class: 'dc-head' },
@@ -430,6 +517,16 @@ export class DeathCard {
       h('div', { class: 'dc-rhead' }, h('span', null, tx('最近 {s} 秒受到的伤害', 'Damage taken, last {s} s', { s: r.window })), h('b', null, tx('共 {n}', 'Total {n}', { n: r.total }))),
       rows.length ? h('div', { class: 'dc-rows' }, ...rows) : h('div', { class: 'dc-none' }, tx('（没有记录）', '(nothing recorded)')),
     );
+    // PUBG death box: what you carried lies at your body
+    const dr = inp.dropped;
+    const dropped = dr && dr.cards + dr.gear > 0
+      ? h('div', { class: 'dc-drop' },
+          dr.cards > 0 && dr.gear > 0
+            ? tx('你的 {n} 张锦囊和装备掉落在尸体旁', 'Your {n} cards and your gear lie at your body', { n: dr.cards })
+            : dr.cards > 0
+              ? tx('你的 {n} 张锦囊掉落在尸体旁', 'Your {n} cards lie at your body', { n: dr.cards })
+              : tx('你的装备掉落在尸体旁', 'Your gear lies at your body'))
+      : null;
     const spectate = button(h('span', null, tx('继续观战', 'Keep spectating'), ' ', keyCap('Space')), () => this.onSpectate(), { cls: 'gold small' });
     const leave = button(tx('返回大厅', 'Back to lobby'), () => this.onLeave(), { cls: 'dark small' });
     const note = h('div', { class: 'dc-note' },
@@ -437,7 +534,8 @@ export class DeathCard {
         ? tx('对局仍在进行：你可以一直观战到结束，身份依旧保密。', 'The match goes on: spectate until it ends. Hidden roles stay hidden.')
         : tx('←/→ 或鼠标左/右键切换观战对象', '←/→ or left/right mouse button to switch view'),
     );
-    this.body.replaceChildren(head, killerBox, recap, h('div', { class: 'dc-actions' }, spectate, leave), note);
+    this.soulKey = '';
+    this.body.replaceChildren(head, killerBox, recap, ...(dropped ? [dropped] : []), this.soulEl, h('div', { class: 'dc-actions' }, spectate, leave), note);
   }
 
   private killerStats(k: NonNullable<DeathCardInput['killer']>): HTMLElement {
@@ -468,10 +566,12 @@ export class SpectatePanel {
   private readonly hpText: HTMLElement;
   private readonly role: HTMLElement;
   private readonly hint: HTMLElement;
+  private readonly soul: HTMLElement;
   private readonly recapBtn: HTMLButtonElement;
   private on = false;
   private key = '';
   private hpKey = '';
+  private soulKey = '';
   killer: KillerRef = null;
 
   constructor(
@@ -489,6 +589,7 @@ export class SpectatePanel {
     this.hpText = h('small', { class: 'sp-hpt' });
     this.role = h('span', { class: 'sp-role' });
     this.hint = h('div', { class: 'sp-hint' });
+    this.soul = h('div', { class: 'sp-soul sg-hidden' });
     const prev = h('button', { class: 'sg-btn small dark sp-nav', type: 'button', title: tx('上一位', 'Previous') }, '◀');
     const next = h('button', { class: 'sg-btn small dark sp-nav', type: 'button', title: tx('下一位', 'Next') }, '▶');
     prev.addEventListener('click', () => this.cycle(-1));
@@ -502,11 +603,13 @@ export class SpectatePanel {
         h('div', { class: 'sp-target' }, this.face, h('div', { class: 'sp-col' }, h('div', { class: 'sp-line' }, this.who, this.tag, this.role), h('div', { class: 'sp-hp' }, h('span', { class: 'sp-track' }, this.hpFill), this.hpText))),
         next,
       ),
+      this.soul,
       h('div', { class: 'sp-foot' }, this.hint, this.recapBtn, leave),
     );
   }
 
-  update(f: HudFrame, cardOpen: boolean, hasRecap: boolean): void {
+  /** `dying`: the moment of death (the camera is still on your body) — nobody is being watched yet. */
+  update(f: HudFrame, cardOpen: boolean, hasRecap: boolean, dying = false): void {
     const on = !!f.me?.dead;
     if (on !== this.on) {
       this.on = on;
@@ -525,11 +628,11 @@ export class SpectatePanel {
     const ent: ViewEntity | undefined = target ? f.ents.find((e) => e.id === target!.entityId) : undefined;
     const killerId = this.killer && 'entityId' in this.killer ? this.killer.entityId : null;
     const role = target?.role ?? ent?.role;
-    const k = `${f.lang}|${f.touch}|${target?.entityId ?? -1}|${killerId}|${role ?? ''}|${target?.claim ?? ''}|${hasRecap}|${ent ? ent.flags & VF_DOWNED : 0}`;
+    const k = `${f.lang}|${f.touch}|${target?.entityId ?? -1}|${killerId}|${role ?? ''}|${target?.claim ?? ''}|${hasRecap}|${ent ? ent.flags & VF_DOWNED : 0}|${dying ? 1 : 0}`;
     if (k !== this.key) {
       this.key = k;
-      setText(this.title, tx('你已阵亡 · 观战中', 'You have fallen · spectating'));
-      setText(this.who, target ? `${heroName(target.heroId)}·${displayName(target.name, f.lang)}` : tx('没有可观战的武将', 'Nobody left to watch'));
+      setText(this.title, dying ? tx('你已阵亡', 'You have fallen') : tx('你已阵亡 · 观战中', 'You have fallen · spectating'));
+      setText(this.who, target ? `${heroName(target.heroId)}·${displayName(target.name, f.lang)}` : dying ? tx('阵亡', 'Eliminated') : tx('没有可观战的武将', 'Nobody left to watch'));
       const isKiller = target !== undefined && target.entityId === killerId;
       setText(this.tag, isKiller ? tx('击杀你的人', 'your killer') : '');
       setClass(this.tag, 'sg-hidden', !isKiller);
@@ -543,8 +646,24 @@ export class SpectatePanel {
         const fc = faceOf(this.portraits, heroId || undefined);
         this.face.replaceChildren(...(fc ? [fc] : []));
       }
-      setText(this.hint, f.touch ? tx('点 ◀ ▶ 切换', 'Tap ◀ ▶ to switch') : tx('←/→ 或鼠标左/右键切换', '←/→ or left/right click to switch'));
+      setText(this.hint, f.touch ? tx('点 ◀ ▶ 切换', 'Tap ◀ ▶ to switch') : tx('←/→ 或鼠标左/右键切换 · V 第一/第三人称', '←/→ or left/right click to switch · V first / third person'));
       setClass(this.recapBtn, 'sg-hidden', !hasRecap);
+    }
+    // 招魂: your 魂幡's seconds, or who is calling you back
+    const sl = f.me?.soul;
+    const sk = sl ? `${f.lang}|${Math.ceil(sl.remaining)}|${sl.by ?? ''}|${Math.round((sl.progress ?? 0) * 20)}` : '';
+    if (sk !== this.soulKey) {
+      this.soulKey = sk;
+      setClass(this.soul, 'sg-hidden', !sl);
+      setClass(this.soul, 'active', sl?.by !== undefined);
+      if (sl) {
+        setText(
+          this.soul,
+          sl.by !== undefined
+            ? tx('{name} 正在为你招魂 {p}%', '{name} is calling you back: {p}%', { name: this.label(sl.by) ?? '?', p: Math.round((sl.progress ?? 0) * 100) })
+            : tx('魂幡 {s} 秒 · 等待队友招魂', 'Soul Banner {s} s · waiting for an ally to call you back', { s: Math.ceil(sl.remaining) }),
+        );
+      }
     }
     const hp = ent ? `${Math.ceil(ent.hp)}/${ent.maxHp}${ent.flags & VF_DOWNED ? tx(' · 倒地', ' · downed') : ''}` : '';
     if (hp !== this.hpKey) {
@@ -557,6 +676,7 @@ export class SpectatePanel {
   relabel(): void {
     this.key = '';
     this.hpKey = '';
+    this.soulKey = '';
   }
 }
 

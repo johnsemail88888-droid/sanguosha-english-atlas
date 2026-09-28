@@ -2,10 +2,20 @@
 // finish a downed hero, F calls for a 桃, a downed hero can still ping.
 import { describe, expect, it } from 'vitest';
 import type { Entity, GameEvent } from '../../../src/core/types';
-import { BTN_FIRE, BTN_INTERACT, BTN_SPRINT, VF_DOWNED, VF_REVIVING, emptyInput } from '../../../src/core/types';
+import { BTN_FIRE, BTN_INTERACT, BTN_SPRINT, VF_DOWNED, VF_REVIVING, VF_SOUL, emptyInput } from '../../../src/core/types';
 import { DOWNED_DAMAGE_TO_SECONDS } from '../../../src/sim/combat';
 import { DOWNED_MUL, WALK_SPEED } from '../../../src/sim/physics';
-import { BLEED_OUT_TIME, REVIVE_TIME } from '../../../src/sim/rules';
+import {
+  BLEED_OUT_TIME,
+  BLEED_OUT_TIMES,
+  DOWNED_FINISH_DAMAGE,
+  RECALL_HP,
+  RECALL_TIME,
+  REVIVE_TIME,
+  SOUL_TIME,
+  SQUAD_AID_HP,
+  SQUAD_AID_TIME,
+} from '../../../src/sim/rules';
 import { HELP_CALL_GAP, type World } from '../../../src/sim/world';
 import { hero, makeWorld, place, stepN } from './helpers';
 
@@ -175,6 +185,8 @@ describe('downed: finishing a downed hero', () => {
     place(w, loyal, lord.pos.x + 1.2, lord.pos.z);
     down(w, lord, rebel);
     loyal.hero!.items = [{ id: 'tao', count: 1 }, null, null, null];
+    // (nothing of his own in the death box beside the reviver: the 桃 counted below is the reviver's)
+    lord.hero!.items = [null, null, null, null];
     holdRevive(w, loyal, lord, 10);
     expect(lord.hero!.rescue).toBeDefined();
     w.dealDamage({ targetId: lord.id, sourceId: rebel.id, amount: 5000, type: 'true' });
@@ -226,3 +238,148 @@ describe('downed: calling for help and pinging', () => {
   });
 });
 
+
+describe('downed: each knock in one life bleeds out faster', () => {
+  it('30 → 20 → 12 s; the snapshot carries the full bleed-out; 120 damage finishes any knock', () => {
+    const w = world5();
+    const [lord, loyal, rebel] = [hero(w, 0), hero(w, 1), hero(w, 2)];
+    expect(BLEED_OUT_TIME).toBe(30);
+    for (let k = 0; k < 4; k++) {
+      down(w, rebel, loyal);
+      const want = BLEED_OUT_TIMES[Math.min(k, BLEED_OUT_TIMES.length - 1)];
+      expect(rebel.hero!.downedTotal).toBe(want);
+      expect(remaining(w, rebel)).toBeCloseTo(want, 3);
+      expect(w.snapshotFor('p2').you!.downedTotal).toBe(want);
+      // hits drain it in proportion: half the finishing damage takes half the time
+      w.dealDamage({ targetId: rebel.id, sourceId: lord.id, amount: DOWNED_FINISH_DAMAGE / 2, type: 'true' });
+      expect(remaining(w, rebel)).toBeCloseTo(want / 2, 3);
+      expect(rebel.hero!.dead).toBe(false);
+      w.revive(rebel.id, 100, loyal.id);
+      expect(rebel.hero!.downed).toBe(false);
+      expect(rebel.hero!.downedTotal).toBeUndefined();
+    }
+    down(w, rebel, loyal);
+    w.dealDamage({ targetId: rebel.id, sourceId: lord.id, amount: DOWNED_FINISH_DAMAGE + 1, type: 'true' });
+    expect(rebel.hero!.dead).toBe(true);
+  });
+});
+
+describe('death box', () => {
+  it("a dead hero's cards, armor and sidearm lie at his body", () => {
+    const w = world5();
+    const [loyal, rebel] = [hero(w, 1), hero(w, 2)];
+    rebel.hero!.items = [{ id: 'tao', count: 2 }, { id: 'jiu', count: 1 }, null, null];
+    down(w, rebel, loyal);
+    w.dealDamage({ targetId: rebel.id, sourceId: loyal.id, amount: 5000, type: 'true' });
+    expect(rebel.hero!.dead).toBe(true);
+    expect(rebel.hero!.items.every((s) => s === null)).toBe(true);
+    const near = w.queryRadius(rebel.pos, 4, { kinds: ['loot'] }).map((l) => l.loot!.itemId);
+    expect(near).toContain('tao');
+    expect(near).toContain('jiu');
+  });
+});
+
+describe('战场急救: your own soldiers bandage you', () => {
+  function squadWorld(): { w: World; lord: Entity; rebel: Entity; squad: Entity[] } {
+    const w = world5();
+    const [lord, rebel] = [hero(w, 0), hero(w, 2)];
+    place(w, lord, -30, 30);
+    place(w, rebel, 30, 30);
+    const squad = w.spawnTroops(lord.id, 'shu_rifleman', 3, { x: -30, y: 0, z: 36 });
+    w.step();
+    return { w, lord, rebel, squad };
+  }
+
+  it('nobody hostile near: the nearest soldier runs over, bandages for SQUAD_AID_TIME s (bleed-out paused) and is spent', () => {
+    const { w, lord, rebel, squad } = squadWorld();
+    down(w, lord, rebel);
+    w.drainEvents();
+    let started = -1;
+    for (let i = 0; i < TPS * 12 && lord.hero!.downed; i++) {
+      w.step();
+      if (started < 0 && lord.hero!.rescue?.squad) {
+        started = w.time;
+        const snap = w.snapshotFor('p0');
+        expect(snap.you!.rescue?.squad).toBe(true);
+        expect(w.snapshotFor("p3").ents.find((v) => v.id === lord.id)!.flags & VF_REVIVING).toBeTruthy();
+      }
+    }
+    expect(started).toBeGreaterThan(0);
+    expect(lord.hero!.downed).toBe(false);
+    expect(lord.hp).toBe(SQUAD_AID_HP);
+    expect(w.time - started).toBeGreaterThanOrEqual(SQUAD_AID_TIME - 0.05);
+    // the bleed-out never ran out meanwhile, and one soldier gave everything
+    expect(squad.filter((s) => s.alive).length).toBe(2);
+    const rev = ofType(w.drainEvents(), 'revived').find((e) => e.target === lord.id);
+    expect(rev).toMatchObject({ squad: true });
+  });
+
+  it('a hostile hero close by: the squad fights instead — and a hit breaks the bandaging', () => {
+    const { w, lord, rebel } = squadWorld();
+    place(w, rebel, -24, 30);
+    down(w, lord, rebel);
+    stepN(w, TPS * 4);
+    expect(lord.hero!.rescue).toBeUndefined();
+    // the rebel walks off: bandaging starts; a hit on the commander breaks it
+    place(w, rebel, 40, -40);
+    for (let i = 0; i < TPS * 8 && !lord.hero!.rescue; i++) w.step();
+    expect(lord.hero!.rescue?.squad).toBe(true);
+    w.dealDamage({ targetId: lord.id, sourceId: rebel.id, amount: 5, type: 'true' });
+    w.step();
+    expect(lord.hero!.rescue).toBeUndefined();
+  });
+});
+
+describe('招魂: a fallen hero can be called back once', () => {
+  function killed(): { w: World; loyal: Entity; rebel: Entity; lord: Entity } {
+    const w = world5();
+    const [lord, loyal, rebel] = [hero(w, 0), hero(w, 1), hero(w, 2)];
+    place(w, lord, -30, -30);
+    place(w, loyal, 0, 30);
+    place(w, rebel, 20, 30);
+    loyal.hero!.items = [null, null, null, null];
+    down(w, loyal, rebel);
+    w.dealDamage({ targetId: loyal.id, sourceId: rebel.id, amount: 5000, type: 'true' });
+    expect(loyal.hero!.dead).toBe(true);
+    return { w, loyal, rebel, lord };
+  }
+
+  it('his 魂幡 stands SOUL_TIME s; holding F at the body for RECALL_TIME s brings him back with RECALL_HP', () => {
+    const { w, loyal, lord } = killed();
+    w.step();
+    expect(w.snapshotFor("p3").ents.find((v) => v.id === loyal.id)!.flags & VF_SOUL).toBeTruthy();
+    expect(w.snapshotFor('p1').you!.soul!.remaining).toBeGreaterThan(SOUL_TIME - 1);
+    place(w, lord, loyal.pos.x + 1.4, loyal.pos.z);
+    holdRevive(w, lord, loyal, Math.round(TPS * RECALL_TIME * 0.5));
+    expect(lord.hero!.channel).toMatchObject({ kind: 'revive', recall: true });
+    expect(w.snapshotFor('p1').you!.soul).toMatchObject({ by: lord.id });
+    stepN(w, Math.round(TPS * RECALL_TIME * 0.5) + 3);
+    expect(loyal.hero!.dead).toBe(false);
+    expect(loyal.alive).toBe(true);
+    expect(loyal.hp).toBe(RECALL_HP);
+    expect(loyal.hero!.squad).toEqual([]);
+    expect(loyal.hero!.roleRevealed).toBe(true);
+    expect(ofType(w.drainEvents(), 'revived').find((e) => e.target === loyal.id)).toMatchObject({ recall: true, by: lord.id });
+    // a moment of protection, then — once per match — the next death leaves no 魂幡
+    w.dealDamage({ targetId: loyal.id, sourceId: lord.id, amount: 5000, type: 'true' });
+    expect(loyal.hero!.downed).toBe(false);
+    stepN(w, TPS * 3);
+    down(w, loyal, lord);
+    w.dealDamage({ targetId: loyal.id, sourceId: lord.id, amount: 5000, type: 'true' });
+    expect(loyal.hero!.dead).toBe(true);
+    expect(loyal.hero!.soul).toBeUndefined();
+  });
+
+  it('letting go breaks it; the 魂幡 falls after SOUL_TIME s', () => {
+    const { w, loyal, lord } = killed();
+    place(w, lord, loyal.pos.x + 1.4, loyal.pos.z);
+    holdRevive(w, lord, loyal, 10);
+    expect(lord.hero!.channel?.recall).toBe(true);
+    w.setInput('p0', { ...emptyInput(9), yaw: lord.yaw });
+    w.step();
+    expect(lord.hero!.channel).toBeNull();
+    stepN(w, Math.round(TPS * SOUL_TIME) + 2);
+    expect(loyal.hero!.soul).toBeUndefined();
+    expect(w.snapshotFor('p1').you!.soul).toBeUndefined();
+  });
+});

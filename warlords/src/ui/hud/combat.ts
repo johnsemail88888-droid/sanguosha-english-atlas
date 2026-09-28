@@ -309,6 +309,14 @@ export function interactText(p: InteractPrompt, lang: 'zh' | 'en', touch = false
     case 'revive':
       // touch: no F key — the prompt names the button (which reads 救援 while a revive is in reach)
       return { key: '', text: t(touch ? 'hud.interact.reviveTouch' : 'hud.interact.revive', { name: `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}` }), sub: p.needPeach ? t('hud.interact.needPeach') : '' };
+    case 'recall': {
+      const name = `${heroName(p.heroId)}${p.name && p.name !== p.heroId ? `·${displayName(p.name, getLang())}` : ''}`;
+      return {
+        key: touch ? '' : 'F',
+        text: touch ? tx('按住「招魂」召回 {name}', 'Hold Recall to call {name} back', { name }) : tx('按住 F 招魂 {name}', 'Hold F to call {name} back', { name }),
+        sub: tx('5 秒 · 他将以 150 体力归来', '5 s · back with 150 HP'),
+      };
+    }
     case 'airdrop':
       return { key: 'F', text: t('hud.interact.airdrop'), sub: '' };
     case 'crate': {

@@ -39,12 +39,13 @@ import {
   VF_ROOTED,
   VF_SHIELDED,
   VF_SLOWED,
+  VF_SOUL,
   VF_SPRINTING,
   VF_STEALTH,
   VF_STUNNED,
 } from '../core/types';
 import { troopDef } from './defs';
-import { reviveTargetOf } from './rules';
+import { BLEED_OUT_TIME, reviveTargetOf } from './rules';
 import { revealedTo, statusRows } from './status';
 import type { World } from './world';
 
@@ -174,6 +175,7 @@ export function viewEntity(w: World, e: Entity): ViewEntity {
     if (h.dead) v.flags |= VF_DEAD;
     if (h.downed) v.flags |= VF_DOWNED;
     if (h.downed && h.rescue) v.flags |= VF_REVIVING;
+    if (h.dead && h.soul) v.flags |= VF_SOUL;
     if (h.ads) v.flags |= VF_ADS;
     if (h.sprinting) v.flags |= VF_SPRINTING;
     if (h.reloadUntil > now) v.flags |= VF_RELOADING;
@@ -304,9 +306,20 @@ export function privateView(w: World, e: Entity): PrivateHeroView {
   if (rt?.lastMoveMods) view.moveMods = { ...rt.lastMoveMods };
   const revives = view.channel ? reviveTargetOf(w, e) : undefined;
   if (view.channel && revives !== undefined) view.channel.revive = revives;
+  if (h.downed) view.downedTotal = h.downedTotal ?? BLEED_OUT_TIME;
   if (h.downed && h.rescue) {
     const r = h.rescue;
     view.rescue = { by: r.by, progress: Math.max(0, Math.min(1, (now - r.start) / Math.max(1e-3, r.until - r.start))) };
+    if (r.squad) view.rescue.squad = true;
+  }
+  if (h.dead && h.soul) {
+    view.soul = { remaining: Math.max(0, Math.round((h.soul.until - now) * 10) / 10) };
+    const by = h.soul.by !== undefined ? w.get(h.soul.by) : undefined;
+    const ch = by?.hero?.channel;
+    if (by && ch) {
+      view.soul.by = by.id;
+      view.soul.progress = Math.max(0, Math.min(1, (now - ch.start) / Math.max(1e-3, ch.until - ch.start)));
+    }
   }
   return view;
 }

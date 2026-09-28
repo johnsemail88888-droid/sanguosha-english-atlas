@@ -18,8 +18,8 @@ export interface KillCauseLookup {
   ownerOf(id: EntityId): EntityId | undefined;
 }
 
-/** Seconds a landed hit stays the answer (a downed hero bleeds out for 12 s). */
-export const CAUSE_MEMORY = 20;
+/** Seconds a landed hit stays the answer (a downed hero bleeds out for up to 30 s). */
+export const CAUSE_MEMORY = 40;
 /** Seconds an attacker's last action explains damage that lands later (projectiles, burns). */
 export const RECENT_ACTION = 3;
 

@@ -2,7 +2,7 @@
 // through GameHandle.onEvents (never drains the view itself). Owns the in-match
 // overlays (scoreboard, big map, wheel, chat, pause) and the touch overlay.
 import type { EntityId, GameEvent, SquadOrderKind, ViewEntity } from '../../core/types';
-import { VF_LORD } from '../../core/types';
+import { VF_LORD, VF_SOUL } from '../../core/types';
 import { HERO_BY_ID, ITEM_BY_ID } from '../../data';
 import type { GameSession } from '../../game/session';
 import { displayName } from '../../game/names';
@@ -20,7 +20,7 @@ import { controlsFor, touchControlCells } from '../screens/help';
 import { AbilityBar, SquadPanel, TopBar, VitalsPanel, WeaponPanel } from './panels';
 import { ChannelBar, Crosshair, DamageDirection, DamageNumbers, DuelBar, InteractPromptView, KillStamp, Scope, SquadFocusWarning, ZoneWarning } from './combat';
 import { DeathCard, DownedPanel, KnockStamp, ReviveMarkers, ReviveRing, SpectatePanel, killerSnapshot } from './fallen';
-import { DamageLog, HelpCalls, downedMarkers, knownFriends, type DownedMarker } from './deathlog';
+import { DamageLog, HelpCalls, MARKER_RANGE, bledOut, downedMarkers, knownFriends, type DownedMarker } from './deathlog';
 import { Announcer, ChatBox, KillFeed, PickupStrip, type FeedParty } from './feed';
 import { createGuideCard, fitGuideCard, guideClockRuns, guideCount, guideMayMount, shouldShowGuide } from './guide';
 import { drawMinimap, type MarkerInput } from './minimap';
@@ -51,6 +51,8 @@ const MINIMAP_RADIUS = 85;
 
 /** The touch guide is fitted again this many times, 0.5 s apart, after it first shows (layout / fonts settling). */
 const GUIDE_SETTLE_REFITS = 6;
+/** Seconds the camera stays on your own body after death (the renderer pulls back over it) before spectating the killer. */
+export const DEATH_CAM_TIME = 1.8;
 
 export class Hud {
   readonly el: HTMLElement;
@@ -84,6 +86,16 @@ export class Hud {
   private readonly damageLog = new DamageLog();
   private readonly helpCalls = new HelpCalls();
   private myDownedBy: EntityId | undefined;
+  /** HUD time you were knocked down in this life (the recap reaches back past a long bleed-out) */
+  private myDownedAt: number | undefined;
+  /** heroes you (or your troops) knocked down: a 补刀 marker over them, never a 救 */
+  private readonly knockedByMe = new Set<EntityId>();
+  /** the moment of death: the camera pulls back over your body until then, then goes to the killer */
+  private deathCamUntil = -1;
+  /** whom to spectate once the death moment is over (null: the next living hero) */
+  private pendingSpectate: EntityId | null | undefined;
+  /** cards / gear you carried while alive (the death card says they lie at your body) */
+  private carried = { cards: 0, gear: 0 };
   /** this frame's revive markers, for the minimap / big map too */
   private sosMarks: readonly DownedMarker[] = [];
   private readonly zoneWarn = new ZoneWarning();
@@ -541,7 +553,7 @@ export class Hud {
       this.lastScore = now;
       this.scoreboard.update(f.players, f.me, this.view.localId());
     }
-    this.handleDeath(f);
+    this.handleDeath(f, now);
   }
 
   /** Downed panel, revive markers / ring, spectate panel (fallen.ts). */
@@ -550,10 +562,13 @@ export class Hud {
     this.downed.update(f, { label: (id) => this.nameOf(id), sinceCall: myId !== null ? this.helpCalls.since(myId, now) : Infinity });
     setClass(this.el, 'reviving', this.rvRing.update(f));
     const alive = !!f.me && !f.me.dead;
-    const marks = alive ? downedMarkers(myId, f.myEnt, f.ents, knownFriends(f.me?.role, f.me?.knownAllies, f.ents), this.helpCalls, now) : [];
+    const marks = alive ? downedMarkers(myId, f.myEnt, f.ents, knownFriends(f.me?.role, f.me?.knownAllies, f.ents), this.helpCalls, now, MARKER_RANGE, this.knockedByMe) : [];
     this.rvMarks.update(marks, f.lang);
-    this.sosMarks = marks;
-    this.spectate.update(f, this.deathCard.isOpen, this.deathCard.hasRecap);
+    // (the minimap / big map SOS dots: calls for help and allies only)
+    this.sosMarks = marks.filter((m) => !m.finish);
+    const dying = !!f.me?.dead && (now < this.deathCamUntil || this.pendingSpectate !== undefined);
+    this.spectate.update(f, this.deathCard.isOpen, this.deathCard.hasRecap, dying);
+    this.deathCard.updateSoul(f.me?.dead ? f.me.soul : undefined);
   }
 
   private readFrame(now: number, dt: number): HudFrame {
@@ -682,15 +697,26 @@ export class Hud {
               this.knockStamp.show(heroName(victim.heroId));
               this.crosshair.hit('head');
             }
-            if (aboutMe) this.myDownedBy = ev.src;
+            if (aboutMe) {
+              this.myDownedBy = ev.src;
+              this.myDownedAt = now;
+            }
+            // your victim: a 补刀 marker (his call for help must not invite you to revive him)
+            if (mine && !aboutMe && victim?.kind === 'hero') this.knockedByMe.add(ev.target);
             break;
           }
           case 'revived':
             this.helpCalls.forget(ev.target);
+            this.knockedByMe.delete(ev.target);
             if (ev.target === myId) {
               this.myDownedBy = undefined;
+              this.myDownedAt = undefined;
               const by = ev.by !== undefined && ev.by !== myId ? this.nameOf(ev.by) : null;
-              this.announcer.push(by ? tx('{name} 把你救了起来！', '{name} got you back up!', { name: by }) : tx('你被救起了！', 'You were revived!'), 'info', undefined, now);
+              let msg: string;
+              if (ev.recall) msg = by ? tx('{name} 为你招魂，你回来了！', '{name} called you back from the dead!', { name: by }) : tx('你被招魂归来！', 'You were called back!');
+              else if (ev.squad) msg = tx('部曲为你包扎，你重新站了起来！', 'Your soldier bandaged you: back on your feet!');
+              else msg = by ? tx('{name} 把你救了起来！', '{name} got you back up!', { name: by }) : tx('你被救起了！', 'You were revived!');
+              this.announcer.push(msg, 'info', undefined, now);
             }
             break;
           case 'announce':
@@ -769,6 +795,7 @@ export class Hud {
     this.causes.forget(ev.target);
     this.feed.push(killer, victim, { mine, aboutMe, now, cause });
     this.helpCalls.forget(ev.target);
+    this.knockedByMe.delete(ev.target);
     if (mine && !aboutMe) {
       // 击杀 (a kill for good) — the amber 击倒 stamp only said he was down
       this.killStamp.show(`${tx('击杀 ', 'Eliminated ')}${heroName(victim.heroId)}${victim.role ? tx(`（${roleName(victim.role)}）`, ` (${roleName(victim.role)})`) : ''}`, victim.heroId);
@@ -777,9 +804,12 @@ export class Hud {
     if (aboutMe) {
       // kept as a reference: the name is rendered (and re-rendered) in the current language
       this.spectate.killer = killer && ev.killer !== undefined ? { entityId: ev.killer } : { zone: true };
-      // spectate the killer first (PUBG): the death card sits beside him
+      // the moment of death first (the camera pulls back over your body), then the killer (PUBG):
+      // the death card sits beside him
       const killerId = ev.killer !== undefined && this.view.players().some((p) => p.entityId === ev.killer && p.alive) ? ev.killer : null;
-      this.setSpectate(killerId ?? cycleSpectate(this.view.players(), null, 1, myId));
+      this.deathCamUntil = now + DEATH_CAM_TIME;
+      this.pendingSpectate = killerId;
+      this.setSpectate(null);
       this.showDeathCard(ev, myId, cause, now);
     } else if (this.spectateId === ev.target) {
       this.setSpectate(cycleSpectate(this.view.players(), ev.target, 1, myId));
@@ -793,8 +823,12 @@ export class Hud {
     try {
       const killerId = ev.killer !== undefined && ev.killer !== myId ? ev.killer : undefined;
       const myEnt = myId !== null ? this.view.get(myId) : undefined;
+      const recap = this.damageLog.recap(now, killerId, this.myDownedBy !== myId ? this.myDownedBy : undefined, killerId !== undefined ? cause : null, this.myDownedAt);
       this.deathCard.show({
-        recap: this.damageLog.recap(now, killerId, this.myDownedBy !== myId ? this.myDownedBy : undefined, killerId !== undefined ? cause : null),
+        recap,
+        bledOut: bledOut(recap, this.myDownedAt, now),
+        dropped: { ...this.carried },
+        soul: !!this.view.local()?.soul || this.view.entities().some((e) => e.id === myId && (e.flags & VF_SOUL) !== 0),
         role: ev.role ?? this.view.local()?.role,
         killer: killerSnapshot(killerId, this.view.entities(), this.view.players(), myEnt),
         label: (id) => this.nameOf(id),
@@ -831,11 +865,13 @@ export class Hud {
     return { name: l.name, heroId: l.heroId, kingdom: l.kingdom, role: l.role };
   }
 
-  private handleDeath(f: HudFrame): void {
+  private handleDeath(f: HudFrame, now: number): void {
     const dead = !!f.me?.dead;
+    const myId = f.me?.entityId ?? null;
     if (dead && !this.myDeathHandled) {
       this.myDeathHandled = true;
-      if (this.spectateId === null) this.setSpectate(cycleSpectate(f.players, null, 1, f.me?.entityId ?? null));
+      // (a death seen without its event — a rejoin: no death moment)
+      if (this.spectateId === null && now >= this.deathCamUntil && this.pendingSpectate === undefined) this.setSpectate(cycleSpectate(f.players, null, 1, myId));
       try {
         if (document.pointerLockElement) document.exitPointerLock();
       } catch {
@@ -843,11 +879,29 @@ export class Hud {
       }
       if (this.overlay === 'pause') this.closeOverlay('pause');
     } else if (!dead && this.myDeathHandled) {
+      // back in the fight (招魂)
       this.myDeathHandled = false;
+      this.deathCamUntil = -1;
+      this.pendingSpectate = undefined;
       this.setSpectate(null);
       this.deathCard.reset();
       this.damageLog.clear();
       this.myDownedBy = undefined;
+      this.myDownedAt = undefined;
+    }
+    // the death moment is over: go to the killer (or whoever is left)
+    if (dead && this.pendingSpectate !== undefined && now >= this.deathCamUntil) {
+      const want = this.pendingSpectate;
+      this.pendingSpectate = undefined;
+      const alive = want !== null && f.players.some((p) => p.entityId === want && p.alive);
+      this.setSpectate(alive ? want : cycleSpectate(f.players, null, 1, myId));
+    }
+    setClass(this.el, 'dying', dead && now < this.deathCamUntil);
+    if (!dead && f.me) {
+      let cards = 0;
+      for (const it of f.me.items) if (it) cards += it.count;
+      this.carried.cards = cards;
+      this.carried.gear = (f.me.armor ? 1 : 0) + (f.me.mount ? 1 : 0) + (f.me.weapons[1] ? 1 : 0);
     }
     // spectate target died → next
     if (dead && this.spectateId !== null) {
@@ -867,6 +921,9 @@ export class Hud {
   }
 
   private cycleSpectate(dir: 1 | -1): void {
+    // (skips the rest of the death moment)
+    this.pendingSpectate = undefined;
+    this.deathCamUntil = -1;
     const next = cycleSpectate(this.view.players(), this.spectateId, dir, this.view.localId());
     this.setSpectate(next);
     this.ctx.sfx('click');

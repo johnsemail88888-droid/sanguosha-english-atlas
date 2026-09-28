@@ -16,7 +16,9 @@ export const FALLEN_CSS = /* css */ `
 .hud-fallen-downed.critical .dn-tint { animation-duration: 0.62s; }
 .hud-fallen-downed.saving .dn-tint { background: radial-gradient(ellipse at center, transparent 40%, rgba(20, 60, 30, 0.35) 75%, rgba(8, 24, 12, 0.7)); animation: none; opacity: 0.9; }
 @keyframes sg-dn-beat { 0%, 100% { opacity: 0.72; } 14% { opacity: 1; } 28% { opacity: 0.8; } 42% { opacity: 1; } }
-.hud-fallen-downed .dn-box { position: absolute; left: 50%; bottom: ${u(190)}; transform: translateX(-50%); width: ${u(560)}; max-width: 92vw; display: flex; flex-direction: column; gap: ${u(8)}; }
+/* low, just above the item bar: you crawl and look in the middle of the screen */
+.hud-fallen-downed .dn-box { position: absolute; left: 50%; bottom: ${u(134)}; transform: translateX(-50%); width: ${u(520)}; max-width: 92vw; display: flex; flex-direction: column; gap: ${u(6)}; }
+.hud-fallen-downed.collapsed .dn-box { width: ${u(460)}; }
 .hud-fallen-downed .dn-head { display: flex; align-items: baseline; justify-content: space-between; gap: ${u(12)}; }
 .hud-fallen-downed .dn-ttl { font-family: var(--font-display); font-size: ${fs(40, 22)}; font-weight: 900; color: #ff5a48; letter-spacing: 0.25em; line-height: 1; text-shadow: 0 0 ${u(14)} rgba(255, 40, 20, 0.55), 0 2px 0 #000; }
 .hud-fallen-downed .dn-state { font-size: ${fs(16, 12)}; font-weight: 700; color: #ffc9b8; }
@@ -40,6 +42,20 @@ export const FALLEN_CSS = /* css */ `
 .hud-fallen-downed .dn-hint.good { color: #bdf5c4; font-weight: 700; }
 .hud-fallen-downed .dn-hint.done { color: #f2d27a; }
 .hud-fallen-downed .dn-hint.dim { opacity: 0.72; font-size: ${fs(13, 11)}; }
+/* the one action that matters: bigger, framed; its key pulses when time runs short */
+.hud-fallen-downed .dn-hint.best { font-size: ${fs(17, 12)}; font-weight: 800; padding: ${u(4)} ${u(6)}; margin: 0 ${u(-6)}; border-radius: ${u(4)}; background: rgba(255, 255, 255, 0.06); }
+.hud-fallen-downed .dn-hint.best.good { background: rgba(60, 170, 90, 0.2); box-shadow: inset 0 0 0 1px rgba(127, 224, 154, 0.55); }
+.hud-fallen-downed .dn-hint.urgent .sg-key { animation: sg-dn-key 0.55s ease-in-out infinite alternate; }
+@keyframes sg-dn-key { from { transform: scale(1); box-shadow: 0 0 0 rgba(255, 90, 60, 0); } to { transform: scale(1.18); box-shadow: 0 0 ${u(12)} rgba(255, 90, 60, 0.95); } }
+.hud-fallen-downed.collapsed .dn-hints { padding: ${u(6)} ${u(12)}; }
+.hud-fallen-downed.collapsed .dn-hint.best { margin: 0; }
+/* phones: the bar sits above the touch buttons, the guide card is gone while you are down */
+.sg-hud.touch .hud-fallen-downed .dn-box { bottom: auto; top: 18%; width: min(420px, 70vw); }
+.sg-hud.touch .hud-fallen-downed .dn-hint.dim { display: none; }
+
+/* the moment of death: the world drains of colour while the camera pulls back over your body */
+.sg-hud.dying::before { content: ''; position: absolute; inset: 0; pointer-events: none; -webkit-backdrop-filter: grayscale(1) brightness(0.7); backdrop-filter: grayscale(1) brightness(0.7); background: radial-gradient(ellipse at center, transparent 30%, rgba(40, 0, 0, 0.55)); animation: sg-dying 0.5s ease-out; }
+@keyframes sg-dying { from { opacity: 0; } to { opacity: 1; } }
 
 /* ── revive markers over downed heroes ─────────────────────────────── */
 .hud-rv-marks { position: absolute; inset: 0; overflow: hidden; }
@@ -52,6 +68,10 @@ export const FALLEN_CSS = /* css */ `
 .rv-mark .rv-dist { font-size: ${fs(14, 11)}; font-weight: 900; color: #fff; padding: 0 ${u(6)}; border-radius: ${u(3)}; background: rgba(0, 0, 0, 0.55); }
 .rv-mark.reviving .rv-dist { color: #bdf5c4; }
 .rv-mark .rv-name { font-size: ${fs(12, 10)}; color: #ffd9c8; white-space: nowrap; }
+/* your own victim: a dark red 倒 「补刀」 chip (never 救) */
+.rv-mark.finish .rv-ico { background: radial-gradient(circle at 50% 35%, #5a1410, #1e0404 75%); border-color: #ff5a48; box-shadow: 0 0 ${u(8)} rgba(255, 40, 20, 0.6); color: #ff8a70; }
+.rv-mark.finish .rv-dist { color: #ff9a80; background: rgba(60, 0, 0, 0.7); }
+.rv-mark.finish .rv-name { color: #ffb8a8; }
 .sg-hud.dead .hud-rv-marks { display: none; }
 
 /* ── the reviver's ring around the crosshair ───────────────────────── */
@@ -65,6 +85,10 @@ export const FALLEN_CSS = /* css */ `
 .hud-rv-ring .rr-pct { position: absolute; inset: 0; display: grid; place-items: center; font-size: ${fs(18, 12)}; font-weight: 900; color: #d9ffe0; }
 .hud-rv-ring .rr-txt { font-size: ${fs(15, 11)}; font-weight: 700; color: #c8f7cf; background: var(--hud-bg); padding: ${u(3)} ${u(12)}; border-radius: ${u(4)}; white-space: nowrap; }
 .sg-hud.reviving .hud-channel { display: none; }
+/* 招魂: the ring glows the colour of the 魂幡 */
+.hud-rv-ring.recall circle.fg { stroke: #b9a6ff; filter: drop-shadow(0 0 3px rgba(150, 120, 255, 0.85)); }
+.hud-rv-ring.recall .rr-pct { color: #e4dcff; }
+.hud-rv-ring.recall .rr-txt { color: #e4dcff; }
 
 /* ── 击倒 stamp (the 斩 kill stamp is red and big; a knock is an amber badge between the
    announcements and the crosshair) ─────────────────────────────────────── */
@@ -106,6 +130,10 @@ export const FALLEN_CSS = /* css */ `
 .hud-deathcard .dc-tag.knock { background: #d98a1c; color: #fff; }
 .hud-deathcard .dc-dmg { font-size: ${fs(20, 13)}; font-weight: 900; color: #ff9a7a; font-variant-numeric: tabular-nums; }
 .hud-deathcard .dc-none { color: #b9a37a; }
+.hud-deathcard .dc-drop { margin-top: ${u(8)}; font-size: ${fs(13, 11)}; color: #e8d8b8; }
+.hud-deathcard .dc-drop::before { content: '◆ '; color: #d6ad52; }
+.hud-deathcard .dc-soul { margin-top: ${u(8)}; padding: ${u(6)} ${u(10)}; border-radius: ${u(4)}; font-size: ${fs(13, 11)}; color: #d8d0ff; background: rgba(60, 40, 120, 0.35); border: 1px solid rgba(170, 150, 255, 0.45); }
+.hud-deathcard .dc-soul.active { color: #fff; background: rgba(90, 60, 180, 0.55); border-color: #b9a6ff; }
 .hud-deathcard .dc-actions { display: flex; gap: ${u(10)}; margin-top: ${u(14)}; }
 .hud-deathcard .dc-actions .sg-btn { flex: 1; }
 .hud-deathcard .dc-actions .sg-key { margin-left: ${u(6)}; font-size: 0.7em; }
@@ -145,6 +173,8 @@ export const FALLEN_CSS = /* css */ `
 .hud-spectate2 .sp-track i { position: absolute; inset: 0; transform-origin: left center; background: linear-gradient(90deg, #2f9e4f, #7fe09a); }
 .hud-spectate2 .sp-hpt { font-size: ${fs(12, 10)}; color: #e8d8b8; white-space: nowrap; }
 .hud-spectate2 .sp-foot { display: flex; align-items: center; gap: ${u(10)}; font-size: ${fs(12, 10)}; color: #cbb892; }
+.hud-spectate2 .sp-soul { font-size: ${fs(13, 11)}; color: #d8d0ff; padding: ${u(2)} ${u(10)}; border-radius: ${u(4)}; background: rgba(60, 40, 120, 0.35); }
+.hud-spectate2 .sp-soul.active { color: #fff; background: rgba(90, 60, 180, 0.6); }
 .hud-spectate2 .sp-hint { margin-right: ${u(6)}; }
 .hud-spectate2.behind-card .sp-ttl { display: none; }
 `;

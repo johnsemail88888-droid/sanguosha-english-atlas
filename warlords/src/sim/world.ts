@@ -212,6 +212,10 @@ export interface HeroRuntime {
   troopHeat: Map<EntityId, { value: number; at: number }>;
   /** last 「需要桃！」 call made with F while downed (callForHelp) */
   helpCallAt?: number;
+  /** knocks taken in this life: each one bleeds out faster (rules.ts bleedOutTime) */
+  knocks?: number;
+  /** already called back once by a 招魂 this match (rules.ts recallHero) */
+  recalled?: boolean;
 }
 
 export interface PlayerSlot {

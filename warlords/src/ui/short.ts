@@ -202,7 +202,7 @@ export function touchLabel(key: TouchKey, lang: Lang): string {
 }
 
 /** What the touch interact button does right now (the HUD's F prompt), null: nothing in reach. */
-export type InteractKind = 'revive' | 'airdrop' | 'crate' | 'pickup' | 'full' | 'selfRevive';
+export type InteractKind = 'revive' | 'recall' | 'airdrop' | 'crate' | 'pickup' | 'full' | 'selfRevive';
 
 const INTERACT_LABEL: Readonly<Record<InteractKind, readonly [string, string]>> = {
   pickup: ['拾取', 'Take'],
@@ -210,6 +210,7 @@ const INTERACT_LABEL: Readonly<Record<InteractKind, readonly [string, string]>> 
   crate: ['打开', 'Open'],
   airdrop: ['打开', 'Open'],
   revive: ['救援', 'Revive'],
+  recall: ['招魂', 'Recall'],
   // downed: the button calls for a 桃 (「需要桃！」; the card slot drinks the Wine)
   selfRevive: ['呼救', 'Help'],
 };

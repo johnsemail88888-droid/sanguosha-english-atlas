@@ -11,7 +11,7 @@ import { getItem } from './items/registry';
 import { rollAirdrop, rollCrate, rollRewardItems as rollRewards, scatterAround } from './loot';
 import type { LootRoll } from './loot';
 import { groundAt } from './physics';
-import { REVIVE_HP, REVIVE_TIME } from './rules';
+import { RECALL_TIME, REVIVE_HP, REVIVE_TIME, recallHero, recallTargetNear } from './rules';
 import type { ControlState } from './status';
 import { findStatus, revealedTo } from './status';
 import type { HeroRuntime, World } from './world';
@@ -523,8 +523,22 @@ export function interact(w: World, e: Entity, rt: HeroRuntime): void {
       best = o;
     }
   }
+  // 招魂: a fallen hero's 魂幡 (hold F at the body) — ahead of his scattered cards when you face him
+  const soul = recallTargetNear(w, e, INTERACT_RANGE + 0.3);
+  if (soul) {
+    const dx = soul.pos.x - e.pos.x;
+    const dz = soul.pos.z - e.pos.z;
+    const d = Math.hypot(dx, dz);
+    const cos = d > 1e-3 ? (dx * fx + dz * fz) / d : 1;
+    const score = d + (1 - cos) * 1.5 - (aimed === soul.id ? 2 : 0) - (cos > 0.3 ? 1.2 : 0);
+    if (score < bestScore) {
+      bestScore = score;
+      best = soul;
+    }
+  }
   if (!best) return;
-  if (best.kind === 'hero') startRevive(w, e, rt, best);
+  if (best.kind === 'hero' && best.hero!.dead) startRecall(w, e, best);
+  else if (best.kind === 'hero') startRevive(w, e, rt, best);
   else if (best.kind === 'loot') pickUp(w, e, best, true);
   else {
     const tier = best.crate!.tier;
@@ -543,6 +557,13 @@ export function startRevive(w: World, e: Entity, rt: HeroRuntime, target: Entity
     until: w.time + REVIVE_TIME * rt.mods.reviveTimeMul,
     targetId: target.id,
   };
+  h.reloadUntil = 0;
+}
+
+/** 招魂 (hold F at a fallen hero's body while his 魂幡 stands): a 'revive' channel on the dead. */
+export function startRecall(w: World, e: Entity, target: Entity): void {
+  const h = e.hero!;
+  h.channel = { kind: 'revive', start: w.time, until: w.time + RECALL_TIME, targetId: target.id, recall: true };
   h.reloadUntil = 0;
 }
 
@@ -587,6 +608,19 @@ export function updateChannel(w: World, e: Entity, rt: HeroRuntime, cs: ControlS
   }
   if (h.downed) {
     w.cancelChannel(e.id);
+    return;
+  }
+  if (ch.kind === 'revive' && ch.recall) {
+    // 招魂: hold F by the body until the 魂幡 answers
+    const holding = (rt.input.buttons & BTN_INTERACT) !== 0;
+    if (!tgt?.hero?.dead || !tgt.hero.soul || dist3(tgt.pos, e.pos) > INTERACT_RANGE + 1 || !holding) {
+      w.cancelChannel(e.id);
+      return;
+    }
+    if (now >= ch.until) {
+      h.channel = null;
+      recallHero(w, tgt, e.id);
+    }
     return;
   }
   if (ch.kind === 'revive') {
