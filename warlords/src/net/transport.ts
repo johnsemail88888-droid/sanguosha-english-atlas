@@ -41,12 +41,21 @@ export interface Transport {
    */
   hostPresenceWatched?(): boolean;
   /**
+   * Optional (client): whether the server itself hosts this room (a server-run room — the
+   * relay says so when joining). false: a player hosts it, whatever its lobby state claims;
+   * undefined: the link cannot tell (tests' loopback).
+   */
+  readonly serverHosted?: boolean;
+  /**
    * Optional (host): the transport re-establishes its own link by itself (the relay
    * keeps the room meanwhile, MP2-8); peers can neither hear nor reach the host while
    * it is 'reconnecting'. onClose fires only if that fails for good.
    */
   onLinkState?(cb: LinkStateHandler): () => void;
 }
+
+/** One "message handler threw" log line per peer per this long (ms). */
+export const HANDLER_ERROR_LOG_MS = 60_000;
 
 /** Listener bookkeeping shared by the concrete transports. */
 export abstract class BaseTransport implements Transport {
@@ -60,6 +69,8 @@ export abstract class BaseTransport implements Transport {
   private readonly leaveHandlers = new Set<PeerHandler>();
   private readonly closeHandlers = new Set<CloseHandler>();
   protected closed = false;
+  /** per peer: when its last "message handler threw" line was logged, and how many were not since */
+  private readonly throwLog = new Map<PeerId, { at: number; suppressed: number }>();
 
   abstract send(to: PeerId, data: Payload, channel?: Channel): void;
   abstract broadcast(data: Payload, channel?: Channel): void;
@@ -109,9 +120,26 @@ export abstract class BaseTransport implements Transport {
       try {
         cb(from, data, channel);
       } catch (err) {
-        console.error('[net] message handler threw', err);
+        this.logHandlerError(from, err);
       }
     }
+  }
+
+  /**
+   * At most one "message handler threw" line per peer per HANDLER_ERROR_LOG_MS: a hostile peer
+   * sending garbage as fast as it can must not fill the server's log (a stack trace each).
+   */
+  private logHandlerError(from: PeerId, err: unknown): void {
+    const t = Date.now();
+    const last = this.throwLog.get(from);
+    if (last && t - last.at < HANDLER_ERROR_LOG_MS) {
+      last.suppressed++;
+      return;
+    }
+    if (this.throwLog.size >= 256) this.throwLog.clear();
+    this.throwLog.set(from, { at: t, suppressed: 0 });
+    const more = last && last.suppressed > 0 ? ` (and ${last.suppressed} more from ${from} since the last one)` : '';
+    console.error(`[net] message handler threw${more}`, err);
   }
 
   protected emitJoin(peer: PeerId): void {

@@ -20,7 +20,11 @@ export type NetErrorCode =
   /** this seat was taken over by the same player's newer connection (a duplicated tab): no auto-rejoin (MP2-4) */
   | 'replacedElsewhere'
   /** the host lost the relay server and could not get its room back (MP2-8) */
-  | 'relayLost';
+  | 'relayLost'
+  /** the server refused to create another room right now (POST /api/rooms answered 429) */
+  | 'rateLimited'
+  /** a server-run room was closed by the server (restart / update) */
+  | 'serverClosed';
 
 const MESSAGES: Record<NetErrorCode, { zh: string; en: string }> = {
   roomNotFound: { zh: '房间不存在', en: 'Room not found' },
@@ -49,6 +53,8 @@ const MESSAGES: Record<NetErrorCode, { zh: string; en: string }> = {
   closed: { zh: '连接已关闭', en: 'Connection closed' },
   replacedElsewhere: { zh: '你已在其他窗口进入该房间', en: 'You entered this room from another window' },
   relayLost: { zh: '与中转服务器的连接已断开', en: 'Lost the connection to the relay server' },
+  rateLimited: { zh: '创建房间太频繁了，请过一分钟再试', en: 'Too many rooms created just now — try again in a minute' },
+  serverClosed: { zh: '服务器关闭了房间（可能正在更新），请重新创建房间', en: 'The server closed the room (it may be updating) — please create a new room' },
 };
 
 /**

@@ -4,13 +4,15 @@
 // Protocol v1 (mirrors src/net/wsTransport.ts):
 //  control = JSON text frames
 //    → {op:'create', v, code?}          ← {op:'created', code, id, hostId, secret}
-//    → {op:'join', v, code}             ← {op:'joined', code, id, hostId}
+//    → {op:'join', v, code}             ← {op:'joined', code, id, hostId, serverHosted?}
 //    → {op:'resume', v, code, secret}   ← {op:'resumed', code, id, hostId, peers}   (host back after a drop)
 //    → {op:'kick', id}   (host only)
 //    → {op:'ping'}                      ← {op:'pong', host?}   (host: is the room's host connected)
 //    ← {op:'peerJoin', id} / {op:'peerLeave', id}   (to the host)
 //    ← {op:'hostLeft'} (to clients, then closed) / {op:'error', code, message}
-//  (additive over the first v1: older clients ignore 'secret' / never send 'resume' / 'ping')
+//  (additive over the first v1: older clients ignore 'secret' / never send 'resume' / 'ping';
+//   'serverHosted': this server's own room worker hosts the room — the page may say "the server
+//   runs this match" only then, not on a host's word in its lobby state)
 //
 //  A host socket that closes cleanly (the host left, the tab closed: codes 1000 / 1001 /
 //  1005) ends its room at once. One that just drops (network blip, heartbeat timeout)
@@ -81,7 +83,8 @@ export function createRelay(opts = {}) {
    * `host` is null while the host's socket is away (grace); `hostQueue` holds the guests'
    * reliable frames for it meanwhile.
    * @type {Map<string, { code: string, secret: string, host: any, clients: Map<string, any>, nextId: number, createdAt: number,
-   *                      graceTimer: any, hostQueue: { flags: number, from: string, payload: Buffer }[], hostQueueBytes: number }>}
+   *                      graceTimer: any, hostQueue: { flags: number, from: string, payload: Buffer }[], hostQueueBytes: number,
+   *                      limit?: number }>}
    */
   const rooms = new Map();
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024, perMessageDeflate: false });
@@ -218,7 +221,7 @@ export function createRelay(opts = {}) {
         ws.close(4004, 'room not found');
         return;
       }
-      if (1 + room.clients.size >= maxPerRoom) {
+      if (1 + room.clients.size >= (room.limit ?? maxPerRoom)) {
         sendJson(ws, { op: 'error', code: 'roomFull' });
         ws.close(4006, 'room full');
         return;
@@ -227,7 +230,7 @@ export function createRelay(opts = {}) {
       client.room = room;
       client.id = id;
       room.clients.set(id, client);
-      sendJson(ws, { op: 'joined', code, id, hostId: HOST_ID });
+      sendJson(ws, room.serverHosted ? { op: 'joined', code, id, hostId: HOST_ID, serverHosted: true } : { op: 'joined', code, id, hostId: HOST_ID });
       // (a host that is away learns its guests from the 'resumed' list)
       if (room.host) sendJson(room.host.ws, { op: 'peerJoin', id });
       return;
@@ -373,6 +376,30 @@ export function createRelay(opts = {}) {
     /** route an HTTP upgrade (path already matched) into the relay */
     handleUpgrade(req, socket, head) {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    },
+    /**
+     * Sockets room `code` may hold, host included (default maxPerRoom). A server-hosted room's
+     * host is the server itself, not a player: it takes one more so it seats as many humans.
+     */
+    setRoomLimit(code, max) {
+      const room = rooms.get(code);
+      if (room && Number.isFinite(max) && max >= 1) room.limit = Math.floor(max);
+    },
+    /** Room `code` is hosted by this server's room worker (rooms.mjs): its guests hear so in 'joined'. */
+    markServerHosted(code) {
+      const room = rooms.get(code);
+      if (room) room.serverHosted = true;
+    },
+    /** End room `code` now (its guests hear 'hostLeft'): its host is known to be gone for good. */
+    endRoom(code) {
+      const room = rooms.get(code);
+      if (!room) return;
+      const host = room.host;
+      closeRoom(room);
+      if (host) {
+        host.room = null;
+        host.ws.terminate();
+      }
     },
     stats() {
       let players = 0;

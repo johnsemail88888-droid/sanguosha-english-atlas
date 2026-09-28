@@ -150,6 +150,8 @@ export function preOpenFailure(err?: { type?: string } | null): NetError {
 
 export class PeerTransport extends BaseTransport {
   readonly kind = 'peer' as const;
+  /** (a PeerJS room is always a player's page) */
+  readonly serverHosted = false;
   readonly selfId: PeerId;
   readonly hostId: PeerId;
   readonly isHost: boolean;

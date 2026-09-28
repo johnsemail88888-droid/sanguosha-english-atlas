@@ -16,7 +16,9 @@
 - 公网地址 `https://<机器名>.<tailnet>.ts.net/`（Tailscale Funnel：不用在路由器上开端口，不暴露家里的 IP）。
 - 服务器 `~/sanguo-warlords/src/warlords/server/server.mjs` 监听 `127.0.0.1:8787`，由 launchd 常驻：崩溃自动重启，**登录后**自动启动（Mac 重启后靠第 4 步的自动登录），运行时阻止 Mac 睡眠。
 - 每天 05:07 自动更新到 GitHub `main` 的最新版（有人在玩就跳过）。
-- 「服务器托管对局」（headless）合并到 `main` 以后，对局会在这台 Mac 上运行，而不是在房主的浏览器里：更公平，房主离开也不散场。这个功能随更新自动到来，不需要额外操作。
+- 「服务器托管对局」（headless）：对局在这台 Mac 上运行，而不是在房主的浏览器里——谁都看不到别人的隐藏身份（房主也看不到），房主离开也不散场。
+  - **已经装过的 Mac 第一次拿到这个功能时，要用第 3 步那条命令（新下载的脚本）跑一次 `update`**（见「日常运维」的「马上更新」）。只等 05:07 的自动更新的话，第一次用的是本机旧的脚本副本，它不会构建托管对局，要到第二个没人玩的早上才开启。
+  - 更新完用 `curl -s http://127.0.0.1:8787/sgwl.json` 确认有 `"headless":true`。
 
 ## 规则（必须遵守）
 
@@ -27,7 +29,11 @@
 5. **这台 Mac 的任何账户里都不要开游戏桌面版（SanguoWarlords.app）**：它会占用 8787 端口。
 6. 安装要 5–25 分钟（下载 Node、`npm ci`、构建）。**用 Bash 的 `run_in_background` 运行**，结束时你会收到通知，期间看日志。不要用前台命令死等，前台默认 2 分钟就会超时。
 7. **同一时间只能有一个安装或更新在跑。** 重跑前确认上一个后台任务已经结束，并且 `pgrep -fl '[h]ome-host'` 没有输出（05:07 的自动更新也算）。
-8. **安装、更新、重跑都会重启游戏服务**，正在玩的人会全部掉线。每次运行前先 `curl -s --max-time 2 http://127.0.0.1:8787/sgwl.json; echo`：`rooms` 和 `players` 不是 0（或者有 `headlessHumans` 大于 0），就先问主人。
+8. **安装、更新、重跑都会重启游戏服务**，正在玩的人会全部掉线。每次运行前先 `curl -s --max-time 2 http://127.0.0.1:8787/sgwl.json; echo`，满足下面任意一条就是有人在玩，先问主人：
+   - `headlessHumans` 大于 0，或 `headlessPlaying` 大于 0（服务器托管的对局正在进行）；
+   - `rooms` 大于 `headlessRooms`，或 `players` 大于 `headlessRooms`（没有 `headlessRooms` 字段时按 0 算）。
+
+   每个空着的托管房间本身会占 1 个 `rooms` 和 1 个 `players`（那是服务器自己，不是玩家）；没人的托管房间 10 秒到 2 分钟内会自己关掉。
 9. Tailscale 的命令行在 App Store 版里**不在 PATH 上**，一律用全路径：`/Applications/Tailscale.app/Contents/MacOS/Tailscale`（下文简写为 `$TS`，可以先 `TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale`）。
 
 ---
@@ -180,7 +186,7 @@ echo "$D"; "$N" ~/sanguo-warlords/src/warlords/deploy/check.mjs "https://$D/" --
 期望看到：
 
 - `status` 的 `exit=0`。输出里有服务运行中、`Funnel: https://… → http://127.0.0.1:8787`、`公网 / internet: 正常 / OK`，最后打印那两行。
-- `sgwl.json` 里有 `"app":"sanguo-warlords"`。出现 `"headless":true`，说明「服务器托管对局」已经启用；这个功能合并到 `main` 之前不会出现，属于正常。
+- `sgwl.json` 里有 `"app":"sanguo-warlords"` 和 `"headless":true`（「服务器托管对局」已启用）。如果是 `"headless":false`：`grep -n 服务器托管对局 ~/sanguo-warlords/home-host.log | tail -3` 看构建有没有失败；刚从旧版本更新上来的，用第 3 步的命令再跑一次 `update`（见「日常运维」）。`false` 时游戏照样能玩，只是房间在房主的浏览器里运行。
 - `check.mjs` 的 `exit=0`（两项检查都通过）。
 
 最后请 👤 主人**用手机、关掉 Wi-Fi、用蜂窝网络**打开游戏网址：能进标题页，点「联机」→「创建房间」能拿到房间码，就说明外网的朋友也能进。
@@ -204,13 +210,13 @@ echo "$D"; "$N" ~/sanguo-warlords/src/warlords/deploy/check.mjs "https://$D/" --
 | 要做的事 | 命令 |
 |---|---|
 | 看状态（顺便重新打印那两行；公网不通时要跑几分钟，加长超时） | `bash ~/sanguo-warlords/bin/home-host.sh status` |
-| 马上更新到最新版，不等 05:07（会重启服务；放后台运行） | `bash ~/sanguo-warlords/bin/home-host.sh update; echo "SGWL_EXIT=$?"` |
+| 马上更新到最新版，不等 05:07（会重启服务；放后台运行）。用新下载的脚本：本机 `bin/` 里的副本可能是旧的 | `curl -fsSL https://raw.githubusercontent.com/johnsemail88888-droid/sanguosha-english-atlas/main/warlords/deploy/home-host.sh -o /tmp/sgwl-home-host.sh && caffeinate -i bash /tmp/sgwl-home-host.sh update; echo "SGWL_EXIT=$?"` |
 | 停止当服务器（服务、自动更新、Funnel 全关） | `bash ~/sanguo-warlords/bin/home-host.sh stop` |
 | 重新开始当服务器 | 重跑第 3 步 |
 | 服务器日志 | `tail -n 100 ~/sanguo-warlords/server.log` |
 | 自动更新日志 | `tail -n 50 ~/sanguo-warlords/update.log` |
 | 安装/更新脚本日志 | `tail -n 50 ~/sanguo-warlords/home-host.log \| perl -pe 's/\e\[[0-9;]*m//g'` |
-| 现在有没有人在玩 | `curl -s http://127.0.0.1:8787/sgwl.json`（看 `rooms`、`players`；有 headless 以后还有 `headlessHumans`） |
+| 现在有没有人在玩 | `curl -s http://127.0.0.1:8787/sgwl.json`，按规则 8 判断（`headlessHumans`、`headlessPlaying`，以及 `rooms` / `players` 和 `headlessRooms` 比） |
 | Funnel 指向哪里 | `/Applications/Tailscale.app/Contents/MacOS/Tailscale funnel status` |
 
 注意：表格里的 `\|` 是 Markdown 转义，实际命令里是普通的 `|`。
@@ -238,7 +244,7 @@ launchctl print "gui/$(id -u)/com.sanguo-warlords.server" | grep -E 'state =|pid
 
 | 位置 | 内容 |
 |---|---|
-| `~/sanguo-warlords/src/warlords` | 游戏源码和构建产物（`dist/` 是网页；以后还会有 `dist-headless/`，用于服务器托管对局） |
+| `~/sanguo-warlords/src/warlords` | 游戏源码和构建产物（`dist/` 是网页；`dist-headless/` 是服务器托管对局的房间程序，每个房间一个 worker 线程） |
 | `~/sanguo-warlords/bin/home-host.sh` | 本机的脚本副本，自动更新用它 |
 | `~/sanguo-warlords/host.env` | 安装状态（`DOMAIN`、`NODE_BIN_DIR`） |
 | `~/sanguo-warlords/node` | 只在本机没有 Node ≥22 且 Homebrew 不可用或装不上时（例如非管理员账户）才有：私有的 Node 22 |

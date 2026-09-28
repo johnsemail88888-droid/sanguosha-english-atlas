@@ -137,6 +137,14 @@ English section below → [English](#english).*
 `curl … | bash -s -- status`；停止：`curl … | bash -s -- stop`。不想用 Tailscale 时的备选（无需账号，但网址每次重启都会变）：
 `cloudflared tunnel --url http://localhost:8787`。
 
+**服务器托管对局（headless）**：在这台服务器上开房时，对局由服务器自己运行（每个房间一个后台线程，不渲染画面），
+不再跑在房主的浏览器里：房主的电脑/手机不卡，房主掉线房间也还在（房主身份自动交给下一位玩家），而且谁都看不到别人的
+隐藏身份（包括开房的人）。这是自动的，不用设置——安装/更新时会顺带构建（`npm run build:headless`）；构建失败或服务器
+太忙（默认最多同时 4 个房间）时，房间照旧由房主的浏览器运行。查看：`curl … | bash -s -- status` 会打印
+「服务器托管对局 headless: 开 on · 房间 · 玩家」，或打开 `https://<机器名>.<tailnet>.ts.net/sgwl.json`
+（`headless`、`headlessRooms`、`headlessHumans`）。关闭：`curl … | SGWL_HEADLESS=0 bash`（服务以 `HEADLESS=0` 运行；
+`SGWL_HEADLESS=1` 重新打开）；自己运行 `npm run server` 时设 `HEADLESS=0`，`HEADLESS_MAX_ROOMS` 改房间上限。
+
 ### 租云服务器（VPS，一键部署）
 公共 P2P 依赖海外的 0.peerjs.com 和 NAT 穿透，在国内经常「连接超时」。租一台小云服务器，粘贴一行命令，就有了自己的官方服务器
 （在美国：任意 $5–6/月 的 VPS，选美国地域、Ubuntu 22.04/24.04，用下面同一条命令；在亚洲：香港）：
@@ -180,6 +188,7 @@ English section below → [English](#english).*
   cd warlords
   npm ci
   npm run build      # 生成 dist/
+  npm run build:headless   # 可选：服务器托管对局（dist-headless/）
   npm run server     # 默认端口 8787，可用 PORT=9000 npm run server 修改
   ```
   同一 Wi-Fi / 路由器下的朋友用浏览器打开终端里显示的 `http://192.168.x.x:8787`，选择「服务器」模式，一人创建房间、其他人输入房间码即可——从这个服务器打开的网页会自动使用同源中继，无需任何设置。
@@ -355,6 +364,16 @@ It updates itself daily at 05:07 (skipped while anyone plays); logs are in `~/sa
 URL): `curl … | bash -s -- status`; stop: `curl … | bash -s -- stop`. Without Tailscale (no account, but the URL changes
 on every restart): `cloudflared tunnel --url http://localhost:8787`.
 
+**Server-hosted matches (headless)**: a room opened on this server runs its match on the server itself (one background
+thread per room, no rendering) instead of in the room creator's browser — the creator's computer or phone is not
+loaded down, the room survives the creator leaving (ownership passes to the next player), and nobody sees hidden
+roles, not even the room's creator. It is automatic: install / update also builds it (`npm run build:headless`); if that
+build fails or the server is busy (at most 4 rooms at once by default), rooms run in the creator's browser as before.
+Check: `curl … | bash -s -- status` prints "服务器托管对局 headless: 开 on · rooms · players", or open
+`https://<machine>.<tailnet>.ts.net/sgwl.json` (`headless`, `headlessRooms`, `headlessHumans`). Turn it off:
+`curl … | SGWL_HEADLESS=0 bash` (the service runs with `HEADLESS=0`; `SGWL_HEADLESS=1` turns it back on); running
+`npm run server` yourself, set `HEADLESS=0` (and `HEADLESS_MAX_ROOMS` for the room limit).
+
 #### Rent a cloud server (VPS, one-command deploy)
 Public P2P depends on 0.peerjs.com (abroad) and NAT traversal, which often time out from mainland China. A small
 cloud server plus one pasted command gives you your own official server (in the US: any $5–6/month VPS in a US region
@@ -391,8 +410,8 @@ domain: `curl … | sudo DOMAIN=your.domain bash`). Update later with `curl … 
 - **LAN / self-hosted server:** `npm run build && npm run server` (port 8787, `PORT=` to change) serves the game, a
   WebSocket relay on `/ws` and PeerJS signalling on `/peerjs` from one port. Friends on the same network open
   `http://<your-LAN-IP>:8787`, choose **Server** mode and join by room code — pages served by the server use the
-  same-origin relay automatically. The desktop app has the server built in: its online screen lists your LAN
-  addresses with copy buttons (also under the menu 游戏 → 局域网联机地址…).
+  same-origin relay automatically (`npm run build:headless` too, optionally: server-hosted matches). The desktop app has
+  the server built in: its online screen lists your LAN addresses with copy buttons (also under the menu 游戏 → 局域网联机地址…).
 - **VPS (recommended for players in mainland China,** where the public PeerJS cloud and some STUN servers are slow or
   blocked): clone the repo on a server, `npm ci && npm run build && PORT=8787 npm run server`, open TCP 8787 in the
   firewall and let players use `http://<server-ip>:8787` in Server mode. For a domain + HTTPS put Nginx/Caddy in front

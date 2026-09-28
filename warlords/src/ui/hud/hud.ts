@@ -4,7 +4,7 @@
 import type { EntityId, GameEvent, SquadOrderKind, ViewEntity } from '../../core/types';
 import { VF_LORD } from '../../core/types';
 import { HERO_BY_ID, ITEM_BY_ID } from '../../data';
-import type { GameSession } from '../../game/session';
+import { canManageRoom, ownsServerRoom, type GameSession } from '../../game/session';
 import { displayName } from '../../game/names';
 import { settings } from '../../game/settings';
 import type { ViewSource } from '../../render/view';
@@ -204,7 +204,7 @@ export class Hud {
       },
       {
         online,
-        isHost: () => this.session.isHost,
+        isHost: () => canManageRoom(this.session),
         items: () => this.view.local()?.items ?? [],
         role: () => this.view.local()?.role,
       },
@@ -1110,9 +1110,9 @@ export class Hud {
 
   /** Leave the match (pause menu / the link chip's 离开): confirmed first — for the host it closes the room. */
   private confirmLeave(): void {
-    // the host's session is the room: leaving closes it for everyone
+    // the host's session is the room: leaving closes it for everyone (a server-run room's owner hands it on)
     const host = this.ctx.sessionKind === 'online' && this.session.isHost;
-    void this.ctx.confirm(t(host ? 'pause.hostLeaveConfirm' : 'pause.leaveConfirm')).then((yes) => {
+    void this.ctx.confirm(t(host ? 'pause.hostLeaveConfirm' : ownsServerRoom(this.session) ? 'pause.ownerLeaveConfirm' : 'pause.leaveConfirm')).then((yes) => {
       if (yes) this.ctx.leaveSession(true);
     });
   }

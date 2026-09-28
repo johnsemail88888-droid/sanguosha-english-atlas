@@ -1,7 +1,10 @@
 // Public API of the network layer (GAME_SPEC §3, §11).
 //
 //   createLocalSession()            single player: this client hosts in-process, bots fill every seat
-//   hostOnlineSession({name,mode})  create a room (PeerJS or WebSocket relay); lobby.roomCode is set
+//   hostOnlineSession({name,mode})  create a room (PeerJS or WebSocket relay); lobby.roomCode is set.
+//                                   WebSocket mode: a server that can run the match itself (POST
+//                                   /api/rooms, src/headless) does, and this page joins it as the room
+//                                   owner (canManage); otherwise this page hosts it (?host=browser forces that)
 //   joinOnlineSession(code, …)      join a room by its 5-character code
 //
 // All three return a GameSession (src/game/session.ts). Connection problems
@@ -10,6 +13,7 @@ import type { GameSession } from '../game/session';
 import { settings } from '../game/settings';
 import { ClientSession, hasSeatToken, openRetryingRoomNotFound, ROOM_NOT_FOUND_RETRY_MS } from './clientSession';
 import { NetError, toNetError } from './errors';
+import { browserHostForced, createHeadlessRoom } from './headlessRooms';
 import { HostSession } from './hostSession';
 import { sanitizeName } from './protocol';
 import { normalizeRoomCode } from './roomCode';
@@ -40,8 +44,37 @@ async function openHostTransport(mode: NetMode): Promise<{ transport: Transport;
   return { transport: t, code: t.roomCode };
 }
 
+/**
+ * WebSocket mode: ask the server to run the room (src/headless) and join it as its owner.
+ * null: the server cannot (an older server, no headless bundle, rooms full, unreachable) or
+ * joining the new room failed — the page hosts the room itself. Throws only 'rateLimited'.
+ */
+async function serverRunRoom(name: string): Promise<GameSession | null> {
+  const net = settings.get().net;
+  const { resolveWsUrl } = await import('./wsTransport');
+  const url = resolveWsUrl(net.wsUrl);
+  if (!url) return null; // (the page-hosted path says 未配置服务器地址)
+  const lang = settings.get().lang === 'en' ? 'en' : 'zh';
+  const r = await createHeadlessRoom(url, { name, lang });
+  if (r.kind === 'rateLimited') throw new NetError('rateLimited');
+  if (r.kind !== 'created') {
+    console.info(`[net] the server does not run this room (${r.reason}) — hosting it in this page`);
+    return null;
+  }
+  try {
+    return await joinRoom(r.code, 'ws', name, r.ownerKey);
+  } catch (e) {
+    console.warn('[net] joining the server-run room failed — hosting it in this page instead', e);
+    return null;
+  }
+}
+
 /** Create an online room. Resolves once the room is registered (lobby.roomCode set). */
 export async function hostOnlineSession(opts: { name: string; mode: NetMode }): Promise<GameSession> {
+  if (opts.mode === 'ws' && !browserHostForced()) {
+    const s = await serverRunRoom(playerName(opts.name));
+    if (s) return s;
+  }
   try {
     const { transport, code } = await openHostTransport(opts.mode);
     return new HostSession({ name: playerName(opts.name), transport, roomCode: code });
@@ -78,14 +111,20 @@ async function openClientTransport(mode: NetMode, room: string): Promise<Transpo
 export async function joinOnlineSession(code: string, opts: { name: string; mode: NetMode }): Promise<GameSession> {
   const room = normalizeRoomCode(code);
   if (!room) throw new NetError('invalidCode');
-  const retryMs = opts.mode === 'peer' && hasSeatToken(room) ? ROOM_NOT_FOUND_RETRY_MS : 0;
-  const transport = await openRetryingRoomNotFound(() => openClientTransport(opts.mode, room), retryMs);
+  return joinRoom(room, opts.mode, playerName(opts.name));
+}
+
+/** Join `room` (a valid code); `ownerKey`: the room was created on the server by this page. */
+async function joinRoom(room: string, mode: NetMode, name: string, ownerKey?: string): Promise<GameSession> {
+  const retryMs = mode === 'peer' && hasSeatToken(room) ? ROOM_NOT_FOUND_RETRY_MS : 0;
+  const transport = await openRetryingRoomNotFound(() => openClientTransport(mode, room), retryMs);
   try {
     return await ClientSession.connect({
       transport,
-      name: playerName(opts.name),
+      name,
       roomCode: room,
-      reconnect: () => openClientTransport(opts.mode, room),
+      reconnect: () => openClientTransport(mode, room),
+      ownerKey,
     });
   } catch (e) {
     transport.close();

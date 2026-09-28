@@ -199,15 +199,20 @@ describe('seat reclaim', () => {
     expect(a.session.view?.local()).not.toBeNull();
   });
 
-  it('without a token, a seat is reclaimed by name only once its old connection went silent', async () => {
-    const h = makeHost({ seed: 9 });
+  it('without a token, a seat is reclaimed by name only once the host saw its old connection drop — never a live one', async () => {
+    const h = makeHost({ seed: 9, timings: { peerTimeout: 2 } });
     const a = await addClient(h, '阿强');
     await runToPlaying(h);
     const seat = a.session.mySeat;
     h.net.sever(a.session.myId);
-    // right away the old link still looks alive: someone else using the name is refused
+    // the old link still counts as alive, however quiet (a phone busy building the scene):
+    // someone else using the name is refused, and the player keeps the seat
     await expect(addClient(h, '阿强')).rejects.toMatchObject({ code: 'inProgress' });
-    await sleep(1300); // > stale threshold with FAST timings (1 s)
+    await sleep(1300); // (quiet for longer than a few pings: once the name took the seat — and its role)
+    await expect(addClient(h, '阿强')).rejects.toMatchObject({ code: 'inProgress' });
+    expect(h.host.lobby.seats.find((s) => s.seat === seat)?.playerId).toBe(a.session.myId);
+    // the host times the dead link out: now the name may take the seat back (a new device)
+    await waitFor(() => h.host.lobby.seats.find((s) => s.seat === seat)?.isBot === true, 5000, 'link timed out');
     const back = await addClient(h, '阿强');
     expect(back.session.mySeat).toBe(seat);
     await waitFor(() => back.session.phase === 'playing', 3000, 'reclaimed player playing');

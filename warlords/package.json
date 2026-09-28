@@ -9,6 +9,7 @@
     "dev": "vite --host",
     "build": "tsc -b && vite build",
     "build:single": "vite build --mode single",
+    "build:headless": "vite build -c vite.headless.config.ts",
     "typecheck": "tsc -b",
     "test": "vitest run && vitest run -c vitest.perf.config.ts",
     "e2e": "playwright test",

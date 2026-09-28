@@ -76,7 +76,7 @@ function startProc(args: string[], env: Record<string, string>, label: string): 
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
-  relay = startProc(['server/server.mjs'], { PORT: String(RELAY_PORT), HOST: '127.0.0.1' }, 'relay');
+  relay = startProc(['server/server.mjs'], { PORT: String(RELAY_PORT), HOST: '127.0.0.1', HEADLESS: '0' }, 'relay');
   vite = startProc(['node_modules/vite/bin/vite.js', '--config', 'tests/e2e/fixtures/vite.net.config.ts'], {}, 'vite');
   await waitHttp(`http://127.0.0.1:${RELAY_PORT}/sgwl.json`, 20_000);
   await waitHttp(`http://127.0.0.1:${VITE_PORT}/tests/e2e/fixtures/net.html`, 60_000);

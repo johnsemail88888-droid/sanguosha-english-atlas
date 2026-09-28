@@ -10,13 +10,17 @@
 #   … | bash -s -- update    pull the latest game, rebuild, restart (running it again does the same)
 #   … | bash -s -- status    is everything up? (prints the two lines again)
 #   … | bash -s -- stop      stop hosting (service, daily update and Funnel off)
-#   (auto-update: what the daily 05:07 job runs — skipped while a room is open; logs rotate at 5 MB)
+#   … | SGWL_HEADLESS=0 bash no server-hosted matches (rooms run in the host player's browser, as
+#                            before); SGWL_HEADLESS=1 turns them back on (remembered in host.env)
+#   (auto-update: what the daily 05:07 job runs — skipped while anyone plays; logs rotate at 5 MB)
 #
 # What it does (safe to re-run — every step checks what is already there):
 #   Node 22 (macOS: Homebrew node@22, else the official nodejs.org build in ~/sanguo-warlords/node;
 #   Linux: install.sh's NodeSource / tarball steps) · the game into ~/sanguo-warlords (shallow git
 #   clone, else a codeload tarball) · npm ci · vite build with this machine's Funnel address as the
-#   build's official server · server/server.mjs on 127.0.0.1:8787 as a service that comes back after
+#   build's official server · the server-hosted match worker (npm run build:headless: each room's
+#   match runs on this machine, not in a player's browser; optional — a failed build only warns) ·
+#   server/server.mjs on 127.0.0.1:8787 as a service that comes back after
 #   a reboot (macOS: LaunchAgent com.sanguo-warlords.server, wrapped in `caffeinate -is` so the Mac
 #   does not sleep while it hosts; Linux: systemd unit sgwl-home) · Tailscale Funnel: public
 #   https://<machine>.<tailnet>.ts.net → 127.0.0.1:8787, WebSockets included, no router port
@@ -120,11 +124,12 @@ xml_escape() {
   printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
 }
 
-# launchd_plist LABEL NODE_BIN APP_DIR PORT LOG → the LaunchAgent: server.mjs on 127.0.0.1:PORT,
-# started at login and restarted if it stops; caffeinate -is keeps the Mac awake while it runs
-# (the display may still sleep).
+# launchd_plist LABEL NODE_BIN APP_DIR PORT LOG [HEADLESS] → the LaunchAgent: server.mjs on
+# 127.0.0.1:PORT, started at login and restarted if it stops; caffeinate -is keeps the Mac awake
+# while it runs (the display may still sleep). HEADLESS 0: HEADLESS=0 (no server-hosted matches).
 launchd_plist() {
-  local label node dir log port=$4
+  local label node dir log port=$4 extra=''
+  if [[ ${6:-} == 0 ]]; then extra=$'\n\t\t<key>HEADLESS</key>\n\t\t<string>0</string>'; fi
   label=$(xml_escape "$1")
   node=$(xml_escape "$2")
   dir=$(xml_escape "$3")
@@ -153,7 +158,7 @@ launchd_plist() {
 		<key>HOST</key>
 		<string>127.0.0.1</string>
 		<key>PORT</key>
-		<string>${port}</string>
+		<string>${port}</string>${extra}
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
@@ -214,9 +219,47 @@ stat_field() {
   echo "${n:-0}"
 }
 
-# game_busy SGWL_JSON → status 0 while a room is open or anyone is connected (no update then)
+# stat_flag SGWL_JSON KEY → true | false (the boolean KEY in /sgwl.json; false when absent)
+stat_flag() {
+  if grep -qE "\"$2\":[[:space:]]*true" <<<"$1"; then echo true; else echo false; fi
+}
+
+# human_players SGWL_JSON → people connected: the relay's sockets minus the server-hosted rooms'
+# own host sockets (one per room — the server itself, not a player)
+human_players() {
+  local n
+  n=$(($(stat_field "$1" players) - $(stat_field "$1" headlessRooms)))
+  echo $((n > 0 ? n : 0))
+}
+
+# game_busy SGWL_JSON → status 0 while anyone plays (no update then): a room hosted in a player's
+# browser is open, a player is connected, a server-hosted room has players (headlessHumans), or a
+# server-hosted match is under way (headlessPlaying — its only player may be reconnecting right now,
+# and a restart would end that match). A server-hosted lobby nobody is in does not count (it ends by
+# itself); in rooms / players it shows once each (headlessRooms: the server is its relay host).
 game_busy() {
-  (($(stat_field "$1" rooms) > 0 || $(stat_field "$1" players) > 0))
+  local rooms players hrooms humans playing
+  rooms=$(stat_field "$1" rooms)
+  players=$(stat_field "$1" players)
+  hrooms=$(stat_field "$1" headlessRooms)
+  humans=$(stat_field "$1" headlessHumans)
+  playing=$(stat_field "$1" headlessPlaying)
+  ((humans > 0 || playing > 0 || rooms > hrooms || players > hrooms))
+}
+
+# scripts_changed → status 0 when the source just fetched brings other copies of these scripts than
+# the ones running (bin/ from the last update): they should do the build and restart — a first update
+# after a script change would otherwise build the new version with the old steps
+scripts_changed() {
+  local self=${BASH_SOURCE[0]:-}
+  [[ ${SGWL_REEXEC:-0} != 1 && -n $self && -f $self && -f $APP_DIR/deploy/home-host.sh && -f $APP_DIR/deploy/install.sh ]] || return 1
+  ! cmp -s "$APP_DIR/deploy/home-host.sh" "$self" || ! cmp -s "$APP_DIR/deploy/install.sh" "$HH_LIB"
+}
+
+# hand_over COMMAND → run the fetched version of this script for COMMAND (it skips the fetch)
+hand_over() {
+  log "新版本的安装脚本接手 / the new version's scripts take over"
+  SGWL_REEXEC=1 exec bash "$APP_DIR/deploy/home-host.sh" "$1"
 }
 
 # rotate_log FILE MAX_BYTES → FILE bigger than MAX_BYTES becomes FILE.1 (the one before is dropped)
@@ -531,7 +574,7 @@ install_service() {
   fi
   if [[ $HOST_OS == macos ]]; then
     mkdir -p "$(dirname "$PLIST")"
-    launchd_plist "$LABEL" "$node" "$APP_DIR" "$APP_PORT" "$SERVER_LOG" >"$PLIST.tmp"
+    launchd_plist "$LABEL" "$node" "$APP_DIR" "$APP_PORT" "$SERVER_LOG" "$HEADLESS_SETTING" >"$PLIST.tmp"
     mv "$PLIST.tmp" "$PLIST"
     launchctl enable "gui/$UID/$LABEL" >/dev/null 2>&1 || true
     if ! launchctl bootstrap "gui/$UID" "$PLIST" 2>/dev/null; then
@@ -540,7 +583,7 @@ install_service() {
     fi
   else
     tmp=$(mktemp)
-    systemd_unit "$node" "$APP_DIR" "$APP_PORT" "$(id -un)" home-host.sh >"$tmp"
+    systemd_unit "$node" "$APP_DIR" "$APP_PORT" "$(id -un)" home-host.sh "$HEADLESS_SETTING" >"$tmp"
     $SUDO install -m 0644 "$tmp" "/etc/systemd/system/${UNIT}.service"
     rm -f "$tmp"
     $SUDO systemctl daemon-reload
@@ -577,8 +620,9 @@ check_public() {
   log "检查（本机经 Tailscale）/ checking through Tailscale"
   node "$APP_DIR/deploy/check.mjs" "$url" || warn "经 Tailscale 访问失败 / not reachable through Tailscale"
   log "检查公网访问（朋友走的路：公网 DNS → Funnel）/ checking from the internet side (public DNS → Funnel)"
+  # (the server-hosted match check ran above: no test room per retry)
   for _i in $(seq 1 12); do
-    if node "$APP_DIR/deploy/check.mjs" "$url" --public-dns; then return 0; fi
+    if node "$APP_DIR/deploy/check.mjs" "$url" --public-dns --no-headless; then return 0; fi
     sleep 10
   done
   return 1
@@ -591,8 +635,21 @@ save_state() {
 DOMAIN=$DOMAIN
 SGWL_PORT=$APP_PORT
 SGWL_BRANCH=$BRANCH
+SGWL_HEADLESS=$HEADLESS_SETTING
 NODE_BIN_DIR=$(dirname "$(command -v node)")
 EOF
+}
+
+# SGWL_HEADLESS from the environment, else what an earlier run saved
+load_headless_setting() {
+  if [[ -z $HEADLESS_SETTING ]]; then
+    HEADLESS_SETTING=$(sed -n 's/^SGWL_HEADLESS=//p' "$STATE_FILE" 2>/dev/null | head -n1 || true)
+  fi
+}
+
+# server_stats → /sgwl.json of the running game server ('' when it does not answer)
+server_stats() {
+  curl -fsS --max-time 3 "http://127.0.0.1:${APP_PORT}/sgwl.json" 2>/dev/null || true
 }
 
 load_state() {
@@ -683,10 +740,17 @@ EOF
 
 # ── commands ────────────────────────────────────────────────────────────────
 cmd_install() {
+  local stats
   rotate_logs
+  load_headless_setting
   ensure_node
   ensure_tailscale
-  fetch_source
+  stats=$(server_stats)
+  if [[ -n $stats ]] && game_busy "$stats"; then
+    warn "有人在玩（玩家 $(human_players "$stats")）：重启服务会让他们掉线 / $(human_players "$stats") player(s) connected: restarting the server drops them"
+  fi
+  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then fetch_source; fi
+  if scripts_changed; then hand_over "$1"; fi
   build_game
   check_build_points_here
   install_service
@@ -712,8 +776,15 @@ cmd_status() {
     warn "游戏服务未运行 / game server is not running"
     ok=0
   fi
-  stats=$(curl -fsS --max-time 3 "http://127.0.0.1:${APP_PORT}/sgwl.json" 2>/dev/null || true)
-  if [[ -n $stats ]]; then log "房间 rooms: $(stat_field "$stats" rooms) · 玩家 players: $(stat_field "$stats" players)"; else
+  stats=$(server_stats)
+  if [[ -n $stats ]]; then
+    log "房间 rooms: $(stat_field "$stats" rooms) · 玩家 players: $(human_players "$stats")"
+    if [[ $(stat_flag "$stats" headless) == true ]]; then
+      log "服务器托管对局 headless: 开 on · 房间 rooms: $(stat_field "$stats" headlessRooms) · 玩家 players: $(stat_field "$stats" headlessHumans)"
+    else
+      log "服务器托管对局 headless: 关 off（房间由房主的浏览器运行 / rooms run in the host player's browser）"
+    fi
+  else
     warn "本机 127.0.0.1:${APP_PORT} 无响应 / no answer"
     ok=0
   fi
@@ -739,13 +810,22 @@ cmd_auto_update() {
   rotate_logs
   node_path_setup
   load_state || die "尚未安装 / not installed yet"
-  stats=$(curl -fsS --max-time 3 "http://127.0.0.1:${APP_PORT}/sgwl.json" 2>/dev/null || true)
+  stats=$(server_stats)
   if [[ -n $stats ]] && game_busy "$stats"; then
-    log "有人在玩（房间 $(stat_field "$stats" rooms)，玩家 $(stat_field "$stats" players)），今天不更新 / a game is on — no update today"
+    log "有人在玩（房间 $(stat_field "$stats" rooms)，玩家 $(human_players "$stats")，服务器托管 $(stat_field "$stats" headlessHumans)），今天不更新 / a game is on — no update today"
     return 0
   fi
-  fetch_source
+  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then fetch_source; fi
+  if scripts_changed; then hand_over auto-update; fi
   build_game
+  # the build takes minutes (npm ci: up to half an hour): someone may have started playing meanwhile.
+  # The new page and room worker are already in place; the restart waits for the next idle morning.
+  stats=$(server_stats)
+  if [[ -n $stats ]] && game_busy "$stats"; then
+    log "已构建，但有人开始玩了，重启推迟到下次 / built, but a game started meanwhile — the restart waits for the next run"
+    refresh_bin
+    return 0
+  fi
   service_kick || die "更新后游戏服务没有启动 / the game server did not come back after the update"
   refresh_bin
   log "已更新 / updated"
@@ -780,11 +860,12 @@ main() {
     if [[ $EUID -ne 0 ]]; then SUDO=sudo; fi
   fi
   mkdir -p "$INSTALL_DIR"
-  exec > >(tee -a "$LOG_FILE") 2>&1
+  # (a hand-over from the previous version's script: its output already goes to the log)
+  if [[ ${SGWL_REEXEC:-0} != 1 ]]; then exec > >(tee -a "$LOG_FILE") 2>&1; fi
   trap 'on_error $LINENO' ERR
   log "$(date '+%F %T') sgwl home-host.sh ${cmd} ($HOST_OS $(uname -m))"
   case $cmd in
-    install | update) cmd_install ;;
+    install | update) cmd_install "$cmd" ;;
     status) cmd_status || exit 1 ;;
     stop) cmd_stop ;;
     auto-update) cmd_auto_update ;;

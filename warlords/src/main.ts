@@ -91,7 +91,12 @@ let guest: GameSession | null = null;
 
 const deps: AppDeps = {
   createLocalSession: (name) => track(createLocalSession({ name }), 'local'),
-  hostOnline: async (name, mode) => track(await hostOnlineSession({ name, mode }), 'host'),
+  hostOnline: async (name, mode) => {
+    const s = await hostOnlineSession({ name, mode });
+    // a server-run room's owner is a guest of it: a reload must keep its seat too
+    if (!s.isHost) guest = s;
+    return track(s, s.isHost ? 'host' : 'guest');
+  },
   joinOnline: async (code, name, mode) => (guest = track(await joinOnlineSession(code, { name, mode }), 'guest')),
   mountGame,
   renderHeroPortrait,

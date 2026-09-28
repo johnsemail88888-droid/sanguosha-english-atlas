@@ -129,6 +129,10 @@ const DICT = {
   'lobby.players': ['{n}/{max} 名玩家', '{n}/{max} players'],
   'lobby.leaveConfirm': ['确定离开房间？', 'Leave this room?'],
   'lobby.hostLeaveConfirm': ['你是房主，离开将解散房间，所有玩家都会退出。确定离开？', 'You are the host — leaving closes the room for everyone. Leave anyway?'],
+  // server-run rooms (src/headless): the owner leaving hands the room on, nothing closes
+  'lobby.ownerLeaveConfirm': ['你是房主。离开后房主会交给下一位玩家，房间照常继续。确定离开？', 'You are the room owner. If you leave, the next player becomes the owner and the room carries on. Leave?'],
+  'pause.ownerLeaveConfirm': ['你是房主。离开后房主会交给下一位玩家，对局照常继续。确定离开？', 'You are the room owner. If you leave, the next player becomes the owner and the match carries on. Leave?'],
+  'lobby.headlessNote': ['对局由服务器运行（更公平、更流畅），房主离开也不会散场', 'The server runs this match — fair for everyone, and the room survives the owner leaving'],
   'lobby.joined': ['{name} 加入了房间', '{name} joined the room'],
   'lobby.left': ['{name} 离开了房间', '{name} left the room'],
   'lobby.kicked': ['{name} 被请出了房间', '{name} was removed from the room'],
