@@ -3,6 +3,8 @@
 // deltas, /sgwl.json with the build, uptime and memory (old keys kept), and a crash that exits 1
 // (launchd / systemd restart it) instead of limping on.
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,12 +57,19 @@ describe('HTTP keep-alive', () => {
 describe('/sgwl.json', () => {
   it('keeps its keys and adds keyRequired, build {compat, sha}, uptime, rss', async () => {
     vi.stubEnv('SGWL_GIT_SHA', '0123456789abcdef0123456789abcdef01234567');
-    const srv = await serve();
+    const srv = await serve({ workerPath: '/nonexistent-sgwl/room-worker.mjs' });
     const j = JSON.parse((await get(srv.port, '/sgwl.json')).body) as Record<string, unknown>;
     for (const k of ['app', 'relay', 'peer', 'rooms', 'players', 'droppedUnreliable', 'headless', 'headlessRooms', 'headlessHumans', 'headlessPlaying']) expect(j).toHaveProperty(k);
     expect(j).toMatchObject({ app: 'sanguo-warlords', keyRequired: false, build: { compat: null, sha: '0123456789abcdef0123456789abcdef01234567' } });
     expect(typeof j.uptime).toBe('number');
     expect(j.rss as number).toBeGreaterThan(1e6);
+    // the compat id: the server-hosted room bundle's (dist-headless/build.json)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sgwl-build-'));
+    cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(dir, 'room-worker.mjs'), '// bundle');
+    fs.writeFileSync(path.join(dir, 'build.json'), JSON.stringify({ compat: 'abcdef012345' }));
+    const withBundle = await serve({ workerPath: path.join(dir, 'room-worker.mjs') });
+    expect(JSON.parse((await get(withBundle.port, '/sgwl.json')).body).build.compat).toBe('abcdef012345');
   });
 });
 
