@@ -11,10 +11,12 @@
 //                                    | 409 {error:'version-mismatch'}  (the server runs another build of the game)
 //                                    | 503 {error:'headless-unavailable' | 'rooms-full'}
 //                                    | 500 {error:'worker-failed'}
+//                                    | 401 {error:'key-required' | 'bad-key'}  (RELAY_KEY: ?k=<key>, src/net/relayKey.ts)
 //
 // The body goes as text/plain: a "simple" CORS request, no preflight (the page may
 // be served from GitHub Pages, the server is someone's Mac mini).
 import { COMPAT_ID } from './compat';
+import { serverHttpBase, withKeyParam } from './relayKey';
 import { isValidRoomCode, normalizeRoomCode } from './roomCode';
 
 /** How long the create request may take before the page hosts the room itself (ms). */
@@ -26,7 +28,9 @@ export type CreateRoomResult =
   /** the server cannot (network error, old server, no bundle, full…): host the room in this page */
   | { kind: 'fallback'; reason: string }
   /** the server refused another room right now (429): tell the player */
-  | { kind: 'rateLimited' };
+  | { kind: 'rateLimited' }
+  /** the server requires an access key this page lacks or has wrong (401): its relay refuses the page too */
+  | { kind: 'keyRequired'; reason: string };
 
 /**
  * The create-room endpoint next to a relay URL: wss://h/ws → https://h/api/rooms,
@@ -34,15 +38,8 @@ export type CreateRoomResult =
  * wss://h/x/ws → https://h/x/api/rooms). null for anything that is not a ws(s) URL.
  */
 export function roomsApiUrl(wsUrl: string): string | null {
-  let u: URL;
-  try {
-    u = new URL(wsUrl.trim());
-  } catch {
-    return null;
-  }
-  if (u.protocol !== 'ws:' && u.protocol !== 'wss:') return null;
-  const base = u.pathname.replace(/\/ws\/?$/, '/').replace(/\/?$/, '/');
-  return `${u.protocol === 'wss:' ? 'https:' : 'http:'}//${u.host}${base}api/rooms`;
+  const base = serverHttpBase(wsUrl);
+  return base ? `${base}api/rooms` : null;
 }
 
 /** `?host=browser` in the page URL: always host rooms in this page (debug / fallback). */
@@ -62,6 +59,10 @@ function pageSearch(): string | undefined {
 /** What an answer of POST /api/rooms means for the page (see CreateRoomResult). */
 export function classifyCreateResponse(status: number, body: unknown): CreateRoomResult {
   if (status === 429) return { kind: 'rateLimited' };
+  if (status === 401) {
+    const err = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : '';
+    return { kind: 'keyRequired', reason: err || 'HTTP 401' };
+  }
   if (status === 201 || status === 200) {
     const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : null;
     const code = typeof b?.code === 'string' ? normalizeRoomCode(b.code) : null;
@@ -84,6 +85,8 @@ export interface CreateRoomOptions {
   /** fetch override (tests) */
   fetchImpl?: FetchLike;
   timeoutMs?: number;
+  /** the server's access key (RELAY_KEY), sent as ?k= — a query parameter keeps the request "simple" (no preflight) */
+  key?: string | null;
 }
 
 /** Ask the server behind relay URL `wsUrl` to run a room. Never throws. */
@@ -92,8 +95,9 @@ export async function createHeadlessRoom(
   body: { name?: string; lang?: 'zh' | 'en' },
   opts: CreateRoomOptions = {},
 ): Promise<CreateRoomResult> {
-  const url = roomsApiUrl(wsUrl);
-  if (!url) return { kind: 'fallback', reason: 'no http endpoint for this relay URL' };
+  const api = roomsApiUrl(wsUrl);
+  if (!api) return { kind: 'fallback', reason: 'no http endpoint for this relay URL' };
+  const url = withKeyParam(api, opts.key);
   const f = opts.fetchImpl ?? (globalThis as { fetch?: FetchLike }).fetch;
   if (!f) return { kind: 'fallback', reason: 'no fetch' };
   const Ctl = (globalThis as { AbortController?: typeof AbortController }).AbortController;

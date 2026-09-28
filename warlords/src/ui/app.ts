@@ -176,6 +176,7 @@ const FATAL_CODES = new Set([
   'unsupported',
   'replacedElsewhere',
   'relayLost',
+  'keyRequired',
 ]);
 const FATAL_ERROR = /kick|host.?left|disconnect|lost|closed|full|version|not.?found|fail|timeout|refused|ended/i;
 

@@ -94,6 +94,14 @@ const DETAIL_ZH: Record<string, string> = {
   closed: '连接被关闭',
   'not configured': '未配置',
   unsupported: '浏览器不支持',
+  // the relay requires an access key (src/net/relayKey.ts, netCheck NEEDS_KEY / KEY_REFUSED)
+  'needs key': '需要密钥：请用房主发的邀请链接（带密钥）打开游戏',
+  'key refused': '密钥不对或已更换：请向房主要新的邀请链接',
+};
+
+const DETAIL_EN: Record<string, string> = {
+  'needs key': 'needs a key: open the game from the host’s invite link (it carries the key)',
+  'key refused': 'the key is wrong or was changed: ask the host for a new invite link',
 };
 
 function detailZh(d: string): string {
@@ -110,7 +118,7 @@ export function formatProbe(r: ProbeResult, lang: 'zh' | 'en'): string {
   const name = PROBE_NAMES[r.id][lang];
   const target = r.target ? ` (${r.target})` : '';
   const ms = r.ms !== null && r.ok !== null ? ` · ${Math.round(r.ms)} ms` : '';
-  const detail = r.detail ? ` · ${lang === 'zh' ? detailZh(r.detail) : r.detail}` : '';
+  const detail = r.detail ? ` · ${lang === 'zh' ? detailZh(r.detail) : (DETAIL_EN[r.detail] ?? r.detail)}` : '';
   return `${mark} ${name}${target}${ms}${detail}`;
 }
 
@@ -127,6 +135,12 @@ export function checkVerdict(results: readonly ProbeResult[]): Bilingual {
   const get = (id: ProbeId): boolean | null => results.find((r) => r.id === id)?.ok ?? null;
   const relay = get('relay');
   const p2p = get('signal') === true && get('ice') === true;
+  const relayDetail = results.find((r) => r.id === 'relay')?.detail;
+  if (relay === false && (relayDetail === 'needs key' || relayDetail === 'key refused')) {
+    return p2p
+      ? { zh: '官方服务器需要密钥：请用房主发的邀请链接（带密钥）打开游戏，或先用「公共P2P」。', en: 'The official server needs a key: open the game from the host’s invite link (it carries the key), or use “Public P2P” for now.' }
+      : { zh: '官方服务器需要密钥：请用房主发的邀请链接（带密钥）打开游戏。', en: 'The official server needs a key: open the game from the host’s invite link (it carries the key).' };
+  }
   if (relay === true) return { zh: '官方服务器可用：选「官方服务器」联机最稳。', en: 'The official server is reachable: “Official server” is the most reliable choice.' };
   if (p2p) return { zh: 'P2P 条件良好：可以使用「公共P2P」。', en: 'P2P looks fine: “Public P2P” should work.' };
   if (get('signal') === false) return { zh: '连不上 P2P 信令服务器：P2P 在你的网络下不可用，请使用服务器模式。', en: 'The P2P signalling server is unreachable: P2P will not work on this network — use a server.' };
