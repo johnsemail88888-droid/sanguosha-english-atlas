@@ -310,8 +310,8 @@ export function giveWeapon(w: World, heroId: EntityId, weaponId: string): void {
   const e = w.get(heroId);
   const h = e?.hero;
   if (!e || !h) return;
-  const def = weaponDef(weaponId);
-  const slot = def.class === 'pistol' && h.weapons[0] ? 1 : 0;
+  // the pickup's slot rule (data/weaponFeel.ts pickupSlot): a pistol beside a primary goes to slot 2, 雌雄 (primaryOnly) replaces the primary
+  const slot = pickupSlot(weaponDef(weaponId), h.weapons[0]?.id);
   const old = h.weapons[slot];
   h.weapons[slot] = w.newWeapon(weaponId);
   if (old) w.spawnLoot(e.pos, { weaponId: old.id, count: 1 }, old);

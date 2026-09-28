@@ -330,6 +330,17 @@ describe('雌雄 primaryOnly', () => {
     expect(h.weapons[1]!.id).toBe('pistol');
     expect(w.kindList('loot').some((l) => l.loot?.weaponId === 'qilin')).toBe(true);
   });
+
+  it('given (a card / a cheat: giveWeapon) the same slot rule holds: 雌雄 replaces the primary, a plain pistol is the sidearm', () => {
+    const { w, me } = range('qilin');
+    const h = me.hero!;
+    w.giveWeapon(me.id, 'cixiong');
+    expect(h.weapons[0]!.id).toBe('cixiong');
+    expect(h.activeSlot).toBe(0);
+    w.giveWeapon(me.id, 'pistol');
+    expect(h.weapons[0]!.id).toBe('cixiong');
+    expect(h.weapons[1]!.id).toBe('pistol');
+  });
 });
 
 describe('projectile lag compensation (R11)', () => {
